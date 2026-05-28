@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, Mail } from 'lucide-react'
+import { ArrowRight, KeyRound, Mail } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import api from '../services/api'
 
 export default function Login(){
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -15,9 +16,9 @@ export default function Login(){
     setLoading(true)
     setError('')
     try{
-      await api.post('/auth/request-otp', { email })
+      await api.post('/auth/request-otp', { email, password })
       localStorage.setItem('login_email', email)
-      navigate('/verify')
+      navigate('/verify', { state: { email, password } })
     }catch(err){
       console.error(err)
       setError(err?.response?.data?.error || 'Unable to send OTP')
@@ -28,7 +29,7 @@ export default function Login(){
     <AuthLayout
       eyebrow="Admin approved login"
       title="Sign in to e-Connect"
-      subtitle="Enter your registered work email. We will send a secure one-time code for this session."
+      subtitle="Enter your registered work email and password. We will send a secure one-time code for this session."
     >
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         <label className="block">
@@ -41,6 +42,20 @@ export default function Login(){
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-slate-400"
+            />
+          </div>
+        </label>
+        <label className="block">
+          <span className="text-sm font-black text-slate-700">Password</span>
+          <div className="group mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition duration-300 focus-within:-translate-y-0.5 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-lg focus-within:shadow-emerald-900/10 focus-within:ring-4 focus-within:ring-emerald-100">
+            <KeyRound className="h-5 w-5 text-emerald-600 transition duration-300 group-focus-within:scale-110" />
+            <input
+              type="password"
+              placeholder="Enter your password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-slate-400"
             />
           </div>

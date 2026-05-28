@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import api from '../services/api'
@@ -9,14 +9,20 @@ export default function VerifyOtp(){
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
-  const email = localStorage.getItem('login_email') || ''
+  const location = useLocation()
+  const email = location.state?.email || localStorage.getItem('login_email') || ''
+  const password = location.state?.password || ''
 
   async function handleVerify(e){
     e.preventDefault()
     setLoading(true)
     setError('')
     try{
-      const res = await api.post('/auth/verify-otp', { email, otp })
+      if (!password) {
+        setError('Session expired. Please login again.')
+        return
+      }
+      const res = await api.post('/auth/verify-otp', { email, password, otp })
       localStorage.setItem('token', res.data.token)
       localStorage.setItem('user', JSON.stringify(res.data.user))
       navigate('/dashboard')
@@ -50,7 +56,7 @@ export default function VerifyOtp(){
           </div>
         </label>
         {error && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
-        <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading}>
+        <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !password}>
           <span className="relative">{loading ? 'Verifying...' : 'Verify and login'}</span>
         </button>
         <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-teal-700 hover:text-teal-900">

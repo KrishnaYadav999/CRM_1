@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, CheckCircle2, ChevronDown, ContactRound, MapPin, Upload, UserCheck, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
@@ -116,6 +117,9 @@ export default function LeadGeneration() {
   const [lead, setLead] = useState(emptyLead);
   const [activeTab, setActiveTab] = useState('basic');
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [excelFileName, setExcelFileName] = useState('');
+  const [excelRows, setExcelRows] = useState([]);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
@@ -197,6 +201,93 @@ export default function LeadGeneration() {
     reader.readAsDataURL(file);
   }
 
+  function resolveUserId(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    const match = staff.find((user) => String(user.email || '').toLowerCase() === raw) ||
+      staff.find((user) => String(user.name || '').toLowerCase() === raw);
+    return match ? (match._id || match.id) : '';
+  }
+
+  async function handleExcelUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setError('');
+    setNotice('');
+    setExcelFileName(file.name);
+    setExcelRows([]);
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const sheetName = workbook.SheetNames?.[0];
+      if (!sheetName) {
+        showToast('No sheet found in this file.', 'error');
+        return;
+      }
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      const parsed = rows
+        .map((row) => mapExcelRowToLead(row, staff))
+        .filter((row) => Object.values(row).some((value) => String(value || '').trim() !== ''));
+
+      if (!parsed.length) {
+        showToast('Excel has no usable rows.', 'warning');
+        return;
+      }
+
+      setExcelRows(parsed);
+      setLead({ ...emptyLead, ...parsed[0], assignedTo: resolveUserId(parsed[0].assignedTo) || parsed[0].assignedTo });
+      setActiveTab('basic');
+      showToast(`Loaded ${parsed.length} lead${parsed.length === 1 ? '' : 's'} from Excel. First row applied to form.`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Unable to read Excel file. Please upload a valid .xlsx file.', 'error');
+    }
+  }
+
+  async function importExcelRows() {
+    if (!excelRows.length) return;
+    setImporting(true);
+    setError('');
+    setNotice('');
+    let successCount = 0;
+    const failures = [];
+
+    for (let i = 0; i < excelRows.length; i += 1) {
+      const row = excelRows[i];
+      const payload = {
+        ...row,
+        existingClient: normalizeExistingClient(row.existingClient),
+        assignedTo: resolveUserId(row.assignedTo) || ''
+      };
+
+      try {
+        await api.post('/leads', { ...payload, workflowStatus: 'draft' });
+        successCount += 1;
+      } catch (err) {
+        failures.push({
+          row: i + 2,
+          error: err?.response?.data?.error || 'Unable to save lead'
+        });
+      }
+    }
+
+    setImporting(false);
+
+    if (successCount) {
+      setNotice(`${successCount} lead${successCount === 1 ? '' : 's'} imported as drafts.`);
+      showToast(`${successCount} lead${successCount === 1 ? '' : 's'} imported.`, 'success');
+    }
+    if (failures.length) {
+      const message = `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row} (${failures[0].error})`;
+      setError(message);
+      showToast(message, 'error');
+    }
+  }
+
   async function saveLead(workflowStatus) {
     setSaving(true);
     setError('');
@@ -250,6 +341,34 @@ export default function LeadGeneration() {
             <div className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 shadow-sm">
               <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Step {activeIndex + 1} of {tabs.length}</p>
               <p className="mt-1 font-black text-emerald-700">{isFirstStepReady ? 'Workflow unlocked' : 'Complete first step'}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-black text-slate-950">Excel upload (Lead Import)</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Upload .xlsx with headers like Company, Status, PIBO Category, Services Offered, Address Line 1, State, City, PIN Code.
+              </p>
+              {excelFileName && (
+                <p className="mt-2 text-xs font-black text-slate-700">
+                  File: <span className="font-extrabold">{excelFileName}</span> {excelRows.length ? `(${excelRows.length} row${excelRows.length === 1 ? '' : 's'})` : ''}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 font-black text-slate-800 hover:bg-slate-50">
+                <Upload className="h-4 w-4" /> Upload Excel
+                <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="sr-only" />
+              </label>
+              <button
+                type="button"
+                disabled={!excelRows.length || importing || saving}
+                onClick={importExcelRows}
+                className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {importing ? 'Importing...' : 'Import Drafts'}
+              </button>
             </div>
           </div>
 
@@ -410,4 +529,81 @@ function SelectLike({ label, required, value, options = [], onChange, disabled =
       </div>
     </Field>
   );
+}
+
+function normalizeHeaderKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s._-]+/g, '')
+    .trim();
+}
+
+function normalizeExistingClient(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'No';
+  if (raw === 'yes' || raw === 'y' || raw === 'true' || raw === '1') return 'Yes';
+  return 'No';
+}
+
+function mapExcelRowToLead(row, staff) {
+  const mapping = {
+    communicationmode: 'communicationMode',
+    status: 'status',
+    company: 'company',
+    industrytype: 'industryType',
+    eprcategory: 'eprCategory',
+    pibocategory: 'piboCategory',
+    servicesoffered: 'servicesOffered',
+    addressline1: 'addressLine1',
+    address1: 'addressLine1',
+    addressline2: 'addressLine2',
+    address2: 'addressLine2',
+    addressline3: 'addressLine3',
+    address3: 'addressLine3',
+    landmark: 'landmark',
+    state: 'state',
+    city: 'city',
+    pincode: 'pinCode',
+    pin: 'pinCode',
+    existingclient: 'existingClient',
+    website: 'website',
+    salutation: 'salutation',
+    contactperson: 'contactPerson',
+    designation: 'designation',
+    emails: 'emails',
+    email: 'emails',
+    mobileno1: 'mobileNo1',
+    mobile1: 'mobileNo1',
+    phone1: 'mobileNo1',
+    mobileno2: 'mobileNo2',
+    mobile2: 'mobileNo2',
+    phone2: 'mobileNo2',
+    businesscardurl: 'businessCardUrl',
+    referredby: 'referredBy',
+    source: 'source',
+    notes: 'notes',
+    assignedto: 'assignedTo',
+    assignto: 'assignedTo'
+  };
+
+  const data = {};
+
+  Object.entries(row || {}).forEach(([key, value]) => {
+    const normalized = normalizeHeaderKey(key);
+    const field = mapping[normalized];
+    if (!field) return;
+    const clean = typeof value === 'string' ? value.trim() : value;
+    if (field === 'pinCode') data.pinCode = String(clean || '').trim();
+    else if (field === 'existingClient') data.existingClient = normalizeExistingClient(clean);
+    else data[field] = clean === null || clean === undefined ? '' : clean;
+  });
+
+  if (data.assignedTo && Array.isArray(staff) && staff.length) {
+    const raw = String(data.assignedTo).trim().toLowerCase();
+    const match = staff.find((user) => String(user.email || '').toLowerCase() === raw) ||
+      staff.find((user) => String(user.name || '').toLowerCase() === raw);
+    data.assignedTo = match ? (match._id || match.id) : String(data.assignedTo).trim();
+  }
+
+  return data;
 }

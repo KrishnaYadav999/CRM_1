@@ -31,17 +31,29 @@ function readAvatarUrl(value) {
 
 exports.requestOtp = async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
+  const password = String(req.body.password || '');
   if (!email) return res.status(400).json({ error: 'Email required' });
+  if (!password) return res.status(400).json({ error: 'Password required' });
   let user = await User.findOne({ email });
   if (!user) {
     // user accounts are created by admin only
     return res.status(404).json({ error: 'User not found. Contact admin.' });
   }
+
+  if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
+
+  if (user.password) {
+    const matches = await bcrypt.compare(password, user.password);
+    if (!matches) return res.status(401).json({ error: 'Invalid email or password' });
+  } else {
+    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    user.password = await bcrypt.hash(password, 10);
+  }
+
   const otp = generateOtp();
   user.otp = otp;
   user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
   await user.save();
-  if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
 
   const html = `<p>Your e-Connect login OTP is <b>${otp}</b>.</p><p>It expires in 10 minutes.</p>`;
   try {
@@ -57,11 +69,17 @@ exports.requestOtp = async (req, res) => {
 
 exports.verifyOtp = async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
+  const password = String(req.body.password || '');
   const otp = String(req.body.otp || '').trim();
-  if (!email || !otp) return res.status(400).json({ error: 'Email and otp required' });
+  if (!email || !password || !otp) return res.status(400).json({ error: 'Email, password and otp required' });
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
+  if (!user.password) return res.status(400).json({ error: 'Password is not set. Contact admin.' });
+
+  const matches = await bcrypt.compare(password, user.password);
+  if (!matches) return res.status(401).json({ error: 'Invalid email or password' });
+
   if (!user.otp || user.otp !== otp) return res.status(400).json({ error: 'Invalid otp' });
   if (user.otpExpires < Date.now()) return res.status(400).json({ error: 'OTP expired' });
 
