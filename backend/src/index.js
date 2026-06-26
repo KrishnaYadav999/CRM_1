@@ -21,7 +21,17 @@ process.on('unhandledRejection', (err) => {
 
 const app = express();
 app.use(express.json({ limit: '3mb' }));
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || '*' }));
+
+const allowedOrigins = String(process.env.CLIENT_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: allowedOrigins.length
+    ? (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin))
+    : '*'
+}));
 
 connectDB().then(() => {
   startPendingApprovalReminderScheduler();
@@ -38,4 +48,8 @@ app.use('/api/teams', teamRoutes);
 app.get('/', (req, res) => res.send({ ok: true, env: process.env.NODE_ENV }));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+module.exports = app;

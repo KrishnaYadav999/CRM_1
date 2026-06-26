@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
-import api from '../services/api'
+import api, { readApiError } from '../services/api'
 
 export default function VerifyOtp(){
   const [otp, setOtp] = useState('')
@@ -31,7 +31,7 @@ export default function VerifyOtp(){
       navigate('/dashboard')
     }catch(err){
       console.error(err)
-      setError(err?.response?.data?.error || 'Invalid OTP')
+      setError(readApiError(err, 'Invalid OTP'))
     }finally{ setLoading(false) }
   }
 

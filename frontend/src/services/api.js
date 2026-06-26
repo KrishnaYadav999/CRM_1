@@ -14,6 +14,15 @@ const api = axios.create({
   }
 })
 
+export function readApiError(error, fallback = 'Something went wrong') {
+  const data = error?.response?.data
+  const message = data?.error || data?.message || error?.message
+
+  if (typeof message === 'string') return message
+  if (message && typeof message === 'object') return message.message || message.code || fallback
+  return fallback
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
 
