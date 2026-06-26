@@ -1,0 +1,14 @@
+{
+  "installCommand": "npm install",
+  "buildCommand": "echo \"Backend API deployment\"",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/[...path].js"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.js"
+    }
+  ]
+}
