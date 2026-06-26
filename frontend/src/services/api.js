@@ -1,6 +1,7 @@
 import axios from 'axios'
 
-const defaultBaseURL = import.meta.env.DEV ? 'http://localhost:5000/api' : '/api'
+const productionBaseURL = 'https://crm-1-eight.vercel.app/api'
+const defaultBaseURL = import.meta.env.DEV ? 'http://localhost:5000/api' : productionBaseURL
 const configuredBaseURL = import.meta.env.VITE_CRM_API_URL || import.meta.env.VITE_API_URL
 const baseURL =
   configuredBaseURL?.includes('localhost:8081')

@@ -29,7 +29,7 @@ const allowedOrigins = String(process.env.CLIENT_ORIGIN || '')
 
 app.use(cors({
   origin: allowedOrigins.length
-    ? (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin))
+    ? (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin))
     : '*'
 }));
 
