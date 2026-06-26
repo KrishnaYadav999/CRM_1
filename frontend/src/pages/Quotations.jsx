@@ -4,6 +4,7 @@ import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileText, Filter, 
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
+import { fetchCcpLeads } from '../services/ccpApi';
 
 const ANANT_LOGO_URL = 'https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg';
 
@@ -332,7 +333,7 @@ export default function Quotations() {
       const me = meResponse.data.user;
       const [crmLeadsResult, ccpLeadsResult, quotationsResponse] = await Promise.all([
         api.get('/leads').catch(() => ({ data: { leads: [] } })),
-        api.get('/ccp/leads').catch(() => ({ data: { leads: [] } })),
+        fetchCcpLeads(),
         api.get('/quotations')
       ]);
       setCurrentUser(me);

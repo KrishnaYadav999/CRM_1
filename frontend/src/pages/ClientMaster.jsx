@@ -7,6 +7,7 @@ import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
+import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi';
 import ClientDirectoryView from '../features/clientMaster/ClientDirectoryView';
 import {
   AddressTab,
@@ -321,7 +322,7 @@ export default function ClientMaster() {
       setCurrentUser(me);
       const [crmClientsResult, ccpClientsResult] = await Promise.allSettled([
         api.get('/clients'),
-        api.get('/ccp/clients')
+        fetchCcpClients()
       ]);
       const crmClients = crmClientsResult.status === 'fulfilled' ? (crmClientsResult.value.data.clients || []) : [];
       const ccpClients = readCachedOrFreshList(ccpClientsResult, 'clients', ccpCacheKeys.clients);
@@ -340,7 +341,7 @@ export default function ClientMaster() {
       }
       const [crmLeadsResult, ccpLeadsResult] = await Promise.allSettled([
         api.get('/leads'),
-        api.get('/ccp/leads')
+        fetchCcpLeads()
       ]);
       const crmLeads = crmLeadsResult.status === 'fulfilled' ? (crmLeadsResult.value.data.leads || []) : [];
       const ccpLeads = readCachedOrFreshList(ccpLeadsResult, 'leads', ccpCacheKeys.leads);

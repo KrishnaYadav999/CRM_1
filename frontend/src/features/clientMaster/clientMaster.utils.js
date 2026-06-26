@@ -633,7 +633,7 @@ function buildAnnualReturnYears(firstAnnualReturnYear) {
 
 function buildCcpClientEditUrl(item) {
   const data = readClientData(item);
-  const template = import.meta.env.VITE_CCP_CLIENT_EDIT_URL || 'http://localhost:8080/client-master?edit={id}&uniqueId={uniqueId}&name={name}';
+  const template = import.meta.env.VITE_CCP_CLIENT_EDIT_URL || 'https://ccp-henna.vercel.app/client-master?edit={id}&uniqueId={uniqueId}&name={name}';
   const id = item?._id || item?.id || data.importMeta?.uniqueId || data.importMeta?.leadNumber || '';
   const uniqueId = getClientUniqueId(item).replace(/^-$/, '');
   const name = data.basic?.clientLegalName || data.basic?.tradeName || '';

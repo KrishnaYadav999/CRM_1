@@ -6,6 +6,7 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
 import api from '../services/api';
+import { fetchCcpLeads } from '../services/ccpApi';
 
 const emptyLead = {
   sourceLeadId: '',
@@ -124,7 +125,7 @@ const stateCities = {
 };
 
 function buildCcpLeadEditUrl(item = {}) {
-  const template = import.meta.env.VITE_CCP_LEAD_EDIT_URL || 'http://localhost:8080/lead-generation?edit={id}&leadCode={leadCode}&name={name}';
+  const template = import.meta.env.VITE_CCP_LEAD_EDIT_URL || 'https://ccp-henna.vercel.app/lead-generation?edit={id}&leadCode={leadCode}&name={name}';
   const id = item._id || item.id || item.sourceLeadId || item.leadCode || '';
   const leadCode = item.leadCode || item.sourceLeadId || '';
   const name = item.company || '';
@@ -186,7 +187,7 @@ export default function LeadGeneration() {
       setCurrentUser(me);
       const [crmLeadsResult, ccpLeadsResult, quotationsResponse] = await Promise.all([
         api.get('/leads'),
-        api.get('/ccp/leads').catch(() => ({ data: { leads: [] } })),
+        fetchCcpLeads(),
         api.get('/quotations')
       ]);
       setLeads(mergeLeadSources(crmLeadsResult.data.leads || [], ccpLeadsResult.data.leads || []));

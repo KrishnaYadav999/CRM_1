@@ -4,6 +4,7 @@ import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'rechar
 import { ArrowLeft, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Edit3, Eye, History, ListChecks, Plus, Search, UserPlus, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import api from '../services/api';
+import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi';
 import { getClientUniqueId, mergeClientSources, mergeLeadSources, readCachedOrFreshList, readClientData } from '../features/clientMaster/clientMaster.utils';
 
 const STORAGE_KEY = 'crm.calendar.todos.v1';
@@ -232,9 +233,9 @@ export default function CalendarTodo() {
     async function loadOptions() {
       const [clientsResult, ccpClientsResult, leadsResult, ccpLeadsResult, usersResult, adminUsersResult] = await Promise.allSettled([
         api.get('/clients'),
-        api.get('/ccp/clients'),
+        fetchCcpClients(),
         api.get('/leads'),
-        api.get('/ccp/leads'),
+        fetchCcpLeads(),
         api.get('/auth/users'),
         api.get('/auth/admin/users')
       ]);

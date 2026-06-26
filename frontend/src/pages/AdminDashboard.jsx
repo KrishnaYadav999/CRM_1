@@ -58,6 +58,7 @@ import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
 import api from '../services/api'
+import { fetchCcpLeads } from '../services/ccpApi'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
 
@@ -3084,7 +3085,7 @@ export default function AdminDashboard() {
       const [clientsResult, leadsResult, ccpLeadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
         api.get('/clients'),
         api.get('/leads'),
-        api.get('/ccp/leads'),
+        fetchCcpLeads(),
         api.get('/quotations'),
         api.get('/annual-returns'),
         api.get('/clients/pending-approvals')

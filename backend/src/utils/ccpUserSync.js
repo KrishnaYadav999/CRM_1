@@ -1,4 +1,4 @@
-const DEFAULT_CCP_USER_SYNC_URL = 'http://localhost:8081/api/crm/users/sync';
+const DEFAULT_CCP_USER_SYNC_URL = 'https://ccp-henna.vercel.app/api/crm/users/sync';
 
 function readSyncUrl() {
   return String(process.env.CCP_USER_SYNC_URL || DEFAULT_CCP_USER_SYNC_URL).trim();

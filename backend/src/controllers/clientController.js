@@ -7,7 +7,17 @@ const { queuePendingClientReminder } = require('../services/pendingApprovalNotif
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
-const DEFAULT_CCP_API_BASE_URL = 'http://localhost:8081/api/ccp';
+const DEFAULT_CCP_API_BASE_URL = 'https://ccp-henna.vercel.app/api/ccp';
+
+function ccpBaseUrls() {
+  return [
+    process.env.CCP_API_BASE_URL,
+    DEFAULT_CCP_API_BASE_URL
+  ]
+    .map((url) => String(url || '').trim().replace(/\/+$/, ''))
+    .filter(Boolean)
+    .filter((url, index, urls) => urls.indexOf(url) === index);
+}
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -182,20 +192,25 @@ function normalizeCollection(payload, key) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.[key])) return payload[key];
   if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.[key])) return payload.data[key];
+  if (Array.isArray(payload?.result?.[key])) return payload.result[key];
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.rows)) return payload.rows;
   return [];
 }
 
 async function fetchCcpClients() {
-  const baseUrl = (process.env.CCP_API_BASE_URL || DEFAULT_CCP_API_BASE_URL).replace(/\/+$/, '');
-
-  try {
-    const response = await fetch(`${baseUrl}/clients`);
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) return [];
-    return normalizeCollection(payload, 'clients');
-  } catch {
-    return [];
+  for (const baseUrl of ccpBaseUrls()) {
+    try {
+      const response = await fetch(`${baseUrl}/clients`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) continue;
+      return normalizeCollection(payload, 'clients');
+    } catch {
+      // Try the next configured CCP URL before giving up.
+    }
   }
+  return [];
 }
 
 function readClientName(client) {
