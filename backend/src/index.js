@@ -34,16 +34,34 @@ app.use(cors({
     : '*'
 }));
 
-const dbReady = connectDB().then(() => {
-  startPendingApprovalReminderScheduler();
-}).catch((err) => {
+let schedulerStarted = false;
+let dbReady;
+
+function connectAndStartServices() {
+  dbReady = connectDB().then(() => {
+    if (!schedulerStarted) {
+      startPendingApprovalReminderScheduler();
+      schedulerStarted = true;
+    }
+  });
+  return dbReady;
+}
+
+connectAndStartServices().catch((err) => {
   console.error('Database startup failed', err);
 });
 
 app.use('/api', async (req, res, next) => {
-  await dbReady;
-  if (mongoose.connection.readyState !== 1) {
-    return res.status(503).json({ error: 'Database unavailable. Please check MongoDB Atlas connection.' });
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      if (mongoose.connection.readyState !== 2) connectAndStartServices();
+      await dbReady;
+    }
+  } catch (err) {
+    return res.status(503).json({
+      error: 'Database unavailable. Please check MongoDB Atlas connection.',
+      message: process.env.NODE_ENV === 'production' ? undefined : err.message
+    });
   }
   return next();
 });
