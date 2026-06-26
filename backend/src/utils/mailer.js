@@ -9,8 +9,8 @@ function normalizeRecipients(to) {
 }
 
 function createTransporter() {
-  const mailUser = process.env.SMTP_USER || process.env.MAIL_USER;
-  const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS;
+  const mailUser = process.env.SMTP_USER || process.env.MAIL_USER || process.env.EMAIL_USER || process.env.GMAIL_USER;
+  const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS || process.env.EMAIL_PASS || process.env.GMAIL_PASS;
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -24,7 +24,7 @@ function createTransporter() {
 }
 
 async function sendMail(to, subject, html) {
-  const mailUser = process.env.SMTP_USER || process.env.MAIL_USER;
+  const mailUser = process.env.SMTP_USER || process.env.MAIL_USER || process.env.EMAIL_USER || process.env.GMAIL_USER;
   if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is not configured');
   const recipients = normalizeRecipients(to);
   if (!recipients.length) throw new Error('Email recipient is required');

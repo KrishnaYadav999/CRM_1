@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, RefreshCw, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
 import api, { readApiError } from '../services/api'
@@ -8,16 +8,26 @@ import api, { readApiError } from '../services/api'
 export default function VerifyOtp(){
   const [otp, setOtp] = useState('')
   const [loading, setLoading] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(60)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
   const email = location.state?.email || localStorage.getItem('login_email') || ''
-  const devOtp = import.meta.env.DEV ? localStorage.getItem('dev_otp') : ''
+  const [devOtp, setDevOtp] = useState(() => import.meta.env.DEV ? localStorage.getItem('dev_otp') || '' : '')
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined
+    const timer = window.setTimeout(() => setResendCooldown((value) => Math.max(0, value - 1)), 1000)
+    return () => window.clearTimeout(timer)
+  }, [resendCooldown])
 
   async function handleVerify(e){
     e.preventDefault()
     setLoading(true)
     setError('')
+    setNotice('')
     try{
       if (!email) {
         setError('Session expired. Please login again.')
@@ -33,6 +43,33 @@ export default function VerifyOtp(){
       console.error(err)
       setError(readApiError(err, 'Invalid OTP'))
     }finally{ setLoading(false) }
+  }
+
+  async function handleResend(){
+    if (!email || resending || resendCooldown > 0) return
+    setResending(true)
+    setError('')
+    setNotice('')
+    try {
+      const res = await api.post('/auth/resend-otp', { email })
+      setOtp('')
+      setNotice(res.data?.message || 'A new OTP has been sent to your email.')
+      setResendCooldown(60)
+      if (import.meta.env.DEV && res.data?.devOtp) {
+        localStorage.setItem('dev_otp', res.data.devOtp)
+        setDevOtp(res.data.devOtp)
+      } else {
+        localStorage.removeItem('dev_otp')
+        setDevOtp('')
+      }
+    } catch (err) {
+      console.error(err)
+      setError(readApiError(err, 'Unable to resend OTP'))
+      const match = String(readApiError(err, '')).match(/(\d+)\s*seconds/i)
+      if (match) setResendCooldown(Number(match[1]))
+    } finally {
+      setResending(false)
+    }
   }
 
   return (
@@ -59,9 +96,19 @@ export default function VerifyOtp(){
           </div>
         </label>
         {devOtp && <ToastMessage type="warning">Development OTP: {devOtp}</ToastMessage>}
+        {notice && <ToastMessage type="success">{notice}</ToastMessage>}
         {error && <ToastMessage type="error">{error}</ToastMessage>}
         <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !email}>
           <span className="relative">{loading ? 'Verifying...' : 'Verify and login'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleResend}
+          disabled={!email || resending || resendCooldown > 0}
+          className="btn-lift flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-5 py-3.5 font-black text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw className={`h-4 w-4 ${resending ? 'animate-spin' : ''}`} />
+          {resending ? 'Resending OTP...' : resendCooldown > 0 ? `Resend OTP in ${resendCooldown}s` : 'Resend OTP'}
         </button>
         <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-teal-700 hover:text-teal-900">
           <ArrowLeft className="h-4 w-4" />

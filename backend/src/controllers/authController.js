@@ -10,10 +10,49 @@ function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+const OTP_EXPIRY_MS = 10 * 60 * 1000;
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+
 function shouldSkipMailInDevelopment() {
   if (process.env.NODE_ENV === 'production') return false;
-  const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS || '';
+  const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS || process.env.EMAIL_PASS || process.env.GMAIL_PASS || '';
   return !process.env.SMTP_HOST || !mailPass || /change_me|your-|placeholder/i.test(mailPass);
+}
+
+function isPlaceholderMailSecret(value) {
+  return /change_me|your-|placeholder/i.test(String(value || ''));
+}
+
+async function sendLoginOtp(user, otp, context = {}) {
+  if (shouldSkipMailInDevelopment()) {
+    console.log(`Development OTP for ${user.email}: ${otp}`);
+    return { ok: true, message: 'OTP generated for development.', devOtp: otp };
+  }
+
+  const html = `
+    <p>Your e-Connect login OTP is <b>${otp}</b>.</p>
+    <p>It expires in 10 minutes.</p>
+    <p>If you did not request this OTP, you can ignore this email.</p>
+  `;
+
+  try {
+    await sendMail(user.email, context.resend ? 'Your New Login OTP' : 'Your Login OTP', html);
+    return { ok: true, message: 'OTP sent to your registered email.' };
+  } catch (err) {
+    console.error('Mail error', err);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`Development OTP for ${user.email}: ${otp}`);
+      return { ok: true, message: 'OTP generated. SMTP failed in development.', devOtp: otp };
+    }
+
+    const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS || process.env.EMAIL_PASS || process.env.GMAIL_PASS;
+    const configHint = !process.env.SMTP_HOST || !mailPass || isPlaceholderMailSecret(mailPass)
+      ? ' SMTP is not configured correctly.'
+      : '';
+    const error = new Error(`OTP email could not be sent.${configHint}`);
+    error.statusCode = 502;
+    throw error;
+  }
 }
 
 function readAvatarUrl(value) {
@@ -98,25 +137,47 @@ exports.requestOtp = async (req, res) => {
 
   const otp = generateOtp();
   user.otp = otp;
-  user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+  user.otpExpires = Date.now() + OTP_EXPIRY_MS;
   await user.save();
 
-  if (shouldSkipMailInDevelopment()) {
-    console.log(`Development OTP for ${user.email}: ${otp}`);
-    return res.json({ ok: true, message: 'OTP generated for development.', devOtp: otp });
-  }
-
-  const html = `<p>Your e-Connect login OTP is <b>${otp}</b>.</p><p>It expires in 10 minutes.</p>`;
   try {
-    await sendMail(user.email, 'Your Login OTP', html);
+    const result = await sendLoginOtp(user, otp);
+    return res.json(result);
   } catch (err) {
-    console.error('Mail error', err);
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`Development OTP for ${user.email}: ${otp}`);
-      return res.json({ ok: true, message: 'OTP generated. SMTP failed in development.', devOtp: otp });
+    return res.status(err.statusCode || 500).json({ error: err.message || 'OTP email could not be sent' });
+  }
+};
+
+exports.resendOtp = async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email required' });
+
+  const user = await User.findOne({ email });
+  if (!user) return res.status(404).json({ error: 'User not found. Contact admin.' });
+  if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
+  if (!user.password) return res.status(400).json({ error: 'Password is not set. Contact admin.' });
+
+  if (user.otp && user.otpExpires && user.otpExpires > Date.now()) {
+    const generatedAt = new Date(user.otpExpires).getTime() - OTP_EXPIRY_MS;
+    const remainingCooldown = OTP_RESEND_COOLDOWN_MS - (Date.now() - generatedAt);
+    if (remainingCooldown > 0) {
+      return res.status(429).json({
+        error: `Please wait ${Math.ceil(remainingCooldown / 1000)} seconds before resending OTP.`
+      });
     }
   }
-  return res.json({ ok: true, message: 'OTP sent if email exists' });
+
+  const otp = generateOtp();
+  user.otp = otp;
+  user.otpExpires = Date.now() + OTP_EXPIRY_MS;
+  await user.save();
+
+  try {
+    const result = await sendLoginOtp(user, otp, { resend: true });
+    return res.json(result);
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ error: err.message || 'OTP email could not be sent' });
+  }
 };
 
 exports.verifyOtp = async (req, res) => {

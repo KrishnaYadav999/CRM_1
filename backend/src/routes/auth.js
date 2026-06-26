@@ -17,6 +17,7 @@ function requireCcpSecret(req, res, next) {
 }
 
 router.post('/request-otp', authCtrl.requestOtp);
+router.post('/resend-otp', authCtrl.resendOtp);
 router.post('/verify-otp', authCtrl.verifyOtp);
 router.get('/ccp/users', requireCcpSecret, authCtrl.listUsersForCcp);
 router.post('/ccp/users/sync', requireCcpSecret, authCtrl.syncUserFromCcp);
