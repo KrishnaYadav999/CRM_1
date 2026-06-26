@@ -1,6 +1,7 @@
 require('dotenv').config({ override: true });
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
@@ -33,8 +34,18 @@ app.use(cors({
     : '*'
 }));
 
-connectDB().then(() => {
+const dbReady = connectDB().then(() => {
   startPendingApprovalReminderScheduler();
+}).catch((err) => {
+  console.error('Database startup failed', err);
+});
+
+app.use('/api', async (req, res, next) => {
+  await dbReady;
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Database unavailable. Please check MongoDB Atlas connection.' });
+  }
+  return next();
 });
 
 app.use('/api/auth', authRoutes);
