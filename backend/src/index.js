@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
+const authController = require('./controllers/authController');
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
 const clientRoutes = require('./routes/clients');
@@ -66,6 +67,19 @@ app.use('/api', async (req, res, next) => {
   return next();
 });
 
+function requireCcpSecret(req, res, next) {
+  const expectedSecret = process.env.CCP_SHARED_SECRET;
+  if (!expectedSecret) return next();
+
+  const providedSecret = req.get('x-ccp-secret') || req.query.secret;
+  if (providedSecret !== expectedSecret) {
+    return res.status(401).json({ ok: false, error: 'Invalid CCP secret' });
+  }
+
+  return next();
+}
+
+app.post('/api/crm/users/sync', requireCcpSecret, authController.syncUserFromCcp);
 app.use('/api/auth', authRoutes);
 app.use('/api/ccp', ccpRoutes);
 app.use('/api/leads', leadRoutes);
