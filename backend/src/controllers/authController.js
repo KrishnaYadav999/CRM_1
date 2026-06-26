@@ -2,7 +2,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
-const { sendMail } = require('../utils/mailer');
+const { getMailDebugConfig, sendMail } = require('../utils/mailer');
 const { syncUserToCcp, syncUsersToCcp } = require('../utils/ccpUserSync');
 const { ROLES } = require('../constants/roles');
 
@@ -36,10 +36,25 @@ async function sendLoginOtp(user, otp, context = {}) {
   `;
 
   try {
-    await sendMail(user.email, context.resend ? 'Your New Login OTP' : 'Your Login OTP', html);
+    const mailResult = await sendMail(user.email, context.resend ? 'Your New Login OTP' : 'Your Login OTP', html);
+    console.info('OTP mail sent', {
+      email: user.email,
+      action: context.resend ? 'resend' : 'request',
+      mail: mailResult.summary,
+      config: getMailDebugConfig()
+    });
     return { ok: true, message: 'OTP sent to your registered email.' };
   } catch (err) {
-    console.error('Mail error', err);
+    console.error('OTP mail error', {
+      email: user.email,
+      action: context.resend ? 'resend' : 'request',
+      code: err.code,
+      command: err.command,
+      responseCode: err.responseCode,
+      response: err.response,
+      message: err.message,
+      config: getMailDebugConfig()
+    });
     if (process.env.NODE_ENV !== 'production') {
       console.log(`Development OTP for ${user.email}: ${otp}`);
       return { ok: true, message: 'OTP generated. SMTP failed in development.', devOtp: otp };

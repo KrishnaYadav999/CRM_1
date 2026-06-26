@@ -37,6 +37,31 @@ function createTransporter() {
   });
 }
 
+function summarizeMailInfo(info) {
+  return {
+    messageId: info?.messageId,
+    accepted: info?.accepted || [],
+    rejected: info?.rejected || [],
+    pending: info?.pending || [],
+    response: info?.response,
+    envelope: info?.envelope
+  };
+}
+
+function getMailDebugConfig() {
+  const mailUser = readMailUser();
+  return {
+    host: process.env.SMTP_HOST || '',
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === 'true',
+    hasUser: Boolean(mailUser),
+    userDomain: String(mailUser || '').split('@')[1] || '',
+    hasPassword: Boolean(readMailPass()),
+    from: process.env.MAIL_FROM || mailUser || '',
+    replyTo: process.env.MAIL_REPLY_TO || mailUser || ''
+  };
+}
+
 async function sendMail(to, subject, html) {
   const mailUser = readMailUser();
   if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is not configured');
@@ -47,7 +72,7 @@ async function sendMail(to, subject, html) {
   const replyTo = process.env.MAIL_REPLY_TO || mailUser || undefined;
   const transporter = createTransporter();
   const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html });
-  return info;
+  return { raw: info, summary: summarizeMailInfo(info) };
 }
 
-module.exports = { sendMail };
+module.exports = { sendMail, getMailDebugConfig, summarizeMailInfo };
