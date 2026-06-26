@@ -10,6 +10,12 @@ function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+function shouldSkipMailInDevelopment() {
+  if (process.env.NODE_ENV === 'production') return false;
+  const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS || '';
+  return !process.env.SMTP_HOST || !mailPass || /change_me|your-|placeholder/i.test(mailPass);
+}
+
 function readAvatarUrl(value) {
   if (value === undefined || value === null || value === '') return '';
 
@@ -94,6 +100,11 @@ exports.requestOtp = async (req, res) => {
   user.otp = otp;
   user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
   await user.save();
+
+  if (shouldSkipMailInDevelopment()) {
+    console.log(`Development OTP for ${user.email}: ${otp}`);
+    return res.json({ ok: true, message: 'OTP generated for development.', devOtp: otp });
+  }
 
   const html = `<p>Your e-Connect login OTP is <b>${otp}</b>.</p><p>It expires in 10 minutes.</p>`;
   try {
