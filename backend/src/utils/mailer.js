@@ -8,9 +8,23 @@ function normalizeRecipients(to) {
     .filter(Boolean);
 }
 
-function createTransporter() {
-  const mailUser = process.env.SMTP_USER || process.env.MAIL_USER || process.env.EMAIL_USER || process.env.GMAIL_USER;
+function readMailUser() {
+  return process.env.SMTP_USER || process.env.MAIL_USER || process.env.EMAIL_USER || process.env.GMAIL_USER;
+}
+
+function readMailPass() {
   const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS || process.env.EMAIL_PASS || process.env.GMAIL_PASS;
+  if (!mailPass) return mailPass;
+
+  // Gmail app passwords are displayed in groups with spaces; SMTP auth expects the 16-character value.
+  return process.env.MAIL_PASS_STRIP_SPACES === 'false'
+    ? mailPass
+    : String(mailPass).replace(/\s+/g, '');
+}
+
+function createTransporter() {
+  const mailUser = readMailUser();
+  const mailPass = readMailPass();
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -24,7 +38,7 @@ function createTransporter() {
 }
 
 async function sendMail(to, subject, html) {
-  const mailUser = process.env.SMTP_USER || process.env.MAIL_USER || process.env.EMAIL_USER || process.env.GMAIL_USER;
+  const mailUser = readMailUser();
   if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is not configured');
   const recipients = normalizeRecipients(to);
   if (!recipients.length) throw new Error('Email recipient is required');
