@@ -1,12 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import BrandLoader from './BrandLoader'
-import api from '../services/api'
+import api, { clearStoredSession, hasStoredAuthToken } from '../services/api'
 
 export default function ProtectedRoute({ children }) {
   const [state, setState] = useState({ loading: true, allowed: false })
 
   useEffect(() => {
+    if (!hasStoredAuthToken()) {
+      clearStoredSession()
+      setState({ loading: false, allowed: false })
+      return
+    }
+
     api.get('/auth/me')
       .then((response) => {
         if (response.data?.user) {
@@ -15,8 +21,7 @@ export default function ProtectedRoute({ children }) {
         setState({ loading: false, allowed: true })
       })
       .catch(() => {
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
+        clearStoredSession()
         setState({ loading: false, allowed: false })
       })
   }, [])

@@ -15,6 +15,23 @@ const api = axios.create({
   }
 })
 
+export function getStoredToken() {
+  const token = localStorage.getItem('token')
+  if (!token || token === 'undefined' || token === 'null') return ''
+  return token
+}
+
+export function clearStoredSession() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('login_email')
+  localStorage.removeItem('dev_otp')
+}
+
+export function hasStoredAuthToken() {
+  return getStoredToken().split('.').length === 3
+}
+
 export function readApiError(error, fallback = 'Something went wrong') {
   const data = error?.response?.data
   const message = data?.error || data?.message || error?.message
@@ -25,7 +42,7 @@ export function readApiError(error, fallback = 'Something went wrong') {
 }
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = getStoredToken()
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -33,5 +50,15 @@ api.interceptors.request.use((config) => {
 
   return config
 })
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearStoredSession()
+    }
+    return Promise.reject(error)
+  }
+)
 
 export default api
