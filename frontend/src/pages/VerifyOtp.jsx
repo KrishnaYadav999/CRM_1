@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
+import ToastMessage from '../components/ToastMessage'
 import api from '../services/api'
 
 export default function VerifyOtp(){
@@ -11,20 +12,22 @@ export default function VerifyOtp(){
   const navigate = useNavigate()
   const location = useLocation()
   const email = location.state?.email || localStorage.getItem('login_email') || ''
-  const password = location.state?.password || ''
+  const devOtp = import.meta.env.DEV ? localStorage.getItem('dev_otp') : ''
 
   async function handleVerify(e){
     e.preventDefault()
     setLoading(true)
     setError('')
     try{
-      if (!password) {
+      if (!email) {
         setError('Session expired. Please login again.')
         return
       }
-      const res = await api.post('/auth/verify-otp', { email, password, otp })
+      const res = await api.post('/auth/verify-otp', { email, otp })
       localStorage.setItem('token', res.data.token)
       localStorage.setItem('user', JSON.stringify(res.data.user))
+      localStorage.removeItem('login_email')
+      localStorage.removeItem('dev_otp')
       navigate('/dashboard')
     }catch(err){
       console.error(err)
@@ -55,8 +58,9 @@ export default function VerifyOtp(){
             />
           </div>
         </label>
-        {error && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
-        <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !password}>
+        {devOtp && <ToastMessage type="warning">Development OTP: {devOtp}</ToastMessage>}
+        {error && <ToastMessage type="error">{error}</ToastMessage>}
+        <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !email}>
           <span className="relative">{loading ? 'Verifying...' : 'Verify and login'}</span>
         </button>
         <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-teal-700 hover:text-teal-900">

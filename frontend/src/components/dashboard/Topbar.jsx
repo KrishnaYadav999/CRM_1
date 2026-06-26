@@ -1,25 +1,156 @@
-import React, { useState } from 'react'
-import { Bell, Info, LogOut, Menu, Search, Settings, UserRound } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Bell, CalendarCheck2, CheckCircle2, Clock3, FileText, Info, LogOut, Menu, UserRound, X } from 'lucide-react'
 import { roleLabels } from '../../constants/dashboard'
 
+const NOTIFICATIONS_STORAGE_KEY = 'crm.notifications.v1'
+const CALENDAR_STORAGE_KEY = 'crm.calendar.todos.v1'
+const notificationSoundUrl = '/audio/Notifications%20sound.wav'
+const clickSoundUrl = '/audio/click%20scound.wav'
+
+function readStorageArray(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function normalizeToken(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function getUserTokens(user = {}) {
+  const safeUser = user || {}
+  return [safeUser._id, safeUser.id, safeUser.crmUserId, safeUser.userId, safeUser.ccpUserId, safeUser.email, safeUser.name]
+    .map(normalizeToken)
+    .filter(Boolean)
+}
+
+function getItemAssigneeTokens(item = {}) {
+  return [
+    item.assignedTo,
+    item.assignedToName,
+    item.assignedToEmail,
+    item.assignedToId,
+    item.owner,
+    item.scheduledBy,
+    item.createdBy
+  ].map(normalizeToken).filter(Boolean)
+}
+
+function formatReminderDate(item = {}) {
+  if (!item.scheduledDate) return 'No date'
+  const date = new Date(item.scheduledDate)
+  const label = Number.isNaN(date.getTime())
+    ? item.scheduledDate
+    : new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short' }).format(date)
+  return item.scheduledTime ? `${label}, ${item.scheduledTime}` : label
+}
+
+function getReminderTone(item = {}, todayKey = '') {
+  if (item.scheduledDate && item.scheduledDate < todayKey) return 'overdue'
+  if (item.scheduledDate === todayKey) return 'today'
+  return 'upcoming'
+}
+
+function readBellData(currentUser) {
+  const userTokens = getUserTokens(currentUser)
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const calendarItems = readStorageArray(CALENDAR_STORAGE_KEY)
+  const reminders = calendarItems
+    .filter((item) => item.status !== 'completed')
+    .filter((item) => {
+      const assigneeTokens = getItemAssigneeTokens(item)
+      if (!assigneeTokens.length || !userTokens.length) return true
+      return assigneeTokens.some((token) => userTokens.includes(token))
+    })
+    .sort((a, b) => {
+      const dateCompare = String(a.scheduledDate || '').localeCompare(String(b.scheduledDate || ''))
+      if (dateCompare) return dateCompare
+      return String(a.scheduledTime || '').localeCompare(String(b.scheduledTime || ''))
+    })
+    .slice(0, 8)
+    .map((item) => ({ ...item, reminderTone: getReminderTone(item, todayKey) }))
+  const announcements = readStorageArray(NOTIFICATIONS_STORAGE_KEY)
+    .filter((item) => item.status !== 'Inactive')
+    .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
+    .slice(0, 3)
+  return { reminders, announcements, count: reminders.length + announcements.length }
+}
+
 export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLogout }) {
+  const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [reminderOpen, setReminderOpen] = useState(false)
+  const [bellData, setBellData] = useState(() => readBellData(currentUser))
+  const previousNotificationCountRef = useRef(bellData.count)
+  const notificationAudioRef = useRef(null)
+  const clickAudioRef = useRef(null)
   const initial = (currentUser?.name || currentUser?.email || 'P').slice(0, 1).toUpperCase()
+  const notificationCount = bellData.count
+  const reminderSummary = useMemo(() => {
+    const overdue = bellData.reminders.filter((item) => item.reminderTone === 'overdue').length
+    const today = bellData.reminders.filter((item) => item.reminderTone === 'today').length
+    return { overdue, today }
+  }, [bellData.reminders])
+
+  useEffect(() => {
+    notificationAudioRef.current = new Audio(notificationSoundUrl)
+    clickAudioRef.current = new Audio(clickSoundUrl)
+    notificationAudioRef.current.preload = 'auto'
+    clickAudioRef.current.preload = 'auto'
+  }, [])
+
+  function playSound(audioRef) {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.currentTime = 0
+    audio.play().catch(() => {})
+  }
+
+  useEffect(() => {
+    function syncNotificationCount() {
+      const nextData = readBellData(currentUser)
+      setBellData(nextData)
+      if (nextData.count > previousNotificationCountRef.current) {
+        playSound(notificationAudioRef)
+      }
+      previousNotificationCountRef.current = nextData.count
+    }
+
+    const intervalId = window.setInterval(syncNotificationCount, 3000)
+    window.addEventListener('storage', syncNotificationCount)
+    window.addEventListener('crm-calendar-items-updated', syncNotificationCount)
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('storage', syncNotificationCount)
+      window.removeEventListener('crm-calendar-items-updated', syncNotificationCount)
+    }
+  }, [currentUser])
 
   function handleProfile() {
     setMenuOpen(false)
-    onOpenProfile()
+    onOpenProfile?.()
   }
 
   function handleLogout() {
     setMenuOpen(false)
-    onLogout()
+    onLogout?.()
+  }
+
+  function handleNotifications() {
+    playSound(clickAudioRef)
+    setMenuOpen(false)
+    setReminderOpen((value) => !value)
   }
 
   return (
+    <>
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-      <div className="flex min-h-[76px] items-center justify-between gap-4 px-4 sm:px-5 lg:px-6">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex min-h-16 items-center justify-between gap-4 px-4 sm:px-5 lg:px-6">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
@@ -28,20 +159,70 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
           >
             <Menu className="h-5 w-5" />
           </button>
-
-          <div className="relative hidden w-full max-w-xl md:block">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-            <input
-              placeholder="Search clients, users, visas..."
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-12 pr-4 font-semibold outline-none transition duration-300 hover:border-emerald-200 focus:border-emerald-500 focus:bg-white focus:shadow-lg focus:shadow-emerald-900/10 focus:ring-4 focus:ring-emerald-100"
-            />
-          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <IconButton icon={Info} label="Help" />
-          <IconButton icon={Bell} label="Notifications" />
-          <IconButton icon={Settings} label="Settings" />
+          <IconButton icon={Info} label="Anant Tattva Website" onClick={() => { window.location.href = 'https://ananttattva.com/' }} />
+          <div className="relative">
+            <IconButton icon={Bell} label="Notifications" onClick={handleNotifications} badge={notificationCount} pulse={notificationCount > 0} />
+            {reminderOpen && (
+              <section className="topbar-reminder-panel" aria-label="Todo reminders">
+                <div className="topbar-reminder-arrow" />
+                <div className="topbar-reminder-head">
+                  <div>
+                    <span><Bell className="h-4 w-4" /> Todo Reminders</span>
+                    <strong>{notificationCount ? `${notificationCount} active alert${notificationCount === 1 ? '' : 's'}` : 'All clear'}</strong>
+                  </div>
+                  <button type="button" onClick={() => setReminderOpen(false)} aria-label="Close reminders"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="topbar-reminder-stats">
+                  <span><Clock3 className="h-4 w-4" /> {reminderSummary.today} Today</span>
+                  <span><CalendarCheck2 className="h-4 w-4" /> {reminderSummary.overdue} Overdue</span>
+                </div>
+                <div className="topbar-reminder-list">
+                  {bellData.reminders.length ? bellData.reminders.map((item) => {
+                    const isFollowUp = item.type === 'follow-up' || item.category === 'Follow-Up'
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        className={`topbar-reminder-item topbar-reminder-${item.reminderTone}`}
+                        onClick={() => { setReminderOpen(false); navigate('/calendar') }}
+                      >
+                        <span>{isFollowUp ? <CalendarCheck2 className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span>
+                        <div>
+                          <strong>{item.title || (isFollowUp ? 'Follow-up reminder' : 'Todo reminder')}</strong>
+                          <small>{[item.clientName, item.leadNumber, formatReminderDate(item)].filter(Boolean).join(' - ')}</small>
+                        </div>
+                        <em>{isFollowUp ? 'Follow-up' : 'Todo'}</em>
+                      </button>
+                    )
+                  }) : (
+                    <div className="topbar-reminder-empty">
+                      <CheckCircle2 className="h-10 w-10" />
+                      <strong>No reminders</strong>
+                      <span>Assigned follow-ups and todos will appear here.</span>
+                    </div>
+                  )}
+                  {bellData.announcements.length > 0 && (
+                    <div className="topbar-reminder-notices">
+                      <span>Notifications</span>
+                      {bellData.announcements.map((item) => (
+                        <button type="button" key={item.id} onClick={() => { setReminderOpen(false); navigate('/notifications') }}>
+                          <FileText className="h-4 w-4" />
+                          <strong>{item.title}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="topbar-reminder-actions">
+                  <button type="button" onClick={() => { setReminderOpen(false); navigate('/calendar') }}>Open Calendar</button>
+                  <button type="button" onClick={() => { setReminderOpen(false); navigate('/notifications') }}>Notification Center</button>
+                </div>
+              </section>
+            )}
+          </div>
           <div className="relative">
             <button
               type="button"
@@ -54,7 +235,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
                 <p className="font-black text-slate-900">{currentUser?.name || 'CRM User'}</p>
                 <p className="text-sm font-semibold text-slate-500">{roleLabels[currentUser?.role] || 'Consultant'}</p>
               </div>
-              <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-teal-700 to-sky-600 font-black text-white shadow-lg shadow-teal-700/20 ring-4 ring-teal-50">
+              <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-teal-700 to-sky-600 font-black text-white shadow-lg shadow-teal-700/20 ring-4 ring-teal-50">
                 {currentUser?.avatarUrl ? <img src={currentUser.avatarUrl} alt={currentUser?.name || 'User'} className="h-full w-full object-cover" /> : initial}
               </div>
             </button>
@@ -95,18 +276,25 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
         </div>
       </div>
     </header>
+    </>
   )
 }
 
-function IconButton({ icon: Icon, label }) {
+function IconButton({ icon: Icon, label, onClick, badge = 0, pulse = false }) {
   return (
     <button
       type="button"
-      className="btn-lift inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-50 text-slate-600 transition hover:bg-teal-50 hover:text-teal-700"
+      onClick={onClick}
+      className={`btn-lift relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-slate-600 transition hover:bg-teal-50 hover:text-teal-700 ${pulse ? 'topbar-notification-pulse' : ''}`}
       aria-label={label}
       title={label}
     >
       <Icon className="h-5 w-5" />
+      {badge > 0 && (
+        <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-black leading-none text-white shadow-lg shadow-red-500/30">
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
     </button>
   )
 }

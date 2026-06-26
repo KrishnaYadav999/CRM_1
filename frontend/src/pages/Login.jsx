@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, KeyRound, Mail } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
+import ToastMessage from '../components/ToastMessage'
 import api from '../services/api'
 
 export default function Login(){
@@ -16,9 +17,14 @@ export default function Login(){
     setLoading(true)
     setError('')
     try{
-      await api.post('/auth/request-otp', { email, password })
+      const res = await api.post('/auth/request-otp', { email, password })
       localStorage.setItem('login_email', email)
-      navigate('/verify', { state: { email, password } })
+      if (import.meta.env.DEV && res.data?.devOtp) {
+        localStorage.setItem('dev_otp', res.data.devOtp)
+      } else {
+        localStorage.removeItem('dev_otp')
+      }
+      navigate('/verify', { state: { email } })
     }catch(err){
       console.error(err)
       setError(err?.response?.data?.error || 'Unable to send OTP')
@@ -60,7 +66,7 @@ export default function Login(){
             />
           </div>
         </label>
-        {error && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
+        {error && <ToastMessage type="error">{error}</ToastMessage>}
         <button className="btn-lift group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading}>
           <span className="absolute inset-0 -translate-x-full bg-white/20 transition duration-700 group-hover:translate-x-full" />
           <span className="relative">{loading ? 'Sending OTP...' : 'Send OTP'}</span>

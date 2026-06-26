@@ -1,17 +1,21 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { ImagePlus, Trash2, X } from 'lucide-react'
+import ToastMessage from '../ToastMessage'
 import { defaultTeams, roles, roleLabels } from '../../constants/dashboard'
 
-export default function AddUserModal({ form, saving, onChange, onClose, onSubmit }) {
-  const [teams, setTeams] = useState(defaultTeams)
+export default function AddUserModal({ form, saving, error, teams: savedTeams = [], onChange, onClose, onSubmit }) {
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [teamDraft, setTeamDraft] = useState({ name: '', description: '' })
+  const [avatarError, setAvatarError] = useState('')
+  const teamOptions = useMemo(() => {
+    const names = savedTeams.map((team) => team.name || team).filter(Boolean)
+    return [...new Set([...defaultTeams, ...names])]
+  }, [savedTeams])
 
   function saveTeam() {
     const name = teamDraft.name.trim()
     if (!name) return
 
-    setTeams((value) => (value.includes(name) ? value : [...value, name]))
     onChange({ ...form, team: name })
     setTeamDraft({ name: '', description: '' })
     setCreatingTeam(false)
@@ -27,6 +31,11 @@ export default function AddUserModal({ form, saving, onChange, onClose, onSubmit
     if (!file) return
 
     if (!file.type.startsWith('image/')) return
+    if (file.size > 2 * 1024 * 1024) {
+      setAvatarError('Profile image must be under 2MB.')
+      return
+    }
+    setAvatarError('')
 
     const reader = new FileReader()
     reader.onload = () => {
@@ -106,6 +115,24 @@ export default function AddUserModal({ form, saving, onChange, onClose, onSubmit
           </Field>
         </div>
 
+        <div className="mt-5">
+          <Field label="Password">
+            <input
+              type="password"
+              value={form.password}
+              onChange={(event) => onChange({ ...form, password: event.target.value })}
+              minLength={8}
+              required
+              placeholder="Admin set password"
+              className="form-input"
+            />
+          </Field>
+          <p className="mt-2 text-xs font-bold text-slate-500">User will login with this password and OTP verification.</p>
+        </div>
+
+        {avatarError && <ToastMessage type="warning" className="mt-5">{avatarError}</ToastMessage>}
+        {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
+
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           <Field label="Role">
             <select value={form.role} onChange={(event) => onChange({ ...form, role: event.target.value })} className="form-input">
@@ -135,7 +162,7 @@ export default function AddUserModal({ form, saving, onChange, onClose, onSubmit
           <Field label="Team">
             <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
               <select value={form.team} onChange={(event) => onChange({ ...form, team: event.target.value })} className="form-input">
-                {teams.map((team) => (
+                {teamOptions.map((team) => (
                   <option key={team} value={team}>
                     {team}
                   </option>

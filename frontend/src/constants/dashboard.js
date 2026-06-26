@@ -22,7 +22,7 @@ export const roleLabels = {
   admin: 'Admin',
   superadmin: 'Super Admin',
   manager: 'Manager',
-  compliance: 'Compliance',
+  compliance: 'Compliance Manager',
   sales: 'Sales'
 }
 
@@ -30,9 +30,13 @@ export const defaultUserForm = {
   firstName: '',
   lastName: '',
   email: '',
+  password: '',
   avatarUrl: '',
   role: 'operation',
   team: 'No team assigned',
+  teamId: '',
+  managerId: '',
+  operationHeadId: '',
   isActive: true
 }
 
@@ -45,10 +49,10 @@ export const navSections = [
         icon: Home,
         children: [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard' },
-          { label: 'Pending Action', icon: Clock3 },
-          { label: 'Notifications', icon: Bell },
-          { label: 'Calendar', icon: CalendarDays },
-          { label: 'User Management', icon: Users, path: '/dashboard' }
+          { label: 'Pending Approval', icon: Clock3, path: '/pending-approval' },
+          { label: 'Notifications', icon: Bell, path: '/notifications' },
+          { label: 'Calendar', icon: CalendarDays, path: '/calendar' },
+          { label: 'User Management', icon: Users, path: '/dashboard/users' }
         ]
       }
     ]
@@ -62,7 +66,7 @@ export const navSections = [
         children: [
           { label: 'Lead Generation', icon: ClipboardList, path: '/sales/lead-generation' },
           { label: 'Client Master', icon: UserRound, path: '/sales/client-master' },
-          { label: 'Quotations', icon: FileText }
+          { label: 'Add Quotation', icon: FileText, path: '/sales/quotations?mode=add' }
         ]
       },
       { label: 'Client Data Processing', icon: FileStack },

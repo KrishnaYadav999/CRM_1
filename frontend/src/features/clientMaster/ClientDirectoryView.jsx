@@ -1,0 +1,457 @@
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { Building2, CheckCircle2, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, RefreshCw, Search, X } from 'lucide-react';
+import ToastMessage from '../../components/ToastMessage';
+import {
+  getAssignedName,
+  getClientUniqueId,
+  getFirstAnnualReturnYear,
+  getMsmeRows,
+  getMsmeSummary,
+  getVisibilityStatus,
+  matchesAssignedStaff,
+  openCcpClientEdit,
+  readClientData
+} from './clientMaster.utils';
+
+function buildStaffFilterOptions(staff = [], clients = []) {
+  const options = new Map();
+  staff.forEach((user) => {
+    const id = user._id || user.id || user.name || user.email;
+    const label = user.name || user.email;
+    if (id && label) options.set(String(id), { value: String(id), label });
+  });
+  clients.forEach((item) => {
+    const label = getAssignedName(item);
+    if (label && label !== '-') options.set(`name:${label.toLowerCase()}`, { value: `name:${label}`, label });
+  });
+  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView, selectOptions = {} }) {
+  const [query, setQuery] = useState('');
+  const [visibilityFilter, setVisibilityFilter] = useState('');
+  const [staffFilter, setStaffFilter] = useState('');
+  const [metricFilter, setMetricFilter] = useState('');
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [page, setPage] = useState(1);
+  const deferredQuery = useDeferredValue(query);
+
+  const filteredClients = useMemo(() => {
+    const term = deferredQuery.trim().toLowerCase();
+    return clients.filter((item) => {
+      const data = readClientData(item);
+      const visibility = getVisibilityStatus(item);
+      const haystack = [
+        getClientUniqueId(item),
+        data.basic?.clientLegalName,
+        data.basic?.tradeName,
+        data.registeredAddress?.state,
+        visibility,
+        getAssignedName(item),
+        data.basic?.piboCategory,
+        data.basic?.eprCategory,
+        getMsmeSummary(data),
+        data.cpcb?.status,
+        data.otp?.mobile,
+        data.otp?.personName
+      ].filter(Boolean).join(' ').toLowerCase();
+      const matchesSearch = !term || haystack.includes(term);
+      const cpcbStatus = readClientData(item).cpcb?.status;
+      const matchesVisibility = !visibilityFilter || visibility === visibilityFilter;
+      const matchesStaff = matchesAssignedStaff(item, staff, staffFilter);
+      const matchesMetric =
+        !metricFilter ||
+        metricFilter === 'live' ||
+        (metricFilter === 'annual' && Boolean(getFirstAnnualReturnYear(item, data))) ||
+        (metricFilter === 'processed' && cpcbStatus === 'Approved') ||
+        (metricFilter === 'pending' && ['Not Started', 'Applied', 'Under Review'].includes(cpcbStatus)) ||
+        (metricFilter === 'progress' && cpcbStatus === 'Under Review') ||
+        (metricFilter === 'rejected' && cpcbStatus === 'Rejected') ||
+        (metricFilter === 'discontinued' && ['DISCONTINUED', 'SUSPENDED'].includes(visibility));
+      return matchesSearch && matchesVisibility && matchesStaff && matchesMetric;
+    });
+  }, [clients, deferredQuery, metricFilter, staff, staffFilter, visibilityFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [metricFilter, query, rowsPerPage, staffFilter, visibilityFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredClients.length / rowsPerPage));
+  const visibleClients = filteredClients.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const staffFilterOptions = useMemo(() => buildStaffFilterOptions(staff, clients), [clients, staff]);
+  const metricStats = useMemo(() => {
+    const portalApproved = clients.filter((item) => readClientData(item).cpcb?.status === 'Approved').length;
+    const pending = clients.filter((item) => ['Not Started', 'Applied', 'Under Review'].includes(readClientData(item).cpcb?.status)).length;
+    const inProgress = clients.filter((item) => readClientData(item).cpcb?.status === 'Under Review').length;
+    const rejected = clients.filter((item) => readClientData(item).cpcb?.status === 'Rejected').length;
+    const discontinued = clients.filter((item) => ['DISCONTINUED', 'SUSPENDED'].includes(getVisibilityStatus(item))).length;
+    const annualReturn = clients.filter((item) => getFirstAnnualReturnYear(item)).length;
+    return [
+      { label: 'Live Applications', value: clients.length, note: 'Active client records', icon: Building2, tone: 'emerald', filter: 'live' },
+      { label: 'Annual Return', value: annualReturn, note: 'Return year mapped', icon: FileText, tone: 'violet', filter: 'annual' },
+      { label: 'Processed Apps', value: portalApproved, note: 'CPCB approved', icon: CheckCircle2, tone: 'teal', filter: 'processed' },
+      { label: 'Pending Apps', value: pending, note: 'ATPL pending', icon: FileCheck2, tone: 'amber', filter: 'pending' },
+      { label: 'In Progress', value: inProgress, note: 'Portal review', icon: RefreshCw, tone: 'sky', filter: 'progress' },
+      { label: 'Rejected', value: rejected, note: 'Portal rejected', icon: X, tone: 'rose', filter: 'rejected' },
+      { label: 'Discontinued', value: discontinued, note: 'Hidden or archived', icon: FolderCheck, tone: 'orange', filter: 'discontinued' }
+    ];
+  }, [clients]);
+  const selectedMetric = metricStats.find((stat) => stat.filter === metricFilter);
+
+  function exportExcel() {
+    const rows = filteredClients.map((item) => {
+      const data = readClientData(item);
+      return {
+        'Unique ID': getClientUniqueId(item).replace(/^-$/, ''),
+        'Trade Name': data.basic?.tradeName || '',
+        'Lead Note': data.importMeta?.leadNote || '',
+        'Lead Number': data.importMeta?.leadNumber || item.selectedLead?.leadCode || '',
+        'Client Status': data.importMeta?.clientStatus || item.workflowStatus || '',
+        'Visibility Status': getVisibilityStatus(item),
+        'Created By': data.importMeta?.createdBy || '',
+        'Creation Date': data.importMeta?.creationDate || item.createdAt || '',
+        'Assigned To': getAssignedName(item).replace(/^-$/, ''),
+        'Client Name': data.basic?.clientLegalName || '',
+        State: data.registeredAddress?.state || '',
+        'City with PIN': `${data.registeredAddress?.city || ''} ${data.registeredAddress?.pincode || ''}`.trim(),
+        'Contact Person': data.otp?.personName || data.authorised?.name || '',
+        Email: data.authorised?.email || data.coordinating?.email || '',
+        'Company Industry': data.basic?.companyIndustry || '',
+        'PIBO Category': data.basic?.piboCategory || '',
+        'Services Offered': data.basic?.servicesOffered || '',
+        'Contact No': data.otp?.mobile || data.authorised?.mobile || '',
+        Website: data.basic?.website || '',
+        'GST Number': data.compliance?.gst || '',
+        'GST Certificate Date': data.compliance?.gstDate || '',
+        CIN: data.compliance?.cin || '',
+        'CIN Document Date': data.compliance?.cinDate || '',
+        PAN: data.compliance?.pan || '',
+        'PAN Document Date': data.compliance?.panDate || '',
+        'Factory License No': data.compliance?.factoryLicense || '',
+        'Factory License Document Date': data.compliance?.factoryLicenseDate || '',
+        'MSME 1': getMsmeRows(data)?.[0]?.value || getMsmeRows(data)?.[0]?.udyamNumber || '',
+        'MSME 2': getMsmeRows(data)?.[1]?.value || getMsmeRows(data)?.[1]?.udyamNumber || '',
+        'MSME 3': getMsmeRows(data)?.[2]?.value || getMsmeRows(data)?.[2]?.udyamNumber || '',
+        'MSME 4': getMsmeRows(data)?.[3]?.value || getMsmeRows(data)?.[3]?.udyamNumber || '',
+        'MSME 5': getMsmeRows(data)?.[4]?.value || getMsmeRows(data)?.[4]?.udyamNumber || '',
+        'CPCB Reg No': data.cpcb?.registrationNumber || '',
+        'CPCB Status': data.cpcb?.status || '',
+        'CEPR User ID': data.cpcb?.ceprUserId || '',
+        'CEPR Password': data.cpcb?.ceprPassword || '',
+        'CPCB Login': data.cpcb?.loginId || '',
+        'CPCB Password': data.cpcb?.loginPassword || '',
+        'EPR Category': data.basic?.eprCategory || '',
+        'EPR Certificate No': data.compliance?.eprCertificate || '',
+        'Approval Status': item.adminControls?.approvalStatus || '',
+        'Approved By': data.importMeta?.approvedBy || '',
+        'OTP Mobile': data.otp?.mobile || '',
+        'OTP Name': data.otp?.personName || '',
+        'Reg Address Line 1': data.registeredAddress?.address1 || '',
+        'Reg Address Line 2': data.registeredAddress?.address2 || '',
+        'Reg Address Line 3': data.registeredAddress?.address3 || '',
+        'Reg City': data.registeredAddress?.city || '',
+        'Reg State': data.registeredAddress?.state || '',
+        'Reg PIN': data.registeredAddress?.pincode || '',
+        'Comm Address Line 1': data.communicationAddress?.address1 || '',
+        'Comm Address Line 2': data.communicationAddress?.address2 || '',
+        'Comm Address Line 3': data.communicationAddress?.address3 || '',
+        'Comm City': data.communicationAddress?.city || '',
+        'Comm State': data.communicationAddress?.state || '',
+        'Comm PIN': data.communicationAddress?.pincode || '',
+        'Document URLs (max 5)': (data.validation?.documentUrls || []).join(', '),
+        'Auth Person Name': data.authorised?.name || '',
+        'Auth Person Designation': data.authorised?.designation || '',
+        'Auth Person Mobile': data.authorised?.mobile || '',
+        'Auth Person Email': data.authorised?.email || '',
+        'Coord Person Name': data.coordinating?.name || '',
+        'Coord Person Designation': data.coordinating?.designation || '',
+        'Coord Person Mobile': data.coordinating?.mobile || '',
+        'Coord Person Email': data.coordinating?.email || ''
+      };
+    });
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Clients');
+    XLSX.writeFile(workbook, 'clients.xlsx');
+  }
+
+  return (
+    <div className="px-4 py-6 sm:px-6 lg:px-8">
+      <div className="space-y-7">
+        <ClientStoryStats
+          stats={metricStats}
+          activeFilter={metricFilter}
+          onFilterChange={(filter) => setMetricFilter((current) => (current === filter ? '' : filter))}
+        />
+        {selectedMetric && <ClientMetricOutputCard stat={selectedMetric} clients={filteredClients} onClose={() => setMetricFilter('')} onExport={exportExcel} />}
+        {error && <ToastMessage type="error">{error}</ToastMessage>}
+
+        <div className="client-directory-toolbar grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm xl:grid-cols-[minmax(240px,1.2fr)_minmax(210px,0.8fr)_minmax(190px,0.8fr)_auto] xl:items-center">
+          <div className="relative min-w-0">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-12 w-full rounded-lg border border-slate-200 bg-white px-5 pr-12 text-base font-black text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100" />
+            <Search className="pointer-events-none absolute right-6 top-1/2 h-6 w-6 -translate-y-1/2 text-slate-400" />
+          </div>
+          <select value={visibilityFilter} onChange={(event) => setVisibilityFilter(event.target.value)} className="form-input min-h-12 rounded-lg xl:max-w-none">
+            <option value="">All Visibility Status</option>
+            {(selectOptions.visibilityStatus || []).map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <select value={staffFilter} onChange={(event) => setStaffFilter(event.target.value)} className="form-input min-h-12 rounded-lg xl:max-w-none">
+            <option value="">All Staff</option>
+            {staffFilterOptions.map((user) => <option key={user.value} value={user.value}>{user.label}</option>)}
+          </select>
+          <div className="grid grid-cols-3 gap-2 xl:flex xl:justify-end">
+            <button type="button" onClick={() => { setQuery(''); setVisibilityFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
+            <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
+            <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
+          </div>
+        </div>
+
+        <DirectoryTableHeader showing={visibleClients.length} total={filteredClients.length} label="clients" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
+        <div className="client-directory-table-shell overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="hidden-scrollbar max-h-[520px] overflow-auto">
+            <table className="crm-data-table w-full min-w-[1280px] table-fixed text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
+                <tr>
+                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'PIBO', 'EPR Category', 'MSME', 'CPCB Approval', 'OTP Mobile', 'OTP Name', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {visibleClients.length === 0 ? (
+                  loading ? <ClientTableLoadingRows /> : <tr><td colSpan={13} className="px-5 py-12 text-center font-black text-slate-400">No clients found.</td></tr>
+                ) : visibleClients.map((item) => {
+                  const data = readClientData(item);
+                  return (
+                    <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
+                      <td className="px-5 py-4 font-black text-slate-900"><span className="cell-clip">{getClientUniqueId(item)}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{data.basic?.clientLegalName || '-'}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.tradeName || '-'}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.registeredAddress?.state || '-'}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getAssignedName(item)}</span></td>
+                      <td className="px-5 py-4"><span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">{getVisibilityStatus(item)}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.piboCategory || '-'}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.eprCategory || '-'}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getMsmeSummary(data)}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.cpcb?.status || '-'}</span></td>
+                      <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{data.otp?.mobile || '-'}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.otp?.personName || '-'}</span></td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => openCcpClientEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit in CCP"><Edit3 className="h-4 w-4" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useCountUp(value, active, duration = 850) {
+  const [displayValue, setDisplayValue] = useState(active ? value : 0);
+
+  useEffect(() => {
+    if (!active) {
+      setDisplayValue(0);
+      return undefined;
+    }
+
+    const start = performance.now();
+    const to = Number(value) || 0;
+    let frameId;
+
+    function tick(now) {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(Math.round(to * eased));
+      if (progress < 1) frameId = requestAnimationFrame(tick);
+    }
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [active, duration, value]);
+
+  return displayValue;
+}
+
+function ClientStoryStats({ stats, activeFilter, onFilterChange }) {
+  const [visibleCount, setVisibleCount] = useState(1);
+
+  useEffect(() => {
+    setVisibleCount(1);
+    const timers = stats.slice(1).map((_, index) =>
+      window.setTimeout(() => setVisibleCount(index + 2), 500 * (index + 1))
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [stats.length]);
+
+  return (
+    <section className="lead-story-panel client-story-panel">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-700">Client Performance Flow</p>
+          <h2 className="mt-2 text-3xl font-black text-slate-950">Live client movement</h2>
+        </div>
+        <p className="max-w-xl text-sm font-bold text-slate-500">
+          Quick client status snapshot for applications, CPCB progress, and visibility state.
+        </p>
+      </div>
+
+      <div className="client-story-grid mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-7 xl:gap-5">
+        {stats.map((stat, index) => (
+          <ClientStoryCard
+            key={stat.label}
+            stat={stat}
+            index={index}
+            active={index < visibleCount}
+            selected={Boolean(stat.filter && activeFilter === stat.filter)}
+            onSelect={stat.filter ? () => onFilterChange(stat.filter) : undefined}
+            showArrow={index < stats.length - 1}
+            arrowActive={index < visibleCount - 1}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ClientStoryCard({ stat, index, active, selected, onSelect, showArrow, arrowActive }) {
+  const Icon = stat.icon;
+  const value = useCountUp(stat.value, active);
+  const Component = onSelect ? 'button' : 'article';
+
+  return (
+    <Component type={onSelect ? 'button' : undefined} onClick={onSelect} className={`lead-story-card client-story-card lead-story-${stat.tone} ${active ? 'lead-story-card-active' : ''} ${selected ? 'lead-story-card-selected' : ''}`} style={{ '--delay': `${index * 80}ms` }}>
+      {showArrow && <span className={`lead-story-arrow ${arrowActive ? 'lead-story-arrow-active' : ''}`} />}
+      <div className="lead-story-topline" />
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">{stat.label}</p>
+          <p className="count-up-number mt-2 text-3xl font-black text-slate-950">{value}</p>
+        </div>
+        <span className="lead-story-icon">
+          <Icon className="h-5 w-5" />
+        </span>
+      </div>
+      <p className="mt-3 text-[10px] font-black uppercase leading-4 text-slate-500">{stat.note}</p>
+    </Component>
+  );
+}
+
+function ClientMetricOutputCard({ stat, clients, onClose, onExport }) {
+  const Icon = stat.icon;
+  const preview = clients.slice(0, 10);
+
+  return (
+    <section className={`metric-output-card lead-story-${stat.tone}`}>
+      <div className="flex flex-col gap-4 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="lead-story-icon"><Icon className="h-5 w-5" /></span>
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Selected Output</p>
+            <h3 className="truncate text-xl font-black text-slate-950">{stat.label}</h3>
+          </div>
+          <span className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700">{clients.length} records</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onExport} className="btn-lift inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" /> Export</button>
+          <button type="button" onClick={onClose} className="btn-lift inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" /> Close</button>
+        </div>
+      </div>
+      <div className="hidden-scrollbar max-h-[320px] overflow-auto">
+        <table className="crm-data-table w-full min-w-[900px] table-fixed text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500">
+            <tr>{['Unique ID', 'Legal Name', 'State', 'Visibility', 'CPCB', 'OTP Mobile'].map((header) => <th key={header} className="px-4 py-3">{header}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {preview.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center font-black text-slate-400">No records found.</td></tr>
+            ) : preview.map((item) => {
+              const data = readClientData(item);
+              return (
+                <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
+                  <td className="px-4 py-3 font-black text-slate-900"><span className="cell-clip">{getClientUniqueId(item)}</span></td>
+                  <td className="px-4 py-3 font-black uppercase text-slate-600"><span className="cell-clamp">{data.basic?.clientLegalName || '-'}</span></td>
+                  <td className="px-4 py-3 font-black uppercase text-slate-500"><span className="cell-clip">{data.registeredAddress?.state || '-'}</span></td>
+                  <td className="px-4 py-3"><span className="rounded-lg bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{getVisibilityStatus(item)}</span></td>
+                  <td className="px-4 py-3 font-black uppercase text-slate-500"><span className="cell-clip">{data.cpcb?.status || '-'}</span></td>
+                  <td className="px-4 py-3 font-black text-slate-500"><span className="cell-clip">{data.otp?.mobile || '-'}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {clients.length > preview.length && <p className="border-t border-slate-100 px-4 py-3 text-sm font-bold text-slate-500">Showing first {preview.length} records here. Export includes all {clients.length} filtered records.</p>}
+    </section>
+  );
+}
+
+
+function ClientTableLoadingRows() {
+  return Array.from({ length: 6 }, (_, rowIndex) => (
+    <tr key={rowIndex} className="client-table-loading-row">
+      {Array.from({ length: 13 }, (_, cellIndex) => (
+        <td key={cellIndex} className="px-5 py-4">
+          <span
+            className={`table-skeleton ${cellIndex === 1 || cellIndex === 2 || cellIndex === 7 ? 'table-skeleton-wide' : ''} ${cellIndex === 12 ? 'table-skeleton-action' : ''}`}
+          />
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
+function DirectoryMetric({ label, value, note }) {
+  return (
+    <div className="min-h-36 rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/5">
+      <p className="text-sm font-black text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-black text-slate-950">{value}</p>
+      {note && <p className="mt-6 text-xs font-black uppercase text-slate-500">{note}</p>}
+    </div>
+  );
+}
+
+function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPage, page, setPage, totalPages }) {
+  const start = total ? (page - 1) * rowsPerPage + 1 : 0;
+  const end = total ? start + showing - 1 : 0;
+  const [draftPage, setDraftPage] = useState(String(page));
+
+  useEffect(() => {
+    setDraftPage(String(page));
+  }, [page]);
+
+  function jumpToPage(event) {
+    event.preventDefault();
+    const nextPage = Math.min(totalPages, Math.max(1, Number.parseInt(draftPage, 10) || 1));
+    setPage(nextPage);
+  }
+
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="font-black text-slate-600">Showing {showing} of {total} {label} <span className="ml-2">(Page {page} of {totalPages})</span></p>
+      <div className="flex flex-wrap items-center gap-3 font-black text-slate-600">
+        <span>{start} - {end} of {total}</span>
+        <form onSubmit={jumpToPage} className="inline-flex items-center gap-2">
+          <span>Go to:</span>
+          <input value={draftPage} onChange={(event) => setDraftPage(event.target.value)} className="h-11 w-20 rounded-lg border border-slate-200 bg-white px-3 text-center font-black outline-none focus:border-emerald-400" inputMode="numeric" />
+        </form>
+        <span>Rows per page:</span>
+        <select value={rowsPerPage} onChange={(event) => setRowsPerPage(Number(event.target.value))} className="h-11 rounded-lg border border-slate-200 bg-white px-3 font-black outline-none">
+          {[10, 25, 50, 100].map((count) => <option key={count} value={count}>{count}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+
+
+export default ClientDirectoryView;
+

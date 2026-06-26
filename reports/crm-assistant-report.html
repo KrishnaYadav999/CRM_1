@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CRM Assistant Capability and Vision Report</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #eef8f6;
+      color: #132033;
+      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      line-height: 1.5;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      background: #f8fbff;
+      padding: 0;
+    }
+    .cover {
+      position: relative;
+      overflow: hidden;
+      min-height: 250mm;
+      border: 1px solid #d5e8e5;
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at 88% 10%, rgba(37, 99, 235, 0.18), transparent 32%),
+        radial-gradient(circle at 8% 0%, rgba(20, 184, 166, 0.22), transparent 34%),
+        linear-gradient(135deg, #ffffff 0%, #effaf7 100%);
+      padding: 36px;
+    }
+    .brand-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid rgba(219, 231, 229, .85);
+      padding-bottom: 22px;
+    }
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand-logo img {
+      width: 270px;
+      height: 92px;
+      object-fit: contain;
+      object-position: left center;
+      border-radius: 14px;
+      background: #ffffff;
+      padding: 8px 12px;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, .06);
+    }
+    .brand-copy {
+      text-align: right;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .brand-copy strong {
+      display: block;
+      color: #0f172a;
+      font-size: 18px;
+      font-weight: 950;
+    }
+    .cover:before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(90deg, rgba(15, 118, 110, 0.055) 1px, transparent 1px),
+        linear-gradient(rgba(15, 118, 110, 0.045) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: linear-gradient(120deg, rgba(0,0,0,.42), transparent 72%);
+    }
+    .cover > * { position: relative; z-index: 1; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #bde8e0;
+      border-radius: 999px;
+      background: #ecfdf5;
+      padding: 8px 12px;
+      color: #0f766e;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 620px;
+      margin: 38px 0 0;
+      color: #0f172a;
+      font-size: 54px;
+      font-weight: 950;
+      line-height: .96;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 680px;
+      margin-top: 20px;
+      color: #475569;
+      font-size: 17px;
+      font-weight: 700;
+    }
+    .cover-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 42px;
+    }
+    .hero-statement {
+      max-width: 720px;
+      margin-top: 34px;
+      border: 1px solid #dbe7e5;
+      border-left: 6px solid #f97316;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .88);
+      padding: 20px;
+      color: #334155;
+      font-size: 15px;
+      font-weight: 760;
+    }
+    .cover-card, .card, .section {
+      border: 1px solid #dbe7e5;
+      border-radius: 16px;
+      background: rgba(255,255,255,.94);
+      box-shadow: 0 14px 32px rgba(15, 23, 42, .06);
+    }
+    .cover-card { padding: 18px; }
+    .cover-card span, .label {
+      display: block;
+      color: #0f766e;
+      font-size: 11px;
+      font-weight: 950;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .cover-card strong {
+      display: block;
+      margin-top: 10px;
+      color: #0f172a;
+      font-size: 24px;
+      font-weight: 950;
+    }
+    .cover-footer {
+      position: absolute;
+      left: 36px;
+      right: 36px;
+      bottom: 34px;
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      border-top: 1px solid #dbe7e5;
+      padding-top: 20px;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .section {
+      margin-top: 18px;
+      padding: 24px;
+      break-inside: avoid;
+    }
+    h2 {
+      margin: 0;
+      color: #0f172a;
+      font-size: 26px;
+      font-weight: 950;
+    }
+    h3 {
+      margin: 0 0 8px;
+      color: #0f172a;
+      font-size: 17px;
+      font-weight: 950;
+    }
+    p { margin: 10px 0 0; color: #475569; font-weight: 650; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .card { padding: 16px; }
+    .card strong {
+      display: block;
+      margin-top: 8px;
+      color: #0f172a;
+      font-size: 18px;
+      font-weight: 950;
+    }
+    .capability-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .capability {
+      border-left: 5px solid #14b8a6;
+      border-radius: 14px;
+      background: #ffffff;
+      padding: 15px;
+      break-inside: avoid;
+    }
+    .capability:nth-child(2n) { border-left-color: #2563eb; }
+    .capability:nth-child(3n) { border-left-color: #f97316; }
+    .capability ul, .roadmap ul, .risks ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: #475569;
+      font-weight: 650;
+    }
+    .capability li, .roadmap li, .risks li { margin: 4px 0; }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .roadmap {
+      border-radius: 16px;
+      background: #ffffff;
+      padding: 18px;
+      border: 1px solid #dbe7e5;
+      break-inside: avoid;
+    }
+    .process {
+      position: relative;
+      border-radius: 16px;
+      background: #ffffff;
+      border: 1px solid #dbe7e5;
+      padding: 18px;
+      break-inside: avoid;
+    }
+    .process:before {
+      content: "";
+      display: block;
+      width: 42px;
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #f97316, #0f766e);
+      margin-bottom: 14px;
+    }
+    .callout {
+      margin-top: 16px;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 100% 0%, rgba(249, 115, 22, .14), transparent 30%),
+        linear-gradient(135deg, #ffffff, #f8fbfa);
+      border: 1px solid #dbe7e5;
+      padding: 18px;
+    }
+    .phase {
+      display: inline-flex;
+      border-radius: 999px;
+      background: #eff6ff;
+      padding: 6px 10px;
+      color: #2563eb;
+      font-size: 11px;
+      font-weight: 950;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    table {
+      width: 100%;
+      margin-top: 16px;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid #dbe7e5;
+      border-radius: 14px;
+      background: #ffffff;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #edf2f7;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f8fafc;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 950;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    tr:last-child td { border-bottom: 0; }
+    td { color: #475569; font-weight: 650; }
+    .pill {
+      display: inline-flex;
+      border-radius: 999px;
+      background: #ecfdf5;
+      padding: 5px 9px;
+      color: #0f766e;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .recommendations {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+      counter-reset: rec;
+    }
+    .recommendations div {
+      position: relative;
+      border-radius: 14px;
+      background: #ffffff;
+      border: 1px solid #dbe7e5;
+      padding: 14px 14px 14px 48px;
+    }
+    .recommendations div:before {
+      counter-increment: rec;
+      content: counter(rec);
+      position: absolute;
+      left: 14px;
+      top: 14px;
+      display: grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border-radius: 999px;
+      background: #0f766e;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 950;
+    }
+    .footer-note {
+      margin-top: 18px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #0f766e, #2563eb);
+      padding: 20px;
+      color: #ffffff;
+      font-weight: 850;
+    }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 18px;
+      border-radius: 16px;
+      border: 1px solid #dbe7e5;
+      background: #ffffff;
+      padding: 14px 18px;
+    }
+    .page-header img {
+      width: 160px;
+      height: 52px;
+      object-fit: contain;
+      object-position: left center;
+    }
+    .page-header span {
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .footer-note strong { color: #ffffff; font-size: 18px; }
+    .print-break { break-before: page; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="cover">
+      <div class="brand-top">
+        <div class="brand-logo">
+          <img src="../frontend/public/favicon.svg" alt="Anant Tattva logo">
+        </div>
+        <div class="brand-copy">
+          <strong>Anant Tattva CRM</strong>
+          <span>Assistant Capability and Future Vision</span>
+        </div>
+      </div>
+      <span class="badge" style="margin-top: 34px;">CRM Assistant Report</span>
+      <h1>Capability, Current Scope, and Future Vision</h1>
+      <p class="subtitle">A professional review of what the current CRM Assistant can do today, how it supports users inside the CRM, and how it can evolve into a more advanced operational AI layer.</p>
+      <div class="hero-statement">
+        This document is designed as a product and management report. It explains the current bot in business language, identifies the technical maturity of the assistant, and defines a practical path to convert it into a secure, role-aware CRM copilot for sales, operations, compliance, and management teams.
+      </div>
+      <div class="cover-grid">
+        <div class="cover-card"><span>Current Mode</span><strong>Rule-guided CRM helper</strong></div>
+        <div class="cover-card"><span>Coverage</span><strong>Dashboard to Client Master</strong></div>
+        <div class="cover-card"><span>Next Vision</span><strong>Actionable AI copilot</strong></div>
+      </div>
+      <div class="cover-footer">
+        <span>Prepared for CRM product planning</span>
+        <span>June 25, 2026</span>
+      </div>
+    </section>
+
+    <div class="page-header">
+      <img src="../frontend/public/favicon.svg" alt="Anant Tattva logo">
+      <span>CRM Assistant Capability Report</span>
+    </div>
+
+    <section class="section">
+      <span class="label">Executive Summary</span>
+      <h2>What the CRM Assistant is today</h2>
+      <p>The current CRM Assistant is an in-app guidance bot designed to help users understand CRM workflows, page features, and operational terminology. It is not yet a full natural-language AI agent connected to live backend execution, but it already provides useful contextual support across the CRM.</p>
+      <div class="summary">
+        <div class="card"><span class="label">Primary Purpose</span><strong>Explain CRM workflows clearly</strong><p>It answers questions about modules, guides users through page-level flows, and provides contextual quick prompts.</p></div>
+        <div class="card"><span class="label">Key Strength</span><strong>Deep Client Master map</strong><p>It has detailed knowledge of Client Master tabs, annual return sections, compliance data, quotations, and follow-up workflows.</p></div>
+        <div class="card"><span class="label">Data Awareness</span><strong>Browser-local CRM data checks</strong><p>It can read selected local/session storage data and generate a company audit when matching cached client data is available.</p></div>
+        <div class="card"><span class="label">User Experience</span><strong>Embedded sidebar assistant</strong><p>It opens from the dashboard shell, supports quick prompts, fullscreen mode, typing state, suggestions, and structured report rendering.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <span class="label">Current Capabilities</span>
+      <h2>What the CRM Assistant can do now</h2>
+      <p>The assistant currently works as a CRM knowledge layer. It is helpful for onboarding, explaining complicated modules, reducing user confusion, and guiding users toward the correct page or workflow. Its strongest area is structured explanation of Client Master, Annual Return, Calendar, Notifications, Pending Approval, Lead Generation, and Quotations.</p>
+      <div class="capability-grid">
+        <div class="capability"><h3>1. Page-aware guidance</h3><p>The assistant detects the active route and shows relevant prompts for Dashboard, Pending Approval, Notifications, Calendar, Lead Generation, Client Master, and Quotations.</p></div>
+        <div class="capability"><h3>2. Quick CRM explanations</h3><p>It explains core CRM concepts such as follow-ups, todos, approvals, quotations, notifications, sales dashboard, user roles, and client records.</p></div>
+        <div class="capability"><h3>3. Dashboard support</h3><p>It explains operations view, sales view, KPI cards, follow-up panels, and user management at a high level.</p></div>
+        <div class="capability"><h3>4. Pending Approval guidance</h3><p>It explains approval flow, approve/reject actions, remarks, and bulk approval use cases.</p></div>
+        <div class="capability"><h3>5. Notifications guide</h3><p>It explains creation, tags, attachments, detail view, edit flow, and deletion of internal notifications.</p></div>
+        <div class="capability"><h3>6. Calendar and todo guide</h3><p>It explains agenda, follow-ups, todos, history, overdue work, and mark-complete behavior with completion remarks.</p></div>
+        <div class="capability"><h3>7. Lead and quotation guidance</h3><p>It explains lead creation, lead status, conversion to Client Master, quotation items, value/tax, and quotation approval flow.</p></div>
+        <div class="capability"><h3>8. Client Master knowledge</h3><p>It explains Client Basic Info, Address Details, Compliance & MSME, CTE/CTO/CCA, CPCB Details, Validation Documents, OTP & People, Quotation History, Annual Return History, and Ticket.</p></div>
+        <div class="capability"><h3>9. Annual Return workflow map</h3><p>It explains Annual Basic Info, Financials, Data sections Part A to Part D, CPCB Letter, manager review, compliance review, approval, and rejection flow.</p></div>
+        <div class="capability"><h3>10. Company audit from cached data</h3><p>When a user asks about a company and matching cached client data exists, it can generate a structured audit with completion score, missing fields, active process notes, related calendar work, and quotation references.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <span class="label">Operating Model</span>
+      <h2>How the assistant works inside the CRM</h2>
+      <div class="three-col">
+        <div class="process"><h3>1. Page context</h3><p>The assistant checks the current route and shows module-specific suggestions. A user opening Client Master, Calendar, Pending Approval, or Quotations receives prompts relevant to that page.</p></div>
+        <div class="process"><h3>2. Intent matching</h3><p>It normalizes the user question and compares it with CRM-specific keyword groups. This gives quick answers for known topics and keeps responses consistent.</p></div>
+        <div class="process"><h3>3. Knowledge response</h3><p>The assistant returns structured answers, source labels, confidence labels, and suggested follow-up questions so users can continue learning without typing long prompts.</p></div>
+        <div class="process"><h3>4. Local data reading</h3><p>For selected scenarios, it reads browser local/session storage and uses cached CRM data to provide counts or a client/company audit report.</p></div>
+        <div class="process"><h3>5. Report rendering</h3><p>When a company audit is available, the assistant renders a structured report table with completion score, missing fields, active process notes, and related work information.</p></div>
+        <div class="process"><h3>6. UI interaction</h3><p>It supports a floating trigger, sidebar panel, fullscreen mode, quick prompts, typing indicator, close/reset flow, and contextual suggestion buttons.</p></div>
+      </div>
+      <div class="callout"><strong>Important assessment:</strong> the current assistant is a strong guided-help foundation. The next major upgrade should connect it to authenticated backend APIs and semantic AI so it can answer live business questions and safely perform actions.</div>
+    </section>
+
+    <section class="section print-break">
+      <span class="label">Functional Inventory</span>
+      <h2>Feature coverage matrix</h2>
+      <table>
+        <thead><tr><th>Area</th><th>Current Bot Support</th><th>Current Level</th></tr></thead>
+        <tbody>
+          <tr><td>Dashboard</td><td>Explains operations/sales dashboard, KPI cards, follow-ups, and user management.</td><td><span class="pill">Guide</span></td></tr>
+          <tr><td>Pending Approval</td><td>Explains approve, reject, bulk approval, and remarks flow.</td><td><span class="pill">Guide</span></td></tr>
+          <tr><td>Notifications</td><td>Explains notifications page, create/edit/delete, tags, and attachments.</td><td><span class="pill">Guide</span></td></tr>
+          <tr><td>Calendar</td><td>Explains agenda, follow-ups, todos, history, and completion remarks.</td><td><span class="pill">Guide</span></td></tr>
+          <tr><td>Lead Generation</td><td>Explains lead creation, owner assignment, status, and conversion.</td><td><span class="pill">Guide</span></td></tr>
+          <tr><td>Client Master</td><td>Detailed tab-by-tab explanation, including compliance, CPCB, validation documents, people, annual return, quotations, and tickets.</td><td><span class="pill">Deep Guide</span></td></tr>
+          <tr><td>Company Audit</td><td>Reads cached browser data to score client completeness and show missing fields.</td><td><span class="pill">Local Data Insight</span></td></tr>
+          <tr><td>Live Actions</td><td>Does not yet execute backend actions such as creating leads, approving records, or updating client fields directly from chat.</td><td><span class="pill">Future</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <span class="label">Business Value</span>
+      <h2>Why the assistant matters for CRM operations</h2>
+      <div class="two-col">
+        <div class="roadmap">
+          <h3>For sales users</h3>
+          <ul>
+            <li>Explains lead capture, lead owner assignment, conversion, and quotation creation.</li>
+            <li>Helps users understand quotation context, items, approval flow, and client history links.</li>
+            <li>Can guide users toward pending follow-ups and calendar-linked tasks.</li>
+          </ul>
+        </div>
+        <div class="roadmap">
+          <h3>For operations users</h3>
+          <ul>
+            <li>Explains Client Master data sections and annual return workflow.</li>
+            <li>Supports compliance teams by clarifying CPCB, CTE/CTO/CCA, validation documents, and annual filing parts.</li>
+            <li>Can identify missing cached client fields through the audit report capability.</li>
+          </ul>
+        </div>
+        <div class="roadmap">
+          <h3>For managers</h3>
+          <ul>
+            <li>Improves visibility into approvals, pending work, and operational process logic.</li>
+            <li>Provides a foundation for future daily briefings and record summaries.</li>
+            <li>Can become a decision-support tool for approval and compliance review.</li>
+          </ul>
+        </div>
+        <div class="roadmap">
+          <h3>For new team members</h3>
+          <ul>
+            <li>Acts as an onboarding guide for complex CRM modules.</li>
+            <li>Reduces dependency on seniors for repeated workflow questions.</li>
+            <li>Provides consistent explanations of internal CRM terminology.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <span class="label">Strengths and Limits</span>
+      <h2>Current maturity assessment</h2>
+      <div class="two-col">
+        <div class="roadmap">
+          <h3>Strengths</h3>
+          <ul>
+            <li>Clear CRM-specific knowledge, not generic support text.</li>
+            <li>Contextual suggestions based on the user’s current page.</li>
+            <li>Strong Client Master and Annual Return workflow coverage.</li>
+            <li>Can generate structured company audit reports from browser data.</li>
+            <li>Good UI foundation: sidebar trigger, fullscreen panel, quick prompts, typing state, and report cards.</li>
+          </ul>
+        </div>
+        <div class="roadmap risks">
+          <h3>Current limitations</h3>
+          <ul>
+            <li>Mostly rule-based keyword matching, not semantic AI understanding.</li>
+            <li>Limited to predefined knowledge and browser-cached data.</li>
+            <li>No direct backend write actions from chat.</li>
+            <li>No role-aware task automation or approval execution yet.</li>
+            <li>No document understanding, voice, multilingual support, or predictive analytics yet.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section print-break">
+      <span class="label">Future Vision</span>
+      <h2>How to make the CRM Assistant advanced</h2>
+      <div class="two-col">
+        <div class="roadmap">
+          <span class="phase">Phase 1</span>
+          <h3>Smarter knowledge assistant</h3>
+          <ul>
+            <li>Add semantic search across CRM help content and workflow documentation.</li>
+            <li>Support Hinglish and English responses based on user preference.</li>
+            <li>Improve intent detection beyond keywords.</li>
+            <li>Add module-specific “how to fix this” guidance.</li>
+          </ul>
+        </div>
+        <div class="roadmap">
+          <span class="phase">Phase 2</span>
+          <h3>Live CRM data copilot</h3>
+          <ul>
+            <li>Connect safely to backend APIs for real-time counts and record lookup.</li>
+            <li>Answer questions like “show overdue follow-ups for this week”.</li>
+            <li>Summarize a client, quotation, annual return, or pending approval record.</li>
+            <li>Provide role-aware views for sales, operations, manager, and admin users.</li>
+          </ul>
+        </div>
+        <div class="roadmap">
+          <span class="phase">Phase 3</span>
+          <h3>Action assistant</h3>
+          <ul>
+            <li>Create follow-ups, todos, notifications, and draft leads from chat.</li>
+            <li>Prepare quotation drafts using client context.</li>
+            <li>Generate approval summaries before approve/reject decisions.</li>
+            <li>Use confirmation steps for sensitive actions.</li>
+          </ul>
+        </div>
+        <div class="roadmap">
+          <span class="phase">Phase 4</span>
+          <h3>Intelligent automation layer</h3>
+          <ul>
+            <li>Predict missing compliance fields before annual return submission.</li>
+            <li>Recommend next follow-up dates based on client history.</li>
+            <li>Detect duplicate clients, incomplete documents, and stale records.</li>
+            <li>Create management summaries and daily work briefings automatically.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <span class="label">Advanced Use Cases</span>
+      <h2>Best future use cases for a pro-level CRM copilot</h2>
+      <table>
+        <thead><tr><th>Use Case</th><th>Future Assistant Behavior</th><th>Business Impact</th></tr></thead>
+        <tbody>
+          <tr><td>Daily work briefing</td><td>Show today’s follow-ups, overdue todos, pending approvals, new leads, and high-value quotations.</td><td>Better daily productivity and fewer missed actions.</td></tr>
+          <tr><td>Client readiness audit</td><td>Check Client Master completeness, missing compliance fields, missing documents, and annual return readiness.</td><td>Improved data quality and faster compliance processing.</td></tr>
+          <tr><td>Approval summary</td><td>Before approval, summarize key client or quotation details, risks, missing fields, and recommended decision.</td><td>Better review quality and reduced approval mistakes.</td></tr>
+          <tr><td>Quotation draft assistant</td><td>Create a quotation draft from client context, service category, annual year, EPR category, and basic amount.</td><td>Faster sales proposal creation.</td></tr>
+          <tr><td>Follow-up automation</td><td>Suggest next follow-up date, assign user, and create calendar task after confirmation.</td><td>Cleaner client engagement tracking.</td></tr>
+          <tr><td>Document intelligence</td><td>Read uploaded PDFs or SOPs and produce summaries, checklists, and missing document alerts.</td><td>Reduced manual review time.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <span class="label">Technical Blueprint</span>
+      <h2>Recommended architecture for the next version</h2>
+      <div class="three-col">
+        <div class="process"><h3>AI layer</h3><p>Add an LLM-powered interpretation layer for natural language understanding, follow-up questions, summarization, and semantic matching.</p></div>
+        <div class="process"><h3>API tool layer</h3><p>Expose safe backend tools for read-only queries first, then controlled write actions such as creating todos or drafting notifications.</p></div>
+        <div class="process"><h3>Permission layer</h3><p>Every action should check role, team, ownership, and allowed page permissions before execution.</p></div>
+        <div class="process"><h3>Audit log</h3><p>Store every assistant action, user confirmation, generated summary, and final executed change for governance.</p></div>
+        <div class="process"><h3>Knowledge base</h3><p>Maintain CRM help articles, SOPs, field definitions, and workflow rules in a searchable knowledge base.</p></div>
+        <div class="process"><h3>Human confirmation</h3><p>Use confirmation screens for approve, reject, delete, assign, update, and any other sensitive workflow action.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <span class="label">Recommended Enhancements</span>
+      <h2>Best-to-best improvement roadmap</h2>
+      <div class="recommendations">
+        <div><h3>Backend-connected answers</h3><p>Move from only browser storage to authenticated API-backed queries for clients, leads, quotations, approvals, notifications, and calendar tasks.</p></div>
+        <div><h3>Role-based intelligence</h3><p>Make responses respect user role, team, reporting manager, and page permissions so the assistant recommends only allowed actions.</p></div>
+        <div><h3>Action confirmation workflow</h3><p>For actions like approve, reject, assign, delete, or update, show a preview and ask for confirmation before executing.</p></div>
+        <div><h3>Document and attachment support</h3><p>Allow the assistant to summarize uploaded PDFs, SOPs, quotations, compliance documents, and CPCB letters.</p></div>
+        <div><h3>Daily operational briefing</h3><p>Add “Today’s Work” briefing covering overdue todos, pending approvals, follow-ups, new leads, quotation value, and annual return review items.</p></div>
+        <div><h3>Audit and compliance scoring</h3><p>Expand company audit into compliance readiness scores for CPCB, MSME, documents, annual return data, and quotation financials.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <span class="label">Governance and KPIs</span>
+      <h2>How to measure success</h2>
+      <div class="two-col">
+        <div class="roadmap">
+          <h3>Governance principles</h3>
+          <ul>
+            <li>Never execute sensitive CRM actions without user confirmation.</li>
+            <li>Respect role-based access control and ownership rules.</li>
+            <li>Show source and confidence for every important answer.</li>
+            <li>Keep an audit trail of AI-assisted decisions and actions.</li>
+            <li>Separate draft generation from final submission or approval.</li>
+          </ul>
+        </div>
+        <div class="roadmap">
+          <h3>Success metrics</h3>
+          <ul>
+            <li>Reduction in repeated support questions from CRM users.</li>
+            <li>Faster lead, quotation, and client onboarding completion.</li>
+            <li>Lower missing-field rate in Client Master and Annual Return data.</li>
+            <li>Reduced overdue follow-ups and todos.</li>
+            <li>Improved approval turnaround time.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <span class="label">Target Experience</span>
+      <h2>Future CRM Assistant vision statement</h2>
+      <p>The long-term vision is to convert CRM Assistant from a help bot into a trusted CRM copilot. It should understand the user’s current page, role, and business context; answer live questions; summarize records; identify gaps; recommend next actions; and safely perform routine CRM tasks after user confirmation.</p>
+      <div class="footer-note">
+        <strong>Vision:</strong> CRM Assistant should become the operational command layer of the CRM, helping every user move faster while keeping approvals, compliance, and client data quality under control.
+      </div>
+    </section>
+  </main>
+</body>
+</html>

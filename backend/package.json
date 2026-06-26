@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "test": "node --test",
     "seed-admin": "node src/seed/adminSeed.js"
   },
   "dependencies": {

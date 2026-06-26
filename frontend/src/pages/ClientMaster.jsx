@@ -1,10 +1,50 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Building2, CheckCircle2, ChevronDown, FileCheck2, FileText, FolderCheck, MapPin, Plus, ShieldCheck, Upload, UserRound } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
+import ToastMessage from '../components/ToastMessage';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
+import ClientDirectoryView from '../features/clientMaster/ClientDirectoryView';
+import {
+  AddressTab,
+  Card,
+  CpcbTab,
+  ComplianceTab,
+  ContactsTab,
+  CteTab,
+  Field,
+  SelectLike,
+  UploadButton,
+  ValidationTab
+} from '../features/clientMaster/ClientMasterFormSections';
+import {
+  annualDraftLegacyKeys,
+  buildAnnualReturnYearOptions,
+  buildAnnualReturnYears,
+  buildCcpClientEditUrl,
+  findClientByRouteKey,
+  formatDateInputValue,
+  getAnnualDraftAliasValue,
+  getAssignedName,
+  getClientQuotationContext,
+  getClientQuotations,
+  getClientUniqueId,
+  getFirstAnnualReturnYear,
+  getMsmeRows,
+  getMsmeSummary,
+  getVisibilityStatus,
+  mapExcelRowToClient,
+  mergeClientSources,
+  mergeLeadSources,
+  normalizePersonName,
+  normalizeFinancialYearLabel,
+  openCcpClientEdit,
+  readCachedOrFreshList,
+  readClientData
+} from '../features/clientMaster/clientMaster.utils';
 
 const tabs = [
   { id: 'basic', label: 'Client Basic Info', icon: Building2 },
@@ -17,17 +57,49 @@ const tabs = [
 ];
 
 const selectOptions = {
-  approvalStatus: ['PENDING', 'APPROVED', 'REJECTED', 'ON HOLD'],
-  visibilityStatus: ['LIVE', 'HIDDEN', 'ARCHIVED'],
+  approvalStatus: ['PENDING', 'APPROVED', 'REJECTED'],
+  visibilityStatus: ['DISCONTINUED', 'LIVE', 'SUSPENDED'],
   piboCategory: ['Producer', 'Importer', 'Brand Owner', 'Recycler', 'PWP', 'Refurbisher'],
   eprCategory: ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste'],
   years: Array.from({ length: 12 }, (_, index) => String(new Date().getFullYear() - index)),
+  annualReturnYears: buildAnnualReturnYearOptions(),
   states: ['Gujarat', 'Maharashtra', 'Karnataka', 'Delhi', 'Rajasthan', 'Uttar Pradesh', 'Haryana', 'Tamil Nadu', 'Telangana'],
   cities: ['Ahmedabad', 'Surat', 'Mumbai', 'Pune', 'Bengaluru', 'Delhi', 'Jaipur', 'Noida', 'Gurugram', 'Chennai', 'Hyderabad'],
   cpcbStatus: ['Not Started', 'Applied', 'Under Review', 'Approved', 'Rejected'],
   msmeStatus: ['Micro', 'Small', 'Medium', 'Not Applicable'],
   msmeActivity: ['Manufacturing', 'Service', 'Trading']
 };
+
+const quotationServiceCategoryOptions = [
+  'CASE REPRESENTATION',
+  'CAT-1-EOL CREDIT',
+  'CAT-1-RECYCLING CREDIT',
+  'CAT-2-EOL CREDIT',
+  'CAT-2-RECYCLING CREDIT',
+  'CAT-3-EOL CREDIT',
+  'CAT-3-RECYCLING CREDIT',
+  'CATEGORY 1',
+  'CATEGORY 2',
+  'CATEGORY 3',
+  'CGWA NOC FRESH',
+  'CONSULTANCY FEE',
+  'CPCB NOTICE REPLY',
+  'CTE & CTO NEW REGISTRATION',
+  'CTE-CONSENT TO ESTABLISH',
+  'CTO-CONSENT TO OPERATE',
+  'CTO-RENEWAL',
+  'E-WASTE CREDIT',
+  'ENVIRONMENT STATEMENT',
+  'EPR CREDIT RE',
+  'EPR CREDIT REVERSE',
+  'EPR ETP PORTAL HANDLING',
+  'EPR LOGIN SURRENDER',
+  'GOVT. REPRESENTATION',
+  'KAVACH AUDIT',
+  'MATERIAL WASTE MANAGEMENT',
+  'PLANT AUDIT',
+  'PORTAL HEALTH REPORT'
+];
 
 const complianceRows = [
   ['gst', 'GST Number', 'GST Certificate Date', 'GST Certificate'],
@@ -39,17 +111,125 @@ const complianceRows = [
   ['dicDcssi', 'DIC/DCSSI Certificate No', 'DIC/DCSSI Certificate Date', 'DIC/DCSSI Certificate File']
 ];
 
+const ccpCacheKeys = {
+  clients: 'crm.ccp.clients.cache.v1',
+  leads: 'crm.ccp.leads.cache.v1'
+};
+
+function normalizeAnnualClientKey(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getAnnualClientMatchKeys(client = {}) {
+  const data = readClientData(client);
+  const lead = typeof client?.selectedLead === 'object' ? client.selectedLead : {};
+  return [
+    client?._id,
+    client?.id,
+    data.importMeta?.ccpClientId,
+    data.importMeta?.uniqueId,
+    data.importMeta?.leadNumber,
+    lead?._id,
+    lead?.id,
+    lead?.leadCode,
+    getClientUniqueId(client)
+  ].map(normalizeAnnualClientKey).filter(Boolean);
+}
+
+function getAnnualReturnMatchKeys(row = {}) {
+  const client = row.client && typeof row.client === 'object' ? row.client : {};
+  const clientData = row.clientData && typeof row.clientData === 'object' ? row.clientData : {};
+  return [
+    row.clientKey,
+    row.client,
+    client._id,
+    client.id,
+    clientData.importMeta?.ccpClientId,
+    clientData.importMeta?.uniqueId,
+    clientData.importMeta?.leadNumber
+  ].map(normalizeAnnualClientKey).filter(Boolean);
+}
+
+function mapAnnualReturnRecordToFiling(row = {}) {
+  return {
+    annualYear: row.annualYear,
+    status: row.status || row.approvalWorkflow?.status || 'draft',
+    activeTab: row.activeTab || '',
+    activeSection: row.activeSection || '',
+    draft: row.draft || {},
+    basicInfo: row.basicInfo || {},
+    financials: row.financials || {},
+    data: row.data || {},
+    brandOwner: row.brandOwner || {},
+    importer: row.importer || {},
+    annual: row.annual || {},
+    approvalWorkflow: row.approvalWorkflow || {},
+    savedAt: row.savedAt || row.updatedAt || ''
+  };
+}
+
+function hydrateClientsWithAnnualReturns(clients = [], annualReturns = []) {
+  if (!Array.isArray(annualReturns) || !annualReturns.length) return clients;
+  const rowsByClientKey = new Map();
+
+  annualReturns.forEach((row) => {
+    getAnnualReturnMatchKeys(row).forEach((key) => {
+      const rows = rowsByClientKey.get(key) || [];
+      rows.push(row);
+      rowsByClientKey.set(key, rows);
+    });
+  });
+
+  return clients.map((client) => {
+    const matchingRows = getAnnualClientMatchKeys(client)
+      .flatMap((key) => rowsByClientKey.get(key) || []);
+    const uniqueRows = [...new Map(matchingRows.map((row) => [`${row.clientKey || ''}:${row.annualYear || ''}:${row._id || ''}`, row])).values()];
+    if (!uniqueRows.length) return client;
+
+    const data = readClientData(client);
+    const currentAnnualReturn = data.annualReturn && typeof data.annualReturn === 'object' && !Array.isArray(data.annualReturn)
+      ? data.annualReturn
+      : {};
+    const filings = { ...(currentAnnualReturn.filings || {}) };
+
+    uniqueRows.forEach((row) => {
+      if (!row.annualYear) return;
+      const existing = filings[row.annualYear] || {};
+      const incomingFiling = mapAnnualReturnRecordToFiling(row);
+      const mergedWorkflow = mergeAnnualWorkflowState(existing.approvalWorkflow || {}, incomingFiling.approvalWorkflow || {});
+      filings[row.annualYear] = {
+        ...existing,
+        ...incomingFiling,
+        status: mergedWorkflow.status || incomingFiling.status || existing.status || 'draft',
+        draft: { ...(existing.draft || {}), ...(row.draft || {}) },
+        approvalWorkflow: mergedWorkflow
+      };
+    });
+
+    return {
+      ...client,
+      data: {
+        ...data,
+        annualReturn: {
+          ...currentAnnualReturn,
+          lastSavedYear: uniqueRows[0]?.annualYear || currentAnnualReturn.lastSavedYear,
+          lastSavedAt: uniqueRows[0]?.savedAt || uniqueRows[0]?.updatedAt || currentAnnualReturn.lastSavedAt,
+          filings
+        }
+      }
+    };
+  });
+}
+
 const emptyClient = {
   selectedLead: '',
-  adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'LIVE', assignedTo: '' },
+  adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'DISCONTINUED', assignedTo: '' },
   basic: { clientLegalName: '', tradeName: '', piboCategory: '', eprCategory: '', onboardingYear: '', firstAnnualReturnYear: '' },
   registeredAddress: {},
   communicationAddress: {},
   compliance: {},
   msmeRows: [],
-  cte: {},
-  cteProductionRows: [],
-  ctoProductRows: [],
+  cte: { numberOfPlantsLocations: '', plantWiseDetails: [] },
   cpcb: {},
   validation: {},
   otp: {},
@@ -57,41 +237,133 @@ const emptyClient = {
   coordinating: {}
 };
 
+const calendarTodoStorageKey = 'crm.calendar.todos.v1';
+
+function readCalendarTodoItems() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(calendarTodoStorageKey) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCalendarTodoItems(items) {
+  localStorage.setItem(calendarTodoStorageKey, JSON.stringify(items));
+  window.dispatchEvent(new CustomEvent('crm-calendar-items-updated'));
+}
+
 export default function ClientMaster() {
   const [currentUser, setCurrentUser] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [leads, setLeads] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [annualReturnRecords, setAnnualReturnRecords] = useState([]);
+  const [quotations, setQuotations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [client, setClient] = useState(emptyClient);
+  const [editingClientId, setEditingClientId] = useState('');
+  const [viewClient, setViewClient] = useState(null);
   const [activeTab, setActiveTab] = useState('basic');
+  const [viewMode, setViewMode] = useState('list');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [excelFileName, setExcelFileName] = useState('');
+  const [excelRows, setExcelRows] = useState([]);
   const navigate = useNavigate();
+  const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
+  const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
 
   const canSeeAdminControls = adminRoles.includes(currentUser?.role);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
-  const leadOptions = useMemo(() => leads.map((lead) => ({ value: lead._id || lead.id, label: `${lead.company || 'Untitled lead'} - ${lead.status || 'Draft'}` })), [leads]);
+  const isFirstStepReady = Boolean(String(client.basic?.clientLegalName || client.basic?.tradeName || '').trim());
+  const leadOptions = useMemo(() => leads.map((lead) => ({
+    value: lead._id || lead.id,
+    label: `${lead.leadCode || 'ATPL-LEAD-0001'} - ${lead.company || 'Untitled lead'} - ${lead.piboCategory || lead.status || 'Draft'}`
+  })), [leads]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
 
   useEffect(() => {
     loadPage();
   }, []);
 
+  useEffect(() => {
+    if (!routeClientKey || (!clients.length && !annualReturnRecords.length)) return;
+    const matchedClient = findClientByRouteKey(clients, routeClientKey);
+    if (matchedClient) {
+      setViewMode('list');
+      setViewClient(matchedClient);
+      return;
+    }
+    const normalizedRouteKey = normalizeAnnualClientKey(decodeURIComponent(routeClientKey));
+    const annualRow = annualReturnRecords.find((row) => getAnnualReturnMatchKeys(row).includes(normalizedRouteKey));
+    if (annualRow) {
+      const clientData = annualRow.clientData && typeof annualRow.clientData === 'object' ? annualRow.clientData : {};
+      const annualClient = hydrateClientsWithAnnualReturns([{
+        _id: annualRow.clientKey || annualRow.client?._id || annualRow.client?.id || routeClientKey,
+        id: annualRow.clientKey || routeClientKey,
+        adminControls: annualRow.adminControls || {},
+        data: clientData
+      }], [annualRow])[0];
+      setViewMode('list');
+      setViewClient(annualClient);
+    }
+  }, [annualReturnRecords, clients, routeClientKey]);
+
   async function loadPage() {
+    setLoading(true);
     try {
       const meResponse = await api.get('/auth/me');
-      setCurrentUser(meResponse.data.user);
-      const leadsResponse = await api.get('/leads');
-      setLeads(leadsResponse.data.leads || []);
+      const me = meResponse.data.user;
+      setCurrentUser(me);
+      const [crmClientsResult, ccpClientsResult] = await Promise.allSettled([
+        api.get('/clients'),
+        api.get('/ccp/clients')
+      ]);
+      const crmClients = crmClientsResult.status === 'fulfilled' ? (crmClientsResult.value.data.clients || []) : [];
+      const ccpClients = readCachedOrFreshList(ccpClientsResult, 'clients', ccpCacheKeys.clients);
+      if (crmClientsResult.status === 'rejected' && ccpClientsResult.status === 'rejected' && !ccpClients.length) {
+        throw crmClientsResult.reason || ccpClientsResult.reason;
+      }
+      const mergedClients = mergeClientSources(crmClients, ccpClients);
       try {
-        const usersResponse = await api.get('/auth/admin/users');
+        const annualReturnsResponse = await api.get('/annual-returns');
+        const annualRows = annualReturnsResponse.data.annualReturns || [];
+        setAnnualReturnRecords(annualRows);
+        setClients(hydrateClientsWithAnnualReturns(mergedClients, annualRows));
+      } catch {
+        setAnnualReturnRecords([]);
+        setClients(mergedClients);
+      }
+      const [crmLeadsResult, ccpLeadsResult] = await Promise.allSettled([
+        api.get('/leads'),
+        api.get('/ccp/leads')
+      ]);
+      const crmLeads = crmLeadsResult.status === 'fulfilled' ? (crmLeadsResult.value.data.leads || []) : [];
+      const ccpLeads = readCachedOrFreshList(ccpLeadsResult, 'leads', ccpCacheKeys.leads);
+      setLeads(mergeLeadSources(crmLeads, ccpLeads));
+      try {
+        const quotationsResponse = await api.get('/quotations');
+        setQuotations(quotationsResponse.data.quotations || []);
+      } catch {
+        setQuotations([]);
+      }
+      try {
+        const usersResponse = await api.get('/auth/users');
         setStaff(usersResponse.data.users || []);
       } catch {
         setStaff([meResponse.data.user]);
       }
-    } catch {
-      navigate('/', { replace: true });
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Unable to fetch client master data.');
+      setLeads([]);
+      setClients([]);
+      setQuotations([]);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -103,8 +375,214 @@ export default function ClientMaster() {
     setClient((current) => ({ ...current, [field]: value }));
   }
 
+  function handleLeadSelect(value) {
+    const selectedLead = leads.find((leadItem) => String(leadItem._id || leadItem.id) === String(value));
+    if (!selectedLead) {
+      setRoot('selectedLead', value);
+      return;
+    }
+
+    setClient((current) => ({
+      ...current,
+      selectedLead: value,
+      basic: {
+        ...current.basic,
+        clientLegalName: current.basic.clientLegalName || selectedLead.company || '',
+        tradeName: current.basic.tradeName || selectedLead.company || '',
+        piboCategory: current.basic.piboCategory || selectedLead.piboCategory || '',
+        eprCategory: current.basic.eprCategory || selectedLead.eprCategory || ''
+      },
+      registeredAddress: {
+        ...current.registeredAddress,
+        address1: current.registeredAddress.address1 || selectedLead.addressLine1 || '',
+        address2: current.registeredAddress.address2 || selectedLead.addressLine2 || '',
+        address3: current.registeredAddress.address3 || selectedLead.addressLine3 || '',
+        state: current.registeredAddress.state || selectedLead.state || '',
+        city: current.registeredAddress.city || selectedLead.city || '',
+        pincode: current.registeredAddress.pincode || selectedLead.pinCode || ''
+      },
+      communicationAddress: {
+        ...current.communicationAddress,
+        address1: current.communicationAddress.address1 || selectedLead.addressLine1 || '',
+        address2: current.communicationAddress.address2 || selectedLead.addressLine2 || '',
+        address3: current.communicationAddress.address3 || selectedLead.addressLine3 || '',
+        state: current.communicationAddress.state || selectedLead.state || '',
+        city: current.communicationAddress.city || selectedLead.city || '',
+        pincode: current.communicationAddress.pincode || selectedLead.pinCode || ''
+      },
+      otp: {
+        ...current.otp,
+        mobile: current.otp.mobile || selectedLead.mobileNo1 || '',
+        personName: current.otp.personName || selectedLead.contactPerson || '',
+        designation: current.otp.designation || selectedLead.designation || ''
+      },
+      authorised: {
+        ...current.authorised,
+        name: current.authorised.name || selectedLead.contactPerson || '',
+        designation: current.authorised.designation || selectedLead.designation || '',
+        mobile: current.authorised.mobile || selectedLead.mobileNo1 || '',
+        email: current.authorised.email || selectedLead.emails || ''
+      },
+      coordinating: {
+        ...current.coordinating,
+        name: current.coordinating.name || selectedLead.contactPerson || '',
+        designation: current.coordinating.designation || selectedLead.designation || '',
+        mobile: current.coordinating.mobile || selectedLead.mobileNo1 || '',
+        email: current.coordinating.email || selectedLead.emails || ''
+      }
+    }));
+  }
+
   function setAdmin(field, value) {
     setClient((current) => ({ ...current, adminControls: { ...current.adminControls, [field]: value } }));
+  }
+
+  function openClientForm() {
+    setClient(emptyClient);
+    setEditingClientId('');
+    setActiveTab('basic');
+    setError('');
+    setNotice('');
+    setViewMode('form');
+  }
+
+  function openClientTab(tabId) {
+    if (tabId !== 'basic' && !isFirstStepReady) {
+      setError('First enter Client Legal Name or Trade Name before moving to the next step.');
+      return;
+    }
+    setError('');
+    setActiveTab(tabId);
+  }
+
+  function nextTab() {
+    if (!isFirstStepReady) {
+      setError('First enter Client Legal Name or Trade Name before moving to the next step.');
+      return;
+    }
+    setError('');
+    const next = tabs[Math.min(activeIndex + 1, tabs.length - 1)];
+    setActiveTab(next.id);
+  }
+
+  function resolveUserId(value) {
+    const raw = normalizePersonName(value);
+    if (!raw) return '';
+    const match = staff.find((user) => normalizePersonName(user.name) === raw) ||
+      staff.find((user) => normalizePersonName(user.email) === raw) ||
+      staff.find((user) => normalizePersonName(user.ccpUserId) === raw);
+    return match ? (match._id || match.id) : '';
+  }
+
+  function resolveAssignedToId(value) {
+    if (!value) return '';
+    if (typeof value === 'string') {
+      if (/^[a-f\d]{24}$/i.test(value)) return value;
+      return resolveUserId(value);
+    }
+    const directId = value._id || value.id || value.userId || '';
+    if (/^[a-f\d]{24}$/i.test(String(directId))) return directId;
+    return resolveUserId(value.name || value.email || value.ccpUserId);
+  }
+
+  function buildAdminControlsPayload(adminControls = {}) {
+    const assignedTo = resolveAssignedToId(adminControls.assignedTo);
+    const payload = { ...adminControls };
+    if (assignedTo) payload.assignedTo = assignedTo;
+    else delete payload.assignedTo;
+    return payload;
+  }
+
+  function resolveLeadId(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    const match = leads.find((leadItem) => String(leadItem.leadCode || '').toLowerCase() === raw) ||
+      leads.find((leadItem) => String(leadItem.company || '').toLowerCase() === raw);
+    return match ? (match._id || match.id) : '';
+  }
+
+  async function handleExcelUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setError('');
+    setNotice('');
+    setExcelFileName(file.name);
+    setExcelRows([]);
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const sheetName = workbook.SheetNames?.[0];
+      if (!sheetName) {
+        setError('No sheet found in this file.');
+        return;
+      }
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+      const parsed = rows
+        .map((row) => mapExcelRowToClient(row, staff, leads))
+        .filter((row) => Object.values(row.data || {}).some((value) => JSON.stringify(value || '').replace(/["{}[\],:]/g, '').trim() !== ''));
+
+      if (!parsed.length) {
+        setError('Excel has no usable client rows.');
+        return;
+      }
+
+      setExcelRows(parsed);
+      const first = parsed[0];
+      setClient({
+        ...emptyClient,
+        ...(first.data || {}),
+        selectedLead: first.selectedLead || '',
+        adminControls: { ...emptyClient.adminControls, ...(first.adminControls || {}) }
+      });
+      setNotice(`${parsed.length} client row${parsed.length === 1 ? '' : 's'} loaded. First row applied to form.`);
+    } catch (err) {
+      console.error(err);
+      setError('Unable to read Excel file. Please upload a valid .xlsx file.');
+    }
+  }
+
+  async function importExcelRows() {
+    if (!excelRows.length) return;
+    setImporting(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const payload = excelRows.map((row) => {
+        const assignedText = row.data?.importMeta?.assignedTo || '';
+        const leadText = row.data?.importMeta?.leadNumber || row.data?.importMeta?.uniqueId || '';
+        return {
+          ...row,
+          selectedLead: row.selectedLead || resolveLeadId(leadText),
+          adminControls: {
+            ...buildAdminControlsPayload(row.adminControls),
+            assignedTo: resolveAssignedToId(row.adminControls?.assignedTo) || resolveUserId(assignedText)
+          },
+          workflowStatus: 'draft'
+        };
+      });
+      const response = await api.post('/clients/bulk', { clients: payload });
+      const successCount = response.data.imported || 0;
+      const failures = response.data.failures || [];
+
+      if (successCount) {
+        setNotice(`${successCount} client${successCount === 1 ? '' : 's'} imported as drafts.`);
+        await loadPage();
+      }
+      if (failures.length) {
+        setError(`${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row + 1} (${failures[0].error})`);
+      }
+    } catch (err) {
+      const failures = err?.response?.data?.failures || [];
+      setError(failures.length
+        ? `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row + 1} (${failures[0].error})`
+        : err?.response?.data?.error || 'Unable to import clients');
+    } finally {
+      setImporting(false);
+    }
   }
 
   function addRow(key, row) {
@@ -132,14 +610,26 @@ export default function ClientMaster() {
     setError('');
     setNotice('');
     try {
-      await api.post('/clients', {
+      if (workflowStatus === 'submitted' && !String(client.basic?.clientLegalName || '').trim()) {
+        setError('Client Legal Name is required before submit.');
+        setActiveTab('basic');
+        return;
+      }
+      const payload = {
         selectedLead: client.selectedLead,
-        adminControls: client.adminControls,
+        adminControls: buildAdminControlsPayload(client.adminControls),
         data: client,
         workflowStatus
-      });
+      };
+      if (editingClientId) await api.put(`/clients/${editingClientId}`, payload);
+      else await api.post('/clients', payload);
       setNotice(workflowStatus === 'submitted' ? 'Client submitted successfully.' : 'Client draft saved successfully.');
-      if (workflowStatus === 'submitted') setClient(emptyClient);
+      await loadPage();
+      if (workflowStatus === 'submitted') {
+        setClient(emptyClient);
+        setEditingClientId('');
+        setViewMode('list');
+      }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to save client');
     } finally {
@@ -154,13 +644,60 @@ export default function ClientMaster() {
     navigate('/', { replace: true });
   }
 
+  function closeViewClient() {
+    setViewClient(null);
+    if (routeClientKey) navigate('/sales/client-master', { replace: true });
+  }
+
+  function handleViewedClientUpdated(updatedClient) {
+    if (!updatedClient) return;
+    setViewClient(updatedClient);
+    setClients((current) => current.map((item) => (
+      String(item._id || item.id || getClientUniqueId(item)) === String(updatedClient._id || updatedClient.id || getClientUniqueId(updatedClient))
+        ? updatedClient
+        : item
+    )));
+  }
+
+  if (viewMode === 'list') {
+    return (
+      <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
+        {viewClient ? (
+          <ClientViewModal
+            client={viewClient}
+            quotations={quotations}
+            staff={staff}
+            initialTab={routeClientKey ? 'annual' : 'basic'}
+            initialAnnualYear={routeAnnualYearLabel}
+            currentUser={currentUser}
+            onClose={closeViewClient}
+            onClientUpdated={handleViewedClientUpdated}
+          />
+        ) : (
+          <ClientDirectoryView
+            clients={clients}
+            staff={staff}
+            currentUser={currentUser}
+            loading={loading}
+            error={error}
+            onRefresh={loadPage}
+            onView={setViewClient}
+            onCreate={openClientForm}
+            selectOptions={selectOptions}
+          />
+        )}
+        {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
+      </DashboardShell>
+    );
+  }
+
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
       <div className="px-4 py-6 sm:px-6 lg:px-8">
         <div className="rounded-[28px] bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-4 shadow-sm ring-1 ring-emerald-100 sm:p-5 lg:p-6">
           <div className="flex flex-wrap items-center justify-between gap-5">
             <div className="flex items-center gap-4">
-              <button type="button" onClick={() => navigate('/dashboard')} className="btn-lift inline-flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-100 bg-white text-[#30737B] shadow-sm">
+              <button type="button" onClick={() => setViewMode('list')} className="btn-lift inline-flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-100 bg-white text-[#30737B] shadow-sm">
                 <ArrowLeft className="h-5 w-5" />
               </button>
               <div>
@@ -175,7 +712,15 @@ export default function ClientMaster() {
           </div>
 
           <Card title="Select Lead" className="mt-6">
-            <SelectLike required label="Choose Existing Lead" value={client.selectedLead} options={leadOptions} placeholder="Search and select a lead" onChange={(value) => setRoot('selectedLead', value)} />
+            <Field required label="Choose Existing Lead">
+              <div className="relative">
+                <select value={client.selectedLead} onChange={(event) => handleLeadSelect(event.target.value)} className="form-input pr-12">
+                  <option value="">Search and select a lead</option>
+                  {leadOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+              </div>
+            </Field>
           </Card>
 
           {canSeeAdminControls && (
@@ -188,6 +733,36 @@ export default function ClientMaster() {
             </Card>
           )}
 
+          <Card title="Excel Bulk Import" className="mt-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-black text-slate-950">Client Master Import</p>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  Upload .xlsx with headers like Unique ID, Trade Name, Client Name, State, City with PIN, GST Number, CPCB Reg No, OTP Mobile.
+                </p>
+                {excelFileName && (
+                  <p className="mt-2 text-xs font-black text-slate-700">
+                    File: <span className="font-extrabold">{excelFileName}</span> {excelRows.length ? `(${excelRows.length} row${excelRows.length === 1 ? '' : 's'})` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 font-black text-slate-800 hover:bg-slate-50">
+                  <Upload className="h-4 w-4" /> Upload Excel
+                  <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="sr-only" />
+                </label>
+                <button
+                  type="button"
+                  disabled={!excelRows.length || importing || saving}
+                  onClick={importExcelRows}
+                  className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {importing ? 'Importing...' : 'Import Drafts'}
+                </button>
+              </div>
+            </div>
+          </Card>
+
           <section className="mt-6 rounded-2xl border border-teal-100 bg-white/80 p-3 shadow-lg shadow-teal-900/5">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {tabs.map((tab) => {
@@ -197,7 +772,7 @@ export default function ClientMaster() {
                   <button
                     key={tab.id}
                     type="button"
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => openClientTab(tab.id)}
                     className={`btn-lift flex min-h-12 shrink-0 items-center gap-2 rounded-xl px-4 font-black transition ${
                       active ? 'bg-[#30737B] text-white shadow-lg shadow-teal-900/15' : 'bg-slate-50 text-slate-600 hover:bg-teal-50 hover:text-[#30737B]'
                     }`}
@@ -210,15 +785,15 @@ export default function ClientMaster() {
             </div>
           </section>
 
-          {error && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p>}
-          {notice && <p className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{notice}</p>}
+          {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
+          {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
 
           <div className="mt-6 grid gap-6">
             {activeTab === 'basic' && <BasicTab client={client} setValue={setValue} />}
-            {activeTab === 'address' && <AddressTab client={client} setValue={setValue} copyRegisteredAddress={copyRegisteredAddress} />}
-            {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />}
-            {activeTab === 'cte' && <CteTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />}
-            {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} />}
+            {activeTab === 'address' && <AddressTab client={client} setValue={setValue} copyRegisteredAddress={copyRegisteredAddress} selectOptions={selectOptions} />}
+            {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} />}
+            {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
+            {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'validation' && <ValidationTab client={client} setValue={setValue} />}
             {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} />}
           </div>
@@ -226,6 +801,7 @@ export default function ClientMaster() {
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
             <button type="button" disabled={saving} onClick={() => saveClient('draft')} className="btn-lift min-h-11 rounded-xl border border-orange-200 bg-white px-8 font-black text-orange-600 hover:bg-orange-50">Save Draft</button>
             <button type="button" disabled={saving} onClick={() => saveClient('submitted')} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-8 font-black text-white shadow-lg shadow-orange-600/20">Submit</button>
+            <button type="button" disabled={saving || activeIndex === tabs.length - 1} onClick={nextTab} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-8 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-60">Next Step</button>
           </div>
         </div>
       </div>
@@ -243,215 +819,3725 @@ function BasicTab({ client, setValue }) {
         <SelectLike label="PIBO Category" value={client.basic.piboCategory} options={selectOptions.piboCategory} onChange={(value) => setValue('basic', 'piboCategory', value)} />
         <SelectLike label="EPR Category" value={client.basic.eprCategory} options={selectOptions.eprCategory} onChange={(value) => setValue('basic', 'eprCategory', value)} />
         <SelectLike label="Client Onboarding Year" value={client.basic.onboardingYear} options={selectOptions.years} placeholder="Select onboarding year" onChange={(value) => setValue('basic', 'onboardingYear', value)} />
-        <SelectLike label="First Annual Return Year Applicable" value={client.basic.firstAnnualReturnYear} options={selectOptions.years} placeholder="Select first annual return year" onChange={(value) => setValue('basic', 'firstAnnualReturnYear', value)} />
+        <Field label="First Annual Return Year Applicable">
+          <div className="relative">
+            <select value={normalizeFinancialYearLabel(client.basic.firstAnnualReturnYear)} onChange={(event) => setValue('basic', 'firstAnnualReturnYear', event.target.value)} className="form-input pr-12">
+              <option value="">Select first annual return year</option>
+              {selectOptions.annualReturnYears.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+          </div>
+        </Field>
       </div>
     </Card>
   );
 }
 
-function AddressTab({ client, setValue, copyRegisteredAddress }) {
+function ClientViewModal({ client, quotations = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
+  const data = readClientData(client);
+  const msmeRows = getMsmeRows(data);
+  const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Client Details';
+  const cityPin = `${data.registeredAddress?.city || ''} ${data.registeredAddress?.pincode || ''}`.trim();
+  const assignedName = getAssignedName(client);
+  const visibility = getVisibilityStatus(client);
+  const rawDocumentUrls = data.validation?.documentUrls;
+  const documentUrls = Array.isArray(rawDocumentUrls)
+    ? rawDocumentUrls.map((item) => (typeof item === 'string' ? item : item?.url || item?.fileUrl || item?.path || '')).map((item) => item.trim()).filter(Boolean)
+    : String(rawDocumentUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
+  const docLinks = mapClientDocuments(documentUrls);
+  const profileRows = [
+    ['Client Name', clientName, Building2],
+    ['Trade Name', data.basic?.tradeName, Building2],
+    ['State', data.registeredAddress?.state, MapPin],
+    ['City with PIN', cityPin, MapPin],
+    ['PIBO Category', data.basic?.piboCategory, FolderCheck],
+    ['EPR Category', data.basic?.eprCategory, FileCheck2],
+    ['Company Industry', data.basic?.companyIndustry, Building2],
+    ['Services Offered', data.basic?.servicesOffered, CheckCircle2]
+  ];
+  const contactRows = [
+    ['Contact Person', data.otp?.personName || data.authorised?.name, UserRound],
+    ['Contact No', data.otp?.mobile || data.authorised?.mobile, UserRound],
+    ['Email', data.authorised?.email || data.coordinating?.email, FileText],
+    ['Website', data.basic?.website, Eye],
+    ['Authorised Person', data.authorised?.name, UserRound],
+    ['Coordinator', data.coordinating?.name, UserRound]
+  ];
+  const complianceRows = [
+    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, docLinks.gst],
+    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, docLinks.pan],
+    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, docLinks.cin],
+    ['Factory License', data.compliance?.factoryLicense || data.compliance?.factoryLicenseNumber, FileText, docLinks.factory],
+    ['EPR Certificate', data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, ShieldCheck, docLinks.epr],
+    ['MSME', getMsmeSummary(data), FileCheck2, docLinks.msme]
+  ];
+  const initials = clientName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'CL';
+  const [activeClientTab, setActiveClientTab] = useState(initialTab || 'basic');
+  const [openDetailGroups, setOpenDetailGroups] = useState({});
+  const clientQuotations = useMemo(() => getClientQuotations(quotations, client), [quotations, client]);
+  const quotationContext = useMemo(() => getClientQuotationContext(client), [client]);
+  const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
+  const initialAnnualYearLabel = normalizeFinancialYearLabel(initialAnnualYear);
+  const annualYears = useMemo(() => {
+    const years = buildAnnualReturnYears(firstAnnualReturnYear);
+    if (!initialAnnualYearLabel || years.some((year) => year.label === initialAnnualYearLabel)) return years;
+    const startYear = Number(initialAnnualYearLabel.split('-')[0]);
+    return [
+      ...years,
+      {
+        startYear,
+        label: initialAnnualYearLabel,
+        period: 'April - March',
+        status: 'Open hub'
+      }
+    ].sort((first, second) => first.startYear - second.startYear);
+  }, [firstAnnualReturnYear, initialAnnualYearLabel]);
+  const [selectedAnnualYear, setSelectedAnnualYear] = useState(() => (
+    initialAnnualYearLabel && annualYears.some((year) => year.label === initialAnnualYearLabel) ? initialAnnualYearLabel : ''
+  ));
+  const addressRows = [
+    ['Registered Address 1', data.registeredAddress?.address1, MapPin],
+    ['Registered Address 2', data.registeredAddress?.address2, MapPin],
+    ['Registered Address 3', data.registeredAddress?.address3, MapPin],
+    ['Registered State', data.registeredAddress?.state, MapPin],
+    ['Registered City', data.registeredAddress?.city, MapPin],
+    ['Registered PIN', data.registeredAddress?.pincode, MapPin],
+    ['Communication Address 1', data.communicationAddress?.address1, MapPin],
+    ['Communication City', data.communicationAddress?.city, MapPin],
+    ['Communication State', data.communicationAddress?.state, MapPin],
+    ['Communication PIN', data.communicationAddress?.pincode, MapPin]
+  ];
+  const docRows = [
+    ['GST Certificate Date', data.compliance?.gstDate, FileText, docLinks.gst],
+    ['CIN Document Date', data.compliance?.cinDate, FileText, docLinks.cin],
+    ['PAN Document Date', data.compliance?.panDate, FileText, docLinks.pan],
+    ['Factory License Date', data.compliance?.factoryLicenseDate, FileText, docLinks.factory],
+    ['EPR Certificate No', data.compliance?.eprCertificate, ShieldCheck, docLinks.epr],
+    ...(docLinks.application ? [['Application Page', 'Uploaded document', FileText, docLinks.application]] : [])
+  ];
+  const detailTabs = [
+    { id: 'basic', label: 'Basic Info', icon: Building2 },
+    { id: 'company', label: 'Company History', icon: Building2, title: 'Company History', message: 'No company history entries yet.' },
+    { id: 'quotation', label: 'Quotation History', icon: FileText, title: 'Quotation History', message: 'No quotations mapped yet.' },
+    { id: 'annual', label: 'Annual Return History', icon: RefreshCw, title: 'Annual Return History', message: 'No annual return timeline yet.' },
+    { id: 'ticket', label: 'Ticket', icon: FolderCheck, title: 'Ticket', message: 'No tickets raised yet.' }
+  ];
+  const activeTabMeta = detailTabs.find((tab) => tab.id === activeClientTab) || detailTabs[0];
+  const isAnnualProcessingView = activeClientTab === 'annual' && annualYears.some((year) => year.label === selectedAnnualYear);
+  const calendarClientKey = String(client._id || client.id || getClientUniqueId(client) || clientName);
+  const [interactionTab, setInteractionTab] = useState('follow-up');
+  const [calendarItems, setCalendarItems] = useState(() => readCalendarTodoItems());
+  const [interactionModalType, setInteractionModalType] = useState('');
+  const clientCalendarItems = useMemo(() => calendarItems.filter((item) => String(item.clientKey || '') === calendarClientKey), [calendarClientKey, calendarItems]);
+  const clientFollowUps = clientCalendarItems.filter((item) => item.type === 'follow-up');
+  const clientTodos = clientCalendarItems.filter((item) => item.type !== 'follow-up');
+  const assignOptions = useMemo(() => [...new Map([
+    ...staff,
+    ...(currentUser ? [currentUser] : [])
+  ].map((user) => [String(user?._id || user?.id || user?.email || user?.name || Math.random()), user])).values()].filter(Boolean).map((user) => ({
+    value: user.name || user.email || user._id || user.id,
+    label: `${user.name || user.email || 'User'}${user.email ? ` (${user.email})` : ''}`
+  })), [currentUser, staff]);
+
+  useEffect(() => {
+    setSelectedAnnualYear((current) => (current && annualYears.some((year) => year.label === current) ? current : ''));
+  }, [annualYears]);
+
+  useEffect(() => {
+    if (initialTab) setActiveClientTab(initialTab);
+    if (initialAnnualYearLabel && annualYears.some((year) => year.label === initialAnnualYearLabel)) {
+      setSelectedAnnualYear(initialAnnualYearLabel);
+    } else if (initialAnnualYear) {
+      setSelectedAnnualYear('');
+    }
+  }, [client?._id, client?.id, initialTab, initialAnnualYear, initialAnnualYearLabel, annualYears]);
+
+  function toggleDetailGroup(id) {
+    setOpenDetailGroups((current) => ({ ...current, [id]: !current[id] }));
+  }
+
+  function openClientSection(id) {
+    setActiveClientTab(id);
+  }
+
+  function saveClientInteractionItem(payload) {
+    const assignedUser = [...staff, ...(currentUser ? [currentUser] : [])].find((user) => {
+      const keys = [user?.name, user?.email, user?._id, user?.id, user?.crmUserId, user?.userId, user?.ccpUserId]
+        .filter(Boolean)
+        .map((value) => String(value).trim().toLowerCase());
+      return keys.includes(String(payload.assignedTo || '').trim().toLowerCase());
+    });
+    const nextItems = [
+      {
+        ...payload,
+        id: `${payload.type}-${Date.now()}`,
+        clientKey: calendarClientKey,
+        clientNumber: getClientUniqueId(client),
+        clientName,
+        leadNumber: data.importMeta?.leadNumber || client.selectedLead?.leadCode || '',
+        assignedToName: assignedUser?.name || payload.assignedTo,
+        assignedToEmail: assignedUser?.email || '',
+        assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
+        createdAt: new Date().toISOString(),
+        createdBy: currentUser?.name || currentUser?.email || ''
+      },
+      ...calendarItems
+    ];
+    setCalendarItems(nextItems);
+    writeCalendarTodoItems(nextItems);
+    setInteractionModalType('');
+  }
+
   return (
-    <Card title="Company Address Details">
-      <div className="grid gap-5 xl:grid-cols-2">
-        <AddressPanel title="Registered Office Address" section="registeredAddress" data={client.registeredAddress} setValue={setValue} />
-        <AddressPanel title="Communication Office Address" section="communicationAddress" data={client.communicationAddress} setValue={setValue} onCopy={copyRegisteredAddress} />
-      </div>
-    </Card>
+    <div className="bg-[#f3f8f6]">
+      <section className="min-h-[calc(100vh-64px)] px-4 py-4 sm:px-6 lg:px-8">
+        {!isAnnualProcessingView && <div className="-mx-4 -mt-4 border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <button type="button" onClick={onClose} className="btn-lift grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-orange-600 shadow-sm" title="Back">
+              <ArrowLeft className="h-5 w-5" />
+              </button>
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#30737B]">Client Details</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><ShieldCheck className="h-4 w-4" />CPCB Login</button>
+              <button type="button" onClick={() => navigate('/sales/quotations?mode=add', { state: { quotationContext } })} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><Plus className="h-4 w-4" />Quotation</button>
+              <button type="button" className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-teal-700 px-3.5 text-sm font-black text-white"><FileText className="h-4 w-4" />History</button>
+              <button type="button" onClick={() => openCcpClientEdit(client)} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-black text-white"><Edit3 className="h-4 w-4" />Edit in CCP</button>
+            </div>
+          </div>
+        </div>}
+
+        <div className={isAnnualProcessingView ? 'mt-0 w-full max-w-none' : 'mt-4 w-full max-w-none'}>
+          {!isAnnualProcessingView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/6">
+            <div className="bg-[linear-gradient(135deg,#ffffff_0%,#f0fdfa_58%,#fff7ed_100%)] p-4 sm:p-5">
+              <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-center">
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="grid h-16 w-16 shrink-0 place-items-center rounded-xl border border-white bg-[#30737B] text-xl font-black text-white shadow-lg shadow-teal-900/20">{initials}</div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill value={visibility} />
+                      <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-black uppercase text-violet-700">{data.basic?.eprCategory || 'EPR Not Set'}</span>
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase text-emerald-700">{data.basic?.piboCategory || 'PIBO Not Set'}</span>
+                    </div>
+                    <h1 className="mt-2 text-2xl font-black leading-tight text-slate-950 sm:text-3xl">{clientName}</h1>
+                    <p className="mt-1 max-w-4xl text-sm font-bold text-slate-500">{data.registeredAddress?.state || 'State not set'}{cityPin ? `, ${cityPin}` : ''}</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-white/80 bg-white/80 p-3 shadow-sm shadow-teal-900/5 backdrop-blur xl:min-w-[640px]">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <InlineClientMeta label="Unique ID" value={getClientUniqueId(client)} icon={FileText} />
+                    <InlineClientMeta label="Visibility" value={visibility} icon={Eye} status />
+                    <InlineClientMeta label="Assigned To" value={assignedName} icon={UserRound} />
+                    <InlineClientMeta label="CPCB" value={data.cpcb?.status || '-'} icon={ShieldCheck} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </section>}
+
+          {!isAnnualProcessingView && (
+            <ClientInteractionsCard
+              activeTab={interactionTab}
+              onTabChange={setInteractionTab}
+              followUps={clientFollowUps}
+              todos={clientTodos}
+              onAddFollowUp={() => setInteractionModalType('follow-up')}
+              onAddTodo={() => setInteractionModalType('todo')}
+            />
+          )}
+
+          <div className={isAnnualProcessingView ? 'space-y-0' : 'mt-5 space-y-5'}>
+            {!isAnnualProcessingView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+              <div className="client-detail-tab-strip grid sm:grid-cols-5">
+                {detailTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const active = activeClientTab === tab.id;
+                  return (
+                    <button key={tab.id} type="button" onClick={() => openClientSection(tab.id)} className={`client-detail-tab-button relative flex min-h-14 items-center justify-center gap-2 border-b border-slate-200 px-3 text-sm font-black transition sm:border-b-0 sm:border-r last:border-r-0 ${active ? 'client-detail-tab-button-active bg-emerald-50 text-[#30737B]' : 'bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}>
+                      <Icon className="h-4 w-4" />
+                      <span className="truncate">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>}
+
+            <main className="space-y-5">
+              <section className={isAnnualProcessingView ? '' : 'client-detail-card rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5'}>
+                {!isAnnualProcessingView && <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">{activeTabMeta.label}</p>
+                    <h3 className="mt-1 text-2xl font-black text-slate-950">{activeTabMeta.title || activeTabMeta.label}</h3>
+                  </div>
+                  <span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-600">Updated {data.importMeta?.creationDate || 'Recently'}</span>
+                </div>}
+
+                <div key={activeClientTab} className="client-detail-tab-panel">
+                  {activeClientTab === 'basic' && (
+                    <div className="mt-5 grid gap-4">
+                      <DetailAccordion title="Basic Info" open={Boolean(openDetailGroups.basic)} onToggle={() => toggleDetailGroup('basic')}>
+                        <DetailSheet columns={2}>
+                          {profileRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
+                        </DetailSheet>
+                      </DetailAccordion>
+                      <DetailAccordion title="Registered and communication addresses" open={Boolean(openDetailGroups.addresses)} onToggle={() => toggleDetailGroup('addresses')}>
+                        <DetailSheet columns={2}>
+                          {addressRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
+                        </DetailSheet>
+                      </DetailAccordion>
+                      <DetailAccordion title="Document depository" open={Boolean(openDetailGroups.docs)} onToggle={() => toggleDetailGroup('docs')}>
+                        <DetailSheet columns={2}>
+                          {[...complianceRows, ...docRows].map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
+                        </DetailSheet>
+                      </DetailAccordion>
+                      <DetailAccordion title="Contact matrix" open={Boolean(openDetailGroups.contacts)} onToggle={() => toggleDetailGroup('contacts')}>
+                        <DetailSheet columns={2}>
+                          {contactRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} link={label === 'Website'} />)}
+                        </DetailSheet>
+                      </DetailAccordion>
+                    </div>
+                  )}
+
+                  {activeClientTab === 'annual' && (
+                    <AnnualReturnHistory
+                      client={client}
+                      quotations={clientQuotations.length ? clientQuotations : quotations}
+                      years={annualYears}
+                      selectedYear={selectedAnnualYear}
+                      currentUser={currentUser}
+                      onSelectYear={setSelectedAnnualYear}
+                      onClientUpdated={onClientUpdated}
+                    />
+                  )}
+
+                  {activeClientTab === 'quotation' && (
+                    <QuotationHistory
+                      client={client}
+                      quotations={clientQuotations}
+                      quotationContext={quotationContext}
+                    />
+                  )}
+
+                  {activeClientTab !== 'basic' && activeClientTab !== 'annual' && activeClientTab !== 'quotation' && (
+                    <EmptyTab title={activeTabMeta.title} message={activeTabMeta.message} />
+                  )}
+                </div>
+              </section>
+
+            </main>
+          </div>
+        </div>
+        {interactionModalType && (
+          <ClientInteractionModal
+            type={interactionModalType}
+            clientName={clientName}
+            clientNumber={getClientUniqueId(client)}
+            leadNumber={data.importMeta?.leadNumber || client.selectedLead?.leadCode || ''}
+            assignOptions={assignOptions}
+            onClose={() => setInteractionModalType('')}
+            onSave={saveClientInteractionItem}
+          />
+        )}
+      </section>
+    </div>
   );
 }
 
-function AddressPanel({ title, section, data, setValue, onCopy }) {
+function ClientInteractionsCard({ activeTab, onTabChange, followUps = [], todos = [], onAddFollowUp, onAddTodo }) {
+  const rows = activeTab === 'follow-up' ? followUps : todos;
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-      {onCopy && <label className="mb-3 inline-flex items-center gap-2 text-sm font-black text-slate-700"><input type="checkbox" className="h-4 w-4 accent-[#30737B]" onChange={(event) => onCopy(event.target.checked)} /> Same as Registered Address</label>}
-      <h3 className="text-xl font-black text-slate-950">{title}</h3>
-      <div className="mt-5 grid gap-4">
-        <Field required label="Address 1"><input className="form-input" value={data.address1 || ''} onChange={(event) => setValue(section, 'address1', event.target.value)} /></Field>
-        <Field label="Address 2"><input className="form-input" value={data.address2 || ''} onChange={(event) => setValue(section, 'address2', event.target.value)} /></Field>
-        <Field label="Address 3"><input className="form-input" value={data.address3 || ''} onChange={(event) => setValue(section, 'address3', event.target.value)} /></Field>
-        <SelectLike required label="State" value={data.state || ''} options={selectOptions.states} onChange={(value) => setValue(section, 'state', value)} />
-        <SelectLike required label="City" value={data.city || ''} options={selectOptions.cities} placeholder={data.state ? 'Select or type city' : 'Select state first'} disabled={!data.state} onChange={(value) => setValue(section, 'city', value)} />
-        <Field required label="Pincode"><input className="form-input" value={data.pincode || ''} onChange={(event) => setValue(section, 'pincode', event.target.value)} /></Field>
+    <section className="client-interactions-card">
+      <div className="client-interactions-head">
+        <div>
+          <p>Client Interactions</p>
+          <div className="client-interaction-tabs">
+            <button type="button" onClick={() => onTabChange('follow-up')} className={activeTab === 'follow-up' ? 'active' : ''}>Follow-Up</button>
+            <button type="button" onClick={() => onTabChange('todo')} className={activeTab === 'todo' ? 'active' : ''}>To-Do</button>
+          </div>
+        </div>
+        <div className="client-interaction-actions">
+          <button type="button" onClick={onAddFollowUp}><Clock3 className="h-4 w-4" /> Add Follow-Up</button>
+          <button type="button" onClick={onAddTodo}><ClipboardList className="h-4 w-4" /> Add To-Do</button>
+        </div>
+      </div>
+      <div className="client-interaction-content">
+        {rows.length ? rows.slice(0, 4).map((item) => (
+          <article key={item.id} className="client-interaction-row">
+            <span><CalendarDays className="h-4 w-4" /></span>
+            <div>
+              <strong>{item.title}</strong>
+              <small>{formatDisplayDate(item.scheduledDate)}{item.scheduledTime ? ` at ${item.scheduledTime}` : ''} • {item.priority || 'Medium'}</small>
+            </div>
+            <em>{item.status === 'completed' ? 'Done' : item.type === 'follow-up' ? 'Follow-Up' : 'To-Do'}</em>
+          </article>
+        )) : (
+          <div className="client-interaction-empty">
+            <ClipboardList className="h-10 w-10" />
+            <strong>{activeTab === 'follow-up' ? 'No follow-ups linked to this client' : 'No to-do items linked to this client'}</strong>
+            <span>{activeTab === 'follow-up' ? 'Add a dated follow-up so it appears on the calendar.' : 'Create a todo and assign it to the team.'}</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ClientInteractionModal({ type, clientName, clientNumber = '', leadNumber = '', assignOptions = [], onClose, onSave }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [draft, setDraft] = useState({
+    title: type === 'follow-up' ? `Follow up with ${clientName}` : '',
+    description: '',
+    clientNumber,
+    clientName,
+    leadNumber,
+    scheduledDate: today,
+    scheduledTime: '',
+    priority: 'Medium',
+    category: type === 'follow-up' ? 'Follow-Up' : 'General',
+    assignedTo: '',
+    status: 'open',
+    type
+  });
+  const isFollowUp = type === 'follow-up';
+
+  function update(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function submit() {
+    if (!draft.title.trim()) return;
+    onSave({ ...draft, title: draft.title.trim() });
+  }
+
+  return (
+    <div className="client-interaction-modal-backdrop">
+      <div className="client-interaction-modal">
+        <div className="client-interaction-modal-head">
+          <div>
+            <span>{clientName}</span>
+            <h3><Plus className="h-5 w-5" /> {isFollowUp ? 'Add Next Follow-Up' : 'Add Client To-Do'}</h3>
+          </div>
+          <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
+        </div>
+        <div className="client-interaction-form">
+          <label>
+            <span>{isFollowUp ? 'Follow-Up Title' : 'Todo Title'}</span>
+            <input value={draft.title} onChange={(event) => update('title', event.target.value)} placeholder={isFollowUp ? 'Follow up with client' : 'Enter todo title'} />
+          </label>
+          <label>
+            <span>{isFollowUp ? 'Follow-Up Date' : 'Scheduled Date'}</span>
+            <input type="date" value={draft.scheduledDate} onChange={(event) => update('scheduledDate', event.target.value)} />
+          </label>
+          <label>
+            <span>{isFollowUp ? 'Follow-Up Time' : 'Scheduled Time'}</span>
+            <input type="time" value={draft.scheduledTime} onChange={(event) => update('scheduledTime', event.target.value)} />
+          </label>
+          <label>
+            <span>Client Number</span>
+            <input value={draft.clientNumber || ''} readOnly />
+          </label>
+          <label>
+            <span>Lead Number</span>
+            <input value={draft.leadNumber || ''} readOnly />
+          </label>
+          <label>
+            <span>Priority</span>
+            <select value={draft.priority} onChange={(event) => update('priority', event.target.value)}>
+              {['Low', 'Medium', 'High', 'Urgent'].map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Category</span>
+            <select value={draft.category} onChange={(event) => update('category', event.target.value)}>
+              {['General', 'Sales', 'Support', 'Development', 'Manager', 'Follow-Up'].map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Assign To User</span>
+            <select value={draft.assignedTo} onChange={(event) => update('assignedTo', event.target.value)}>
+              <option value="">Select user (optional)</option>
+              {assignOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="wide">
+            <span>Remarks / Description</span>
+            <textarea value={draft.description} onChange={(event) => update('description', event.target.value)} placeholder={isFollowUp ? 'Enter follow-up remarks' : 'Enter todo description'} />
+          </label>
+        </div>
+        <div className="client-interaction-modal-actions">
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button type="button" onClick={submit}>{isFollowUp ? 'Save Follow-Up' : 'Add To-Do'}</button>
+        </div>
       </div>
     </div>
   );
 }
 
-function ComplianceTab({ client, setValue, addRow, updateRow, removeRow }) {
+function QuickStat({ label, value, icon: Icon }) {
   return (
-    <>
-      <Card title="Compliance Certificate Upload">
-        <div className="grid gap-4">
-          {complianceRows.map(([key, numberLabel, dateLabel, fileLabel]) => (
-            <div key={key} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 lg:grid-cols-[1fr_1fr_180px]">
-              <Field label={numberLabel}><input className="form-input" value={client.compliance[`${key}Number`] || ''} onChange={(event) => setValue('compliance', `${key}Number`, event.target.value)} /></Field>
-              <Field label={dateLabel}><input type="date" className="form-input" value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
-              <Field label={fileLabel}><UploadButton onChange={(value) => setValue('compliance', `${key}File`, value)} /></Field>
-            </div>
+    <div className="rounded-lg border border-white/80 bg-white/90 p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <p className="truncate text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">{label}</p>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-[#30737B]"><Icon className="h-4 w-4" /></span>
+      </div>
+      <p className="mt-3 truncate text-sm font-black text-slate-950">{value || '-'}</p>
+    </div>
+  );
+}
+
+function StatusPill({ value }) {
+  const current = value || '-';
+  const statusClass = current === 'LIVE'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    : current === 'SUSPENDED'
+      ? 'border-amber-200 bg-amber-50 text-amber-700'
+      : 'border-rose-200 bg-rose-50 text-rose-700';
+
+  return (
+    <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${statusClass}`}>{current}</span>
+  );
+}
+
+function InlineClientMeta({ label, value, icon: Icon, status = false }) {
+  return (
+    <div className="min-w-0 border-l-2 border-[#30737B]/20 pl-3">
+      <div className="flex items-center gap-2">
+        <Icon className="h-4 w-4 shrink-0 text-[#30737B]" />
+        <p className="truncate text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      </div>
+      {status ? (
+        <div className="mt-1"><StatusPill value={value} /></div>
+      ) : (
+        <p className="mt-1 truncate text-sm font-black text-slate-950">{value || '-'}</p>
+      )}
+    </div>
+  );
+}
+
+function DetailSheet({ children, columns = 1 }) {
+  return (
+    <div className={`detail-sheet-grid detail-sheet-grid-${columns}`}>
+      {children}
+    </div>
+  );
+}
+
+function DetailValue({ label, value, icon: Icon, link = false, actionUrl = '' }) {
+  const isDocumentList = Array.isArray(value);
+  const display = value || '-';
+  return (
+    <div className="detail-value-card group min-w-0 border-slate-100 px-4 py-3 transition hover:bg-emerald-50/50 sm:px-5">
+      <div className="grid gap-3 xl:grid-cols-[minmax(150px,190px)_minmax(0,1fr)_auto] xl:items-center">
+        <div className="flex min-w-0 items-center gap-3">
+          {Icon && <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[#30737B] ring-1 ring-emerald-100 transition group-hover:bg-white"><Icon className="h-4 w-4" /></span>}
+          <p className="min-w-0 truncate text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">{label}</p>
+        </div>
+        <div className="min-w-0 pl-11 xl:pl-0">
+          {isDocumentList ? null : link && value ? (
+            <a className="inline-flex max-w-full break-words text-sm font-black text-orange-600 underline" href={String(value).startsWith('http') ? value : `https://${value}`} target="_blank" rel="noreferrer">Visit website</a>
+          ) : (
+            <p className="break-words text-sm font-black leading-6 text-slate-900">{display}</p>
+          )}
+        </div>
+        {actionUrl && !isDocumentList ? (
+          <a
+            href={normalizeDocumentUrl(actionUrl)}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-lift ml-11 inline-flex h-9 w-fit shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-[#30737B] hover:bg-[#30737B] hover:text-white xl:ml-0"
+            title={getDocumentLinkName(actionUrl, 0)}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            View
+          </a>
+        ) : <span className="hidden xl:block" />}
+      </div>
+      {isDocumentList ? (
+        value.length > 0 ? (
+          <div className="mt-3 grid gap-2 pl-11 sm:grid-cols-2 xl:grid-cols-3">
+            {value.map((url, index) => (
+              <a
+                key={`${url}-${index}`}
+                href={normalizeDocumentUrl(url)}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-lift group/link flex min-h-11 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-black text-slate-700 hover:border-[#30737B]/40 hover:bg-white hover:text-[#30737B]"
+                title={url}
+              >
+                <span className="min-w-0 truncate">{getDocumentLinkName(url, index)}</span>
+                <span className="shrink-0 rounded-md bg-white px-2 py-1 text-xs font-black text-orange-600 shadow-sm group-hover/link:text-[#30737B]">View</span>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 pl-11 text-sm font-black text-slate-400">No documents uploaded.</p>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+function QuotationHistory({ client, quotations, quotationContext }) {
+  const navigate = useNavigate();
+  const data = readClientData(client);
+  const clientName = data.basic?.clientLegalName || data.basic?.tradeName || quotationContext?.clientName || 'Selected Client';
+  const totalAmount = quotations.reduce((sum, quotation) => sum + (quotation.items || []).reduce((itemSum, item) => itemSum + (Number(item.basicAmount) || 0), 0), 0);
+  const latestQuote = quotations[0];
+
+  function openList() {
+    navigate('/sales/quotations', { state: { quotationContext } });
+  }
+
+  function openPreview(quotation) {
+    navigate('/sales/quotations', { state: { quotationContext, previewQuotationId: quotation._id || quotation.id } });
+  }
+
+  function reviseQuotation(quotation) {
+    navigate('/sales/quotations', { state: { quotationContext, editQuotationId: quotation._id || quotation.id } });
+  }
+
+  return (
+    <div className="mt-5 space-y-5">
+      <section className="overflow-hidden rounded-xl border border-emerald-100 bg-[linear-gradient(135deg,#f0fdfa_0%,#ffffff_48%,#fff7ed_100%)] p-4 shadow-sm shadow-teal-900/5">
+        <div className="grid gap-3 md:grid-cols-4">
+          <QuotationStat label="Company" value={clientName} icon={Building2} />
+          <QuotationStat label="Total Quotations" value={quotations.length} icon={FileText} />
+          <QuotationStat label="Quote Value" value={formatInrValue(totalAmount)} icon={Database} />
+          <QuotationStat label="Latest Quote" value={latestQuote?.quotationNumber || '-'} icon={CalendarDays} />
+        </div>
+      </section>
+
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Company Quotation Ledger</p>
+          <h4 className="mt-1 text-xl font-black text-slate-950">{quotations.length ? `${quotations.length} quotation${quotations.length === 1 ? '' : 's'} mapped` : 'No quotations mapped yet'}</h4>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => navigate('/sales/quotations?mode=add', { state: { quotationContext } })} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-black text-white shadow-lg shadow-orange-500/20">
+            <Plus className="h-4 w-4" /> New Quotation
+          </button>
+          <button type="button" onClick={openList} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700">
+            <Eye className="h-4 w-4" /> Open Quotation Desk
+          </button>
+        </div>
+      </div>
+
+      {quotations.length ? (
+        <div className="space-y-4">
+          {quotations.map((quotation, index) => (
+            <QuotationHistoryCard
+              key={quotation._id || quotation.id || index}
+              quotation={quotation}
+              index={index}
+              onOpen={() => openList()}
+              onPreview={() => openPreview(quotation)}
+              onRevise={() => reviseQuotation(quotation)}
+            />
           ))}
         </div>
-      </Card>
-
-      <Card title="MSME Details">
-        <DynamicTable
-          rows={client.msmeRows}
-          columns={[
-            ['classificationYear', 'MSME Classification Year *'],
-            ['status', 'MSME Status *'],
-            ['majorActivity', 'MSME Major Activity *'],
-            ['udyamNumber', 'MSME Udyam Number *'],
-            ['turnover', 'TurnOver of the Company (CR.) *']
-          ]}
-          uploadColumn="MSME Udyam Certificate"
-          onAdd={() => addRow('msmeRows', { classificationYear: '', status: '', majorActivity: '', udyamNumber: '', turnover: '', file: '' })}
-          onUpdate={(index, field, value) => updateRow('msmeRows', index, field, value)}
-          onRemove={(index) => removeRow('msmeRows', index)}
-        />
-      </Card>
-    </>
-  );
-}
-
-function CteTab({ client, setValue, addRow, updateRow, removeRow }) {
-  return (
-    <Card title="CTE & CTO/CCA Details">
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field label="CTE Consent No."><input className="form-input" value={client.cte.cteConsentNo || ''} onChange={(event) => setValue('cte', 'cteConsentNo', event.target.value)} /></Field>
-        <Field label="CTE Category"><input className="form-input" value={client.cte.cteCategory || ''} onChange={(event) => setValue('cte', 'cteCategory', event.target.value)} /></Field>
-        <Field label="CTE Issued Date"><input type="date" className="form-input" value={client.cte.cteIssuedDate || ''} onChange={(event) => setValue('cte', 'cteIssuedDate', event.target.value)} /></Field>
-        <Field label="CTE Valid upto Date"><input type="date" className="form-input" value={client.cte.cteValidDate || ''} onChange={(event) => setValue('cte', 'cteValidDate', event.target.value)} /></Field>
-        <Field label="Plant Location"><input className="form-input" value={client.cte.plantLocation || ''} onChange={(event) => setValue('cte', 'plantLocation', event.target.value)} /></Field>
-        <Field label="CTE Document Upload"><UploadButton onChange={(value) => setValue('cte', 'cteDocument', value)} /></Field>
-      </div>
-      <DynamicTable
-        title="CTE Production Quantity per Year"
-        rows={client.cteProductionRows}
-        columns={[['productName', 'Product Name'], ['capacity', 'Maximum Production Capacity / Year']]}
-        onAdd={() => addRow('cteProductionRows', { productName: '', capacity: '' })}
-        onUpdate={(index, field, value) => updateRow('cteProductionRows', index, field, value)}
-        onRemove={(index) => removeRow('cteProductionRows', index)}
-      />
-      <div className="mt-5 grid gap-5 md:grid-cols-2">
-        <Field label="CTO/CCA Consent Order No."><input className="form-input" value={client.cte.ctoOrderNo || ''} onChange={(event) => setValue('cte', 'ctoOrderNo', event.target.value)} /></Field>
-        <Field label="CTO/CCA Date of Issue"><input type="date" className="form-input" value={client.cte.ctoIssueDate || ''} onChange={(event) => setValue('cte', 'ctoIssueDate', event.target.value)} /></Field>
-        <Field label="CTO/CCA Valid upto Date"><input type="date" className="form-input" value={client.cte.ctoValidDate || ''} onChange={(event) => setValue('cte', 'ctoValidDate', event.target.value)} /></Field>
-        <Field label="CTO/CCA Document Upload"><UploadButton onChange={(value) => setValue('cte', 'ctoDocument', value)} /></Field>
-      </div>
-      <DynamicTable
-        title="CTO/CCA Product Quantity"
-        rows={client.ctoProductRows}
-        columns={[['productName', 'Name Of The Product'], ['quantity', 'Quantity']]}
-        onAdd={() => addRow('ctoProductRows', { productName: '', quantity: '' })}
-        onUpdate={(index, field, value) => updateRow('ctoProductRows', index, field, value)}
-        onRemove={(index) => removeRow('ctoProductRows', index)}
-      />
-    </Card>
-  );
-}
-
-function CpcbTab({ client, setValue }) {
-  return (
-    <Card title="CPCB Details">
-      <div className="grid gap-5 md:grid-cols-2">
-        <SelectLike required label="CPCB Status" value={client.cpcb.status || ''} options={selectOptions.cpcbStatus} onChange={(value) => setValue('cpcb', 'status', value)} />
-        <Field label="Remark"><textarea className="form-input min-h-[92px] resize-y py-3" value={client.cpcb.remark || ''} onChange={(event) => setValue('cpcb', 'remark', event.target.value)} /></Field>
-        <Field label="CPCB Home page"><UploadButton onChange={(value) => setValue('cpcb', 'homePageFile', value)} /></Field>
-        <Field label="CPCB Registration Number"><input className="form-input" value={client.cpcb.registrationNumber || ''} onChange={(event) => setValue('cpcb', 'registrationNumber', event.target.value)} /></Field>
-        <Field label="Date of Application"><input type="date" className="form-input" value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
-        <Field label="Date of Application Approval"><input type="date" className="form-input" value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
-        <Field label="Application Number"><input className="form-input" value={client.cpcb.applicationNumber || ''} onChange={(event) => setValue('cpcb', 'applicationNumber', event.target.value)} /></Field>
-        <Field label="CEPR User ID"><input className="form-input" value={client.cpcb.ceprUserId || ''} onChange={(event) => setValue('cpcb', 'ceprUserId', event.target.value)} /></Field>
-        <Field label="CEPR Password"><input type="password" className="form-input" value={client.cpcb.ceprPassword || ''} onChange={(event) => setValue('cpcb', 'ceprPassword', event.target.value)} /></Field>
-        <Field label="CPCB Login ID"><input className="form-input" value={client.cpcb.loginId || ''} onChange={(event) => setValue('cpcb', 'loginId', event.target.value)} /></Field>
-        <Field label="CPCB Login Password"><input type="password" className="form-input" value={client.cpcb.loginPassword || ''} onChange={(event) => setValue('cpcb', 'loginPassword', event.target.value)} /></Field>
-      </div>
-    </Card>
-  );
-}
-
-function ValidationTab({ client, setValue }) {
-  return (
-    <Card title="Validation Documents">
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field label="Quotation Number"><input className="form-input" value={client.validation.quotationNumber || ''} onChange={(event) => setValue('validation', 'quotationNumber', event.target.value)} /></Field>
-        <Field label="Quotation Date"><input type="date" className="form-input" value={client.validation.quotationDate || ''} onChange={(event) => setValue('validation', 'quotationDate', event.target.value)} /></Field>
-        <Field label="Quotation Document"><UploadButton onChange={(value) => setValue('validation', 'quotationDocument', value)} /></Field>
-        <Field label="Initial Purchase Order Number"><input className="form-input" value={client.validation.poNumber || ''} onChange={(event) => setValue('validation', 'poNumber', event.target.value)} /></Field>
-        <Field label="Initial Purchase Order Date"><input type="date" className="form-input" value={client.validation.poDate || ''} onChange={(event) => setValue('validation', 'poDate', event.target.value)} /></Field>
-        <Field label="Initial Purchase Order Document"><UploadButton onChange={(value) => setValue('validation', 'poDocument', value)} /></Field>
-      </div>
-    </Card>
-  );
-}
-
-function ContactsTab({ client, setValue }) {
-  return (
-    <>
-      <Card title="OTP Contact">
-        <div className="grid gap-5 md:grid-cols-2">
-          <Field required label="OTP Enabled Mobile No"><input className="form-input" value={client.otp.mobile || ''} onChange={(event) => setValue('otp', 'mobile', event.target.value)} /></Field>
-          <Field label="OTP Person Name"><input className="form-input" value={client.otp.personName || ''} onChange={(event) => setValue('otp', 'personName', event.target.value)} /></Field>
-          <Field label="OTP Person Designation"><input className="form-input" value={client.otp.designation || ''} onChange={(event) => setValue('otp', 'designation', event.target.value)} /></Field>
+      ) : (
+        <div className="rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 px-5 py-12 text-center">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-xl bg-white text-[#30737B] shadow-sm"><FileText className="h-6 w-6" /></div>
+          <p className="mt-4 text-lg font-black text-slate-800">Quotation History</p>
+          <p className="mt-2 text-sm font-bold text-slate-500">No quotations mapped for this company yet.</p>
+          <button type="button" onClick={() => navigate('/sales/quotations?mode=add', { state: { quotationContext } })} className="btn-lift mt-5 inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-5 text-sm font-black text-white shadow-lg shadow-orange-500/20">
+            <Plus className="h-4 w-4" /> Create Quotation
+          </button>
         </div>
-      </Card>
-      <PersonCard title="Authorised Person" section="authorised" client={client} setValue={setValue} includePan />
-      <PersonCard title="Coordinating Person" section="coordinating" client={client} setValue={setValue} />
-    </>
+      )}
+    </div>
   );
 }
 
-function PersonCard({ title, section, client, setValue, includePan }) {
-  const data = client[section];
+function QuotationStat({ label, value, icon: Icon }) {
   return (
-    <Card title={title}>
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field label={`${title} Name`}><input className="form-input" value={data.name || ''} onChange={(event) => setValue(section, 'name', event.target.value)} /></Field>
-        <Field label={`${title} Designation`}><input className="form-input" value={data.designation || ''} onChange={(event) => setValue(section, 'designation', event.target.value)} /></Field>
-        <Field label={`Department of ${title.toLowerCase()}`}><input className="form-input" value={data.department || ''} onChange={(event) => setValue(section, 'department', event.target.value)} /></Field>
-        <Field label="Reporting Person Details"><input className="form-input" value={data.reporting || ''} onChange={(event) => setValue(section, 'reporting', event.target.value)} /></Field>
-        <Field required label={`${title} Mobile`}><input className="form-input" value={data.mobile || ''} onChange={(event) => setValue(section, 'mobile', event.target.value)} /></Field>
-        <Field required label={`${title} Email`}><input className="form-input" value={data.email || ''} onChange={(event) => setValue(section, 'email', event.target.value)} /></Field>
-        {includePan && <Field label={`${title} PAN Number`}><input className="form-input" value={data.pan || ''} onChange={(event) => setValue(section, 'pan', event.target.value)} /></Field>}
-        {includePan && <Field label={`${title} PAN Document`}><UploadButton onChange={(value) => setValue(section, 'panDocument', value)} /></Field>}
+    <div className="rounded-lg border border-white/80 bg-white/90 p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <p className="truncate text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</p>
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[#30737B]"><Icon className="h-4 w-4" /></span>
       </div>
-    </Card>
+      <p className="mt-3 truncate text-base font-black text-slate-950">{value || '-'}</p>
+    </div>
   );
 }
 
-function DynamicTable({ title, rows, columns, uploadColumn, onAdd, onUpdate, onRemove }) {
+function QuotationHistoryCard({ quotation, index, onOpen, onPreview, onRevise }) {
+  const items = quotation.items || [];
+  const details = quotation.leadDetails || {};
+  const created = formatDisplayDate(quotation.createdAt || quotation.quotationDate);
+  const total = items.reduce((sum, item) => sum + (Number(item.basicAmount) || 0), 0);
+  const status = quotation.status === 'draft' ? 'Open' : quotation.status || 'Open';
+
   return (
-    <div className="mt-6">
-      {title && <h3 className="text-xl font-black text-slate-950">{title}</h3>}
-      <button type="button" onClick={onAdd} className="btn-lift mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl bg-blue-700 px-4 font-black text-white shadow-lg shadow-blue-700/20">
-        <Plus className="h-4 w-4" /> Add Row
-      </button>
-      <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-        <table className="w-full min-w-[900px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-500">
-            <tr>
-              <th className="px-4 py-4">Sr.No</th>
-              {columns.map(([, label]) => <th key={label} className="px-4 py-4">{label}</th>)}
-              {uploadColumn && <th className="px-4 py-4">{uploadColumn}</th>}
-              <th className="px-4 py-4 text-center">Actions</th>
+    <article className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-xl hover:shadow-slate-900/10" style={{ animationDelay: `${index * 70}ms` }}>
+      <div className="flex flex-col gap-4 border-b border-slate-100 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_65%,#fff7ed_100%)] p-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase text-emerald-700">{status}</span>
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase text-emerald-700">{items.length} item{items.length === 1 ? '' : 's'}</span>
+            <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-black uppercase text-orange-700">{created}</span>
+          </div>
+          <h4 className="mt-3 text-2xl font-black text-slate-950">{quotation.quotationNumber || 'Quotation'}</h4>
+          <p className="mt-1 text-sm font-bold uppercase text-slate-500">{details.companyName || '-'}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onOpen} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700"><Eye className="h-4 w-4" />Open</button>
+          <button type="button" onClick={onPreview} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><FileText className="h-4 w-4" />View Details</button>
+          <button type="button" onClick={onRevise} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-600"><Edit3 className="h-4 w-4" />Revise</button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-b border-slate-100 p-5 sm:grid-cols-2 lg:grid-cols-4">
+        <InlineClientMeta label="Contact Person" value={details.contactPerson || '-'} icon={UserRound} />
+        <InlineClientMeta label="Prepared By" value={quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-'} icon={UserRound} />
+        <InlineClientMeta label="Valid Until" value={formatDisplayDate(quotation.validUntil)} icon={CalendarDays} />
+        <InlineClientMeta label="Basic Total" value={formatInrValue(total)} icon={Database} />
+      </div>
+
+      <div className="p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h5 className="font-black text-slate-900">Quotation Items</h5>
+          <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-400">INR</span>
+        </div>
+        <div className="overflow-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[880px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
+              <tr>
+                {['#', 'Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount'].map((header) => (
+                  <th key={header} className="border-r border-slate-200 px-4 py-3 last:border-r-0">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.length ? items.map((item, itemIndex) => (
+                <tr key={itemIndex} className="font-black uppercase text-slate-700 transition hover:bg-emerald-50/40">
+                  <td className="px-4 py-4 text-emerald-700">{itemIndex + 1}</td>
+                  <td className="px-4 py-4">{item.serviceCategory || '-'}</td>
+                  <td className="px-4 py-4">{item.servicesForYear || '-'}</td>
+                  <td className="px-4 py-4">{item.eprCategory || '-'}</td>
+                  <td className="px-4 py-4">{item.piboCategory || '-'}</td>
+                  <td className="px-4 py-4">{item.unit || '-'}</td>
+                  <td className="px-4 py-4 text-right text-orange-600">{formatInrValue(item.basicAmount)}</td>
+                </tr>
+              )) : (
+                <tr><td colSpan={7} className="px-4 py-8 text-center font-black text-slate-400">No quotation items added.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function formatInrValue(value) {
+  return (Number(value) || 0).toLocaleString('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function formatDisplayDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('en-GB');
+}
+
+function getDocumentLinkName(url, index) {
+  try {
+    const parsed = new URL(url);
+    const last = parsed.pathname.split('/').filter(Boolean).pop();
+    return safeDecode(last || `Document ${index + 1}`);
+  } catch {
+    const clean = String(url || '').split('/').filter(Boolean).pop();
+    return clean ? safeDecode(clean) : `Document ${index + 1}`;
+  }
+}
+
+function normalizeDocumentUrl(url) {
+  const value = String(url || '').trim();
+  if (!value) return '#';
+  if (/^https?:\/\//i.test(value)) return encodeURI(value);
+  return `https://ananttattva-s3-bucket.s3.ap-south-1.amazonaws.com/${encodeURIComponent(value)}`;
+}
+
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function mapClientDocuments(urls = []) {
+  const normalized = urls.map((url) => String(url || '').trim()).filter(Boolean);
+  const findBy = (keywords) => normalized.find((url) => {
+    const name = safeDecode(String(url).split('?')[0]).toLowerCase();
+    return keywords.some((keyword) => name.includes(keyword));
+  }) || '';
+
+  return {
+    gst: findBy(['gst']),
+    pan: findBy(['pancard', 'pan card', 'pan-','pan_','pan.','pan ']),
+    cin: findBy(['cin', 'incorporation', 'llp incorporation']),
+    factory: findBy(['factory']),
+    epr: findBy(['epr']),
+    msme: findBy(['msme', 'udyam']),
+    application: findBy(['application page', 'application'])
+  };
+}
+
+function getStoredAnnualReturnDraft(data = {}, annualYear = '') {
+  const filing = data.annualReturn?.filings?.[annualYear];
+  if (filing?.draft && typeof filing.draft === 'object' && !Array.isArray(filing.draft)) return filing.draft;
+  return {};
+}
+
+function getStoredAnnualReturnFiling(data = {}, annualYear = '') {
+  const filing = data.annualReturn?.filings?.[annualYear];
+  if (filing && typeof filing === 'object' && !Array.isArray(filing)) return filing;
+  return {};
+}
+
+function getStoredAnnualApprovalWorkflow(data = {}, annualYear = '') {
+  const filing = getStoredAnnualReturnFiling(data, annualYear);
+  const workflow = filing.approvalWorkflow;
+  if (workflow && typeof workflow === 'object' && !Array.isArray(workflow) && !isInitialAnnualWorkflowState(workflow)) return workflow;
+
+  const filingStatus = String(filing.status || '').trim().toLowerCase();
+  if (['manager_pending', 'manager_rejected', 'compliance_pending', 'compliance_rejected', 'compliance_approved'].includes(filingStatus)) {
+    return {
+      ...(workflow && typeof workflow === 'object' && !Array.isArray(workflow) ? workflow : {}),
+      status: filingStatus,
+      currentStage: filingStatus === 'manager_pending' || filingStatus === 'compliance_rejected'
+        ? 'manager'
+        : filingStatus === 'compliance_pending'
+          ? 'compliance'
+          : filingStatus === 'compliance_approved'
+            ? 'complete'
+            : 'user'
+    };
+  }
+
+  if (workflow && typeof workflow === 'object' && !Array.isArray(workflow)) return workflow;
+  return {};
+}
+
+function hasAnnualApprovalWorkflowState(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Boolean(
+    value.status
+    || value.currentStage
+    || value.updatedAt
+    || Object.keys(value.sections || {}).length
+    || (Array.isArray(value.history) && value.history.length)
+  );
+}
+
+function isInitialAnnualWorkflowState(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return true;
+  const status = String(value.status || '').trim().toLowerCase();
+  const currentStage = String(value.currentStage || '').trim().toLowerCase();
+  return (!status || status === 'draft')
+    && (!currentStage || currentStage === 'user')
+    && !value.updatedAt
+    && !Object.keys(value.sections || {}).length
+    && !(Array.isArray(value.history) && value.history.length);
+}
+
+function buildAnnualClientSnapshot(data = {}) {
+  const { annualReturn, ...snapshot } = data || {};
+  return snapshot;
+}
+
+function normalizeAnnualApprovalWorkflow(value = {}, fallback = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallbackSource = fallback && typeof fallback === 'object' && !Array.isArray(fallback) ? fallback : {};
+  const sourceHasState = hasAnnualApprovalWorkflowState(source);
+  const keepFallback = sourceHasState && isInitialAnnualWorkflowState(source) && hasAnnualApprovalWorkflowState(fallbackSource) && !isInitialAnnualWorkflowState(fallbackSource);
+  const current = sourceHasState && !keepFallback ? source : fallbackSource;
+  const normalizedStatus = String(current.status || '').trim().toLowerCase();
+  const inferredStage = normalizedStatus === 'manager_pending' || normalizedStatus === 'compliance_rejected'
+    ? 'manager'
+    : normalizedStatus === 'compliance_pending'
+      ? 'compliance'
+      : normalizedStatus === 'compliance_approved'
+        ? 'complete'
+        : '';
+  return {
+    status: current.status || 'draft',
+    currentStage: current.currentStage || inferredStage || 'user',
+    lastRemark: current.lastRemark || '',
+    updatedAt: current.updatedAt || '',
+    history: Array.isArray(current.history) ? current.history : [],
+    sections: current.sections && typeof current.sections === 'object' && !Array.isArray(current.sections) ? current.sections : {}
+  };
+}
+
+function getAnnualSectionMeta(workflow = {}, sectionTitle = '') {
+  const sections = workflow.sections && typeof workflow.sections === 'object' && !Array.isArray(workflow.sections)
+    ? workflow.sections
+    : {};
+  if (sections[sectionTitle]) return sections[sectionTitle];
+
+  const partKey = getAnnualPartKey(sectionTitle);
+  if (!partKey) return {};
+
+  const matchingTitle = Object.keys(sections).find((title) => getAnnualPartKey(title) === partKey);
+  return matchingTitle ? sections[matchingTitle] || {} : {};
+}
+
+function getAnnualSectionMetas(workflow = {}, sectionTitle = '') {
+  const sections = workflow.sections && typeof workflow.sections === 'object' && !Array.isArray(workflow.sections)
+    ? workflow.sections
+    : {};
+  const partKey = getAnnualPartKey(sectionTitle);
+  const metas = Object.entries(sections)
+    .filter(([title]) => partKey && getAnnualPartKey(title) === partKey)
+    .map(([, meta]) => meta)
+    .filter(Boolean);
+  if (sections[sectionTitle] && !metas.includes(sections[sectionTitle])) metas.push(sections[sectionTitle]);
+  return metas.length ? metas : [getAnnualSectionMeta(workflow, sectionTitle)];
+}
+
+function pickAnnualReviewStatus(statuses = [], fallback = 'pending') {
+  const normalized = statuses.map(normalizeAnnualReviewStatus).filter(Boolean);
+  if (normalized.includes('approved')) return 'approved';
+  if (normalized.includes('rejected')) return 'rejected';
+  if (normalized.includes('submitted')) return 'submitted';
+  if (normalized.includes('pending')) return 'pending';
+  if (normalized.includes('waiting')) return 'waiting';
+  return normalizeAnnualReviewStatus(normalized[0] || fallback);
+}
+
+function normalizeAnnualReviewStatus(status = '') {
+  const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'approve' || normalized === 'approved') return 'approved';
+  if (normalized === 'reject' || normalized === 'rejected') return 'rejected';
+  if (normalized === 'submit' || normalized === 'submitted') return 'submitted';
+  if (normalized === 'wait' || normalized === 'waiting' || normalized === 'locked') return 'waiting';
+  if (normalized === 'pending' || normalized === 'current_pending') return 'pending';
+  return normalized;
+}
+
+function getAnnualMetaTimestamp(meta = {}) {
+  return Math.max(
+    Date.parse(meta?.updatedAt || '') || 0,
+    Date.parse(meta?.managerReviewedAt || '') || 0,
+    Date.parse(meta?.complianceReviewedAt || '') || 0,
+    0
+  );
+}
+
+function pickAnnualReviewStatusFromMetas(metas = [], statusKey = 'status', fallback = 'pending') {
+  const normalizedMetas = metas
+    .map((meta) => ({
+      meta,
+      status: normalizeAnnualReviewStatus(meta?.[statusKey] || (statusKey === 'status' ? '' : meta?.status || '')),
+      timestamp: getAnnualMetaTimestamp(meta)
+    }))
+    .filter((item) => item.status);
+
+  const reviewed = normalizedMetas
+    .filter((item) => item.status === 'approved' || item.status === 'rejected')
+    .sort((a, b) => b.timestamp - a.timestamp);
+
+  if (reviewed.length) return reviewed[0].status;
+  return pickAnnualReviewStatus(normalizedMetas.map((item) => item.status), fallback);
+}
+
+function getAnnualWorkflowStageRank(workflow = {}) {
+  const stage = getAnnualReviewStage(workflow);
+  if (stage === 'complete') return 4;
+  if (stage === 'compliance') return 3;
+  if (stage === 'manager') return 2;
+  return 1;
+}
+
+function getAnnualWorkflowReviewedCount(workflow = {}) {
+  const sections = workflow.sections && typeof workflow.sections === 'object' && !Array.isArray(workflow.sections)
+    ? workflow.sections
+    : {};
+  const reviewedPartKeys = new Set();
+  Object.entries(sections).forEach(([title, meta]) => {
+    const partKey = getAnnualPartKey(title);
+    if (!partKey) return;
+    const managerStatus = normalizeAnnualReviewStatus(meta?.managerStatus || meta?.status || '');
+    const complianceStatus = normalizeAnnualReviewStatus(meta?.complianceStatus || '');
+    if (['approved', 'rejected'].includes(managerStatus) || ['approved', 'rejected'].includes(complianceStatus)) {
+      reviewedPartKeys.add(partKey);
+    }
+  });
+  return reviewedPartKeys.size;
+}
+
+function getAnnualWorkflowTimestamp(workflow = {}) {
+  const sectionTimes = Object.values(workflow.sections || {})
+    .map((meta) => Date.parse(meta?.updatedAt || meta?.managerReviewedAt || meta?.complianceReviewedAt || ''))
+    .filter(Number.isFinite);
+  const historyTimes = Array.isArray(workflow.history)
+    ? workflow.history.map((item) => Date.parse(item?.at || '')).filter(Number.isFinite)
+    : [];
+  return Math.max(Date.parse(workflow.updatedAt || '') || 0, ...sectionTimes, ...historyTimes, 0);
+}
+
+function shouldKeepCurrentAnnualWorkflow(current = {}, incoming = {}) {
+  if (!hasAnnualApprovalWorkflowState(current)) return false;
+  if (!hasAnnualApprovalWorkflowState(incoming)) return true;
+  const currentRank = getAnnualWorkflowStageRank(current);
+  const incomingRank = getAnnualWorkflowStageRank(incoming);
+  if (currentRank !== incomingRank) return currentRank > incomingRank;
+  const currentReviewed = getAnnualWorkflowReviewedCount(current);
+  const incomingReviewed = getAnnualWorkflowReviewedCount(incoming);
+  if (currentReviewed !== incomingReviewed) return currentReviewed > incomingReviewed;
+  const currentHistory = Array.isArray(current.history) ? current.history.length : 0;
+  const incomingHistory = Array.isArray(incoming.history) ? incoming.history.length : 0;
+  if (currentHistory !== incomingHistory) return currentHistory > incomingHistory;
+  return getAnnualWorkflowTimestamp(current) > getAnnualWorkflowTimestamp(incoming);
+}
+
+function annualReviewStatusRank(status = '') {
+  const normalized = normalizeAnnualReviewStatus(status);
+  if (normalized === 'approved' || normalized === 'rejected') return 4;
+  if (normalized === 'submitted') return 3;
+  if (normalized === 'pending') return 2;
+  if (normalized === 'waiting') return 1;
+  return 0;
+}
+
+function preferAnnualReviewStatus(currentStatus = '', incomingStatus = '') {
+  return annualReviewStatusRank(incomingStatus) >= annualReviewStatusRank(currentStatus)
+    ? normalizeAnnualReviewStatus(incomingStatus)
+    : normalizeAnnualReviewStatus(currentStatus);
+}
+
+function mergeAnnualSectionMeta(current = {}, incoming = {}) {
+  const merged = { ...(current || {}), ...(incoming || {}) };
+  const managerStatus = preferAnnualReviewStatus(current?.managerStatus || current?.status, incoming?.managerStatus || incoming?.status);
+  const complianceStatus = preferAnnualReviewStatus(current?.complianceStatus, incoming?.complianceStatus);
+  const status = preferAnnualReviewStatus(current?.status, incoming?.status || managerStatus || complianceStatus);
+  return {
+    ...merged,
+    status: status || merged.status || '',
+    managerStatus: managerStatus || merged.managerStatus || '',
+    complianceStatus: complianceStatus || merged.complianceStatus || ''
+  };
+}
+
+function mergeAnnualWorkflowSections(currentSections = {}, incomingSections = {}) {
+  const merged = {};
+  [...new Set([...Object.keys(currentSections || {}), ...Object.keys(incomingSections || {})])].forEach((title) => {
+    merged[title] = mergeAnnualSectionMeta(currentSections?.[title] || {}, incomingSections?.[title] || {});
+  });
+  return merged;
+}
+
+function mergeAnnualWorkflowState(current = {}, incoming = {}) {
+  const normalizedCurrent = normalizeAnnualApprovalWorkflow(current);
+  const normalizedIncoming = normalizeAnnualApprovalWorkflow(incoming, normalizedCurrent);
+  const base = shouldKeepCurrentAnnualWorkflow(normalizedCurrent, normalizedIncoming)
+    ? normalizedCurrent
+    : normalizedIncoming;
+  const other = base === normalizedCurrent ? normalizedIncoming : normalizedCurrent;
+  return normalizeAnnualApprovalWorkflow({
+    ...other,
+    ...base,
+    history: Array.isArray(base.history) && base.history.length >= (Array.isArray(other.history) ? other.history.length : 0)
+      ? base.history
+      : other.history,
+    sections: mergeAnnualWorkflowSections(other.sections || {}, base.sections || {})
+  });
+}
+
+function summarizeAnnualWorkflow(workflow = {}) {
+  const sections = workflow.sections && typeof workflow.sections === 'object' && !Array.isArray(workflow.sections)
+    ? workflow.sections
+    : {};
+  return {
+    status: workflow.status || 'draft',
+    currentStage: workflow.currentStage || 'user',
+    reviewedParts: getAnnualWorkflowReviewedCount(workflow),
+    sections: Object.fromEntries(Object.entries(sections).map(([title, meta]) => [
+      title,
+      {
+        status: meta?.status || '',
+        managerStatus: meta?.managerStatus || '',
+        complianceStatus: meta?.complianceStatus || '',
+        reviewerRole: meta?.reviewerRole || '',
+        updatedAt: meta?.updatedAt || ''
+      }
+    ])),
+    history: Array.isArray(workflow.history) ? workflow.history.map((item) => item?.action || '').filter(Boolean) : [],
+    updatedAt: workflow.updatedAt || ''
+  };
+}
+
+function buildAnnualWorkflowDebugRows(workflow = {}, sectionTitles = []) {
+  const titles = sectionTitles.length ? sectionTitles : Object.keys(workflow.sections || {});
+  return titles.map((title) => ({
+    part: getAnnualPartShortLabel(title),
+    title,
+    manager: getAnnualStageSectionStatus(workflow, title, 'manager'),
+    compliance: getAnnualStageSectionStatus(workflow, title, 'compliance'),
+    status: getAnnualSectionStatus(workflow, title)
+  }));
+}
+
+function mergeAnnualWorkflowIntoClient(client = {}, annualYear = '', workflow = {}) {
+  if (!client || !annualYear || !hasAnnualApprovalWorkflowState(workflow)) return client;
+  const data = readClientData(client);
+  const annualReturn = data.annualReturn && typeof data.annualReturn === 'object' && !Array.isArray(data.annualReturn)
+    ? data.annualReturn
+    : {};
+  const filings = annualReturn.filings && typeof annualReturn.filings === 'object' && !Array.isArray(annualReturn.filings)
+    ? annualReturn.filings
+    : {};
+  const existingFiling = filings[annualYear] && typeof filings[annualYear] === 'object' && !Array.isArray(filings[annualYear])
+    ? filings[annualYear]
+    : {};
+  const existingWorkflow = normalizeAnnualApprovalWorkflow(existingFiling.approvalWorkflow || {});
+  const preferredWorkflow = normalizeAnnualApprovalWorkflow(workflow, existingWorkflow);
+  const nextWorkflow = mergeAnnualWorkflowState(existingWorkflow, preferredWorkflow);
+
+  return {
+    ...client,
+    data: {
+      ...data,
+      annualReturn: {
+        ...annualReturn,
+        selectedYear: annualYear,
+        lastSavedYear: annualYear,
+        filings: {
+          ...filings,
+          [annualYear]: {
+            ...existingFiling,
+            status: nextWorkflow.status || existingFiling.status || 'draft',
+            approvalWorkflow: nextWorkflow
+          }
+        }
+      }
+    }
+  };
+}
+
+function getAnnualSectionStatus(workflow = {}, sectionTitle = '', stage = '') {
+  const metas = getAnnualSectionMetas(workflow, sectionTitle);
+  if (stage === 'manager') return pickAnnualReviewStatusFromMetas(metas, 'managerStatus', 'pending');
+  if (stage === 'compliance') return pickAnnualReviewStatusFromMetas(metas, 'complianceStatus', 'pending');
+  return pickAnnualReviewStatus(metas.map((meta) => meta.status || meta.complianceStatus || meta.managerStatus), 'pending');
+}
+
+function getAnnualSectionTone(status = '') {
+  if (status === 'approved' || status === 'submitted') return 'approved';
+  if (status === 'rejected') return 'rejected';
+  return 'pending';
+}
+
+function buildAnnualUserSubmittedStatuses(sectionTitles = []) {
+  return sectionTitles.reduce((next, title) => ({
+    ...next,
+    [title]: {
+      status: 'submitted',
+      managerStatus: 'submitted',
+      complianceStatus: 'waiting'
+    }
+  }), {});
+}
+
+function getAnnualReviewLockReason({ isManager = false, isComplianceManager = false, effectiveReviewStage = 'user', workflowStatus = 'draft', activeProcessingTab = '', activeSectionTitle = '', isSubmitSection = false } = {}) {
+  if (activeProcessingTab !== 'data') return 'Open the Data tab to review annual return parts.';
+  if (effectiveReviewStage === 'user') {
+    if (isManager || isComplianceManager) return 'Annual return is still draft. User must complete Part A, B, C, D and submit from Part D.';
+    return isSubmitSection ? 'Submit to Manager from Part D.' : 'Complete all Data parts and go to Part D to submit.';
+  }
+  if (effectiveReviewStage === 'manager' && !isManager) return 'Waiting for Manager approval.';
+  if (effectiveReviewStage === 'compliance' && !isComplianceManager) return 'Waiting for Compliance Manager approval.';
+  if (effectiveReviewStage === 'complete') return 'Annual return is already fully approved.';
+  if (workflowStatus === 'manager_rejected') return 'Manager rejected this return. User must correct and resubmit from Part D.';
+  if (workflowStatus === 'compliance_rejected') return 'Compliance rejected this return. Manager must correct/re-approve rejected parts.';
+  return `Review action is locked for ${activeSectionTitle || 'this part'}.`;
+}
+
+function getAnnualPartShortLabel(title = '') {
+  const match = String(title).match(/^Part\s+[A-Z]/i);
+  return match ? match[0] : 'Part';
+}
+
+function getAnnualPartKey(title = '') {
+  const match = String(title || '').trim().match(/^Part\s+([A-Z])/i);
+  return match ? match[1].toUpperCase() : '';
+}
+
+function getAnnualWorkflowHistoryItem(workflow = {}, action = '') {
+  const expectedAction = String(action || '').trim().toUpperCase();
+  const history = Array.isArray(workflow.history) ? workflow.history : [];
+  return [...history].reverse().find((item) => String(item?.action || '').trim().toUpperCase() === expectedAction) || null;
+}
+
+function getAnnualWorkflowSubmittedBy(workflow = {}) {
+  const submitted = getAnnualWorkflowHistoryItem(workflow, 'SUBMITTED_TO_MANAGER');
+  return submitted?.by || '';
+}
+
+function isAnnualPartDSection(title = '') {
+  return /^Part\s+D\b/i.test(String(title || '').trim());
+}
+
+function getAnnualReviewStage(workflow = {}) {
+  const currentStage = String(workflow.currentStage || '').toLowerCase();
+  const status = String(workflow.status || '').toLowerCase();
+  if (currentStage === 'manager' || status === 'manager_pending') return 'manager';
+  if (currentStage === 'compliance' || status === 'compliance_pending') return 'compliance';
+  if (currentStage === 'complete' || status === 'compliance_approved') return 'complete';
+  return 'user';
+}
+
+function normalizeRoleName(value = '') {
+  return String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function hasAnyAnnualRole(currentRole = '', allowedRoles = []) {
+  const normalizedRole = normalizeRoleName(currentRole);
+  return allowedRoles.some((role) => normalizedRole === normalizeRoleName(role));
+}
+
+function getAnnualUserRoleValues(user = {}) {
+  return [
+    user?.role,
+    user?.roleLabel,
+    user?.team,
+    user?.title,
+    user?.designation,
+    user?.department
+  ].filter(Boolean);
+}
+
+function hasAnyAnnualUserRole(user = {}, allowedRoles = []) {
+  return getAnnualUserRoleValues(user).some((value) => hasAnyAnnualRole(value, allowedRoles));
+}
+
+const annualProcessingTabLabels = {
+  basic: 'Basic Info',
+  financials: 'Financials',
+  data: 'Data',
+  cpcbLetter: 'CPCB Letter'
+};
+const annualProcessingTabIds = Object.keys(annualProcessingTabLabels);
+
+function getAnnualCompletedTabs(draft = {}) {
+  const completed = draft?.__completedTabs && typeof draft.__completedTabs === 'object' && !Array.isArray(draft.__completedTabs)
+    ? draft.__completedTabs
+    : {};
+  return annualProcessingTabIds.reduce((next, tabId) => ({ ...next, [tabId]: Boolean(completed[tabId]) }), {});
+}
+
+function getAnnualCompletedCount(draft = {}) {
+  const completed = getAnnualCompletedTabs(draft);
+  return annualProcessingTabIds.filter((tabId) => completed[tabId]).length;
+}
+
+function getAnnualCompletedSections(draft = {}) {
+  const completed = draft?.__completedSections && typeof draft.__completedSections === 'object' && !Array.isArray(draft.__completedSections)
+    ? draft.__completedSections
+    : {};
+  return annualProcessingTabIds.reduce((next, tabId) => ({
+    ...next,
+    [tabId]: Array.isArray(completed[tabId]) ? completed[tabId].filter(Boolean) : []
+  }), {});
+}
+
+function formatCompletedTabsMessage(completedTabs = {}) {
+  const labels = annualProcessingTabIds
+    .filter((tabId) => completedTabs[tabId])
+    .map((tabId) => annualProcessingTabLabels[tabId]);
+  if (!labels.length) return '';
+  if (labels.length === 1) return `${labels[0]} done.`;
+  return `${labels.join(', ')} done.`;
+}
+
+function AnnualReturnHistory({ client, quotations = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
+  const navigate = useNavigate();
+  const data = readClientData(client);
+  const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
+  const [activeProcessingTab, setActiveProcessingTab] = useState('basic');
+  const [activePillSection, setActivePillSection] = useState('');
+  const [annualTransitioning, setAnnualTransitioning] = useState(false);
+  const [annualDraft, setAnnualDraft] = useState({});
+  const [confirmFinancials, setConfirmFinancials] = useState(false);
+  const [annualConfirmOpen, setAnnualConfirmOpen] = useState(false);
+  const [pendingAnnualNextTab, setPendingAnnualNextTab] = useState('');
+  const [pendingAnnualNextSection, setPendingAnnualNextSection] = useState('');
+  const [saveNotice, setSaveNotice] = useState('');
+  const [annualToast, setAnnualToast] = useState(null);
+  const [annualCompletionModal, setAnnualCompletionModal] = useState(null);
+  const [savingAnnual, setSavingAnnual] = useState(false);
+  const [annualSaveError, setAnnualSaveError] = useState('');
+  const [approvalWorkflow, setApprovalWorkflow] = useState(normalizeAnnualApprovalWorkflow());
+  const [reviewDrawerOpen, setReviewDrawerOpen] = useState(false);
+  const selected = years.find((year) => year.label === selectedYear);
+  const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Selected Client';
+  const uniqueId = getClientUniqueId(client);
+  const assignedName = getAssignedName(client);
+  const rawPreviousSpoc = String(data.importMeta?.previousSpoc || '').trim();
+  const previousSpocName = rawPreviousSpoc && rawPreviousSpoc.toUpperCase() !== 'N/A' ? rawPreviousSpoc : assignedName;
+  const msmeRows = getMsmeRows(data);
+  const plants = data.cte?.plantWiseDetails || [];
+  const rawDocumentUrls = data.validation?.documentUrls;
+  const documentUrls = Array.isArray(rawDocumentUrls)
+    ? rawDocumentUrls.map((item) => (typeof item === 'string' ? item : item?.url || item?.fileUrl || item?.path || '')).map((item) => item.trim()).filter(Boolean)
+    : String(rawDocumentUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
+  const annualPoServiceCategoryOptions = useMemo(() => {
+    const fromQuotations = quotations
+      .flatMap((quotation) => Array.isArray(quotation.items) ? quotation.items : [])
+      .map((item) => String(item.serviceCategory || '').trim())
+      .filter(Boolean);
+    return [...new Set([...quotationServiceCategoryOptions, ...fromQuotations])].sort((left, right) => left.localeCompare(right));
+  }, [quotations]);
+  const latestQuotationNo = useMemo(() => {
+    const normalizeName = (value = '') => String(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const clientNames = [
+      data.basic?.clientLegalName,
+      data.basic?.tradeName,
+      data.importMeta?.companyName,
+      client?.companyName,
+      client?.clientName
+    ].map(normalizeName).filter(Boolean);
+    const matchingQuotations = quotations.filter((quotation) => {
+      const quoteCompany = normalizeName(quotation.leadDetails?.companyName || quotation.companyName || quotation.clientName || '');
+      if (!quoteCompany) return false;
+      return !clientNames.length || clientNames.some((name) => quoteCompany === name || quoteCompany.includes(name) || name.includes(quoteCompany));
+    });
+    const sorted = matchingQuotations
+      .filter(Boolean)
+      .sort((left, right) => new Date(right.createdAt || right.quotationDate || right.updatedAt || 0) - new Date(left.createdAt || left.quotationDate || left.updatedAt || 0));
+    const latest = sorted[0] || {};
+    return latest.quotationNumber || latest.quotationNo || latest.quoteNumber || data.financials?.quotationNo || data.validation?.quotationNumber || '';
+  }, [client, data.basic?.clientLegalName, data.basic?.tradeName, data.financials?.quotationNo, data.importMeta?.companyName, data.validation?.quotationNumber, quotations]);
+  const docLinks = mapClientDocuments(documentUrls);
+  const registeredAddress = [data.registeredAddress?.address1, data.registeredAddress?.address2, data.registeredAddress?.address3].filter(Boolean).join(', ');
+  const communicationAddress = [data.communicationAddress?.address1, data.communicationAddress?.address2, data.communicationAddress?.city, data.communicationAddress?.state, data.communicationAddress?.pincode].filter(Boolean).join(', ');
+  const registeredAddressFull = [registeredAddress, data.registeredAddress?.city, data.registeredAddress?.state, data.registeredAddress?.pincode].filter(Boolean).join(', ');
+  const postalAddressFull = communicationAddress || registeredAddressFull;
+  const showPostalAddress = !addressesMatch(registeredAddressFull, postalAddressFull);
+  const basicAddressFields = (colSpan = 'legacy-wide') => [
+    createProcessingField('basic.registeredAddress', 'Registered Address', registeredAddressFull, MapPin, 'textarea', [], 'auto', colSpan),
+    ...(showPostalAddress ? [createProcessingField('basic.postalAddress', 'Postal Address', postalAddressFull, MapPin, 'textarea', [], 'auto', colSpan)] : [])
+  ];
+  const typeOfBusiness = data.basic?.companyIndustry || data.basic?.piboCategory || data.basic?.eprCategory || '';
+  const piboCategory = String(data.basic?.piboCategory || '').trim().toUpperCase();
+  const isBrandOwner = piboCategory === 'BRAND OWNER' || piboCategory === 'BRANDOWNER';
+  const isImporter = piboCategory === 'IMPORTER';
+  const isAnnualAdmin = hasAnyAnnualUserRole(currentUser, [...adminRoles, 'super admin']);
+  const isAnnualUser = hasAnyAnnualUserRole(currentUser, ['user', 'operation', 'operations', 'sales', 'consultant', 'executive']);
+  const isManager = isAnnualAdmin || hasAnyAnnualUserRole(currentUser, ['manager', 'management', 'team manager', 'operation head', 'operations head']);
+  const isComplianceManager = isAnnualAdmin || hasAnyAnnualUserRole(currentUser, ['compliance', 'compliance manager']);
+  const canFirstStageReview = isManager;
+  const canViewAnnualReviewPanel = Boolean(currentUser);
+  const reviewUiMode = isAnnualAdmin || isManager || isComplianceManager ? 'drawer' : 'popup';
+  const draftKey = selected ? `annual-return-processing:${client?._id || client?.id || uniqueId}:${selected.label}` : '';
+  const storedApprovalWorkflow = selected?.label ? getStoredAnnualApprovalWorkflow(data, selected.label) : {};
+  const storedApprovalWorkflowKey = selected?.label ? JSON.stringify(storedApprovalWorkflow) : '';
+  const quotationContext = selected ? {
+    clientId: client?._id || client?.id || '',
+    leadId: typeof client?.selectedLead === 'string' ? client.selectedLead : client?.selectedLead?._id || client?.selectedLead?.id || '',
+    leadCode: client?.selectedLead?.leadCode || data.importMeta?.leadNumber || uniqueId,
+    annualYear: selected.label,
+    clientName,
+    contactPerson: data.otp?.personName || data.authorised?.name || '',
+    designation: data.otp?.designation || data.authorised?.designation || '',
+    mobileNo1: data.otp?.mobile || data.authorised?.mobile || '',
+    mobileNo2: data.authorised?.alternateMobile || '',
+    addressLine1: data.registeredAddress?.address1 || '',
+    addressLine2: data.registeredAddress?.address2 || '',
+    addressLine3: data.registeredAddress?.address3 || '',
+    state: data.registeredAddress?.state || '',
+    city: data.registeredAddress?.city || '',
+    pinCode: data.registeredAddress?.pincode || '',
+    piboCategory: data.basic?.piboCategory || '',
+    eprCategory: data.basic?.eprCategory || '',
+    returnTo: `/sales/client-data-processing/${encodeURIComponent(client?._id || client?.id || uniqueId)}/${encodeURIComponent(selected.label)}`
+  } : null;
+
+  useEffect(() => {
+    if (!draftKey) return;
+    const dbDraft = selected?.label ? getStoredAnnualReturnDraft(data, selected.label) : {};
+    let nextDraft = {};
+    try {
+      const saved = JSON.parse(localStorage.getItem(draftKey) || '{}');
+      const hasDbDraft = dbDraft && typeof dbDraft === 'object' && Object.keys(dbDraft).length > 0;
+      nextDraft = hasDbDraft ? dbDraft : (saved && typeof saved === 'object' ? saved : {});
+    } catch {
+      nextDraft = dbDraft && typeof dbDraft === 'object' ? dbDraft : {};
+    }
+    setAnnualDraft(nextDraft);
+    const completedTabs = getAnnualCompletedTabs(nextDraft);
+    const restoredMessage = formatCompletedTabsMessage(completedTabs);
+    setConfirmFinancials(false);
+    setAnnualConfirmOpen(false);
+    setPendingAnnualNextTab('');
+    setPendingAnnualNextSection('');
+    setSaveNotice('');
+    setAnnualToast(restoredMessage ? { type: 'success', message: restoredMessage } : null);
+    setAnnualCompletionModal(null);
+    setAnnualSaveError('');
+    setApprovalWorkflow(normalizeAnnualApprovalWorkflow(getStoredAnnualApprovalWorkflow(data, selected?.label)));
+    setReviewDrawerOpen(false);
+  }, [draftKey, selected?.label, client?._id, client?.id]);
+
+  useEffect(() => {
+    if (!selected?.label) return;
+    setApprovalWorkflow((current) => {
+      const normalizedCurrent = normalizeAnnualApprovalWorkflow(current);
+      const normalizedStored = normalizeAnnualApprovalWorkflow(storedApprovalWorkflow, normalizedCurrent);
+      const merged = mergeAnnualWorkflowState(normalizedCurrent, normalizedStored);
+      const keepCurrent = summarizeAnnualWorkflow(merged).reviewedParts === summarizeAnnualWorkflow(normalizedCurrent).reviewedParts
+        && getAnnualWorkflowStageRank(merged) === getAnnualWorkflowStageRank(normalizedCurrent);
+      console.debug('[AnnualReview:stored-workflow-sync]', {
+        annualYear: selected.label,
+        keepCurrent,
+        current: summarizeAnnualWorkflow(normalizedCurrent),
+        stored: summarizeAnnualWorkflow(normalizedStored),
+        merged: summarizeAnnualWorkflow(merged)
+      });
+      return merged;
+    });
+  }, [selected?.label, storedApprovalWorkflowKey]);
+
+  useEffect(() => {
+    if (!annualToast) return undefined;
+    const timer = window.setTimeout(() => setAnnualToast(null), 3600);
+    return () => window.clearTimeout(timer);
+  }, [annualToast]);
+
+  function readDraftValue(label, fallback = '') {
+    const saved = annualDraft[label];
+    if (saved !== undefined && saved !== null) return saved;
+    const legacySaved = annualDraft[annualDraftLegacyKeys[label]];
+    if (legacySaved !== undefined && legacySaved !== null) return legacySaved;
+    const alternateLegacySaved = getAnnualDraftAliasValue(annualDraft, label);
+    if (alternateLegacySaved !== undefined && alternateLegacySaved !== null) return alternateLegacySaved;
+    return fallback || '';
+  }
+
+  function updateDraftValue(label, value) {
+    setAnnualDraft((current) => {
+      const next = { ...current, [label]: value };
+      const clearDraftKeys = (keys) => keys.forEach((key) => {
+        delete next[key];
+        const legacyKey = annualDraftLegacyKeys[key];
+        if (legacyKey) delete next[legacyKey];
+      });
+
+      if (label === 'importer.productionFacility' && !isYesAnswer(value)) {
+        clearDraftKeys(['importer.districtIndustryCentreRegistered', 'importer.registrationCopy']);
+      }
+      if (label === 'importer.districtIndustryCentreRegistered' && !isYesAnswer(value)) {
+        clearDraftKeys(['importer.registrationCopy']);
+      }
+      if (label === 'importer.applicationRenewal' && !isYesAnswer(value)) {
+        clearDraftKeys(['importer.registrationNumber', 'importer.dateOfIssue', 'importer.validityOfRegistration']);
+      }
+      if (label === 'brandOwner.productionFacility' && !isYesAnswer(value)) {
+        clearDraftKeys(['brandOwner.districtIndustryCentreRegistered', 'brandOwner.registrationCopy']);
+      }
+      if (label === 'brandOwner.districtIndustryCentreRegistered' && !isYesAnswer(value)) {
+        clearDraftKeys(['brandOwner.registrationCopy']);
+      }
+      if (label === 'brandOwner.applicationRenewal' && !isYesAnswer(value)) {
+        clearDraftKeys(['brandOwner.registrationNumber', 'brandOwner.dateOfIssue', 'brandOwner.validityOfRegistration']);
+      }
+      if (label === 'data.productionFacility' && !isYesAnswer(value)) {
+        clearDraftKeys(['data.districtIndustryCentreRegistered', 'data.registrationCopy']);
+      }
+      if (label === 'data.districtIndustryCentreRegistered' && !isYesAnswer(value)) {
+        clearDraftKeys(['data.registrationCopy']);
+      }
+      if (label === 'data.applicationRenewal' && !isYesAnswer(value)) {
+        clearDraftKeys(['data.registrationNumber', 'data.dateOfIssue', 'data.validityOfRegistration']);
+      }
+
+      return next;
+    });
+    setSaveNotice('');
+  }
+
+  function draftAnswerIsYes(label, fallback = '') {
+    return isYesAnswer(readDraftValue(label, fallback));
+  }
+
+  function draftAnswerValue(label, fallback = '') {
+    return readDraftValue(label, fallback);
+  }
+
+  function transitionAnnualContent(applyChange) {
+    setAnnualTransitioning(true);
+    window.setTimeout(() => {
+      applyChange();
+      window.setTimeout(() => setAnnualTransitioning(false), 130);
+    }, 60);
+  }
+
+  function switchProcessingTab(tabId) {
+    if (!tabId || tabId === activeProcessingTab) return;
+    transitionAnnualContent(() => {
+      setActiveProcessingTab(tabId);
+      setActivePillSection('');
+    });
+  }
+
+  function switchPillSection(sectionTitle) {
+    if (!sectionTitle || sectionTitle === activePillSection || sectionTitle === activeSection?.title) return;
+    transitionAnnualContent(() => setActivePillSection(sectionTitle));
+  }
+
+  async function saveAnnualDraft(nextTab = '', nextSection = '', workflowOverride = null, statusOverride = 'draft', completionTab = '') {
+    if (!selected?.label) return;
+    const clientId = client?._id || client?.id || data.importMeta?.ccpClientId || uniqueId;
+    if (!clientId) {
+      setAnnualSaveError('Unable to save annual return: client id not found.');
+      return;
+    }
+
+    setSavingAnnual(true);
+    setAnnualSaveError('');
+    const completedTabs = {
+      ...(annualDraft.__completedTabs && typeof annualDraft.__completedTabs === 'object' ? annualDraft.__completedTabs : {})
+    };
+    const completedSections = {
+      ...(annualDraft.__completedSections && typeof annualDraft.__completedSections === 'object' ? annualDraft.__completedSections : {})
+    };
+    const currentSectionTitle = activeSection?.title || nextSection || '';
+    if (currentSectionTitle) {
+      completedSections[activeProcessingTab] = [
+        ...new Set([...(Array.isArray(completedSections[activeProcessingTab]) ? completedSections[activeProcessingTab] : []), currentSectionTitle])
+      ];
+    }
+    if (completionTab && annualProcessingTabLabels[completionTab]) completedTabs[completionTab] = true;
+    const draftToSave = { ...annualDraft, __completedTabs: completedTabs, __completedSections: completedSections, savedAt: new Date().toISOString() };
+    const workflowToSave = workflowOverride || approvalWorkflow;
+    const payloadSummary = {
+      clientId,
+      annualYear: selected.label,
+      activeTab: nextTab || activeProcessingTab,
+      activeSection: nextSection || activeSection?.title || '',
+      status: statusOverride,
+      workflow: summarizeAnnualWorkflow(workflowToSave)
+    };
+    console.groupCollapsed('[AnnualReview:saveAnnualDraft] request');
+    console.debug(payloadSummary);
+    console.groupEnd();
+    try {
+      const response = await api.put(`/clients/${encodeURIComponent(clientId)}/annual-return`, {
+        annualYear: selected.label,
+        draft: draftToSave,
+        activeTab: nextTab || activeProcessingTab,
+        activeSection: nextSection || activeSection?.title || '',
+        status: statusOverride,
+        approvalWorkflow: workflowToSave,
+        clientData: buildAnnualClientSnapshot(data),
+        adminControls: client?.adminControls || {},
+        currentSpoc: assignedName || '',
+        previousSpoc: previousSpocName || ''
+      }, { timeout: 30000 });
+      const savedWorkflow = response.data?.annualReturn?.approvalWorkflow;
+      const savedNormalizedWorkflow = normalizeAnnualApprovalWorkflow(savedWorkflow, workflowToSave);
+      const requestedNormalizedWorkflow = normalizeAnnualApprovalWorkflow(workflowToSave, savedNormalizedWorkflow);
+      const nextWorkflow = mergeAnnualWorkflowState(savedNormalizedWorkflow, requestedNormalizedWorkflow);
+      console.groupCollapsed('[AnnualReview:saveAnnualDraft] response');
+      console.debug({
+        ok: response.data?.ok,
+        responseStatus: response.data?.annualReturn?.status || response.data?.annualReturnRecord?.status || '',
+        requested: summarizeAnnualWorkflow(requestedNormalizedWorkflow),
+        saved: summarizeAnnualWorkflow(savedNormalizedWorkflow),
+        selected: summarizeAnnualWorkflow(nextWorkflow)
+      });
+      console.table(buildAnnualWorkflowDebugRows(nextWorkflow, getDataSectionTitles()));
+      console.groupEnd();
+      setAnnualDraft(response.data?.annualReturn?.draft || draftToSave);
+      setApprovalWorkflow((current) => {
+        const normalizedCurrent = normalizeAnnualApprovalWorkflow(current);
+        const normalizedNext = mergeAnnualWorkflowState(normalizedCurrent, nextWorkflow);
+        const keepCurrent = shouldKeepCurrentAnnualWorkflow(normalizedCurrent, normalizedNext);
+        console.debug('[AnnualReview:state-merge-after-save]', {
+          keepCurrent,
+          current: summarizeAnnualWorkflow(normalizedCurrent),
+          next: summarizeAnnualWorkflow(normalizedNext)
+        });
+        return normalizedNext;
+      });
+      if (draftKey) localStorage.setItem(draftKey, JSON.stringify(response.data?.annualReturn?.draft || draftToSave));
+      if (response.data?.client) {
+        onClientUpdated?.(mergeAnnualWorkflowIntoClient(response.data.client, selected.label, nextWorkflow));
+      }
+      setSaveNotice('Annual Return data saved in database.');
+      if (completionTab && annualProcessingTabLabels[completionTab]) {
+        const message = `${annualProcessingTabLabels[completionTab]} done.`;
+        setAnnualCompletionModal({ title: message, message: `${annualProcessingTabLabels[completionTab]} has been completed successfully.` });
+        setAnnualToast({ type: 'success', message });
+      }
+      if (nextTab && nextTab !== activeProcessingTab) switchProcessingTab(nextTab);
+      else if (nextSection) switchPillSection(nextSection);
+      return true;
+    } catch (err) {
+      console.error('[AnnualReview:saveAnnualDraft] failed', {
+        payload: payloadSummary,
+        status: err?.response?.status,
+        error: err?.response?.data?.error || err?.message,
+        response: err?.response?.data
+      });
+      setAnnualSaveError(err?.code === 'ECONNABORTED'
+        ? 'Save request timed out. Please check backend/MongoDB and try again.'
+        : err?.response?.data?.error || 'Unable to save annual return data in database.');
+      return false;
+    } finally {
+      setSavingAnnual(false);
+    }
+  }
+
+  function getNextAnnualTarget() {
+    const currentSectionIndex = activeSections.findIndex((section) => section.title === activeSection?.title);
+    if (currentSectionIndex > -1 && currentSectionIndex < activeSections.length - 1) {
+      return { tab: activeProcessingTab, section: activeSections[currentSectionIndex + 1].title };
+    }
+    const currentIndex = processingTabs.findIndex((tab) => tab.id === activeProcessingTab);
+    return { tab: processingTabs[Math.min(currentIndex + 1, processingTabs.length - 1)]?.id || activeProcessingTab, section: '' };
+  }
+
+  function isLastSectionInCurrentTab() {
+    const currentSectionIndex = activeSections.findIndex((section) => section.title === activeSection?.title);
+    return currentSectionIndex > -1 && currentSectionIndex === activeSections.length - 1;
+  }
+
+  async function handleAnnualSubmitNext() {
+    const nextTarget = getNextAnnualTarget();
+    const completionTab = isLastSectionInCurrentTab() ? activeProcessingTab : '';
+    const saved = await saveAnnualDraft(nextTarget.tab, nextTarget.section, null, 'draft', completionTab);
+    if (saved) {
+      setSaveNotice(completionTab ? 'Saved in database. Continue to the next step.' : '');
+      if (!completionTab) setAnnualToast({ type: 'success', message: 'Saved. Continue to the next section.' });
+    }
+  }
+
+  function closeAnnualConfirm() {
+    setAnnualConfirmOpen(false);
+    setConfirmFinancials(false);
+    setPendingAnnualNextTab('');
+    setPendingAnnualNextSection('');
+  }
+
+  async function confirmAnnualSubmission() {
+    if (!confirmFinancials) return;
+    const fallbackTarget = getNextAnnualTarget();
+    const nextTab = pendingAnnualNextTab || fallbackTarget.tab;
+    const nextSection = pendingAnnualNextSection || fallbackTarget.section;
+    setAnnualConfirmOpen(false);
+    setConfirmFinancials(false);
+    setPendingAnnualNextTab('');
+    setPendingAnnualNextSection('');
+    await saveAnnualDraft(nextTab, nextSection, null, 'draft', isLastSectionInCurrentTab() ? activeProcessingTab : '');
+  }
+
+  function getDataSectionTitles() {
+    return (sectionsByTab.data || []).map((section) => section.title).filter(Boolean);
+  }
+
+  function buildSubmittedSectionStatusMap() {
+    const now = new Date().toISOString();
+    return getDataSectionTitles().reduce((next, title) => ({
+      ...next,
+      [title]: {
+        ...(approvalWorkflow.sections?.[title] || {}),
+        status: 'pending',
+        managerStatus: 'pending',
+        complianceStatus: 'waiting',
+        reviewerRole: 'manager',
+        updatedAt: now
+      }
+    }), {});
+  }
+
+  function buildSingleSectionReviewMap(sectionTitle, sectionStatus, reviewerRole, baseSections = approvalWorkflow.sections) {
+    const stageStatusKey = reviewerRole === 'compliance' ? 'complianceStatus' : 'managerStatus';
+    const reviewerNameKey = reviewerRole === 'compliance' ? 'complianceReviewedBy' : 'managerReviewedBy';
+    const reviewerAtKey = reviewerRole === 'compliance' ? 'complianceReviewedAt' : 'managerReviewedAt';
+    const now = new Date().toISOString();
+    const reviewerName = currentUser?.name || currentUser?.email || (reviewerRole === 'compliance' ? 'Compliance Manager' : 'Manager');
+    const partKey = getAnnualPartKey(sectionTitle);
+    const nextSections = { ...(baseSections || {}) };
+    const matchingTitles = Object.keys(nextSections).filter((title) => partKey && getAnnualPartKey(title) === partKey);
+    [...new Set([...matchingTitles, sectionTitle])].forEach((title) => {
+      nextSections[title] = {
+        ...(nextSections?.[title] || {}),
+        status: sectionStatus,
+        [stageStatusKey]: sectionStatus,
+        [reviewerNameKey]: reviewerName,
+        [reviewerAtKey]: now,
+        reviewerRole,
+        updatedAt: now
+      };
+    });
+    return nextSections;
+  }
+
+  function getAnnualSectionStageStatus(sections, title, reviewerRole) {
+    const meta = getAnnualSectionMeta({ sections }, title);
+    const statusKey = reviewerRole === 'compliance' ? 'complianceStatus' : 'managerStatus';
+    return normalizeAnnualReviewStatus(meta[statusKey] || meta.status || '');
+  }
+
+  function getAnnualSectionMetaByPart(sections = {}, title = '') {
+    const partKey = getAnnualPartKey(title);
+    if (!partKey) return sections?.[title] || {};
+    const exactMeta = sections?.[title];
+    const savedTitles = Object.keys(sections || {});
+    const matchingMeta = savedTitles
+      .filter((savedTitle) => getAnnualPartKey(savedTitle) === partKey)
+      .map((savedTitle) => sections?.[savedTitle])
+      .filter(Boolean);
+    return Object.assign({}, ...matchingMeta, exactMeta || {});
+  }
+
+  function hasAnnualPartApprovedBy(sections = {}, partKey = '', reviewerRole = 'manager') {
+    const statusKey = reviewerRole === 'compliance' ? 'complianceStatus' : 'managerStatus';
+    return Object.entries(sections || {}).some(([title, meta]) => (
+      getAnnualPartKey(title) === partKey &&
+      normalizeAnnualReviewStatus(meta?.[statusKey] || meta?.status || '') === 'approved'
+    ));
+  }
+
+  function allSectionsReviewedBy(sections, reviewerRole) {
+    const currentTitles = getDataSectionTitles();
+    const requiredPartKeys = currentTitles.map(getAnnualPartKey).filter(Boolean);
+    const uniqueRequiredPartKeys = [...new Set(requiredPartKeys)];
+    return uniqueRequiredPartKeys.length > 0 && uniqueRequiredPartKeys.every((partKey) => hasAnnualPartApprovedBy(sections, partKey, reviewerRole));
+  }
+
+  function resetSectionsForCompliance(sections) {
+    const now = new Date().toISOString();
+    return getDataSectionTitles().reduce((next, title) => ({
+      ...next,
+      [title]: {
+        ...getAnnualSectionMetaByPart(sections, title),
+        managerStatus: hasAnnualPartApprovedBy(sections, getAnnualPartKey(title), 'manager')
+          ? 'approved'
+          : sections?.[title]?.managerStatus || 'pending',
+        status: 'pending',
+        complianceStatus: 'pending',
+        reviewerRole: 'compliance',
+        updatedAt: now
+      }
+    }), {});
+  }
+
+  function buildCompliancePendingWorkflow(workflow, sections) {
+    return normalizeAnnualApprovalWorkflow({
+      ...workflow,
+      status: 'compliance_pending',
+      currentStage: 'compliance',
+      lastRemark: '',
+      updatedAt: new Date().toISOString(),
+      sections: resetSectionsForCompliance(sections),
+      history: [
+        ...(workflow.history || []),
+        { action: 'MANAGER_APPROVED_ALL', by: currentUser?.name || currentUser?.email || 'Manager', at: new Date().toISOString(), remark: '' }
+      ]
+    });
+  }
+
+  async function submitDataForManager() {
+    const nextWorkflow = normalizeAnnualApprovalWorkflow({
+      ...approvalWorkflow,
+      status: 'manager_pending',
+      currentStage: 'manager',
+      lastRemark: '',
+      updatedAt: new Date().toISOString(),
+      sections: buildSubmittedSectionStatusMap(),
+      history: [
+        ...(approvalWorkflow.history || []),
+        { action: 'SUBMITTED_TO_MANAGER', by: currentUser?.name || currentUser?.email || 'User', at: new Date().toISOString(), remark: '' }
+      ]
+    });
+    console.debug('[AnnualReview:submit-to-manager]', summarizeAnnualWorkflow(nextWorkflow));
+    setApprovalWorkflow(nextWorkflow);
+    const saved = await saveAnnualDraft(activeProcessingTab, activeSection?.title || '', nextWorkflow, 'manager_pending', 'data');
+    if (saved) {
+      setApprovalWorkflow(nextWorkflow);
+      setReviewDrawerOpen(false);
+      setSaveNotice('Data submitted to manager for review.');
+      setAnnualToast({ type: 'success', message: 'Annual return submitted to Manager for review.' });
+    }
+  }
+
+  async function handleAnnualReview(status, sectionTitleOverride = '') {
+    const remark = '';
+    const approved = status === 'APPROVED';
+    const effectiveReviewStage = getAnnualReviewStage(approvalWorkflow);
+    const managerAction = canFirstStageReview && effectiveReviewStage === 'manager';
+    const complianceAction = !managerAction && isComplianceManager && effectiveReviewStage === 'compliance';
+    if (!managerAction && !complianceAction) {
+      setAnnualSaveError('Only Manager and Compliance Manager can approve or reject annual data.');
+      return;
+    }
+
+    const currentSectionTitle = sectionTitleOverride || activeSection?.title || '';
+    if (!currentSectionTitle) return;
+    const sectionStatus = approved ? 'approved' : 'rejected';
+    const reviewerRole = managerAction ? 'manager' : 'compliance';
+    const reviewedSections = buildSingleSectionReviewMap(currentSectionTitle, sectionStatus, reviewerRole, approvalWorkflow.sections);
+    const managerFinished = managerAction && approved && allSectionsReviewedBy(reviewedSections, 'manager');
+    const complianceFinished = complianceAction && approved && allSectionsReviewedBy(reviewedSections, 'compliance');
+    const sections = reviewedSections;
+    const nextStatus = managerAction
+      ? (approved ? (managerFinished ? 'compliance_pending' : 'manager_pending') : 'manager_rejected')
+      : (approved ? (complianceFinished ? 'compliance_approved' : 'compliance_pending') : 'compliance_rejected');
+    const nextStage = managerAction
+      ? (approved ? (managerFinished ? 'compliance' : 'manager') : 'user')
+      : (approved ? (complianceFinished ? 'complete' : 'compliance') : 'manager');
+    const action = `${reviewerRole.toUpperCase()}_${status}`;
+    const nextWorkflow = managerFinished
+      ? buildCompliancePendingWorkflow(approvalWorkflow, reviewedSections)
+      : normalizeAnnualApprovalWorkflow({
+      ...approvalWorkflow,
+      status: nextStatus,
+      currentStage: nextStage,
+      lastRemark: remark,
+      updatedAt: new Date().toISOString(),
+      sections,
+      history: [
+        ...(approvalWorkflow.history || []),
+        { action, section: currentSectionTitle, by: currentUser?.name || currentUser?.email || reviewerRole, at: new Date().toISOString(), remark }
+      ]
+    });
+
+    console.groupCollapsed('[AnnualReview:handleAnnualReview]');
+    console.debug({
+      action,
+      currentSectionTitle,
+      approved,
+      reviewerRole,
+      managerFinished,
+      complianceFinished,
+      before: summarizeAnnualWorkflow(approvalWorkflow),
+      after: summarizeAnnualWorkflow(nextWorkflow)
+    });
+    console.table(buildAnnualWorkflowDebugRows(nextWorkflow, getDataSectionTitles()));
+    console.groupEnd();
+    setApprovalWorkflow(nextWorkflow);
+    onClientUpdated?.(mergeAnnualWorkflowIntoClient(client, selected?.label, nextWorkflow));
+    const saved = await saveAnnualDraft(activeProcessingTab, currentSectionTitle, nextWorkflow, nextStatus);
+    if (!saved) {
+      setApprovalWorkflow(approvalWorkflow);
+      return;
+    }
+    setApprovalWorkflow(nextWorkflow);
+    if (!approved || managerFinished || complianceFinished) setReviewDrawerOpen(false);
+    setSaveNotice(approved
+      ? (managerFinished || complianceFinished ? 'All parts approved and workflow moved ahead.' : `${currentSectionTitle} approved. Review next part.`)
+      : `${currentSectionTitle} rejected.`);
+  }
+
+  const processingTabs = [
+    { id: 'basic', label: 'Basic Info', icon: Building2 },
+    { id: 'financials', label: 'Financials', icon: FileText },
+    { id: 'data', label: 'Data', icon: Database },
+    { id: 'cpcbLetter', label: 'CPCB Letter', icon: ShieldCheck }
+  ];
+  const completedAnnualTabs = getAnnualCompletedTabs(annualDraft);
+  const completedAnnualCount = getAnnualCompletedCount(annualDraft);
+  const completedAnnualSections = getAnnualCompletedSections(annualDraft);
+  const producerProductionFacilityFallback = data.annualReturn?.productionFacility || '';
+  const producerApplicationRenewalFallback = data.annualReturn?.applicationRenewal || data.cpcb?.applicationType || '';
+  const producerDicRegisteredFallback = data.annualReturn?.districtIndustryCentreRegistered || data.annualReturn?.dicRegistrationStatus || '';
+  const producerProductionFacility = draftAnswerValue('data.productionFacility', producerProductionFacilityFallback);
+  const producerApplicationRenewal = draftAnswerValue('data.applicationRenewal', producerApplicationRenewalFallback);
+  const producerDicRegistered = draftAnswerValue('data.districtIndustryCentreRegistered', producerDicRegisteredFallback);
+  const showProducerProductionDetails = isYesAnswer(producerProductionFacility);
+  const showProducerRenewalDetails = isYesAnswer(producerApplicationRenewal);
+  const showProducerDicUpload = showProducerProductionDetails && isYesAnswer(producerDicRegistered);
+  const producerOtherDetailFields = [
+    createProcessingField('data.stateOfCto', 'State / UT in which the CTO is issued by SPCB / PCC', data.registeredAddress?.state || '', MapPin),
+    createProcessingField('data.productionFacility', 'Does Producer have Production Facility', producerProductionFacility, CheckCircle2, 'select', ['Yes', 'No'], 'manual'),
+    ...(showProducerProductionDetails ? [
+      createProcessingField('data.districtIndustryCentreRegistered', 'Registered with District Industries Centre / State Government / UT?', producerDicRegistered, ShieldCheck, 'select', ['Yes', 'No'], 'manual')
+    ] : []),
+    ...(showProducerDicUpload ? [
+      createProcessingField('data.registrationCopy', 'Registration Copy / Upload Document', data.annualReturn?.registrationCopy || data.validation?.factoryLicenseFile || '', Upload, 'file')
+    ] : []),
+    createProcessingField('data.applicationRenewal', 'Application is for Renewal', producerApplicationRenewal, RefreshCw, 'select', ['Yes', 'No'], 'manual'),
+    ...(showProducerRenewalDetails ? [
+      createProcessingField('data.registrationNumber', 'Registration No.', data.cpcb?.registrationNumber || data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, FileText),
+      createProcessingField('data.dateOfIssue', 'Date of Issue', data.cpcb?.issueDate || data.cpcb?.approvalDate || data.compliance?.eprCertificateDate, CalendarDays, 'date'),
+      createProcessingField('data.validityOfRegistration', 'Validity of Registration Certificate / Uploaded Document', data.cpcb?.validityDate || data.compliance?.eprCertificateValidity || '', CalendarDays, 'file')
+    ] : []),
+    createProcessingField('data.totalCapitalInvested', 'Total Capital Invested in the Project Concerned', data.financials?.totalCapitalInvested || data.annualReturn?.totalCapitalInvested || '', FileText, 'number'),
+    createProcessingField('data.commencementYear', 'Year of Commencement of Operation', data.annualReturn?.commencementYear || data.basic?.onboardingYear, CalendarDays, 'text'),
+    createProcessingField('data.productDetails', 'Details Type of Products Produced / Marketed', data.annualReturn?.productDetails || '', Database, 'textarea'),
+    createProcessingField('data.productPackagingMajorMaterial', 'Product Packaging Image / Upload Image', data.annualReturn?.productPackagingMajorMaterial || '', Upload, 'file'),
+    createProcessingField('data.processFlowDiagram', 'Process Flow Diagram / Upload Document', docLinks.application || data.annualReturn?.processFlowDiagram || '', Upload, 'file'),
+    createProcessingField('data.thicknessOfPlastic', 'Thickness of Plastic in Micron', data.annualReturn?.thicknessOfPlastic || '', FileText, 'text')
+  ];
+  const producerDataSections = [
+    {
+      title: 'Part A - Client Data',
+      type: 'legacyData',
+      groups: [
+        {
+          title: 'Client Details',
+          tone: 'green',
+          fields: [
+            createProcessingField('basic.organisationLegalName', 'Name of the Organisation', clientName, Building2),
+            createProcessingField('basic.tradeName', 'Trade Name', data.basic?.tradeName, Building2),
+            ...basicAddressFields(),
+            createProcessingField('basic.companyPan', "Company's PAN", data.compliance?.pan || data.compliance?.panNumber, FileText),
+            createProcessingField('basic.companyGst', "Company's GST", data.compliance?.gst || data.compliance?.gstNumber, FileText)
+          ]
+        },
+        {
+          title: 'Authorised Person Details',
+          fields: [
+            createProcessingField('basic.authorisedPersonName', 'Name', data.authorised?.name || data.otp?.personName, UserRound),
+            createProcessingField('basic.authorisedPersonDesignation', 'Designation', data.authorised?.designation || data.otp?.designation, UserRound),
+            createProcessingField('basic.otpMobile', 'Mobile No.', data.otp?.mobile || data.authorised?.mobile, UserRound, 'tel'),
+            createProcessingField('basic.authorisedPersonEmail', 'Email Id', data.authorised?.email || data.coordinating?.email, FileText, 'email'),
+            createProcessingField('basic.authorisedPersonPan', 'PAN Number', data.authorised?.pan, FileText)
+          ]
+        },
+        {
+          title: 'Other Details / Attach in Required for All Filing',
+          tone: 'dark',
+          fields: producerOtherDetailFields
+        },
+        {
+          title: 'Plastic Consumption',
+          type: 'plasticConsumptionTable',
+          tableKey: 'data.plasticConsumptionRows',
+          rows: buildPlasticConsumptionRows(data.annualReturn, selected?.label)
+        }
+      ]
+    },
+    {
+      title: 'Part B - Consent Details',
+      fields: [
+        createProcessingField('data.partB.state', 'State', data.registeredAddress?.state, MapPin),
+        createProcessingField('data.partB.waterApplicationNumber', 'Water Application Number', data.cte?.waterApplicationNumber || '', FileText),
+        createProcessingField('data.partB.waterConsentValidity', 'Water Validity of Consent', data.cte?.waterConsentValidity || '', CalendarDays, 'date'),
+        createProcessingField('data.partB.waterConsentDocument', 'Water Consent Documents', data.cte?.waterConsentDocument || docLinks.factory || '', Upload, 'file'),
+        createProcessingField('data.partB.airApplicationNumber', 'Air Application Number', data.cte?.airApplicationNumber || '', FileText),
+        createProcessingField('data.partB.airConsentValidity', 'Air Validity of Consent', data.cte?.airConsentValidity || '', CalendarDays, 'date'),
+        createProcessingField('data.partB.airConsentDocument', 'Air Consent Documents', data.cte?.airConsentDocument || '', Upload, 'file')
+      ]
+    },
+    {
+      title: 'Part C - Raw Data & Interaction',
+      type: 'interactionTable',
+      rawDataKey: 'data.partC.rawDataUploads',
+      tableKey: 'data.partC.clientInteractions',
+      rows: buildClientInteractionRows(data.annualReturn)
+    },
+    {
+      title: 'Part D - Plant & Declaration Details',
+      fields: [
+        createProcessingField('data.partD.eprCreditReverse', 'EPR Credit Reverse for Registration', data.annualReturn?.eprCreditReverse || '', FileText),
+        createProcessingField('data.partD.plantArea', 'Plot Area of the recycling plant', plants?.[0]?.plantArea || data.annualReturn?.plantArea || '', Database, 'number'),
+        createProcessingField('data.partD.gpsLocationLatitude', 'GPS Latitude of the Unit', plants?.[0]?.latitude || data.annualReturn?.gpsLocationLatitude || '', MapPin),
+        createProcessingField('data.partD.gpsLocationLongitude', 'GPS Longitude of the Unit', plants?.[0]?.longitude || data.annualReturn?.gpsLocationLongitude || '', MapPin),
+        createProcessingField('data.partD.rawMaterialStorageArea', 'Raw Material Storage Area', data.annualReturn?.rawMaterialStorageArea || '', Database, 'number'),
+        createProcessingField('data.partD.productionProcess', 'Production Process', data.annualReturn?.productionProcess || '', FileText, 'textarea'),
+        createProcessingField('data.partD.plasticMajorMaterial', 'Product/Packaging major material', data.annualReturn?.plasticMajorMaterial || data.annualReturn?.productPackagingMajorMaterial || '', FileText),
+        createProcessingField('data.partD.plantVideo', 'Upload new video link of the plant', data.annualReturn?.plantVideo || '', Upload, 'file'),
+        createProcessingField('data.partD.installedCapacity', 'Installed Capacity', data.annualReturn?.installedCapacity || '', Database, 'number'),
+        createProcessingField('data.partD.rawMaterialCapacity', 'Raw Material Capacity', data.annualReturn?.rawMaterialCapacity || '', Database, 'number'),
+        createProcessingField('data.partD.sanctionedPowerLoad', 'Sanctioned power load of plant', data.annualReturn?.sanctionedPowerLoad || '', Database, 'number'),
+        createProcessingField('data.partD.electricityBill', 'Upload Electricity Bill', data.annualReturn?.electricityBill || '', Upload, 'file'),
+        createProcessingField('data.partD.districtMagistrate', 'District Magistrate', data.annualReturn?.districtMagistrate || '', FileText),
+        createProcessingField('data.partD.authorizationDocument', 'Authorization Document', data.annualReturn?.authorizationDocument || '', Upload, 'file'),
+        createProcessingField('data.partD.bankGuarantee', 'Bank guarantee from state of project activity to CPCB', data.annualReturn?.bankGuarantee || '', Upload, 'file'),
+        createProcessingField('data.partD.signatures', 'Signature / photos / declaration images', data.annualReturn?.signatures || '', Upload, 'file'),
+        createProcessingField('data.partD.additionalInformation', 'Any other information or PDF', data.annualReturn?.additionalInformation || '', Upload, 'file')
+      ]
+    }
+  ];
+
+  const brandOwnerProductionFacilityFallback = data.annualReturn?.productionFacility || '';
+  const brandOwnerApplicationRenewalFallback = data.annualReturn?.applicationRenewal || data.cpcb?.applicationType || '';
+  const brandOwnerDicRegisteredFallback = data.annualReturn?.districtIndustryCentreRegistered || data.annualReturn?.dicRegistrationStatus || '';
+  const brandOwnerProductionFacility = draftAnswerValue('brandOwner.productionFacility', brandOwnerProductionFacilityFallback);
+  const brandOwnerApplicationRenewal = draftAnswerValue('brandOwner.applicationRenewal', brandOwnerApplicationRenewalFallback);
+  const brandOwnerDicRegistered = draftAnswerValue('brandOwner.districtIndustryCentreRegistered', brandOwnerDicRegisteredFallback);
+  const showBrandOwnerProductionDetails = isYesAnswer(brandOwnerProductionFacility);
+  const showBrandOwnerRenewalDetails = isYesAnswer(brandOwnerApplicationRenewal);
+  const showBrandOwnerDicUpload = showBrandOwnerProductionDetails && isYesAnswer(brandOwnerDicRegistered);
+  const brandOwnerOtherDetailFields = [
+    createProcessingField('brandOwner.stateOfCto', 'State / UT in which the CTO is issued by SPCB / PCC', data.registeredAddress?.state || '', MapPin),
+    createProcessingField('brandOwner.productionFacility', 'Does Brand Owner have Production Facility', brandOwnerProductionFacility, CheckCircle2, 'select', ['Yes', 'No'], 'manual'),
+    ...(showBrandOwnerProductionDetails ? [
+      createProcessingField('brandOwner.districtIndustryCentreRegistered', 'Registered with District Industries Centre / State Government / UT?', brandOwnerDicRegistered, ShieldCheck, 'select', ['Yes', 'No'], 'manual')
+    ] : []),
+    ...(showBrandOwnerDicUpload ? [
+      createProcessingField('brandOwner.registrationCopy', 'Registration Copy / Upload Document', data.annualReturn?.registrationCopy || data.validation?.factoryLicenseFile || '', Upload, 'file')
+    ] : []),
+    createProcessingField('brandOwner.applicationRenewal', 'Application is for Renewal', brandOwnerApplicationRenewal, RefreshCw, 'select', ['Yes', 'No'], 'manual'),
+    ...(showBrandOwnerRenewalDetails ? [
+      createProcessingField('brandOwner.registrationNumber', 'Registration No.', data.cpcb?.registrationNumber || data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, FileText),
+      createProcessingField('brandOwner.dateOfIssue', 'Date of Issue', data.cpcb?.issueDate || data.cpcb?.approvalDate || data.compliance?.eprCertificateDate, CalendarDays, 'date'),
+      createProcessingField('brandOwner.validityOfRegistration', 'Validity of Registration Certificate / Uploaded Document', data.cpcb?.validityDate || data.compliance?.eprCertificateValidity || '', CalendarDays, 'file')
+    ] : []),
+    createProcessingField('brandOwner.totalCapitalInvested', 'Total Capital Invested in the Project Concerned', data.financials?.totalCapitalInvested || data.annualReturn?.totalCapitalInvested || '', FileText, 'number'),
+    createProcessingField('brandOwner.commencementYear', 'Year of Commencement of Operation', data.annualReturn?.commencementYear || data.basic?.onboardingYear, CalendarDays, 'text'),
+    createProcessingField('brandOwner.productDetails', 'Details Type of Products Produced / Marketed', data.annualReturn?.productDetails || '', Database, 'textarea'),
+    createProcessingField('brandOwner.productPackagingMajorMaterial', 'Product Packaging Image / Upload Image', data.annualReturn?.productPackagingMajorMaterial || '', Upload, 'file'),
+    createProcessingField('brandOwner.processFlowDiagram', 'Process Flow Diagram / Upload Document', docLinks.application || data.annualReturn?.processFlowDiagram || '', Upload, 'file'),
+    createProcessingField('brandOwner.thicknessOfPlastic', 'Thickness of Plastic in Micron', data.annualReturn?.thicknessOfPlastic || '', FileText, 'text')
+  ];
+
+  const brandOwnerDataSections = [
+    {
+      title: 'Part A - Brand Owner Data',
+      type: 'legacyData',
+      groups: [
+        {
+          title: 'Brand Owner Details',
+          tone: 'green',
+          fields: [
+            createProcessingField('basic.organisationLegalName', 'Name of the Organisation', clientName, Building2),
+            createProcessingField('basic.tradeName', 'Trade Name', data.basic?.tradeName, Building2),
+            ...basicAddressFields(),
+            createProcessingField('basic.companyPan', "Company's PAN", data.compliance?.pan || data.compliance?.panNumber, FileText),
+            createProcessingField('basic.companyGst', "Company's GST", data.compliance?.gst || data.compliance?.gstNumber, FileText),
+            createProcessingField('brandOwner.typeOfBusiness', 'Type of Business', typeOfBusiness || 'Brand Owner', FolderCheck)
+          ]
+        },
+        {
+          title: 'Authorised Person Details',
+          fields: [
+            createProcessingField('basic.authorisedPersonName', 'Name', data.authorised?.name || data.otp?.personName, UserRound),
+            createProcessingField('basic.authorisedPersonDesignation', 'Designation', data.authorised?.designation || data.otp?.designation, UserRound),
+            createProcessingField('basic.otpMobile', 'Mobile No.', data.otp?.mobile || data.authorised?.mobile, UserRound, 'tel'),
+            createProcessingField('basic.authorisedPersonEmail', 'Email Id', data.authorised?.email || data.coordinating?.email, FileText, 'email'),
+            createProcessingField('basic.authorisedPersonPan', 'PAN Number', data.authorised?.pan, FileText)
+          ]
+        },
+        {
+          title: 'Other Details / Attach in Required for All Filing',
+          tone: 'dark',
+          fields: brandOwnerOtherDetailFields
+        },
+        {
+          title: 'Plastic Consumption',
+          type: 'plasticConsumptionTable',
+          tableKey: 'brandOwner.plasticConsumptionRows',
+          rows: buildPlasticConsumptionRows(data.annualReturn, selected?.label)
+        }
+      ]
+    },
+    {
+      title: 'Part B - Consent Details',
+      fields: [
+        createProcessingField('brandOwner.partB.state', 'State', data.registeredAddress?.state, MapPin),
+        createProcessingField('brandOwner.partB.waterApplicationNumber', 'Water Application Number', data.cte?.waterApplicationNumber || '', FileText),
+        createProcessingField('brandOwner.partB.waterConsentValidity', 'Water Validity of Consent', data.cte?.waterConsentValidity || '', CalendarDays, 'date'),
+        createProcessingField('brandOwner.partB.waterConsentDocument', 'Water Consent Documents', data.cte?.waterConsentDocument || docLinks.factory || '', Upload, 'file'),
+        createProcessingField('brandOwner.partB.airApplicationNumber', 'Air Application Number', data.cte?.airApplicationNumber || '', FileText),
+        createProcessingField('brandOwner.partB.airConsentValidity', 'Air Validity of Consent', data.cte?.airConsentValidity || '', CalendarDays, 'date'),
+        createProcessingField('brandOwner.partB.airConsentDocument', 'Air Consent Documents', data.cte?.airConsentDocument || '', Upload, 'file')
+      ]
+    },
+    {
+      title: 'Part C - Client Raw Data',
+      type: 'interactionTable',
+      rawDataKey: 'brandOwner.partC.rawDataUploads',
+      tableKey: 'brandOwner.partC.clientInteractions',
+      rows: buildClientInteractionRows(data.annualReturn)
+    },
+    {
+      title: 'Part D - Brand Owner Declaration',
+      fields: [
+        createProcessingField('brandOwner.partD.piboName', 'PIBO Name as per registration certificate', clientName, Building2),
+        createProcessingField('brandOwner.partD.eprTarget', 'EPR Target', data.annualReturn?.eprTarget || '', Database, 'number'),
+        createProcessingField('brandOwner.partD.openingLeftoverDocument', 'Opening leftover upload document', data.annualReturn?.openingLeftoverDocument || '', Upload, 'file'),
+        createProcessingField('brandOwner.partD.signatureUpload', 'Signature / stamp / photos upload', data.annualReturn?.signatureUpload || '', Upload, 'file'),
+        createProcessingField('brandOwner.partD.exemptionApplied', 'Exemption from sale of recycled plastic applied', data.annualReturn?.exemptionApplied || '', CheckCircle2, 'select', ['Yes', 'No']),
+        createProcessingField('brandOwner.partD.recyclingTarget', 'Recycling target for credit application', data.annualReturn?.recyclingTarget || '', Database, 'number'),
+        createProcessingField('brandOwner.partD.permissionFssai', 'Permission granted from FSSAI for use in food contact applications', data.annualReturn?.permissionFssai || '', Upload, 'file'),
+        createProcessingField('brandOwner.partD.permissionNonFood', 'Permission granted from FSSAI for reuse in non-food contact applications', data.annualReturn?.permissionNonFood || '', Upload, 'file')
+      ]
+    }
+  ];
+
+  const importerProductionFacilityFallback = data.annualReturn?.productionFacility || '';
+  const importerApplicationRenewalFallback = data.annualReturn?.applicationRenewal || data.cpcb?.applicationType || '';
+  const importerDicRegisteredFallback = data.annualReturn?.districtIndustryCentreRegistered || data.annualReturn?.dicRegistrationStatus || '';
+  const importerProductionFacility = draftAnswerValue('importer.productionFacility', importerProductionFacilityFallback);
+  const importerApplicationRenewal = draftAnswerValue('importer.applicationRenewal', importerApplicationRenewalFallback);
+  const importerDicRegistered = draftAnswerValue('importer.districtIndustryCentreRegistered', importerDicRegisteredFallback);
+  const showImporterProductionDetails = isYesAnswer(importerProductionFacility);
+  const showImporterRenewalDetails = isYesAnswer(importerApplicationRenewal);
+  const showImporterDicUpload = showImporterProductionDetails && isYesAnswer(importerDicRegistered);
+  const importerOtherDetailFields = [
+    createProcessingField('importer.stateOfCto', 'State / UT in which the CTO is issued by SPCB / PCC', data.registeredAddress?.state || '', MapPin),
+    createProcessingField('importer.productionFacility', 'Does Importer have Production Facility', importerProductionFacility, CheckCircle2, 'select', ['Yes', 'No'], 'manual'),
+    ...(showImporterProductionDetails ? [
+      createProcessingField('importer.districtIndustryCentreRegistered', 'Registered with District Industries Centre / State Government / UT?', importerDicRegistered, ShieldCheck, 'select', ['Yes', 'No'], 'manual')
+    ] : []),
+    ...(showImporterDicUpload ? [
+      createProcessingField('importer.registrationCopy', 'Registration Copy / Upload Document', data.annualReturn?.registrationCopy || data.validation?.factoryLicenseFile || '', Upload, 'file')
+    ] : []),
+    createProcessingField('importer.applicationRenewal', 'Application is for Renewal', importerApplicationRenewal, RefreshCw, 'select', ['Yes', 'No'], 'manual'),
+    ...(showImporterRenewalDetails ? [
+      createProcessingField('importer.registrationNumber', 'Registration No.', data.cpcb?.registrationNumber || data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, FileText),
+      createProcessingField('importer.dateOfIssue', 'Date of Issue', data.cpcb?.issueDate || data.cpcb?.approvalDate || data.compliance?.eprCertificateDate, CalendarDays, 'date'),
+      createProcessingField('importer.validityOfRegistration', 'Validity of Registration Certificate / Uploaded Document', data.cpcb?.validityDate || data.compliance?.eprCertificateValidity || '', CalendarDays, 'file')
+    ] : []),
+    createProcessingField('importer.totalCapitalInvested', 'Total Capital Invested in the Project Concerned', data.financials?.totalCapitalInvested || data.annualReturn?.totalCapitalInvested || '', FileText, 'number'),
+    createProcessingField('importer.commencementYear', 'Year of Commencement of Operation', data.annualReturn?.commencementYear || data.basic?.onboardingYear, CalendarDays, 'text'),
+    createProcessingField('importer.productDetails', 'Details Type of Products Produced / Marketed', data.annualReturn?.productDetails || '', Database, 'textarea'),
+    createProcessingField('importer.productPackagingMajorMaterial', 'Product Packaging Image / Upload Image', data.annualReturn?.productPackagingMajorMaterial || '', Upload, 'file'),
+    createProcessingField('importer.processFlowDiagram', 'Process Flow Diagram / Upload Document', docLinks.application || data.annualReturn?.processFlowDiagram || '', Upload, 'file'),
+    createProcessingField('importer.thicknessOfPlastic', 'Thickness of Plastic in Micron', data.annualReturn?.thicknessOfPlastic || '', FileText, 'text')
+  ];
+
+  const importerDataSections = [
+    {
+      title: 'Part A - Importer Data',
+      type: 'legacyData',
+      groups: [
+        {
+          title: 'Importer Details',
+          tone: 'green',
+          fields: [
+            createProcessingField('basic.organisationLegalName', 'Name of the Organisation', clientName, Building2),
+            createProcessingField('basic.tradeName', 'Trade Name', data.basic?.tradeName, Building2),
+            ...basicAddressFields(),
+            createProcessingField('basic.companyPan', "Company's PAN", data.compliance?.pan || data.compliance?.panNumber, FileText),
+            createProcessingField('basic.companyGst', "Company's GST", data.compliance?.gst || data.compliance?.gstNumber, FileText),
+            createProcessingField('importer.typeOfBusiness', 'Type of Business', typeOfBusiness || 'Importer', FolderCheck)
+          ]
+        },
+        {
+          title: 'Authorised Person Details',
+          fields: [
+            createProcessingField('basic.authorisedPersonName', 'Name', data.authorised?.name || data.otp?.personName, UserRound),
+            createProcessingField('basic.authorisedPersonDesignation', 'Designation', data.authorised?.designation || data.otp?.designation, UserRound),
+            createProcessingField('basic.otpMobile', 'Mobile No.', data.otp?.mobile || data.authorised?.mobile, UserRound, 'tel'),
+            createProcessingField('basic.authorisedPersonEmail', 'Email Id', data.authorised?.email || data.coordinating?.email, FileText, 'email'),
+            createProcessingField('basic.authorisedPersonPan', 'PAN Number', data.authorised?.pan, FileText)
+          ]
+        },
+        {
+          title: 'Other Details / Attach in Required for All Filing',
+          tone: 'dark',
+          fields: importerOtherDetailFields
+        },
+        {
+          title: 'Plastic Consumption',
+          type: 'plasticConsumptionTable',
+          tableKey: 'importer.plasticConsumptionRows',
+          rows: buildPlasticConsumptionRows(data.annualReturn, selected?.label)
+        }
+      ]
+    },
+    {
+      title: 'Part B - Consent Details',
+      fields: [
+        createProcessingField('importer.partB.notApplicable', 'Not Applicable in Importer', data.annualReturn?.importerConsentStatus || 'Not Applicable in Importer', ShieldCheck, 'text', [], 'manual', 'xl:col-span-2')
+      ]
+    },
+    {
+      title: 'Part C - Client Raw Data',
+      type: 'interactionTable',
+      rawDataKey: 'importer.partC.rawDataUploads',
+      tableKey: 'importer.partC.clientInteractions',
+      rows: buildClientInteractionRows(data.annualReturn)
+    },
+    {
+      title: 'Part D - Importer Declaration',
+      fields: [
+        createProcessingField('importer.partD.eprActionPlan', 'EPR Action Plan for Implementation of PWM Rule', data.annualReturn?.eprActionPlan || '', FileText, 'textarea', [], 'auto', 'xl:col-span-2'),
+        createProcessingField('importer.partD.requiredDocuments', 'Documents Required to be submitted in Part D', data.annualReturn?.requiredDocuments || 'Covering letter, signature image and additional PDF declaration', FileText, 'textarea', [], 'manual', 'xl:col-span-2'),
+        createProcessingField('importer.partD.coveringLetter', 'Covering Letter / Upload Document', data.annualReturn?.coveringLetter || '', Upload, 'file'),
+        createProcessingField('importer.partD.signatureUpload', 'Signature (only png, jpeg, jpg, gif) / Upload Image', data.annualReturn?.signatureUpload || '', Upload, 'file'),
+        createProcessingField('importer.partD.additionalInformation', 'Any other Information in PDF / Declaration if any', data.annualReturn?.additionalInformation || '', Upload, 'file')
+      ]
+    }
+  ];
+
+  const dataSections = isImporter ? importerDataSections : isBrandOwner ? brandOwnerDataSections : producerDataSections;
+  const cpcbLetterSections = buildCpcbLetterSections(clientName, selected?.label);
+
+  const sectionsByTab = {
+    basic: [
+      {
+        title: 'Organisation Details',
+        fields: [
+          createProcessingField('basic.organisationLegalName', 'Name of the Organisation', clientName, Building2),
+          createProcessingField('basic.tradeName', 'Trade Name', data.basic?.tradeName, Building2),
+          ...basicAddressFields('xl:col-span-2'),
+          createProcessingField('basic.companyPan', "Company's PAN", data.compliance?.pan || data.compliance?.panNumber, FileText),
+          createProcessingField('basic.companyGst', "Company's GST", data.compliance?.gst || data.compliance?.gstNumber, FileText),
+          createProcessingField('basic.typeOfBusiness', 'Type of Business', typeOfBusiness, FolderCheck, 'select', [...selectOptions.piboCategory, ...selectOptions.eprCategory, 'Manufacturing', 'Trading', 'Service'])
+        ]
+      },
+      {
+        title: 'Authorised Person Details',
+        fields: [
+          createProcessingField('basic.authorisedPersonName', 'Name', data.authorised?.name || data.otp?.personName, UserRound),
+          createProcessingField('basic.authorisedPersonDesignation', 'Designation', data.authorised?.designation || data.otp?.designation, UserRound),
+          createProcessingField('basic.otpMobile', 'Mobile No.', data.otp?.mobile || data.authorised?.mobile, UserRound, 'tel'),
+          createProcessingField('basic.authorisedPersonEmail', 'Email Id', data.authorised?.email || data.coordinating?.email, FileText, 'email'),
+          createProcessingField('basic.authorisedPersonPan', 'PAN Number', data.authorised?.pan, FileText)
+        ]
+      },
+      {
+        title: 'Other Details',
+        fields: [
+          createProcessingField('basic.eprCertificateNo', 'EPR Certificate No.', data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, ShieldCheck),
+          createProcessingField('basic.cpcbRegistrationNumber', 'CPCB Registration Number', data.cpcb?.registrationNumber, FileText),
+          createProcessingField('basic.applicationApprovalDate', 'Date of Application Approval', data.cpcb?.approvalDate || data.compliance?.eprCertificateDate, CalendarDays, 'date'),
+          createProcessingField('basic.plantLocation', 'Plant Location', plants?.[0]?.plantLocation || plants?.[0]?.location || data.registeredAddress?.city, MapPin),
+          createProcessingField('basic.gstNumber', 'GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText),
+          createProcessingField('basic.panNumber', 'PAN', data.compliance?.pan || data.compliance?.panNumber, FileText)
+        ]
+      },
+      {
+        title: 'MSME Details',
+        type: 'msmeTable',
+        tableKey: 'MSME Details',
+        rows: msmeRows
+      },
+      {
+        title: 'Login Details',
+        fields: [
+          createProcessingField('basic.cpcbLoginId', 'CPCB Login ID', data.cpcb?.loginId || data.cpcb?.ceprUserId, UserRound),
+          createProcessingField('basic.cpcbLoginPassword', 'CPCB Login Password', data.cpcb?.loginPassword || data.cpcb?.ceprPassword || '', KeyRound, 'password'),
+          createProcessingField('basic.cpcbStatus', 'CPCB Status', data.cpcb?.status, ShieldCheck, 'select', selectOptions.cpcbStatus)
+        ]
+      },
+      {
+        title: 'Contact Person Details',
+        fields: [
+          createProcessingField('basic.authorisedPersonName', 'Authorised Contact Person', data.authorised?.name || data.otp?.personName, UserRound),
+          createProcessingField('basic.authorisedPersonDesignation', 'Authorised Person Designation', data.authorised?.designation || data.otp?.designation, UserRound),
+          createProcessingField('basic.otpMobile', 'OTP Enabled Mobile No.', data.otp?.mobile || data.authorised?.mobile, UserRound, 'tel'),
+          createProcessingField('basic.coordinatingPersonName', 'Coordinating Person Name', data.coordinating?.name, UserRound),
+          createProcessingField('basic.coordinatingPersonDesignation', 'Coordinating Person Designation', data.coordinating?.designation, UserRound),
+          createProcessingField('basic.coordinatingPersonMobile', 'Coordinating Person Mobile', data.coordinating?.mobile, UserRound, 'tel')
+        ]
+      }
+    ],
+    financials: [
+      {
+        title: 'Quotation and SLA Details',
+        actions: ['quotation'],
+        fields: [
+          createProcessingField('financials.quotationNo', 'Quotation No.', data.financials?.quotationNo || data.validation?.quotationNumber, FileText),
+          createProcessingField('financials.quotationDate', 'Quotation Date', data.financials?.quotationDate || data.validation?.quotationDate, CalendarDays, 'date'),
+          createProcessingField('financials.quotationFile', 'Quotation File', data.financials?.quotationDocument || data.validation?.quotationDocument || '', Upload, 'file'),
+          createProcessingField('financials.slaNo', 'Compliance SLA No.', data.financials?.slaNo, FileText),
+          createProcessingField('financials.slaDate', 'SLA Date', data.financials?.slaDate, CalendarDays, 'date'),
+          createProcessingField('financials.slaFile', 'Upload SLA', data.financials?.slaDocument, Upload, 'file')
+        ]
+      },
+      {
+        title: 'Compliance Document Details',
+        type: 'compliancePoDetails',
+        poYearTable: {
+          countKey: 'financials.poYearCount',
+          rowsKey: 'financials.poYearRows',
+          serviceCategoryOptions: annualPoServiceCategoryOptions,
+          defaultFy: selected?.label || '',
+          annualReturnYear: selected?.label || '',
+          quotationNo: latestQuotationNo
+        },
+        fields: [
+          createProcessingField('financials.complianceAmountReceived', 'Compliance Amount Received', data.financials?.amountReceived || data.validation?.basicAmount, FileText, 'number'),
+          createProcessingField('financials.receivedThrough', 'Received Through', data.financials?.receivedThrough, FileText, 'select', ['Cheque', 'NEFT', 'RTGS', 'UPI', 'Cash']),
+          createProcessingField('financials.receivedDate', 'Received Date', data.financials?.receivedDate, CalendarDays, 'date'),
+          createProcessingField('financials.amountStatus', 'Amount Status', data.financials?.amountStatus, CheckCircle2, 'select', ['Pending', 'Partial Received', 'Full Received'])
+        ]
+      },
+      {
+        title: 'Credit Details',
+        fields: [
+          createProcessingField('financials.creditPoNo', 'Credit PO No.', data.financials?.creditPoNo, FileText),
+          createProcessingField('financials.creditPoDate', 'Credit PO Date', data.financials?.creditPoDate, CalendarDays, 'date'),
+          createProcessingField('financials.creditPoFile', 'Upload Credit PO', data.financials?.creditPoDocument, Upload, 'file'),
+          createProcessingField('financials.creditReceivedDate', 'Credit Amount Received Date', data.financials?.creditReceivedDate, CalendarDays, 'date'),
+          createProcessingField('financials.creditReceivedThrough', 'Credit Amount Received Through', data.financials?.creditReceivedThrough, FileText, 'select', ['Cheque', 'NEFT', 'RTGS', 'UPI', 'Cash'])
+        ]
+      }
+    ],
+    data: dataSections,
+    cpcbLetter: cpcbLetterSections,
+    documents: [
+      {
+        title: 'Document Library',
+        fields: [
+          createProcessingField('documents.gstCertificate', 'GST Certificate', data.compliance?.gstFile || docLinks.gst, FileText, 'file'),
+          createProcessingField('documents.panDocument', 'PAN Document', data.compliance?.panFile || docLinks.pan, FileText, 'file'),
+          createProcessingField('documents.cinDocument', 'CIN Document', data.compliance?.cinFile || docLinks.cin, FileText, 'file'),
+          createProcessingField('documents.factoryLicense', 'Factory License', data.compliance?.factoryLicenseFile || docLinks.factory, FileText, 'file'),
+          createProcessingField('documents.eprCertificate', 'EPR Certificate', data.compliance?.eprCertificateFile || docLinks.epr, ShieldCheck, 'file'),
+          createProcessingField('documents.msmeUdyam', 'MSME / Udyam', msmeRows?.[0]?.file || docLinks.msme, FileCheck2, 'file')
+        ]
+      }
+    ],
+    annual: [
+      {
+        title: 'Annual Return Filing',
+        fields: [
+          createProcessingField('annual.returnYear', 'Annual Return Year', selected?.label || 'Select Hub', CalendarDays),
+          createProcessingField('annual.filingStatus', 'Filing Status', data.annualReturn?.status || 'Open', RefreshCw, 'select', ['Open', 'In Progress', 'Filed', 'Submitted', 'Closed']),
+          createProcessingField('annual.portalData', 'Portal Data', documentUrls.length ? `${documentUrls.length} uploaded` : 'Pending Upload', Database),
+          createProcessingField('annual.currentSpoc', 'Current SPOC', assignedName, UserRound),
+          createProcessingField('annual.previousSpoc', 'Previous SPOC', previousSpocName, UserRound),
+          createProcessingField('annual.firstAnnualReturnYear', 'First Annual Return Year', firstAnnualReturnYear, CalendarDays)
+        ]
+      }
+    ]
+  };
+  const activeSections = sectionsByTab[activeProcessingTab] || sectionsByTab.basic;
+  const activeSection = activeSections.find((section) => section.title === activePillSection) || activeSections[0];
+  const activeSectionIndex = activeSections.findIndex((section) => section.title === activeSection?.title);
+  const hasNextSection = activeSectionIndex > -1 && activeSectionIndex < activeSections.length - 1;
+  const activeTabIndex = Math.max(processingTabs.findIndex((tab) => tab.id === activeProcessingTab), 0);
+  const effectiveReviewStage = getAnnualReviewStage(approvalWorkflow);
+  const dataReviewReady = effectiveReviewStage === 'manager' || effectiveReviewStage === 'compliance';
+  const canManagerReviewData = activeProcessingTab === 'data' && canFirstStageReview && effectiveReviewStage === 'manager';
+  const canComplianceReviewData = activeProcessingTab === 'data' && isComplianceManager && effectiveReviewStage === 'compliance';
+  const canTakeReviewAction = canManagerReviewData || canComplianceReviewData;
+  const canOpenReviewPanel = activeProcessingTab === 'data' && canViewAnnualReviewPanel;
+  const canViewReviewData = activeProcessingTab === 'data' && canOpenReviewPanel && dataReviewReady;
+  const complianceOnlyUser = isComplianceManager && !isAnnualAdmin && !isManager && !isAnnualUser;
+  const canSubmitAnnualData = activeProcessingTab === 'data' && isAnnualUser && !isManager && !isComplianceManager && effectiveReviewStage === 'user';
+  const canSubmitFromReviewPanel = canSubmitAnnualData && canOpenReviewPanel && !complianceOnlyUser;
+  const userSubmittedDisplayStatuses = activeProcessingTab === 'data' && isAnnualUser && !canTakeReviewAction && dataReviewReady
+    ? buildAnnualUserSubmittedStatuses(getDataSectionTitles())
+    : null;
+  const dataSectionStatuses = userSubmittedDisplayStatuses || approvalWorkflow.sections;
+  const dataSectionReviewStage = userSubmittedDisplayStatuses ? 'manager' : effectiveReviewStage;
+  const isFinalDataSection = activeProcessingTab === 'data' && activeSectionIndex > -1 && activeSectionIndex === activeSections.length - 1;
+  const isSubmitSection = activeProcessingTab === 'data' && (isAnnualPartDSection(activeSection?.title) || isFinalDataSection);
+  const canSubmitData = canSubmitAnnualData && !canTakeReviewAction && isSubmitSection;
+  const dataPendingForReview = activeProcessingTab === 'data' && dataReviewReady && !canViewReviewData;
+  const annualReviewRoleLabel = isAnnualAdmin
+    ? 'Admin'
+    : isComplianceManager
+      ? 'Compliance Manager'
+      : isManager
+        ? 'Manager'
+        : 'User';
+  const annualReviewDebugInfo = {
+    userRole: currentUser?.role || '',
+    userTeam: currentUser?.team || '',
+    annualRoleLabel: annualReviewRoleLabel,
+    workflowStatus: approvalWorkflow.status || 'draft',
+    currentStage: approvalWorkflow.currentStage || 'user',
+    effectiveReviewStage,
+    activeProcessingTab,
+    activeSection: activeSection?.title || '',
+    isAnnualUser,
+    isManager,
+    isComplianceManager,
+    canViewAnnualReviewPanel,
+    canManagerReviewData,
+    canComplianceReviewData,
+    canTakeReviewAction,
+    canOpenReviewPanel,
+    canViewReviewData,
+    isSubmitSection,
+    lockReason: getAnnualReviewLockReason({
+      isManager,
+      isComplianceManager,
+      effectiveReviewStage,
+      workflowStatus: approvalWorkflow.status,
+      activeProcessingTab,
+      activeSectionTitle: activeSection?.title,
+      isSubmitSection
+    })
+  };
+  const annualSubmittedBy = getAnnualWorkflowSubmittedBy(approvalWorkflow);
+  const submitButtonLabel = activeProcessingTab === 'data'
+    ? (canViewReviewData
+      ? `Review ${getAnnualPartShortLabel(activeSection?.title)}`
+      : dataPendingForReview
+      ? formatAnnualWorkflowStatus(approvalWorkflow)
+      : canSubmitData
+        ? (approvalWorkflow.status === 'manager_rejected' || approvalWorkflow.status === 'compliance_rejected' ? 'Resubmit to Manager' : 'Submit to Manager')
+        : 'Next')
+    : 'Submit / Next';
+  const submitButtonIcon = canViewReviewData ? ShieldCheck : Save;
+  const handlePrimaryAnnualAction = canViewReviewData
+    ? () => setReviewDrawerOpen(true)
+    : (canSubmitData ? submitDataForManager : handleAnnualSubmitNext);
+  const showReviewNextButton = canTakeReviewAction && hasNextSection;
+
+  useEffect(() => {
+    if (activeProcessingTab !== 'data') return;
+    window.__annualReviewDebug = annualReviewDebugInfo;
+    console.debug('[AnnualReviewDebug]', annualReviewDebugInfo);
+  }, [
+    activeProcessingTab,
+    currentUser?.role,
+    currentUser?.team,
+    annualReviewRoleLabel,
+    effectiveReviewStage,
+    approvalWorkflow.status,
+    approvalWorkflow.currentStage,
+    activeSection?.title,
+    isAnnualUser,
+    isManager,
+    isComplianceManager,
+    canViewAnnualReviewPanel,
+    canManagerReviewData,
+    canComplianceReviewData,
+    canTakeReviewAction,
+    canOpenReviewPanel,
+    canViewReviewData,
+    isSubmitSection
+  ]);
+
+  useEffect(() => {
+    if (!selected?.label || savingAnnual || effectiveReviewStage !== 'manager') return;
+    if (String(approvalWorkflow.status || '').toLowerCase() !== 'manager_pending') return;
+    if (!allSectionsReviewedBy(approvalWorkflow.sections, 'manager')) return;
+    const nextWorkflow = buildCompliancePendingWorkflow(approvalWorkflow, approvalWorkflow.sections);
+    saveAnnualDraft(activeProcessingTab, activeSection?.title || '', nextWorkflow, 'compliance_pending').then((saved) => {
+      if (saved) setSaveNotice('Manager approved all parts. Workflow moved to Compliance Manager.');
+    });
+  }, [selected?.label, savingAnnual, effectiveReviewStage, approvalWorkflow.sections, approvalWorkflow.status, approvalWorkflow.currentStage]);
+
+  useEffect(() => {
+    setActivePillSection((current) => (
+      activeSections.some((section) => section.title === current) ? current : activeSections[0]?.title || ''
+    ));
+  }, [activeProcessingTab, activeSections]);
+
+  return (
+    <div className="mt-5 space-y-5">
+      {annualToast && (
+        <div className="fixed right-5 top-16 z-[160] w-[min(430px,calc(100vw-40px))]">
+          <ToastMessage type={annualToast.type} actionLabel="Close" onAction={() => setAnnualToast(null)}>{annualToast.message}</ToastMessage>
+        </div>
+      )}
+      {!selected && <section className="annual-return-hub">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#30737B]">EPR Years</p>
+            <h4 className="mt-1 text-xl font-black text-slate-950">Annual return hubs</h4>
+          </div>
+          <p className="max-w-xl text-sm font-bold text-slate-500">Only completed financial years from the first applicable annual return year are available.</p>
+        </div>
+
+        {years.length ? (
+          <div className="annual-year-grid mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {years.map((year, index) => {
+              const active = selected?.label === year.label;
+              const [yearStart, yearEnd] = year.label.split('-');
+              const clientKey = client?._id || client?.id || getClientUniqueId(client);
+              return (
+                <button
+                  key={year.label}
+                  type="button"
+                  onClick={() => navigate(`/sales/client-data-processing/${encodeURIComponent(clientKey)}/${encodeURIComponent(year.label)}`)}
+                  className={`annual-year-card ${active ? 'annual-year-card-active' : ''}`}
+                  style={{ '--delay': `${index * 90}ms` }}
+                >
+                  <span className="annual-year-topline" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">EPR Year</span>
+                  <strong className="mt-4 block text-4xl font-black leading-[0.95] text-slate-950">
+                    <span className="block">{yearStart}-</span>
+                    <span className="block">{yearEnd}</span>
+                  </strong>
+                  <span className="mt-4 block text-xs font-black text-slate-400">{year.period}</span>
+                  <span className="mt-1 block text-xs font-black text-slate-400">- {year.status}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyTab
+            title="No completed annual return year"
+            message="Select a first annual return year up to the latest completed financial year."
+          />
+        )}
+      </section>}
+
+      {selected && (
+        <section className="annual-workspace">
+          <div className="annual-toolbar">
+            <button type="button" onClick={() => onSelectYear('')} className="btn-lift annual-back-button" aria-label="Back" title="Back">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="annual-summary-strip">
+              <div className="annual-summary-card annual-summary-card-client">
+                <span className="annual-summary-icon"><Building2 className="h-5 w-5" /></span>
+                <div className="annual-summary-copy">
+                  <span className="annual-summary-label">{uniqueId}</span>
+                  <strong className="annual-summary-value">{clientName}</strong>
+                  <span className="annual-summary-meta">{data.basic?.piboCategory || data.basic?.eprCategory || 'Client'}</span>
+                </div>
+              </div>
+              <div className="annual-summary-card">
+                <span className="annual-summary-icon"><CalendarDays className="h-5 w-5" /></span>
+                <div className="annual-summary-copy">
+                  <span className="annual-summary-label">Annual Return Year</span>
+                  <strong className="annual-summary-value">{selected.label}</strong>
+                </div>
+              </div>
+              <div className="annual-summary-card annual-summary-card-user">
+                <span className="annual-summary-icon"><UserRound className="h-5 w-5" /></span>
+                <div className="annual-summary-copy">
+                  <span className="annual-summary-label">Current SPOC</span>
+                  <strong className="annual-summary-value">{assignedName || '-'}</strong>
+                </div>
+              </div>
+              <div className="annual-summary-card annual-summary-card-spoc">
+                <span className="annual-summary-icon"><RefreshCw className="h-5 w-5" /></span>
+                <div className="annual-summary-copy">
+                  <span className="annual-summary-label">Previous SPOC</span>
+                  <strong className="annual-summary-value">{previousSpocName || '-'}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="annual-workspace-body">
+            <aside className="annual-stepper">
+              {processingTabs.map((tab) => {
+                const Icon = tab.icon;
+                const active = activeProcessingTab === tab.id;
+                const complete = Boolean(completedAnnualTabs[tab.id]);
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => switchProcessingTab(tab.id)}
+                    title={tab.label}
+                    aria-current={active ? 'step' : undefined}
+                    className={`annual-step ${active ? 'annual-step-active' : ''} ${complete ? 'annual-step-complete' : ''}`}
+                  >
+                    <span className="annual-step-icon"><Icon className="h-4 w-4" /></span>
+                    <span>{tab.label}</span>
+                    {complete && <CheckCircle2 className="annual-step-check h-4 w-4" />}
+                  </button>
+                );
+              })}
+            </aside>
+
+            <div className={`annual-tab-content min-w-0 ${annualTransitioning ? 'annual-tab-content-switching' : ''}`}>
+              <div className="annual-panel-head">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#30737B]">Step {activeTabIndex + 1} of {processingTabs.length} · {completedAnnualCount}/{processingTabs.length} done</p>
+                  <h4 className="mt-1 text-xl font-black text-slate-950">{processingTabs[activeTabIndex]?.label}</h4>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="annual-year-badge"><CalendarDays className="h-4 w-4" /> FY {selected.label}</span>
+                </div>
+              </div>
+              <div className="annual-section-content space-y-4">
+                {activeSection && (
+                  <ProcessingSection
+                    section={activeSection}
+                    sectionTabs={activeSections.map((section) => section.title)}
+                    activeSectionTitle={activeSection.title}
+                    onSelectSection={switchPillSection}
+                    quotationContext={quotationContext}
+                    tone="white"
+                    readValue={readDraftValue}
+                    onChange={updateDraftValue}
+                    fieldRenderer={activeProcessingTab === 'financials' ? 'table' : 'overview'}
+                    sectionStatuses={activeProcessingTab === 'data' ? dataSectionStatuses : {}}
+                    reviewStage={dataSectionReviewStage}
+                    completedSectionTitles={completedAnnualSections[activeProcessingTab] || []}
+                    canReview={canOpenReviewPanel}
+                    onReview={() => setReviewDrawerOpen(true)}
+                    saving={savingAnnual}
+                    onSave={() => saveAnnualDraft(activeProcessingTab, activeSection?.title || '')}
+                  />
+                )}
+              </div>
+              {activeProcessingTab === 'data' && (
+                <div className="mx-4 mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-[#30737B]">Approval Workflow</p>
+                      <p className="mt-1 text-sm font-black text-slate-700">{formatAnnualWorkflowStatus(approvalWorkflow)}</p>
+                      {annualSubmittedBy && <p className="mt-1 text-xs font-bold text-slate-500">Submitted by: <span className="font-black text-slate-700">{annualSubmittedBy}</span></p>}
+                      {approvalWorkflow.lastRemark && <p className="mt-1 text-xs font-bold text-slate-500">Last remark: {approvalWorkflow.lastRemark}</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {saveNotice && <ToastMessage type="success" className="mx-4 mb-3">{saveNotice}</ToastMessage>}
+              {annualSaveError && <ToastMessage type="error" className="mx-4 mb-3">{annualSaveError}</ToastMessage>}
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button type="button" disabled={savingAnnual || dataPendingForReview} onClick={handlePrimaryAnnualAction} className={`btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-6 text-sm font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${canViewReviewData ? 'bg-slate-950 shadow-slate-950/20' : 'bg-emerald-600 shadow-emerald-600/20'}`}>{React.createElement(submitButtonIcon, { className: 'h-4 w-4' })}{savingAnnual ? 'Saving...' : submitButtonLabel}</button>
+                {showReviewNextButton && (
+                  <button type="button" disabled={savingAnnual} onClick={handleAnnualSubmitNext} className="btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-6 text-sm font-black text-slate-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
+                    Next Part <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+      {reviewDrawerOpen && (
+        <AnnualReviewDrawer
+          workflow={approvalWorkflow}
+          mode={reviewUiMode}
+          roleLabel={annualReviewRoleLabel}
+          debugInfo={annualReviewDebugInfo}
+          activeSectionTitle={activeSection?.title || ''}
+          sectionTitles={getDataSectionTitles()}
+          canTakeAction={canTakeReviewAction}
+          canSubmitToManager={canSubmitFromReviewPanel}
+          saving={savingAnnual}
+          onClose={() => setReviewDrawerOpen(false)}
+          onSubmitToManager={submitDataForManager}
+          onApprove={(sectionTitle) => handleAnnualReview('APPROVED', sectionTitle)}
+          onReject={(sectionTitle) => handleAnnualReview('REJECTED', sectionTitle)}
+        />
+      )}
+      {annualCompletionModal && (
+        <div className="annual-completion-backdrop" role="presentation" onClick={() => setAnnualCompletionModal(null)}>
+          <div className="annual-completion-modal" role="dialog" aria-modal="true" aria-label={annualCompletionModal.title} onClick={(event) => event.stopPropagation()}>
+            <div className="annual-completion-icon"><CheckCircle2 className="h-8 w-8" /></div>
+            <h2>{annualCompletionModal.title}</h2>
+            <p>{annualCompletionModal.message}</p>
+            <button type="button" onClick={() => setAnnualCompletionModal(null)} className="btn-lift">OK</button>
+          </div>
+        </div>
+      )}
+      {annualConfirmOpen && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm animate-[fadeIn_.18s_ease-out]">
+          <div className="w-full max-w-lg rounded-[24px] bg-white p-6 shadow-2xl shadow-slate-950/25 animate-[app-loader-card-in_.32s_cubic-bezier(.22,1,.36,1)]">
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-orange-100 text-orange-700">
+              <ShieldCheck className="h-7 w-7" />
+            </div>
+            <h2 className="mt-5 text-center text-xl font-black text-slate-950">Submission Confirmation</h2>
+            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4 text-left">
+              <input type="checkbox" checked={confirmFinancials} onChange={(event) => setConfirmFinancials(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-orange-600" />
+              <span className="text-sm font-black leading-6 text-slate-800">I confirm the auto-fetched Client Master data and entered values are checked for this annual return step.</span>
+            </label>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button type="button" onClick={closeAnnualConfirm} className="btn-lift min-h-11 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">
+                Cancel
+              </button>
+              <button type="button" disabled={!confirmFinancials || savingAnnual} onClick={confirmAnnualSubmission} className="btn-lift min-h-11 rounded-lg bg-emerald-600 px-6 font-black text-white shadow-lg shadow-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-50">
+                {savingAnnual ? 'Saving...' : 'Confirm & Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatAnnualWorkflowStatus(workflow = {}) {
+  const status = String(workflow.status || 'draft').replace(/_/g, ' ');
+  const effectiveReviewStage = getAnnualReviewStage(workflow);
+  if (effectiveReviewStage === 'manager') return 'Pending with Manager';
+  if (effectiveReviewStage === 'compliance') return 'Pending with Compliance Manager';
+  if (effectiveReviewStage === 'complete') return 'Approved by Compliance Manager';
+  if (workflow.status === 'manager_rejected') return 'Rejected by Manager, waiting for user correction';
+  if (workflow.status === 'compliance_rejected') return 'Rejected by Compliance Manager, waiting for manager correction';
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function getAnnualReviewVisiblePattern(activeSectionTitle = '', showAllParts = false) {
+  if (showAllParts) return /^Part\s+[A-D]\b/i;
+  const activePart = String(getAnnualPartShortLabel(activeSectionTitle)).toUpperCase();
+  const activeIndex = ['PART A', 'PART B', 'PART C', 'PART D'].indexOf(activePart);
+  const lastVisibleIndex = activeIndex > -1 ? activeIndex : 0;
+  const visibleParts = ['A', 'B', 'C', 'D'].slice(0, lastVisibleIndex + 1).join('');
+  return new RegExp(`^Part\\s+[${visibleParts}]\\b`, 'i');
+}
+
+function getAnnualStageSectionStatus(workflow = {}, sectionTitle = '', stage = 'manager') {
+  const metas = getAnnualSectionMetas(workflow, sectionTitle);
+  const effectiveReviewStage = getAnnualReviewStage(workflow);
+  if (stage === 'manager') {
+    return pickAnnualReviewStatusFromMetas(metas, 'managerStatus', 'pending');
+  }
+  const complianceStatus = pickAnnualReviewStatusFromMetas(metas, 'complianceStatus', '');
+  const managerStatus = pickAnnualReviewStatusFromMetas(metas, 'managerStatus', '');
+  if (complianceStatus) return complianceStatus;
+  if (effectiveReviewStage === 'complete') return 'approved';
+  if (managerStatus === 'approved') return 'pending';
+  if (managerStatus === 'rejected') return 'waiting';
+  return 'waiting';
+}
+
+function getAnnualStageReviewer(workflow = {}, sectionTitle = '', stage = 'manager') {
+  const metas = getAnnualSectionMetas(workflow, sectionTitle);
+  const reviewedByKey = stage === 'compliance' ? 'complianceReviewedBy' : 'managerReviewedBy';
+  const reviewedAtKey = stage === 'compliance' ? 'complianceReviewedAt' : 'managerReviewedAt';
+  const statusKey = stage === 'compliance' ? 'complianceStatus' : 'managerStatus';
+  const actionPrefix = stage === 'compliance' ? 'COMPLIANCE_' : 'MANAGER_';
+  const partKey = getAnnualPartKey(sectionTitle);
+  const meta = metas.find((item) => normalizeAnnualReviewStatus(item?.[statusKey] || item?.status || '') === 'approved' && item?.[reviewedByKey])
+    || metas.find((item) => normalizeAnnualReviewStatus(item?.[statusKey] || item?.status || '') === 'rejected' && item?.[reviewedByKey])
+    || metas.find((item) => item?.[reviewedByKey])
+    || {};
+  const history = Array.isArray(workflow.history) ? workflow.history : [];
+  const historyItem = [...history].reverse().find((item) => (
+    String(item?.action || '').trim().toUpperCase().startsWith(actionPrefix) &&
+    (!partKey || getAnnualPartKey(item?.section || '') === partKey) &&
+    item?.by
+  )) || {};
+  return {
+    by: meta[reviewedByKey] || historyItem.by || '',
+    at: meta[reviewedAtKey] || meta.updatedAt || historyItem.at || ''
+  };
+}
+
+function getAnnualStatusBadgeClass(status = '') {
+  if (status === 'approved') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (status === 'rejected') return 'border-red-200 bg-red-50 text-red-700';
+  if (status === 'waiting') return 'border-slate-200 bg-slate-100 text-slate-500';
+  return 'border-amber-200 bg-amber-50 text-amber-700';
+}
+
+function getAnnualReviewProgress(workflow = {}, sectionTitles = [], stage = 'manager') {
+  const titles = sectionTitles.length ? sectionTitles : Object.keys(workflow.sections || {});
+  const statuses = titles.map((title) => getAnnualStageSectionStatus(workflow, title, stage));
+  const total = titles.length || 0;
+  const approved = statuses.filter((status) => status === 'approved').length;
+  const rejected = statuses.filter((status) => status === 'rejected').length;
+  const waiting = statuses.filter((status) => status === 'waiting').length;
+  const reviewed = statuses.filter((status) => status === 'approved' || status === 'rejected').length;
+  const pending = Math.max(total - approved - rejected - waiting, 0);
+  return {
+    total,
+    approved,
+    rejected,
+    pending,
+    waiting,
+    reviewed,
+    percent: total ? Math.round((reviewed / total) * 100) : 0
+  };
+}
+
+function buildAnnualTrackingSteps(workflow = {}, managerProgress = {}, complianceProgress = {}) {
+  const stage = getAnnualReviewStage(workflow);
+  const status = String(workflow.status || '').toLowerCase();
+  const managerRejected = status === 'manager_rejected';
+  const complianceRejected = status === 'compliance_rejected';
+  const submittedToManager = stage === 'manager' || stage === 'compliance' || stage === 'complete' || managerRejected || complianceRejected;
+  const managerComplete = stage === 'compliance' || stage === 'complete' || complianceRejected || (managerProgress.total > 0 && managerProgress.approved === managerProgress.total);
+  const complianceActive = stage === 'compliance';
+  const complianceComplete = stage === 'complete';
+
+  return [
+    {
+      title: 'User Submitted',
+      description: submittedToManager ? 'Annual return sent to Manager' : 'Draft is still with user',
+      state: submittedToManager ? 'complete' : 'current',
+      meta: submittedToManager ? 'Done' : 'Draft'
+    },
+    {
+      title: 'Manager Review',
+      description: managerRejected ? 'Rejected, waiting for user correction' : `${managerProgress.reviewed || 0}/${managerProgress.total || 0} parts reviewed`,
+      state: managerRejected ? 'rejected' : managerComplete ? 'complete' : submittedToManager ? 'current' : 'upcoming',
+      meta: managerRejected ? 'Rejected' : managerComplete ? 'Approved' : submittedToManager ? `${managerProgress.percent || 0}%` : 'Waiting'
+    },
+    {
+      title: 'Compliance Review',
+      description: complianceRejected
+        ? 'Rejected, waiting for manager correction'
+        : managerComplete
+          ? `${complianceProgress.reviewed || 0}/${complianceProgress.total || 0} parts reviewed`
+          : 'Starts after Manager approval',
+      state: complianceRejected ? 'rejected' : complianceComplete ? 'complete' : complianceActive ? 'current' : 'upcoming',
+      meta: complianceRejected ? 'Rejected' : complianceComplete ? 'Approved' : complianceActive ? `${complianceProgress.percent || 0}%` : 'Locked'
+    }
+  ];
+}
+
+function AnnualTrackingTimeline({ workflow, managerProgress, complianceProgress }) {
+  const steps = buildAnnualTrackingSteps(workflow, managerProgress, complianceProgress);
+  const activeStep = steps.find((step) => step.state === 'current' || step.state === 'rejected') || steps[steps.length - 1];
+  const submittedBy = getAnnualWorkflowSubmittedBy(workflow);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_55%,#f0fdfa_100%)] p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-[#30737B]">Approval Tracking</p>
+          <h4 className="mt-1 text-lg font-black text-slate-950">{activeStep.title}</h4>
+          <p className="mt-1 text-sm font-bold text-slate-500">{activeStep.description}</p>
+          {submittedBy && <p className="mt-2 text-xs font-black uppercase tracking-[0.08em] text-slate-500">Submitted by: <span className="text-slate-800">{submittedBy}</span></p>}
+        </div>
+        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase text-slate-600">
+          {formatAnnualWorkflowStatus(workflow)}
+        </span>
+      </div>
+      </div>
+
+      <div className="px-4 pb-4 pt-5">
+        <div className="grid grid-cols-3 gap-0">
+        {steps.map((step, index) => {
+          const complete = step.state === 'complete';
+          const current = step.state === 'current';
+          const rejected = step.state === 'rejected';
+          const upcoming = step.state === 'upcoming';
+          const dotClass = complete
+            ? 'border-emerald-600 bg-emerald-600 text-white'
+              : rejected
+                ? 'border-red-500 bg-red-500 text-white'
+                : current
+                  ? 'border-[#30737B] bg-white text-[#30737B] ring-4 ring-[#30737B]/10'
+                  : 'border-slate-200 bg-slate-50 text-slate-400';
+          const textClass = rejected ? 'text-red-700' : complete ? 'text-emerald-700' : current ? 'text-[#30737B]' : 'text-slate-500';
+          const metaClass = rejected ? 'bg-red-50 text-red-700' : complete ? 'bg-emerald-50 text-emerald-700' : current ? 'bg-teal-50 text-[#30737B]' : 'bg-slate-100 text-slate-500';
+          const railClass = complete ? 'bg-emerald-500' : current ? 'bg-[#30737B]/25' : 'bg-slate-200';
+
+          return (
+            <div key={step.title} className={`relative flex min-w-0 flex-col items-center px-1 text-center ${upcoming ? 'opacity-75' : ''}`}>
+              {index > 0 && <span className={`absolute left-0 top-4 h-1 w-1/2 -translate-y-1/2 ${steps[index - 1].state === 'complete' ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
+              {index < steps.length - 1 && <span className={`absolute right-0 top-4 h-1 w-1/2 -translate-y-1/2 ${railClass}`} />}
+              <span className={`relative z-[1] grid h-8 w-8 place-items-center rounded-full border-2 text-xs font-black ${dotClass}`}>
+                  {complete ? <Check className="h-4 w-4" /> : rejected ? <X className="h-4 w-4" /> : current ? <RefreshCw className="h-4 w-4" /> : index + 1}
+              </span>
+              <div className="mt-3 min-w-0">
+                <p className={`truncate text-[12px] font-black ${textClass}`}>{step.title}</p>
+                <span className={`mt-2 inline-flex max-w-full rounded-full px-2 py-1 text-[10px] font-black uppercase ${metaClass}`}>
+                  <span className="truncate">{step.meta}</span>
+                </span>
+                <p className="mt-2 line-clamp-2 min-h-8 text-[11px] font-bold leading-4 text-slate-500">{step.description}</p>
+              </div>
+            </div>
+          );
+        })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnnualStatusChip({ label, status }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-black uppercase ${getAnnualStatusBadgeClass(status)}`}>
+      {label}: {status || 'pending'}
+    </span>
+  );
+}
+
+function AnnualReviewDrawer({ workflow, mode = 'popup', roleLabel, debugInfo = {}, activeSectionTitle = '', sectionTitles = [], canTakeAction = false, canSubmitToManager = false, saving, onClose, onSubmitToManager, onApprove, onReject }) {
+  const reviewStage = getAnnualReviewStage(workflow) === 'compliance' ? 'compliance' : 'manager';
+  const workflowStatus = String(workflow.status || '').toLowerCase();
+  const managerCorrectionMode = reviewStage === 'manager' && workflowStatus === 'compliance_rejected';
+  const showAllParts = ['manager', 'compliance', 'complete'].includes(getAnnualReviewStage(workflow)) ||
+    ['manager_rejected', 'compliance_rejected'].includes(workflowStatus);
+  const visiblePartPattern = getAnnualReviewVisiblePattern(activeSectionTitle, showAllParts);
+  const allSectionTitles = sectionTitles.length ? sectionTitles : Object.keys(workflow.sections || {});
+  const visibleSectionTitles = allSectionTitles
+    .filter((title) => visiblePartPattern.test(String(title || '')));
+  const managerProgress = getAnnualReviewProgress(workflow, allSectionTitles, 'manager');
+  const complianceProgress = getAnnualReviewProgress(workflow, allSectionTitles, 'compliance');
+  useEffect(() => {
+    console.groupCollapsed('[AnnualReview:drawer-state]');
+    console.debug({
+      workflow: summarizeAnnualWorkflow(workflow),
+      reviewStage,
+      workflowStatus,
+      activeSectionTitle,
+      canTakeAction,
+      canSubmitToManager,
+      managerProgress,
+      complianceProgress,
+      debugInfo
+    });
+    console.table(allSectionTitles.map((title) => ({
+      part: getAnnualPartShortLabel(title),
+      title,
+      visible: visibleSectionTitles.includes(title),
+      manager: getAnnualStageSectionStatus(workflow, title, 'manager'),
+      compliance: getAnnualStageSectionStatus(workflow, title, 'compliance'),
+      currentStageStatus: getAnnualSectionStatus(workflow, title, reviewStage)
+    })));
+    console.groupEnd();
+  }, [
+    workflow,
+    reviewStage,
+    workflowStatus,
+    activeSectionTitle,
+    canTakeAction,
+    canSubmitToManager,
+    allSectionTitles.join('|'),
+    visibleSectionTitles.join('|'),
+    managerProgress.percent,
+    complianceProgress.percent,
+    debugInfo.workflowStatus,
+    debugInfo.currentStage,
+    debugInfo.effectiveReviewStage
+  ]);
+  const isDrawer = mode === 'drawer';
+  const backdropClass = isDrawer
+    ? 'fixed inset-0 z-[120] bg-slate-950/35 backdrop-blur-sm'
+    : 'fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-slate-950/45 px-4 py-6 backdrop-blur-sm sm:py-10';
+  const panelClass = isDrawer
+    ? 'absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto rounded-l-[24px] bg-white shadow-2xl shadow-slate-950/30 animate-[drawerIn_.24s_ease-out]'
+    : 'relative max-h-[calc(100vh-48px)] w-full max-w-xl overflow-y-auto rounded-[24px] bg-white shadow-2xl shadow-slate-950/30 animate-[app-loader-card-in_.28s_cubic-bezier(.22,1,.36,1)] sm:max-h-[calc(100vh-80px)]';
+
+  return (
+    <div className={backdropClass}>
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close review drawer" onClick={onClose} />
+      <aside className={panelClass}>
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#30737B]">{roleLabel}</p>
+              <h3 className="mt-1 text-xl font-black text-slate-950">Annual Data Review</h3>
+            </div>
+            <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="space-y-5 px-5 py-5">
+          <AnnualTrackingTimeline workflow={workflow} managerProgress={managerProgress} complianceProgress={complianceProgress} />
+          {canSubmitToManager && (
+            <button type="button" disabled={saving} onClick={onSubmitToManager} className="btn-lift inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-60">
+              <ShieldCheck className="h-4 w-4" /> {saving ? 'Submitting...' : 'Submit A-D to Manager'}
+            </button>
+          )}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-2">
+            <div className="mb-2 flex items-center justify-between px-2 pt-1">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Visible Parts</p>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-500 shadow-sm">{visibleSectionTitles.length} shown</span>
+            </div>
+            <div className="space-y-2">
+              {visibleSectionTitles.map((title) => {
+                const sectionStatus = getAnnualSectionStatus(workflow, title, reviewStage);
+                const managerStatus = getAnnualStageSectionStatus(workflow, title, 'manager');
+                const complianceStatus = getAnnualStageSectionStatus(workflow, title, 'compliance');
+                const managerReviewer = getAnnualStageReviewer(workflow, title, 'manager');
+                const complianceReviewer = getAnnualStageReviewer(workflow, title, 'compliance');
+                const stageStatus = reviewStage === 'compliance' ? complianceStatus : managerStatus;
+                const tone = getAnnualSectionTone(sectionStatus);
+                const active = title === activeSectionTitle;
+                const approved = tone === 'approved';
+                const rejected = tone === 'rejected';
+                const pending = tone === 'pending';
+                const canReviewSection = canTakeAction && (
+                  managerCorrectionMode
+                    ? stageStatus !== 'waiting'
+                    : !['approved', 'rejected', 'waiting'].includes(stageStatus)
+                );
+                return (
+                  <div key={title} className={`rounded-xl border px-3 py-3 shadow-sm ${approved ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : rejected ? 'border-red-200 bg-red-50 text-red-700' : pending ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-700'} ${active ? 'ring-2 ring-[#30737B]/20' : ''}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-sm font-black">{title}</span>
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/70 px-2 py-1 text-xs font-black uppercase">
+                        {approved ? <Check className="h-3.5 w-3.5" /> : rejected ? <X className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                        {active ? 'Current - ' : ''}{sectionStatus || 'pending'}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <AnnualStatusChip label="Manager" status={managerStatus} />
+                      <AnnualStatusChip label="Compliance" status={complianceStatus} />
+                    </div>
+                    {(managerReviewer.by || complianceReviewer.by) && (
+                      <div className="mt-2 grid gap-1 text-[11px] font-black uppercase text-slate-600">
+                        {managerReviewer.by && <span>Manager: {managerReviewer.by}</span>}
+                        {complianceReviewer.by && <span>Compliance: {complianceReviewer.by}</span>}
+                      </div>
+                    )}
+                    {canReviewSection && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <button type="button" disabled={saving} onClick={() => onReject(title)} className="btn-lift inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-red-500 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
+                          <X className="h-3.5 w-3.5" /> Reject
+                        </button>
+                        <button type="button" disabled={saving} onClick={() => onApprove(title)} className="btn-lift inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
+                          <Check className="h-3.5 w-3.5" /> Approve
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function ProcessingHeroStat({ label, value, icon: Icon }) {
+  return (
+    <div className="rounded-xl border border-white/20 bg-white/95 p-3 shadow-lg shadow-slate-950/10">
+      <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">
+        <Icon className="h-4 w-4 text-orange-600" />
+        {label}
+      </div>
+      <p className="mt-2 truncate text-sm font-black text-slate-950">{value || '-'}</p>
+    </div>
+  );
+}
+
+function buildCpcbLetterSections(clientName = '', annualYear = '') {
+  const commonBackground = 'AnantTattva Private Limited is engaged in policy advocacy, compliance facilitation, and industry-government stakeholder coordination across sustainability, circular economy, EPR, and environmental governance.';
+  const commonContext = `This representation is prepared in reference to Plastic Waste Management (Amendment) Rules, 2026 and the implementation questions arising during ${annualYear || 'the applicable annual return period'}.`;
+  const buildRepresentationNote = (template) => [
+    commonBackground,
+    `${commonContext} ${template.regulatoryContext}`,
+    template.industryConcern,
+    template.requestedClarifications,
+    template.supportNote
+  ].filter(Boolean).join('\n\n');
+  const templates = [
+    {
+      code: 'A',
+      authorityShort: 'FSSAI',
+      title: 'A - FSSAI',
+      recipient: 'The Chairperson, Food Safety and Standards Authority of India',
+      subject: 'Request for regulatory clarification on recycled plastic content and reuse obligations for food-contact packaging',
+      regulatoryContext: 'Food-contact packaging requires clarity on whether recycled plastic content, reuse obligations, marking, labelling, migration controls, traceability, and decontamination validation are presently permitted under applicable FSSAI requirements.',
+      industryConcern: 'Food packaging stakeholders are facing uncertainty because environmental compliance obligations overlap with food safety, contamination control, migration limits, shelf-life stability, and hygienic integrity requirements.',
+      requestedClarifications: [
+        'Categories of food-contact packaging where recycled plastic usage is permitted or prohibited.',
+        'Specific polymers and applications eligible for food-grade recycled content.',
+        'Applicability of reuse obligations on Category-I rigid food-contact packaging.',
+        'Testing protocols, migration limits, decontamination standards, and validation requirements.',
+        'Labelling and marking requirements for recycled-content food packaging.',
+        'Documentation required for claiming exemption under PWM Rules, 2026.'
+      ].join('\n'),
+      supportNote: 'We request FSSAI to consider issuing a formal clarification or guidance note and, if appropriate, conduct a technical stakeholder consultation for practical implementation concerns.'
+    },
+    {
+      code: 'B',
+      authorityShort: 'CDSCO',
+      title: 'B - CDSCO',
+      recipient: 'The Drugs Controller General of India, Central Drugs Standard Control Organisation',
+      subject: 'Request for regulatory clarification on pharmaceutical packaging under Plastic Waste Management (Amendment) Rules, 2026',
+      regulatoryContext: 'Pharmaceutical and healthcare packaging needs clarity on whether drug stability requirements, sterility considerations, migration limitations, packaging integrity protocols, or notified quality standards restrict recycled plastic content.',
+      industryConcern: 'Drug manufacturers, packaging converters, importers, polymer suppliers, and contract packaging entities are unable to determine the practical applicability of exemption provisions under PWM Rules.',
+      requestedClarifications: [
+        'Whether recycled plastic content is permissible in pharmaceutical primary and secondary packaging.',
+        'Whether Drugs & Cosmetics Rules, packaging guidelines, pharmacopoeial standards, or notified quality standards restrict recycled polymer usage.',
+        'Whether exemptions under PWM Rules can be claimed based on pharmaceutical packaging safety requirements.',
+        'Applicability of reuse obligations for Category-I rigid pharmaceutical packaging.',
+        'Testing, validation, migration, toxicology, and stability assessment requirements.',
+        'Requirement of additional approvals or product variation filings when recycled-content packaging is introduced.'
+      ].join('\n'),
+      supportNote: 'We request CDSCO to provide suitable clarification so sustainability objectives can be harmonized with pharmaceutical safety and public health protection.'
+    },
+    {
+      code: 'C',
+      authorityShort: 'CIBRC',
+      title: 'C - CIBRC',
+      recipient: 'The Secretary, Central Insecticides Board & Registration Committee',
+      subject: 'Request for clarification on recycled plastic content and reuse obligations for pesticide packaging under Plastic Waste Management (Amendment) Rules, 2026',
+      regulatoryContext: 'Pesticide packaging requires clarity on recycled plastic content and reuse obligations in light of hazardous material handling, chemical compatibility, leakage prevention, contamination control, and product stability requirements.',
+      industryConcern: 'Agrochemical manufacturers, packaging suppliers, and compliance teams are facing interpretation risk during EPR reporting, procurement planning, and packaging sustainability decisions.',
+      requestedClarifications: [
+        'Whether recycled plastic usage is presently permitted in pesticide or agrochemical packaging.',
+        'Specific packaging categories where virgin polymer usage is mandatory.',
+        'Applicability of reuse obligations for Category-I rigid pesticide packaging.',
+        'Existing statutory provisions, standards, guidelines, or registration conditions for packaging material specifications.',
+        'Documentation requirements for claiming exemption under PWM Rules, 2026.',
+        'Whether future technical evaluation mechanisms may be considered for controlled use of recycled polymers.'
+      ].join('\n'),
+      supportNote: 'We request CIBRC to issue suitable regulatory clarification to ensure uniform implementation and avoid interpretational ambiguity across stakeholders.'
+    }
+  ];
+
+  return templates.map((template) => ({
+    title: template.title,
+    type: 'letterWorkspace',
+    authorityCode: template.code,
+    authorityShort: template.authorityShort,
+    fields: [
+      createProcessingField(`cpcbLetter.${template.authorityShort}.letterDate`, 'Letter Date', '', CalendarDays, 'date', [], 'manual'),
+      createProcessingField(`cpcbLetter.${template.authorityShort}.referenceNo`, 'Reference No.', '', FileText, 'text', [], 'manual'),
+      createProcessingField(`cpcbLetter.${template.authorityShort}.clientName`, 'Client / Industry Name', clientName, Building2, 'text', [], 'manual'),
+      createProcessingField(`cpcbLetter.${template.authorityShort}.recipient`, 'To / Authority', template.recipient, UserRound, 'textarea', [], 'manual', 'annual-letter-wide'),
+      createProcessingField(`cpcbLetter.${template.authorityShort}.subject`, 'Subject', template.subject, FileText, 'textarea', [], 'manual', 'annual-letter-wide'),
+      createProcessingField(`cpcbLetter.${template.authorityShort}.representationNote`, 'Representation Note', buildRepresentationNote(template), Sparkles, 'textarea', [], 'manual', 'annual-letter-wide annual-letter-note-field'),
+      createProcessingField(`cpcbLetter.${template.authorityShort}.signatory`, 'Signatory', 'For AnantTattva Private Limited', UserRound, 'text', [], 'manual'),
+      createProcessingField(`cpcbLetter.${template.authorityShort}.finalLetterFile`, 'Final Letter Upload', '', Upload, 'file', [], 'manual')
+    ]
+  }));
+}
+
+function CpcbLetterWorkspace({ section, readValue, onChange, onSave, saving }) {
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const fields = (section.fields || []).map(normalizeProcessingField);
+  const buildLegacyRepresentationNote = () => {
+    const prefix = `cpcbLetter.${section.authorityShort}.`;
+    return [
+      readValue(`${prefix}background`, ''),
+      readValue(`${prefix}regulatoryContext`, ''),
+      readValue(`${prefix}industryConcern`, ''),
+      readValue(`${prefix}requestedClarifications`, ''),
+      readValue(`${prefix}supportNote`, '')
+    ].map(getProcessingDisplayValue).filter(Boolean).join('\n\n');
+  };
+  const values = fields.reduce((next, field) => {
+    const savedValue = readValue(field.key, '');
+    const fallbackValue = field.label === 'Representation Note'
+      ? (getProcessingDisplayValue(savedValue) || buildLegacyRepresentationNote() || field.value)
+      : readValue(field.key, field.value);
+    return { ...next, [field.key]: fallbackValue };
+  }, {});
+  const valueFor = (label) => {
+    const field = fields.find((item) => item.label === label);
+    return field ? getProcessingDisplayValue(values[field.key] || field.value) : '';
+  };
+  const noteLines = valueFor('Representation Note')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const letter = buildCpcbLetterDownloadData(section, valueFor, noteLines);
+
+  function downloadLetter(format) {
+    setDownloadOpen(false);
+    if (format === 'word') downloadCpcbLetterWord(letter);
+    else downloadCpcbLetterPdf(letter);
+  }
+
+  return (
+    <div className="annual-letter-workspace">
+      <div className="annual-letter-authority-bar">
+        <span className="annual-letter-code">{section.authorityCode}</span>
+        <div>
+          <p>{section.authorityShort}</p>
+          <strong>{valueFor('Subject') || 'CPCB representation letter'}</strong>
+        </div>
+      </div>
+      <div className="annual-letter-grid">
+        <div className="annual-letter-form">
+          {fields.map((field) => {
+            const displayValue = field.type === 'date' ? formatDateInputValue(values[field.key]) : getProcessingDisplayValue(values[field.key]);
+            return (
+              <label key={field.key} className={`annual-letter-field ${field.colSpan || ''}`}>
+                <span className="annual-letter-label">{field.label}</span>
+                <AnnualFieldControl
+                  field={field}
+                  value={values[field.key]}
+                  displayValue={displayValue}
+                  isAutoLocked={false}
+                  onChange={(nextValue) => onChange(field.key, nextValue)}
+                />
+              </label>
+            );
+          })}
+        </div>
+        <aside className="annual-letter-preview">
+          <div className="annual-letter-paper">
+            <div className="annual-letter-paper-head">
+              <span>{section.authorityCode}</span>
+              <strong>Representation to {section.authorityShort}</strong>
+            </div>
+            <p><b>Date:</b> {valueFor('Letter Date') || '-'}</p>
+            <p><b>Ref:</b> {valueFor('Reference No.') || '-'}</p>
+            <p className="annual-letter-to"><b>To,</b><br />{valueFor('To / Authority')}</p>
+            <p><b>Subject:</b> {valueFor('Subject')}</p>
+            <p>Respected Sir/Madam,</p>
+            {noteLines.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+            <p>Thanking You,</p>
+            <p><b>{valueFor('Signatory')}</b></p>
+          </div>
+        </aside>
+      </div>
+      <div className="annual-letter-final-actions">
+        <button type="button" disabled={saving} onClick={onSave} className="annual-letter-save-button">
+          <Save className="h-4 w-4" /> {saving ? 'Saving...' : 'Save'}
+        </button>
+        <div className="annual-letter-download">
+          <button type="button" onClick={() => setDownloadOpen((current) => !current)} className="annual-letter-download-button" aria-expanded={downloadOpen}>
+            <Download className="h-4 w-4" /> Download <ChevronDown className={`h-4 w-4 transition ${downloadOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {downloadOpen && (
+            <div className="annual-letter-download-menu">
+              <button type="button" onClick={() => downloadLetter('pdf')}><FileText className="h-4 w-4" /> PDF</button>
+              <button type="button" onClick={() => downloadLetter('word')}><FileCheck2 className="h-4 w-4" /> Word</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function buildCpcbLetterDownloadData(section, valueFor, noteLines) {
+  const lines = [
+    `Representation to ${section.authorityShort}`,
+    '',
+    `Date: ${valueFor('Letter Date') || '-'}`,
+    `Ref: ${valueFor('Reference No.') || '-'}`,
+    '',
+    'To,',
+    valueFor('To / Authority'),
+    '',
+    `Subject: ${valueFor('Subject')}`,
+    '',
+    'Respected Sir/Madam,',
+    '',
+    ...noteLines,
+    '',
+    'Thanking You,',
+    valueFor('Signatory')
+  ];
+
+  return {
+    authority: section.authorityShort,
+    code: section.authorityCode,
+    subject: valueFor('Subject') || 'CPCB representation letter',
+    lines
+  };
+}
+
+function downloadCpcbLetterWord(letter) {
+  const body = letter.lines.map((line) => {
+    if (!line) return '<p>&nbsp;</p>';
+    if (line === `Representation to ${letter.authority}`) return `<h1>${escapeHtml(line)}</h1>`;
+    return `<p>${escapeHtml(line)}</p>`;
+  }).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(letter.subject)}</title><style>body{font-family:Arial,sans-serif;line-height:1.55;color:#111827;}h1{font-size:22px;}h2{font-size:16px;}p{margin:0 0 10px;}</style></head><body>${body}</body></html>`;
+  downloadBlob(new Blob([html], { type: 'application/msword;charset=utf-8' }), `${buildLetterFileName(letter)}.doc`);
+}
+
+function downloadCpcbLetterPdf(letter) {
+  const pdfBytes = buildSimplePdf(letter.lines, letter.subject);
+  downloadBlob(new Blob([pdfBytes], { type: 'application/pdf' }), `${buildLetterFileName(letter)}.pdf`);
+}
+
+function buildSimplePdf(lines, title) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const marginX = 54;
+  const topY = 790;
+  const lineHeight = 15;
+  const maxChars = 88;
+  const wrappedLines = lines.flatMap((line) => wrapPdfLine(line, maxChars));
+  const pages = [];
+  for (let index = 0; index < wrappedLines.length; index += 46) {
+    pages.push(wrappedLines.slice(index, index + 46));
+  }
+  const safePages = pages.length ? pages : [['']];
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${safePages.map((_, index) => `${3 + index * 2} 0 R`).join(' ')}] /Count ${safePages.length} >>`
+  ];
+  safePages.forEach((pageLines, pageIndex) => {
+    const pageObjectNumber = 3 + pageIndex * 2;
+    const contentObjectNumber = pageObjectNumber + 1;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> >> /Contents ${contentObjectNumber} 0 R >>`);
+    const stream = pageLines.map((line, lineIndex) => {
+      const y = topY - (lineIndex * lineHeight);
+      const isHeading = lineIndex === 0 && pageIndex === 0;
+      return `BT /${isHeading ? 'F2' : 'F1'} ${isHeading ? 15 : 10} Tf ${marginX} ${y} Td (${escapePdfText(line)}) Tj ET`;
+    }).join('\n');
+    objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  });
+  const header = `%PDF-1.4\n% ${escapePdfText(title).slice(0, 60)}\n`;
+  let body = '';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(header.length + body.length);
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = header.length + body.length;
+  const xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\n`;
+  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new TextEncoder().encode(header + body + xref + trailer);
+}
+
+function wrapPdfLine(line = '', maxChars = 88) {
+  const text = String(line || '');
+  if (!text.trim()) return [''];
+  const words = text.split(/\s+/);
+  const wrapped = [];
+  let current = '';
+  words.forEach((word) => {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxChars && current) {
+      wrapped.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  });
+  if (current) wrapped.push(current);
+  return wrapped;
+}
+
+function escapePdfText(value) {
+  return String(value || '').replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildLetterFileName(letter) {
+  return `CPCB-Letter-${letter.authority}-${letter.code}`.replace(/[^a-z0-9-]+/gi, '-');
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+function ProcessingSection({ section, sectionTabs = [], activeSectionTitle = '', onSelectSection, quotationContext, tone = 'white', readValue, onChange, fieldRenderer = 'overview', sectionStatuses = {}, reviewStage = '', completedSectionTitles = [], canReview = false, onReview, onSave, saving = false }) {
+  const navigate = useNavigate();
+  const quotationState = quotationContext ? { quotationContext } : {};
+  const sectionTitle = activeSectionTitle || section.title || 'Data workspace';
+  const totalFields = section.type === 'legacyData'
+    ? (section.groups || []).reduce((count, group) => count + (group.fields?.length || 0), 0)
+    : section.type === 'msmeTable' || section.type === 'interactionTable'
+      ? (section.rows || []).length
+      : (section.fields || []).length;
+
+  return (
+    <section className={`processing-section-card ${section.type === 'legacyData' ? 'processing-section-card-legacy' : ''}`}>
+      <div className="processing-section-head">
+        <div className="processing-section-title-wrap">
+          <span className="processing-section-eyebrow">Annual return data</span>
+          <h4 className="processing-section-title">{sectionTitle}</h4>
+        </div>
+        <span className="processing-section-count">{totalFields} fields</span>
+      </div>
+      <div className="processing-section-actions flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          {sectionTabs.length > 1 && (
+            <div className="flex flex-wrap gap-2">
+              {sectionTabs.map((title) => {
+                const active = title === activeSectionTitle;
+                const showStatus = Object.keys(sectionStatuses || {}).length > 0;
+                const sectionStatus = showStatus ? getAnnualSectionStatus({ sections: sectionStatuses }, title, reviewStage) : '';
+                const statusTone = showStatus ? getAnnualSectionTone(sectionStatus) : '';
+                const statusIcon = statusTone === 'approved'
+                  ? <Check className="h-3.5 w-3.5" />
+                  : statusTone === 'rejected'
+                    ? <X className="h-3.5 w-3.5" />
+                    : statusTone === 'pending'
+                      ? <RefreshCw className="h-3.5 w-3.5" />
+                      : null;
+                const locallyComplete = completedSectionTitles.includes(title);
+                return (
+                <button
+                  key={title}
+                  type="button"
+                  onClick={() => onSelectSection?.(title)}
+                  className={`processing-hint-pill ${active ? 'processing-hint-pill-active' : ''} ${statusTone === 'approved' || locallyComplete ? 'processing-hint-pill-approved' : ''} ${statusTone === 'rejected' ? 'processing-hint-pill-rejected' : ''} ${statusTone === 'pending' ? 'processing-hint-pill-pending' : ''}`}
+                >
+                  {statusIcon || (locallyComplete ? <Check className="h-3.5 w-3.5" /> : null)}
+                  {title}
+                </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {(section.actions?.includes('quotation') || canReview) && (
+          <div className="flex flex-wrap justify-end gap-2">
+            {canReview && (
+              <button type="button" onClick={onReview} className="btn-lift inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-xs font-black text-white">
+                <ShieldCheck className="h-3.5 w-3.5" /> Review
+              </button>
+            )}
+            {section.actions?.includes('quotation') && (
+              <button type="button" onClick={() => navigate('/sales/quotations?mode=add', { state: quotationState })} className="btn-lift inline-flex h-9 items-center gap-2 rounded-lg bg-orange-600 px-4 text-xs font-black text-white">
+                <Plus className="h-3.5 w-3.5" /> Add New Quotation
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {section.type === 'legacyData' ? (
+        <LegacyDataLayout groups={section.groups || []} readValue={readValue} onChange={onChange} />
+      ) : section.type === 'msmeTable' ? (
+        <AnnualMsmeTable
+          rows={readValue(section.tableKey || section.title, section.rows || [])}
+          onChange={(nextRows) => onChange(section.tableKey || section.title, nextRows)}
+        />
+      ) : section.type === 'interactionTable' ? (
+        <ClientInteractionTable
+          rawFiles={readValue(section.rawDataKey || `${section.tableKey}.rawDataUploads`, buildRawDataUploadState())}
+          onRawFilesChange={(nextFiles) => onChange(section.rawDataKey || `${section.tableKey}.rawDataUploads`, nextFiles)}
+          rows={readValue(section.tableKey || section.title, section.rows || [])}
+          onChange={(nextRows) => onChange(section.tableKey || section.title, nextRows)}
+        />
+      ) : section.type === 'letterWorkspace' ? (
+        <CpcbLetterWorkspace
+          section={section}
+          readValue={readValue}
+          onChange={onChange}
+          onSave={onSave}
+          saving={saving}
+        />
+      ) : section.type === 'compliancePoDetails' ? (
+        <div className="annual-compliance-po-workspace">
+          <AnnualPoYearTable
+            config={section.poYearTable || {}}
+            readValue={readValue}
+            onChange={onChange}
+          />
+          <ProcessingTable
+            title={section.title}
+            fields={section.fields || []}
+            readValue={readValue}
+            onChange={onChange}
+            renderer={fieldRenderer}
+          />
+        </div>
+      ) : isConsentDetailsSection(section.fields || []) ? (
+        <ConsentDetailsTable
+          fields={section.fields || []}
+          readValue={readValue}
+          onChange={onChange}
+        />
+      ) : (
+        <ProcessingTable
+          title={section.title}
+          fields={section.fields || []}
+          readValue={readValue}
+          onChange={onChange}
+          renderer={fieldRenderer}
+        />
+      )}
+    </section>
+  );
+}
+
+function isConsentDetailsSection(fields = []) {
+  const labels = fields.map((field) => normalizeProcessingField(field).label);
+  return labels.includes('Water Application Number') && labels.includes('Air Application Number');
+}
+
+function createAnnualPoYearRow(defaultFy = '') {
+  return {
+    fy: defaultFy,
+    annualReturnYear: defaultFy,
+    quotationNo: '',
+    compliancePoDate: '',
+    compliancePoFile: '',
+    serviceCategory: [],
+    value: ''
+  };
+}
+
+function normalizeAnnualPoYearRows(rows = [], count = 0, defaultFy = '') {
+  const safeCount = Math.max(0, Number(count) || 0);
+  return Array.from({ length: safeCount }, (_, index) => ({
+    ...createAnnualPoYearRow(defaultFy),
+    ...(Array.isArray(rows) ? rows[index] || {} : {})
+  }));
+}
+
+function AnnualPoYearTable({ config = {}, readValue, onChange }) {
+  const [openServiceRow, setOpenServiceRow] = useState(null);
+  const countKey = config.countKey || 'financials.poYearCount';
+  const rowsKey = config.rowsKey || 'financials.poYearRows';
+  const serviceOptions = Array.isArray(config.serviceCategoryOptions) ? config.serviceCategoryOptions : [];
+  const savedRows = readValue(rowsKey, []);
+  const savedCount = readValue(countKey, Array.isArray(savedRows) ? savedRows.length : 0);
+  const rowCount = Math.max(0, Number(savedCount) || 0);
+  const rows = normalizeAnnualPoYearRows(savedRows, rowCount, config.defaultFy || '').map((row) => ({
+    ...row,
+    annualReturnYear: row.annualReturnYear || config.annualReturnYear || config.defaultFy || '',
+    quotationNo: config.quotationNo || (String(row.quotationNo || '').startsWith('ATPL-QTN-') ? '' : row.quotationNo || ''),
+    serviceCategory: Array.isArray(row.serviceCategory)
+      ? row.serviceCategory
+      : String(row.serviceCategory || '').split(',').map((item) => item.trim()).filter(Boolean)
+  }));
+
+  function updateCount(nextValue) {
+    const nextCount = Math.max(0, Math.min(50, Number(nextValue) || 0));
+    onChange(countKey, nextCount);
+    onChange(rowsKey, normalizeAnnualPoYearRows(savedRows, nextCount, config.defaultFy || ''));
+  }
+
+  function updateRow(rowIndex, field, value) {
+    onChange(rowsKey, rows.map((row, index) => (index === rowIndex ? { ...row, [field]: value } : row)));
+  }
+
+  function toggleServiceCategory(rowIndex, option) {
+    const current = rows[rowIndex]?.serviceCategory || [];
+    const next = current.includes(option)
+      ? current.filter((item) => item !== option)
+      : [...current, option];
+    updateRow(rowIndex, 'serviceCategory', next);
+  }
+
+  function toggleServiceMenu(rowIndex) {
+    if (openServiceRow === rowIndex) {
+      setOpenServiceRow(null);
+      return;
+    }
+    setOpenServiceRow(rowIndex);
+  }
+
+  function updateFile(rowIndex, fileList) {
+    const file = fileList?.[0];
+    updateRow(rowIndex, 'compliancePoFile', file?.name || '');
+  }
+
+  return (
+    <div className="annual-po-year-card">
+      <div className="annual-po-year-head">
+        <div>
+          <span>Compliance PO Mapping</span>
+          <h4>Mention No. of Year PO</h4>
+          <p>Annual Return: {config.annualReturnYear || config.defaultFy || 'Not selected'}</p>
+        </div>
+        <label className="annual-po-year-count">
+          <span>No. of year PO</span>
+          <input
+            type="number"
+            min="0"
+            max="50"
+            value={rowCount || ''}
+            placeholder="0"
+            onChange={(event) => updateCount(event.target.value)}
+          />
+        </label>
+      </div>
+
+      {rowCount > 0 ? (
+        <div className="annual-po-year-table-wrap">
+          <table className="annual-po-year-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>F.Y</th>
+                <th>Annual Return</th>
+                <th>Quotation No.</th>
+                <th>Compliance PO Date</th>
+                <th>Upload Compliance PO</th>
+                <th>Service Category</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={index}>
+                  <td>{index + 1}</td>
+                  <td>
+                    <input
+                      value={row.fy || ''}
+                      placeholder={config.defaultFy || '2024-25'}
+                      onChange={(event) => updateRow(index, 'fy', event.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={row.annualReturnYear || ''}
+                      placeholder="Annual Return Year"
+                      onChange={(event) => updateRow(index, 'annualReturnYear', event.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={row.quotationNo || ''}
+                      placeholder="Quotation No."
+                      onChange={(event) => updateRow(index, 'quotationNo', event.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="date"
+                      value={row.compliancePoDate || ''}
+                      onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <label className="annual-po-upload-cell">
+                      <Upload className="h-4 w-4" />
+                      <span>{row.compliancePoFile || 'Upload PO'}</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.gif"
+                        onChange={(event) => updateFile(index, event.target.files)}
+                      />
+                    </label>
+                  </td>
+                  <td>
+                    <div className="annual-po-multi-select">
+                      <button type="button" onClick={() => toggleServiceMenu(index)}>
+                        <span>{(row.serviceCategory || []).length ? `${(row.serviceCategory || []).length} selected` : 'Select service category'}</span>
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                      {openServiceRow === index && (
+                        <div className="annual-po-multi-menu">
+                          {serviceOptions.map((option) => {
+                            const checked = (row.serviceCategory || []).includes(option);
+                            return (
+                              <label key={option}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleServiceCategory(index, option)}
+                                />
+                                <span>{option}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <small className="annual-po-selected-count">{(row.serviceCategory || []).join(', ') || 'No service selected'}</small>
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      value={row.value || ''}
+                      placeholder="0"
+                      onChange={(event) => updateRow(index, 'value', event.target.value)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="annual-po-year-empty">
+          Enter number of year PO to create the F.Y wise PO table.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConsentDetailsTable({ fields = [], readValue, onChange }) {
+  const normalizedFields = fields.map(normalizeProcessingField);
+  const findField = (label) => normalizedFields.find((field) => field.label === label);
+  const stateField = findField('State');
+  const rowsKey = stateField?.key ? `${stateField.key.split('.').slice(0, -1).join('.')}.consentRows` : 'consentRows';
+  const extraRows = Array.isArray(readValue(rowsKey, [])) ? readValue(rowsKey, []) : [];
+  const rowSlots = [
+    { name: 'state', field: stateField, className: 'consent-state-cell' },
+    { name: 'waterApplicationNumber', field: findField('Water Application Number') },
+    { name: 'waterConsentValidity', field: findField('Water Validity of Consent') },
+    { name: 'waterConsentDocument', field: findField('Water Consent Documents'), className: 'consent-document-cell' },
+    { name: 'airApplicationNumber', field: findField('Air Application Number') },
+    { name: 'airConsentValidity', field: findField('Air Validity of Consent') },
+    { name: 'airConsentDocument', field: findField('Air Consent Documents'), className: 'consent-document-cell' }
+  ];
+
+  function addConsentRow() {
+    const stateValue = stateField ? readValue(stateField.key, stateField.value) : '';
+    onChange(rowsKey, [
+      ...extraRows,
+      {
+        state: getProcessingDisplayValue(stateValue),
+        waterApplicationNumber: '',
+        waterConsentValidity: '',
+        waterConsentDocument: '',
+        airApplicationNumber: '',
+        airConsentValidity: '',
+        airConsentDocument: ''
+      }
+    ]);
+  }
+
+  function updateExtraRow(rowIndex, fieldName, nextValue) {
+    const extraIndex = rowIndex - 1;
+    onChange(rowsKey, extraRows.map((row, index) => (
+      index === extraIndex ? { ...row, [fieldName]: nextValue } : row
+    )));
+  }
+
+  function removeConsentRow(rowIndex) {
+    const extraIndex = rowIndex - 1;
+    if (extraIndex < 0) return;
+    onChange(rowsKey, extraRows.filter((_, index) => index !== extraIndex));
+  }
+
+  function renderControl(slot, rowIndex) {
+    const field = slot.field;
+    if (!field) return <span className="annual-table-muted">-</span>;
+    const extraRow = rowIndex > 0 ? (extraRows[rowIndex - 1] || {}) : null;
+    const draftValue = extraRow ? (extraRow[slot.name] ?? '') : readValue(field.key, field.value);
+    const hasUserValue = extraRow ? true : annualValueWasEdited(draftValue, field.value);
+    const displayValue = field.type === 'date' ? formatDateInputValue(draftValue) : getProcessingDisplayValue(draftValue);
+    const isFilled = Boolean(getProcessingDisplayValue(draftValue).trim());
+    const isAutoLocked = !extraRow && field.source !== 'manual' && !hasUserValue && isFilled && field.type !== 'file';
+
+    return (
+      <AnnualFieldControl
+        field={field}
+        value={draftValue}
+        displayValue={displayValue}
+        isAutoLocked={isAutoLocked}
+        onChange={(nextValue) => (extraRow ? updateExtraRow(rowIndex, slot.name, nextValue) : onChange(field.key, nextValue))}
+      />
+    );
+  }
+
+  return (
+    <div className="consent-details-table-shell">
+      <div className="consent-details-table-toolbar">
+        <span>{extraRows.length + 1} row{extraRows.length ? 's' : ''}</span>
+        <button type="button" onClick={addConsentRow} className="consent-add-row-button">
+          <Plus className="h-4 w-4" /> Add Row
+        </button>
+      </div>
+      <div className="consent-details-table-wrap">
+        <table className="consent-details-table">
+          <colgroup>
+            <col className="consent-col-state" />
+            <col className="consent-col-application" />
+            <col className="consent-col-validity" />
+            <col className="consent-col-document" />
+            <col className="consent-col-application" />
+            <col className="consent-col-validity" />
+            <col className="consent-col-document" />
+            <col className="consent-col-action" />
+          </colgroup>
+          <thead>
+            <tr className="consent-act-row">
+              <th rowSpan={2} className="consent-state-head">State</th>
+              <th colSpan={3}>Water (Act)</th>
+              <th colSpan={3}>Air (Act)</th>
+              <th rowSpan={2} className="consent-action-head">Action</th>
+            </tr>
+            <tr className="consent-label-row">
+              <th>Application Number</th>
+              <th>Validity of Consent</th>
+              <th>Water Consent Documents</th>
+              <th>Application Number</th>
+              <th>Validity of Consent</th>
+              <th>Air Consent Documents</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={columns.length + (uploadColumn ? 3 : 2)} className="px-4 py-12 text-center font-black text-slate-400">No data</td>
-              </tr>
-            )}
-            {rows.map((row, index) => (
-              <tr key={index} className="border-t border-slate-100">
-                <td className="px-4 py-3 font-black">{index + 1}</td>
-                {columns.map(([field]) => (
-                  <td key={field} className="px-4 py-3">
-                    <input className="form-input min-h-10" value={row[field] || ''} onChange={(event) => onUpdate(index, field, event.target.value)} />
+            {Array.from({ length: extraRows.length + 1 }, (_, rowIndex) => (
+              <tr key={rowIndex}>
+                {rowSlots.map((slot) => (
+                  <td key={`${rowIndex}-${slot.name}`} className={slot.className || ''}>
+                    {renderControl(slot, rowIndex)}
                   </td>
                 ))}
-                {uploadColumn && <td className="px-4 py-3"><UploadButton onChange={(value) => onUpdate(index, 'file', value)} /></td>}
-                <td className="px-4 py-3 text-center">
-                  <button type="button" onClick={() => onRemove(index)} className="rounded-lg border border-red-200 px-3 py-2 font-black text-red-600 hover:bg-red-50">Remove</button>
+                <td className="consent-action-cell">
+                  {rowIndex > 0 ? (
+                    <button type="button" onClick={() => removeConsentRow(rowIndex)} className="consent-remove-row-button">
+                      <Trash2 className="h-4 w-4" /> Remove
+                    </button>
+                  ) : (
+                    <span className="consent-base-row-label">Base row</span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -462,8 +4548,264 @@ function DynamicTable({ title, rows, columns, uploadColumn, onAdd, onUpdate, onR
   );
 }
 
-function UploadButton({ onChange }) {
-  function handleFile(event) {
+function LegacyDataLayout({ groups = [], readValue, onChange }) {
+  const totalFields = groups.reduce((count, group) => count + (group.fields?.length || 0), 0);
+  const completedFields = groups.reduce((count, group) => count + (group.fields || []).filter((rawField) => {
+    const field = normalizeProcessingField(rawField);
+    return Boolean(getProcessingDisplayValue(readValue(field.key, field.value)).trim());
+  }).length, 0);
+
+  return (
+    <div className="legacy-data-sheet">
+      <div className="legacy-data-overview">
+        <div>
+          <p className="legacy-data-kicker">Client data</p>
+          <h5>Data review workspace</h5>
+        </div>
+        <div className="legacy-data-stats">
+          <span><strong>{groups.length}</strong> groups</span>
+          <span><strong>{completedFields}</strong>/{totalFields} filled</span>
+        </div>
+      </div>
+      {groups.map((group) => (
+        <div key={group.title} className={`legacy-data-row ${group.type === 'plasticConsumptionTable' ? 'legacy-data-row-table' : ''} ${group.tone === 'green' ? 'legacy-data-row-green' : ''} ${group.tone === 'dark' ? 'legacy-data-row-dark' : ''}`}>
+          <div className="legacy-data-group">
+            <span className="legacy-data-group-mark">{(group.title || 'D').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('')}</span>
+            <span className="legacy-data-group-title">{group.title}</span>
+            <span className="legacy-data-group-count">{group.type === 'plasticConsumptionTable' ? 'table' : `${group.fields?.length || 0} fields`}</span>
+          </div>
+          {group.type === 'plasticConsumptionTable' ? (
+            <PlasticConsumptionTable
+              rows={readValue(group.tableKey || group.title, group.rows || [])}
+              onChange={(nextRows) => onChange(group.tableKey || group.title, nextRows)}
+            />
+          ) : (
+            <ProcessingTable
+              title={group.title}
+              fields={group.fields || []}
+              readValue={readValue}
+              onChange={onChange}
+              compact
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProcessingTable({ title, fields = [], readValue, onChange, compact = false, renderer = 'overview' }) {
+  const normalizedFields = fields.map(normalizeProcessingField);
+
+  if (renderer === 'table') {
+    return (
+      <div className={`annual-financial-table-wrap ${compact ? 'annual-financial-table-wrap-compact' : ''}`}>
+        <table className="annual-financial-table">
+          <thead>
+            <tr>
+              <th className="annual-financial-index">#</th>
+              <th>Financial Detail</th>
+              <th>Value / Upload</th>
+            </tr>
+          </thead>
+          <tbody>
+            {normalizedFields.map((field, index) => {
+              const draftValue = readValue(field.key, field.value);
+              const hasUserValue = annualValueWasEdited(draftValue, field.value);
+              return (
+                <FinancialTableRow
+                  key={`${title}-${field.key}`}
+                  index={index}
+                  field={field}
+                  value={draftValue}
+                  source={field.source === 'manual' || hasUserValue ? 'Manual' : ''}
+                  onChange={(nextValue) => onChange(field.key, nextValue)}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`annual-overview-fields ${compact ? 'annual-overview-fields-compact' : ''}`}>
+      {normalizedFields.map((field, index) => {
+        const draftValue = readValue(field.key, field.value);
+        const hasUserValue = annualValueWasEdited(draftValue, field.value);
+        return (
+          <ProcessingOverviewField
+            key={`${title}-${field.key}`}
+            index={index}
+            field={field}
+            value={draftValue}
+            source={field.source === 'manual' || hasUserValue ? 'Manual' : ''}
+            onChange={(nextValue) => onChange(field.key, nextValue)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function FinancialTableRow({ index, field, value, source, onChange }) {
+  const Icon = field.icon;
+  const displayValue = field.type === 'date' ? formatDateInputValue(value) : getProcessingDisplayValue(value);
+  const isFilled = Boolean(getProcessingDisplayValue(value).trim());
+  const isAutoLocked = source !== 'Manual' && isFilled && field.type !== 'file';
+
+  return (
+    <tr className={isFilled ? 'annual-financial-row-filled' : ''}>
+      <td className="annual-financial-row-index">{index + 1}</td>
+      <td>
+        <div className="annual-financial-field">
+          {Icon && <span className="annual-financial-field-icon"><Icon className="h-4 w-4" /></span>}
+          <span className="annual-financial-field-copy">
+            <span className="annual-financial-field-label">{field.label}</span>
+            {source && <span className="annual-financial-field-meta">{source}</span>}
+          </span>
+        </div>
+      </td>
+      <td>
+        <div className="annual-financial-control">
+          <AnnualFieldControl
+            field={field}
+            value={value}
+            displayValue={displayValue}
+            isAutoLocked={isAutoLocked}
+            onChange={onChange}
+          />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function ProcessingOverviewField({ index, field, value, source, onChange }) {
+  const Icon = field.icon;
+  const displayValue = field.type === 'date' ? formatDateInputValue(value) : getProcessingDisplayValue(value);
+  const isFilled = Boolean(getProcessingDisplayValue(value).trim());
+  const isAutoLocked = source !== 'Manual' && isFilled && field.type !== 'file';
+  const isWideRow = field.type === 'textarea' || field.colSpan;
+
+  return (
+    <div className={`annual-overview-field ${isFilled ? 'annual-overview-field-filled' : ''} ${isWideRow ? 'annual-overview-field-wide' : ''}`}>
+      <span className="annual-overview-index">{index + 1}</span>
+      <div className="annual-overview-name">
+        {Icon && <span className="annual-overview-icon"><Icon className="h-4 w-4" /></span>}
+        <span className="annual-overview-copy">
+          <span className="annual-overview-label">{field.label}</span>
+          {source && <span className="annual-data-field-meta">{source}</span>}
+        </span>
+      </div>
+      <div className="annual-overview-control">
+        <AnnualFieldControl
+          field={field}
+          value={value}
+          displayValue={displayValue}
+          isAutoLocked={isAutoLocked}
+          onChange={onChange}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ProcessingTableRow({ index, field, value, source, onChange }) {
+  const Icon = field.icon;
+  const displayValue = field.type === 'date' ? formatDateInputValue(value) : getProcessingDisplayValue(value);
+  const isFilled = Boolean(getProcessingDisplayValue(value).trim());
+  const isAutoLocked = source !== 'Manual' && isFilled && field.type !== 'file';
+  const isWideRow = field.type === 'textarea' || field.colSpan;
+
+  return (
+    <tr className={`${isFilled ? 'annual-data-row-filled' : ''} ${isWideRow ? 'annual-data-row-wide' : ''}`}>
+      <td className="annual-data-table-index">{index + 1}</td>
+      <td>
+        <div className="annual-data-field-name">
+          {Icon && <span className="annual-data-field-icon"><Icon className="h-4 w-4" /></span>}
+          <span className="annual-data-field-copy">
+            <span className="annual-data-field-label">{field.label}</span>
+            {source && <span className="annual-data-field-meta">{source}</span>}
+          </span>
+        </div>
+      </td>
+      <td>
+        <AnnualFieldControl
+          field={field}
+          value={value}
+          displayValue={displayValue}
+          isAutoLocked={isAutoLocked}
+          onChange={onChange}
+        />
+      </td>
+    </tr>
+  );
+}
+
+function AnnualFieldControl({ field, value, displayValue, isAutoLocked, onChange }) {
+  const fileInputRef = useRef(null);
+  const fileUrl = getProcessingFileUrl(value);
+  const isUrl = fileUrl && (fileUrl.startsWith('http') || fileUrl.startsWith('data:') || fileUrl.includes('/'));
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
+    reader.readAsDataURL(file);
+  }
+
+  if (field.type === 'select') {
+    return (
+      <select value={displayValue} onChange={(event) => onChange(event.target.value)} disabled={isAutoLocked} className="annual-table-input">
+        <option value="">Select</option>
+        {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    );
+  }
+
+  if (field.type === 'textarea') {
+    return (
+      <textarea value={displayValue} onChange={(event) => onChange(event.target.value)} readOnly={isAutoLocked} rows={2} className="annual-table-input annual-table-textarea" />
+    );
+  }
+
+  if (field.type === 'file') {
+    return (
+      <div className="annual-table-file annual-table-file-modern">
+        <label className="annual-file-picker">
+          <input ref={fileInputRef} type="file" onChange={handleFileChange} className="annual-table-file-input" />
+          <span className="annual-file-picker-icon"><Upload className="h-4 w-4" /></span>
+          <span className="annual-file-picker-copy">
+            <span>Upload document</span>
+            <small>PDF, PNG, JPG or GIF</small>
+          </span>
+        </label>
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="annual-file-add-button">Add</button>
+        {displayValue ? (
+          isUrl ? <a href={fileUrl.startsWith('data:') ? fileUrl : normalizeDocumentUrl(fileUrl)} target="_blank" rel="noreferrer">View uploaded file</a>
+            : <span>{displayValue}</span>
+        ) : <span className="annual-table-muted">No file selected</span>}
+      </div>
+    );
+  }
+
+  return (
+    <input type={field.type} value={displayValue} onChange={(event) => onChange(event.target.value)} readOnly={isAutoLocked} className="annual-table-input" />
+  );
+}
+
+function LegacyDataField({ field, value, source, onChange }) {
+  const displayValue = field.type === 'date' ? formatDateInputValue(value) : getProcessingDisplayValue(value);
+  const fileUrl = getProcessingFileUrl(value);
+  const isUrl = fileUrl && (fileUrl.startsWith('http') || fileUrl.startsWith('data:') || fileUrl.includes('/'));
+  const Icon = field.icon;
+  const isFilled = Boolean(getProcessingDisplayValue(value).trim());
+  const isAutoLocked = source !== 'Manual' && isFilled && field.type !== 'file';
+
+  function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -472,45 +4814,583 @@ function UploadButton({ onChange }) {
   }
 
   return (
-    <label className="btn-lift inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 font-black text-slate-700 hover:bg-slate-50">
-      <Upload className="h-4 w-4" /> Upload
-      <input type="file" className="sr-only" onChange={handleFile} />
+    <label className={`legacy-data-field ${field.colSpan || ''} ${isFilled ? 'legacy-data-field-filled' : ''}`}>
+      <span className="legacy-data-field-head">
+        {Icon && <span className="legacy-data-icon"><Icon className="h-3.5 w-3.5" /></span>}
+        <span className="legacy-data-label">{field.label}</span>
+      </span>
+      <span className="legacy-data-control">
+        {field.type === 'select' ? (
+          <select value={displayValue} onChange={(event) => onChange(event.target.value)} disabled={isAutoLocked} className="legacy-data-input">
+            <option value="">Select</option>
+            {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        ) : field.type === 'textarea' ? (
+          <textarea value={displayValue} onChange={(event) => onChange(event.target.value)} readOnly={isAutoLocked} rows={2} className="legacy-data-input legacy-data-textarea" />
+        ) : field.type === 'file' ? (
+          <span className="legacy-file-wrap">
+            <input type="file" onChange={handleFileChange} className="legacy-file-input" />
+            {displayValue ? (
+              isUrl ? <a href={fileUrl.startsWith('data:') ? fileUrl : normalizeDocumentUrl(fileUrl)} target="_blank" rel="noreferrer">View uploaded file</a>
+                : <span>{displayValue}</span>
+            ) : null}
+          </span>
+        ) : (
+          <input type={field.type} value={displayValue} onChange={(event) => onChange(event.target.value)} readOnly={isAutoLocked} className="legacy-data-input" />
+        )}
+      </span>
     </label>
   );
 }
 
-function Card({ title, children, className = '' }) {
+function annualValueWasEdited(value, fallback) {
+  if (value === undefined || value === null || value === '') return false;
+  return getProcessingDisplayValue(value) !== getProcessingDisplayValue(fallback || '');
+}
+
+function isYesAnswer(value) {
+  const normalized = String(getProcessingDisplayValue(value) || '').trim().toLowerCase();
+  return normalized === 'yes' || normalized === 'y' || normalized === 'true';
+}
+
+function AnnualMsmeTable({ rows, onChange }) {
+  const safeRows = Array.isArray(rows) && rows.length ? rows : [createAnnualMsmeRow()];
+
+  function updateRow(index, field, value) {
+    onChange(safeRows.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+  }
+
+  function addRow() {
+    onChange([...safeRows, createAnnualMsmeRow()]);
+  }
+
+  function removeRow(index) {
+    const nextRows = safeRows.filter((_, rowIndex) => rowIndex !== index);
+    onChange(nextRows.length ? nextRows : [createAnnualMsmeRow()]);
+  }
+
   return (
-    <section className={`overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>
-      <div className="border-b border-slate-100 px-5 py-4">
-        <h2 className="text-2xl font-black text-slate-950">{title}</h2>
+    <div className="mt-5">
+      <button type="button" onClick={addRow} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-700 px-4 font-black text-white shadow-lg shadow-emerald-700/20">
+        <Plus className="h-4 w-4" /> Add Row
+      </button>
+      <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+        <table className="w-full min-w-[1180px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-500">
+            <tr>
+              <th className="w-20 px-4 py-4">Sr.No</th>
+              <th className="px-4 py-4">MSME Classification Year *</th>
+              <th className="px-4 py-4">MSME Status *</th>
+              <th className="px-4 py-4">MSME Major Activity *</th>
+              <th className="px-4 py-4">MSME Udyam Number *</th>
+              <th className="px-4 py-4">TurnOver of the Company (CR.) *</th>
+              <th className="px-4 py-4">MSME Udyam Certificate</th>
+              <th className="w-28 px-4 py-4 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {safeRows.map((row, index) => (
+              <tr key={index} className="border-t border-slate-100 align-middle">
+                <td className="px-4 py-4 font-black text-slate-950">{index + 1}</td>
+                <td className="px-4 py-4">
+                  <input className="form-input min-h-10" value={row.classificationYear || ''} onChange={(event) => updateRow(index, 'classificationYear', event.target.value)} />
+                </td>
+                <td className="px-4 py-4">
+                  <select className="form-input min-h-10" value={row.status || ''} onChange={(event) => updateRow(index, 'status', event.target.value)}>
+                    <option value="">Select</option>
+                    {selectOptions.msmeStatus.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </td>
+                <td className="px-4 py-4">
+                  <select className="form-input min-h-10" value={row.majorActivity || ''} onChange={(event) => updateRow(index, 'majorActivity', event.target.value)}>
+                    <option value="">Select</option>
+                    {selectOptions.msmeActivity.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </td>
+                <td className="px-4 py-4">
+                  <input className="form-input min-h-10" value={row.udyamNumber || row.value || ''} onChange={(event) => updateRow(index, 'udyamNumber', event.target.value)} />
+                </td>
+                <td className="px-4 py-4">
+                  <input type="number" className="form-input min-h-10" value={row.turnover || ''} onChange={(event) => updateRow(index, 'turnover', event.target.value)} />
+                </td>
+                <td className="px-4 py-4">
+                  <UploadButton value={row.file} onChange={(value) => updateRow(index, 'file', value)} />
+                </td>
+                <td className="px-4 py-4 text-center">
+                  <button type="button" onClick={() => removeRow(index)} className="rounded-lg border border-red-200 px-3 py-2 font-black text-red-600 hover:bg-red-50">Remove</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <div className="p-5">{children}</div>
-    </section>
+    </div>
   );
 }
 
-function Field({ label, required, children }) {
+function PlasticConsumptionTable({ rows, onChange }) {
+  const safeRows = Array.isArray(rows) && rows.length ? rows : buildPlasticConsumptionRows();
+  const columns = [
+    ['year', 'YEAR'],
+    ['rigidPlastic', 'Rigid Plastic (CAT I)'],
+    ['flexiblePlastic', 'Flexible Plastic (CAT II)'],
+    ['mlp', 'MLP (CAT III)'],
+    ['compostablePlastic', 'Compostable Plastic (CAT IV)']
+  ];
+
+  function updateCell(index, field, value) {
+    onChange(safeRows.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+  }
+
   return (
-    <label className="block">
-      <span className="text-sm font-black text-slate-700">{label} {required && <span className="text-red-500">*</span>}</span>
-      <div className="mt-2">{children}</div>
+    <div className="legacy-data-fields legacy-table-wrap">
+      <div className="annual-table-panel annual-table-panel-pc">
+        <div className="annual-table-panel-head">
+          <div>
+            <span className="annual-table-kicker">PC</span>
+            <h4>Plastic Consumption</h4>
+          </div>
+          <span className="annual-table-meta">{safeRows.length} year rows</span>
+        </div>
+        <div className="plastic-consumption-table">
+          <table>
+            <thead>
+              <tr>
+                {columns.map(([, label]) => <th key={label}>{label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {safeRows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {columns.map(([field]) => (
+                    <td key={field}>
+                      <input
+                        value={row[field] || ''}
+                        onChange={(event) => updateCell(rowIndex, field, event.target.value)}
+                        aria-label={columns.find(([key]) => key === field)?.[1]}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) {
+  const safeRows = Array.isArray(rows) && rows.length ? rows : buildClientInteractionRows();
+  const safeRawFiles = normalizeRawDataUploadState(rawFiles);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [momReadOnly, setMomReadOnly] = useState(false);
+  const [form, setForm] = useState(createClientInteractionRow());
+  const editingOpen = editingIndex !== null;
+
+  function updateRawFile(field, value) {
+    onRawFilesChange({ ...safeRawFiles, [field]: value });
+  }
+
+  function updateRow(index, field, value) {
+    onChange(safeRows.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+  }
+
+  function addRow() {
+    onChange([...safeRows, createClientInteractionRow()]);
+  }
+
+  function removeRow(index) {
+    const nextRows = safeRows.filter((_, rowIndex) => rowIndex !== index);
+    onChange(nextRows.length ? nextRows : [createClientInteractionRow()]);
+  }
+
+  function handleMailUpload(index, event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => updateRow(index, 'attachedMail', { name: file.name, dataUrl: reader.result });
+    reader.readAsDataURL(file);
+  }
+
+  function openMom(index, readOnly = false) {
+    setEditingIndex(index);
+    setMomReadOnly(readOnly);
+    setForm(normalizeClientInteractionRow(safeRows[index]));
+  }
+
+  function closeMom() {
+    setEditingIndex(null);
+    setMomReadOnly(false);
+    setForm(createClientInteractionRow());
+  }
+
+  function updateDetail(index, value) {
+    const details = getMomDetails(form).map((detail, detailIndex) => (detailIndex === index ? value : detail));
+    setForm((current) => ({ ...current, momDetails: details }));
+  }
+
+  function addDetail() {
+    setForm((current) => ({ ...current, momDetails: [...getMomDetails(current), ''] }));
+  }
+
+  function removeDetail(index) {
+    const details = getMomDetails(form).filter((_, detailIndex) => detailIndex !== index);
+    setForm((current) => ({ ...current, momDetails: details.length ? details : [''] }));
+  }
+
+  function saveMom() {
+    const nextRows = safeRows.map((row, rowIndex) => (
+      rowIndex === editingIndex ? { ...row, ...form, momDetails: getMomDetails(form) } : row
+    ));
+    onChange(nextRows);
+    closeMom();
+  }
+
+  return (
+    <div className="part-c-workspace">
+      <div className="raw-upload-grid">
+        <RawDataUploadCard
+          label="Upload Sales Raw Data"
+          value={safeRawFiles.salesRawData}
+          onChange={(value) => updateRawFile('salesRawData', value)}
+        />
+        <RawDataUploadCard
+          label="Upload Purchase Raw Data"
+          value={safeRawFiles.purchaseRawData}
+          onChange={(value) => updateRawFile('purchaseRawData', value)}
+        />
+        <RawDataUploadCard
+          label="Upload Pre - Post Raw Data"
+          value={safeRawFiles.prePostRawData}
+          onChange={(value) => updateRawFile('prePostRawData', value)}
+        />
+      </div>
+      <div className="annual-table-panel">
+        <div className="annual-table-panel-head">
+          <div>
+            <span className="annual-table-kicker">Part C</span>
+            <h4>Client Interaction</h4>
+          </div>
+          <button type="button" onClick={addRow} className="annual-add-row"><Plus className="h-4 w-4" /> Add Row</button>
+        </div>
+      <div className="client-interaction-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Client Interaction</th>
+              <th>Minutes of Meeting</th>
+              <th>Attached Mail</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {safeRows.map((row, index) => {
+              const normalized = normalizeClientInteractionRow(row);
+              return (
+                <tr key={index}>
+                  <td>
+                      <input
+                        type="date"
+                        value={formatDateInputValue(normalized.date)}
+                        aria-label="Client interaction date"
+                        onChange={(event) => updateRow(index, 'date', event.target.value)}
+                      />
+                  </td>
+                  <td>
+                      <input
+                        value={normalized.clientInteraction}
+                        aria-label="Client interaction"
+                        onChange={(event) => updateRow(index, 'clientInteraction', event.target.value)}
+                      />
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => openMom(index)} className="mom-add-button">ADD</button>
+                    <button type="button" onClick={() => openMom(index, true)} className="mom-view-button">View Form</button>
+                  </td>
+                  <td>
+                    <label className="mail-upload-button" title={getProcessingDisplayValue(normalized.attachedMail) || 'Upload mail'}>
+                      <Upload className="h-5 w-5" />
+                      <input type="file" className="sr-only" onChange={(event) => handleMailUpload(index, event)} />
+                    </label>
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => removeRow(index)} className="annual-remove-row">Remove</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      </div>
+
+      {editingOpen && (
+        <div className="mom-modal-backdrop">
+          <div className="mom-modal" role="dialog" aria-modal="true" aria-label="Minutes of Meeting">
+            <div className="mom-modal-head">
+              <h3>{momReadOnly ? 'View Minutes of Meeting' : 'Minutes of Meeting'}</h3>
+              <button type="button" onClick={closeMom} aria-label="Close"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="mom-modal-grid">
+              <label>
+                <span>Date</span>
+                <input type="date" value={formatDateInputValue(form.date)} readOnly={momReadOnly} disabled={momReadOnly} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
+              </label>
+              <label>
+                <span>Subject</span>
+                <input value={form.subject || ''} readOnly={momReadOnly} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
+              </label>
+            </div>
+            <div className="mom-details">
+              <span className="mom-details-title">Minutes of Meeting Details</span>
+              {getMomDetails(form).map((detail, index) => (
+                <div key={index} className="mom-detail-row">
+                  <strong>{index + 1}.</strong>
+                  <input value={detail} readOnly={momReadOnly} onChange={(event) => updateDetail(index, event.target.value)} placeholder="Enter term or condition" />
+                  {!momReadOnly && <button type="button" onClick={() => removeDetail(index)}><X className="h-4 w-4" /> Remove</button>}
+                </div>
+              ))}
+              {!momReadOnly && <button type="button" onClick={addDetail} className="mom-add-detail"><Plus className="h-4 w-4" /> Add</button>}
+            </div>
+            <div className="mom-modal-actions">
+              <button type="button" onClick={closeMom}>{momReadOnly ? 'Close' : 'Cancel'}</button>
+              {!momReadOnly && <button type="button" onClick={saveMom}>Save</button>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RawDataUploadCard({ label, value, onChange }) {
+  const displayValue = getProcessingDisplayValue(value);
+
+  function handleFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
+    reader.readAsDataURL(file);
+  }
+
+  function viewFile() {
+    const fileUrl = getProcessingFileUrl(value);
+    if (!fileUrl) return;
+    window.open(fileUrl.startsWith('data:') ? fileUrl : normalizeDocumentUrl(fileUrl), '_blank', 'noopener,noreferrer');
+  }
+
+  return (
+    <div className={`raw-upload-card ${displayValue ? 'raw-upload-card-filled' : ''}`}>
+      <label>
+        <Upload className="h-5 w-5" />
+        <span>{label}: User Will Upload</span>
+        <input type="file" className="sr-only" onChange={handleFile} />
+      </label>
+      {displayValue && (
+        <div className="raw-upload-file">
+          <span>{displayValue}</span>
+          <button type="button" onClick={viewFile}>View</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function createAnnualMsmeRow() {
+  return { classificationYear: '', status: '', majorActivity: '', udyamNumber: '', turnover: '', file: '' };
+}
+
+function createPlasticConsumptionRow(year = '') {
+  return { year, rigidPlastic: '', flexiblePlastic: '', mlp: '', compostablePlastic: '' };
+}
+
+function buildPlasticConsumptionRows(annualReturn = {}, selectedYear = '') {
+  const savedRows = annualReturn?.plasticConsumptionRows || annualReturn?.totalPlasticConsumed;
+  if (Array.isArray(savedRows) && savedRows.length) return savedRows.map(normalizePlasticConsumptionRow);
+  if (savedRows && typeof savedRows === 'object') return [normalizePlasticConsumptionRow(savedRows)];
+  const [startYear] = String(selectedYear || '').split('-');
+  const start = Number(startYear);
+  if (Number.isFinite(start)) {
+    return [createPlasticConsumptionRow(`${start - 1}-${start}`), createPlasticConsumptionRow(`${start}-${start + 1}`)];
+  }
+  return [createPlasticConsumptionRow('2023-2024'), createPlasticConsumptionRow('2024-2025')];
+}
+
+function normalizePlasticConsumptionRow(row = {}) {
+  return {
+    year: row.year || row.YEAR || '',
+    rigidPlastic: row.rigidPlastic || row.rigid || row.cat1 || row.catI || '',
+    flexiblePlastic: row.flexiblePlastic || row.flexible || row.cat2 || row.catII || '',
+    mlp: row.mlp || row.cat3 || row.catIII || '',
+    compostablePlastic: row.compostablePlastic || row.compostable || row.cat4 || row.catIV || ''
+  };
+}
+
+function createClientInteractionRow() {
+  return { date: '', clientInteraction: '', subject: '', momDetails: [''], attachedMail: '' };
+}
+
+function buildRawDataUploadState() {
+  return { salesRawData: '', purchaseRawData: '', prePostRawData: '' };
+}
+
+function normalizeRawDataUploadState(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return buildRawDataUploadState();
+  return {
+    salesRawData: value.salesRawData || value.sales || '',
+    purchaseRawData: value.purchaseRawData || value.purchase || '',
+    prePostRawData: value.prePostRawData || value.prePost || value.prePostRaw || ''
+  };
+}
+
+function buildClientInteractionRows(annualReturn = {}) {
+  const savedRows = annualReturn?.clientInteractions || annualReturn?.partC?.clientInteractions;
+  if (Array.isArray(savedRows) && savedRows.length) return savedRows.map(normalizeClientInteractionRow);
+  return [createClientInteractionRow()];
+}
+
+function normalizeClientInteractionRow(row = {}) {
+  return {
+    date: row.date || row.clientInteractionDate || '',
+    clientInteraction: row.clientInteraction || row.notes || row.clientInteractionNotes || '',
+    subject: row.subject || row.minutesSubject || '',
+    momDetails: getMomDetails(row),
+    attachedMail: row.attachedMail || row.mail || row.file || ''
+  };
+}
+
+function getMomDetails(row = {}) {
+  const details = row.momDetails || row.minutesOfMeetingDetails || row.minutesDetails || row.minutesOfMeeting;
+  if (Array.isArray(details)) return details.length ? details : [''];
+  if (typeof details === 'string' && details.trim()) return [details];
+  return [''];
+}
+
+function getProcessingDisplayValue(value) {
+  if (value === undefined || value === null) return '';
+  if (Array.isArray(value)) return value.map(getProcessingDisplayValue).filter(Boolean).join(', ');
+  if (typeof value === 'object') {
+    return value.name || value.fileName || value.originalName || value.url || value.fileUrl || value.path || value.dataUrl || '';
+  }
+  return String(value);
+}
+
+function addressesMatch(firstAddress = '', secondAddress = '') {
+  const first = String(firstAddress || '').replace(/\s+/g, ' ').replace(/\s*,\s*/g, ',').trim().toLowerCase();
+  const second = String(secondAddress || '').replace(/\s+/g, ' ').replace(/\s*,\s*/g, ',').trim().toLowerCase();
+  return Boolean(first) && first === second;
+}
+
+function createProcessingField(key, label, value, icon, type = 'text', options = [], source = 'auto', colSpan = '') {
+  return { key, label, value, icon, type, options, source, colSpan };
+}
+
+function normalizeProcessingField(field) {
+  if (Array.isArray(field)) {
+    const [label, value, icon, type = 'text', options = []] = field;
+    return createProcessingField(label, label, value, icon, type, options);
+  }
+  return {
+    key: field.key || field.label,
+    label: field.label,
+    value: field.value,
+    icon: field.icon,
+    type: field.type || 'text',
+    options: field.options || [],
+    source: field.source || 'auto',
+    colSpan: field.colSpan || ''
+  };
+}
+
+function getProcessingFileUrl(value) {
+  if (!value) return '';
+  if (typeof value === 'object') return value.dataUrl || value.url || value.fileUrl || value.path || '';
+  return String(value);
+}
+
+function ProcessingPill({ label, value, icon: Icon, type = 'text', tone = 'white', options = [], source = '', colSpan = '', onChange }) {
+  const displayValue = type === 'date' ? formatDateInputValue(value) : getProcessingDisplayValue(value);
+  const fileUrl = getProcessingFileUrl(value);
+  const isUrl = fileUrl && (fileUrl.startsWith('http') || fileUrl.startsWith('data:') || fileUrl.includes('/'));
+  const inputClass = 'processing-input';
+  const isAutoLocked = source !== 'Manual' && Boolean(getProcessingDisplayValue(value).trim()) && type !== 'file';
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <label className={`processing-data-pill ${tone === 'yellow' ? 'processing-data-pill-yellow' : 'processing-data-pill-white'} ${colSpan}`}>
+      <div className="flex min-w-0 items-start gap-3">
+        {Icon && <span className="processing-field-icon"><Icon className="h-4 w-4" /></span>}
+        <div className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center justify-between gap-2">
+            <span className="processing-field-label">{label}</span>
+          </span>
+          {type === 'select' ? (
+            <select value={displayValue} onChange={(event) => onChange(event.target.value)} disabled={isAutoLocked} className={inputClass}>
+              <option value="">Select</option>
+              {options.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          ) : type === 'textarea' ? (
+            <textarea value={displayValue} onChange={(event) => onChange(event.target.value)} readOnly={isAutoLocked} rows={3} className={`${inputClass} min-h-20 resize-y`} />
+          ) : type === 'file' ? (
+            <div className="mt-2 flex min-w-0 flex-col gap-2">
+              <input type="file" onChange={handleFileChange} className="processing-file-input" />
+              {displayValue ? (
+                isUrl ? <a href={fileUrl.startsWith('data:') ? fileUrl : normalizeDocumentUrl(fileUrl)} target="_blank" rel="noreferrer" className="truncate text-xs font-black text-[#30737B] underline">View existing file</a>
+                  : <p className="truncate text-xs font-black text-slate-500">{displayValue}</p>
+              ) : null}
+            </div>
+          ) : (
+            <input type={type} value={displayValue} onChange={(event) => onChange(event.target.value)} readOnly={isAutoLocked} className={inputClass} />
+          )}
+        </div>
+      </div>
     </label>
   );
 }
 
-function SelectLike({ label, required, value, options = [], onChange, disabled = false, placeholder = 'Select or type to create new' }) {
-  const normalized = Array.isArray(options) ? options.map((option) => (typeof option === 'string' ? { value: option, label: option } : option)) : [];
-  const listId = `client-${label.replace(/\s+/g, '-')}`;
+function DetailAccordion({ title, open, onToggle, children }) {
   return (
-    <Field label={label} required={required}>
-      <div className="relative">
-        <input value={value} list={listId} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="form-input pr-12 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" />
-        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-        <datalist id={listId}>
-          {normalized.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </datalist>
-      </div>
-    </Field>
+    <div className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm shadow-emerald-900/5">
+      <button type="button" onClick={onToggle} className="flex min-h-14 w-full items-center justify-between gap-4 bg-[linear-gradient(135deg,#f0fdfa_0%,#ffffff_100%)] px-5 text-left font-black text-slate-900">
+        <span className="flex items-center gap-3">
+          <span className="h-2 w-2 rounded-full bg-[#30737B]" />
+          {title}
+        </span>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#30737B] text-white shadow-lg shadow-teal-700/20 transition hover:scale-105">
+          <ChevronDown className={`h-4 w-4 transition ${open ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
+      {open && <div className="client-detail-accordion-body border-t border-emerald-100 bg-white">{children}</div>}
+    </div>
+  );
+}
+
+function EmptyTab({ title, message }) {
+  return (
+    <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">
+      <p className="text-lg font-black text-slate-700">{title}</p>
+      <p className="mt-2 text-sm font-bold text-slate-500">{message}</p>
+    </div>
+  );
+}
+
+function InteractionBox({ title, message, tone }) {
+  const isAmber = tone === 'amber';
+  return (
+    <div className="mt-4 overflow-hidden rounded border border-slate-200">
+      <div className={`${isAmber ? 'bg-orange-100' : 'bg-slate-100'} px-4 py-3 font-black text-slate-600`}>{title}</div>
+      <div className="grid min-h-28 place-items-center px-4 py-8 text-center font-black text-slate-500">{message}</div>
+    </div>
   );
 }

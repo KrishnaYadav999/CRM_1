@@ -5,6 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>CRM</title>
+    <script>
+      (function () {
+        var ignoredMessages = [
+          'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received',
+          'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received.'
+        ];
+
+        function getMessage(reason) {
+          if (!reason) return '';
+          return String(reason.message || reason);
+        }
+
+        function shouldIgnore(reason) {
+          var message = getMessage(reason);
+          return ignoredMessages.some(function (ignoredMessage) {
+            return message.indexOf(ignoredMessage) !== -1;
+          });
+        }
+
+        window.__CRM_SHOULD_IGNORE_BROWSER_NOISE__ = shouldIgnore;
+        window.addEventListener('unhandledrejection', function (event) {
+          if (shouldIgnore(event.reason)) {
+            event.preventDefault();
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

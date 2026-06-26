@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { ArrowLeft, Edit3, Eye, EyeOff, KeyRound, LogOut, Save, ShieldCheck, X } from 'lucide-react'
+import ToastMessage from '../ToastMessage'
 import { roleLabels } from '../../constants/dashboard'
 
 function splitName(name = '') {
@@ -180,8 +181,8 @@ export default function ProfileModal({ user, saving, onClose, onLogout, onSave, 
                   />
                 </div>
 
-                {passwordError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{passwordError}</p>}
-                {passwordMessage && <p className="mt-4 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-bold text-teal-700">{passwordMessage}</p>}
+                {passwordError && <ToastMessage type="error" className="mt-4">{passwordError}</ToastMessage>}
+                {passwordMessage && <ToastMessage type="success" className="mt-4">{passwordMessage}</ToastMessage>}
 
                 <div className="mt-5 flex flex-wrap justify-end gap-3">
                   <button

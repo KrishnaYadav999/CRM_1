@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
+import BrandLoader from './BrandLoader'
 import api from '../services/api'
 
 export default function ProtectedRoute({ children }) {
@@ -7,15 +8,21 @@ export default function ProtectedRoute({ children }) {
 
   useEffect(() => {
     api.get('/auth/me')
-      .then(() => setState({ loading: false, allowed: true }))
+      .then((response) => {
+        if (response.data?.user) {
+          localStorage.setItem('user', JSON.stringify(response.data.user))
+        }
+        setState({ loading: false, allowed: true })
+      })
       .catch(() => {
         localStorage.removeItem('token')
+        localStorage.removeItem('user')
         setState({ loading: false, allowed: false })
       })
   }, [])
 
   if (state.loading) {
-    return <div className="grid min-h-screen place-items-center bg-emerald-50 font-bold text-emerald-700">Loading CRM...</div>
+    return <BrandLoader message="Checking secure access" />
   }
 
   return state.allowed ? children : <Navigate to="/" replace />
