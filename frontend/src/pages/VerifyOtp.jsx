@@ -40,8 +40,11 @@ export default function VerifyOtp(){
       localStorage.removeItem('dev_otp')
       navigate('/dashboard')
     }catch(err){
-      console.error(err)
-      setError(readApiError(err, 'Invalid OTP'))
+      const message = readApiError(err, 'Invalid OTP')
+      setError(message)
+      if (/invalid otp|expired|no active otp/i.test(message)) {
+        setResendCooldown(0)
+      }
     }finally{ setLoading(false) }
   }
 
@@ -63,9 +66,9 @@ export default function VerifyOtp(){
         setDevOtp('')
       }
     } catch (err) {
-      console.error(err)
-      setError(readApiError(err, 'Unable to resend OTP'))
-      const match = String(readApiError(err, '')).match(/(\d+)\s*seconds/i)
+      const message = readApiError(err, 'Unable to resend OTP')
+      setError(message)
+      const match = String(message).match(/(\d+)\s*seconds/i)
       if (match) setResendCooldown(Number(match[1]))
     } finally {
       setResending(false)
@@ -98,7 +101,7 @@ export default function VerifyOtp(){
         {devOtp && <ToastMessage type="warning">Development OTP: {devOtp}</ToastMessage>}
         {notice && <ToastMessage type="success">{notice}</ToastMessage>}
         {error && <ToastMessage type="error">{error}</ToastMessage>}
-        <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !email}>
+        <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !email || otp.length !== 6}>
           <span className="relative">{loading ? 'Verifying...' : 'Verify and login'}</span>
         </button>
         <button

@@ -198,14 +198,35 @@ exports.resendOtp = async (req, res) => {
 exports.verifyOtp = async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   const otp = String(req.body.otp || '').trim();
-  if (!email || !otp) return res.status(400).json({ error: 'Email and otp required' });
+  if (!email || !otp) {
+    console.warn('OTP verify failed', { email, reason: 'missing_email_or_otp', otpLength: otp.length });
+    return res.status(400).json({ error: 'Email and OTP are required' });
+  }
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
   if (!user.password) return res.status(400).json({ error: 'Password is not set. Contact admin.' });
 
-  if (!user.otp || user.otp !== otp) return res.status(400).json({ error: 'Invalid otp' });
-  if (user.otpExpires < Date.now()) return res.status(400).json({ error: 'OTP expired' });
+  if (!user.otp) {
+    console.warn('OTP verify failed', { email, reason: 'no_active_otp', otpLength: otp.length });
+    return res.status(400).json({ error: 'No active OTP found. Please resend OTP.' });
+  }
+
+  if (String(user.otp) !== otp) {
+    console.warn('OTP verify failed', {
+      email,
+      reason: 'invalid_otp',
+      otpLength: otp.length,
+      hasStoredOtp: Boolean(user.otp),
+      expiresAt: user.otpExpires
+    });
+    return res.status(400).json({ error: 'Invalid OTP. Please enter the latest 6-digit code from your email.' });
+  }
+
+  if (!user.otpExpires || user.otpExpires < Date.now()) {
+    console.warn('OTP verify failed', { email, reason: 'expired_otp', expiresAt: user.otpExpires });
+    return res.status(400).json({ error: 'OTP expired. Please resend OTP.' });
+  }
 
   // clear otp
   user.otp = undefined;
@@ -214,6 +235,7 @@ exports.verifyOtp = async (req, res) => {
   await user.save();
 
   const token = jwt.sign({ sub: user._id, role: user.role, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+  console.info('OTP verified', { email, userId: String(user._id), role: user.role });
   res.json({ ok: true, token, user: publicUser(user) });
 };
 
