@@ -9,6 +9,11 @@ export default function DashboardShell({ currentUser, onOpenProfile, onLogout, c
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   function handleLogout() {
+    try {
+      sessionStorage.removeItem('crm.brandLoader.fullShown');
+    } catch {
+      // session cleanup only
+    }
     if (onLogout) {
       onLogout();
       return;

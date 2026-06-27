@@ -26,6 +26,11 @@ export function clearStoredSession() {
   localStorage.removeItem('user')
   localStorage.removeItem('login_email')
   localStorage.removeItem('dev_otp')
+  try {
+    sessionStorage.removeItem('crm.brandLoader.fullShown')
+  } catch {
+    // session cleanup only
+  }
 }
 
 export function hasStoredAuthToken() {

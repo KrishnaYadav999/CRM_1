@@ -339,7 +339,6 @@ export default function Notifications() {
           <div>
             <span className="notifications-kicker"><Bell className="h-4 w-4" /> Notification Center</span>
             <h1>Announcements that stay organized.</h1>
-            <p>Create, publish, and manage every internal update with sharper filters, attachment tracking, and a cleaner review flow.</p>
           </div>
           <div className="notifications-hero-actions">
             <button type="button" onClick={openCreate}><Plus className="h-4 w-4" /> Add Notification</button>

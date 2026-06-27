@@ -54,6 +54,32 @@ function CommandLoader({ message, dismissAfterMs = 0 }) {
   );
 }
 
+function CompactLoader({ message, dismissAfterMs = 0 }) {
+  return (
+    <div
+      className={`brand-loader brand-loader-workspace brand-loader-compact ${dismissAfterMs ? 'brand-loader-dismiss' : ''}`}
+      role="status"
+      aria-live="polite"
+      aria-label={message}
+      style={dismissAfterMs ? { '--loader-dismiss-delay': `${dismissAfterMs}ms` } : undefined}
+    >
+      <div className="brand-loader-grid" />
+      <div className="workspace-loader-panel">
+        <div className="workspace-loader-logo">
+          <img src={brand.logoUrl} alt={brand.name} />
+        </div>
+        <div className="workspace-loader-copy">
+          <strong>{brand.name}</strong>
+          <span>{message}</span>
+        </div>
+        <div className="workspace-loader-ring">
+          <LoaderRing />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BrandLoader({
   title = brand.name,
   eyebrow = 'Anant Tattva',
@@ -65,6 +91,8 @@ export default function BrandLoader({
     if (typeof window === 'undefined') return true;
     try {
       const key = 'crm.brandLoader.fullShown';
+      const token = window.localStorage.getItem('token');
+      if (!token || token === 'undefined' || token === 'null') return false;
       const hasShown = window.sessionStorage.getItem(key) === '1';
       if (!hasShown) window.sessionStorage.setItem(key, '1');
       return !hasShown;
@@ -74,7 +102,7 @@ export default function BrandLoader({
   });
 
   if (!showFullLoader) {
-    return <CommandLoader message={message} />;
+    return <CompactLoader message={message} />;
   }
 
   return <CommandLoader message={message} dismissAfterMs={dismissAfterMs} />;

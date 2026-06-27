@@ -27276,9 +27276,9 @@ button.sales-metric-card {
 
 /* Compact heroes + branded workspace loader */
 .notifications-hero {
-  min-height: 128px !important;
+  min-height: 104px !important;
   align-items: center !important;
-  padding: 14px 22px !important;
+  padding: 12px 22px !important;
 }
 
 .notifications-kicker {
@@ -27621,6 +27621,39 @@ button.sales-metric-card {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.brand-loader-compact .workspace-loader-panel {
+  width: min(340px, calc(100vw - 30px)) !important;
+  min-height: 86px !important;
+  grid-template-columns: 54px minmax(0, 1fr) 48px !important;
+  border-radius: 14px !important;
+  padding: 14px !important;
+}
+
+.brand-loader-compact .workspace-loader-logo {
+  width: 54px !important;
+  height: 54px !important;
+  border-radius: 12px !important;
+  padding: 8px !important;
+}
+
+.brand-loader-compact .workspace-loader-logo img {
+  max-height: 38px !important;
+}
+
+.brand-loader-compact .workspace-loader-copy strong {
+  font-size: 18px !important;
+}
+
+.brand-loader-compact .workspace-loader-copy span {
+  margin-top: 4px !important;
+  font-size: 12px !important;
+}
+
+.brand-loader-compact .workspace-loader-ring {
+  width: 42px !important;
+  height: 42px !important;
 }
 
 @keyframes workspace-drop {
