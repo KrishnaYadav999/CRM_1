@@ -14,6 +14,15 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
   const activeUsers = useMemo(() => users.filter((user) => user.isActive), [users])
   const managerOptions = activeUsers.filter((user) => ['manager', 'admin', 'superadmin', 'operation'].includes(user.role))
   const headOptions = activeUsers
+  const selectedManagerId = String(form.manager || '')
+  const memberOptions = useMemo(() => {
+    if (!selectedManagerId) return []
+    return activeUsers.filter((user) => {
+      const id = String(user._id || user.id || '')
+      if (id === selectedManagerId) return false
+      return String(user.managerId || '') === selectedManagerId
+    })
+  }, [activeUsers, selectedManagerId])
 
   function toggleMember(id) {
     setForm((value) => ({
@@ -49,14 +58,14 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required className="form-input" placeholder="Enter team name" />
           </Field>
           <Field label="Select Manager">
-            <select value={form.manager} onChange={(event) => setForm({ ...form, manager: event.target.value })} required className="form-input">
+            <select value={form.manager} onChange={(event) => setForm({ ...form, manager: event.target.value, members: [] })} required className="form-input">
               <option value="">Choose manager</option>
               {managerOptions.map((user) => <UserOption key={user._id || user.id} user={user} />)}
             </select>
           </Field>
-          <Field label="Select Operation Head">
-            <select value={form.operationHead} onChange={(event) => setForm({ ...form, operationHead: event.target.value })} required className="form-input">
-              <option value="">Choose operation head</option>
+          <Field label="Select Operation Head (Optional)">
+            <select value={form.operationHead} onChange={(event) => setForm({ ...form, operationHead: event.target.value })} className="form-input">
+              <option value="">No operation head</option>
               {headOptions.map((user) => <UserOption key={user._id || user.id} user={user} />)}
             </select>
           </Field>
@@ -69,13 +78,13 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-black text-slate-950">Select Users</p>
-              <p className="mt-1 text-xs font-bold text-slate-500">Only selected users will roll up under this manager.</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">{form.manager ? 'Only users already mapped under this manager are shown.' : 'Choose a manager to view that manager users.'}</p>
             </div>
             <span className="rounded-lg bg-white px-3 py-2 text-sm font-black text-emerald-700 ring-1 ring-emerald-100">{form.members.length} selected</span>
           </div>
 
           <div className="mt-4 grid max-h-72 gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
-            {activeUsers.map((user) => {
+            {memberOptions.length ? memberOptions.map((user) => {
               const id = user._id || user.id
               const checked = form.members.includes(id)
               return (
@@ -88,7 +97,11 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
                   </span>
                 </label>
               )
-            })}
+            }) : (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm font-black text-slate-500 sm:col-span-2">
+                {form.manager ? 'No active users are mapped under this manager yet.' : 'Select manager first.'}
+              </div>
+            )}
           </div>
         </section>
 

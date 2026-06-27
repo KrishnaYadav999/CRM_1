@@ -3051,7 +3051,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadDashboard()
-  }, [])
+  }, [location.pathname])
 
   useEffect(() => {
     setPage(1)
@@ -3081,6 +3081,22 @@ export default function AdminDashboard() {
       const meResponse = await api.get('/auth/me')
       const user = meResponse.data.user
       setCurrentUser(user)
+
+      if (isUserManagementView) {
+        if (adminRoles.includes(user.role)) {
+          const [usersResponse, teamsResponse] = await Promise.all([
+            api.get('/auth/admin/users'),
+            api.get('/teams')
+          ])
+          setUsers(usersResponse.data.users || [])
+          setTeams(teamsResponse.data.teams || [])
+        } else {
+          const usersResponse = await api.get('/auth/users')
+          setUsers(usersResponse.data.users || [user])
+          setTeams([])
+        }
+        return
+      }
 
       const [clientsResult, leadsResult, ccpLeadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
         api.get('/clients'),
@@ -3163,7 +3179,6 @@ export default function AdminDashboard() {
       setTeams((prevTeams) => [response.data.team, ...prevTeams])
       setTeamModalOpen(false)
       setNotice('Team created successfully. Manager can now see selected users plus their own data.')
-      await loadDashboard()
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to create team')
     } finally {

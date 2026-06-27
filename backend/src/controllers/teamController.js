@@ -41,30 +41,38 @@ exports.createTeam = async (req, res) => {
 
   if (!name) return res.status(400).json({ error: 'Team name is required' });
   if (!managerId) return res.status(400).json({ error: 'Manager is required' });
-  if (!operationHeadId) return res.status(400).json({ error: 'Operation head is required' });
 
   const existing = await Team.findOne({ name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
   if (existing) return res.status(400).json({ error: 'Team name already exists' });
 
-  const allUserIds = [...new Set([...memberIds, managerId, operationHeadId])];
+  const allUserIds = [...new Set([...memberIds, managerId, operationHeadId].filter(Boolean))];
   const users = await User.find({ _id: { $in: allUserIds }, isActive: true }).select('_id').lean();
   if (users.length !== allUserIds.length) return res.status(400).json({ error: 'Select only active CRM users for this team' });
 
-  const team = await Team.create({
+  const teamData = {
     name,
     description,
     members: memberIds,
     manager: managerId,
-    operationHead: operationHeadId,
     createdBy: req.user?._id
-  });
+  };
+  if (operationHeadId) teamData.operationHead = operationHeadId;
+  const team = await Team.create(teamData);
 
+  const memberUpdate = operationHeadId
+    ? { $set: { teamId: team._id, team: name, managerId, operationHeadId } }
+    : { $set: { teamId: team._id, team: name, managerId }, $unset: { operationHeadId: '' } };
   await User.updateMany(
     { _id: { $in: memberIds } },
-    { $set: { teamId: team._id, team: name, managerId, operationHeadId } }
+    memberUpdate
   );
-  await User.findByIdAndUpdate(managerId, { $set: { teamId: team._id, team: name, operationHeadId } });
-  await User.findByIdAndUpdate(operationHeadId, { $set: { teamId: team._id, team: name } });
+  await User.findByIdAndUpdate(
+    managerId,
+    operationHeadId
+      ? { $set: { teamId: team._id, team: name, operationHeadId } }
+      : { $set: { teamId: team._id, team: name }, $unset: { operationHeadId: '' } }
+  );
+  if (operationHeadId) await User.findByIdAndUpdate(operationHeadId, { $set: { teamId: team._id, team: name } });
 
   const populated = await Team.findById(team._id)
     .populate('members', 'name email role avatarUrl isActive')

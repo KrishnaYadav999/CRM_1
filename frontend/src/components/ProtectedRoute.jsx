@@ -4,7 +4,14 @@ import BrandLoader from './BrandLoader'
 import api, { clearStoredSession, hasStoredAuthToken } from '../services/api'
 
 export default function ProtectedRoute({ children }) {
-  const [state, setState] = useState({ loading: true, allowed: false })
+  const [state, setState] = useState(() => {
+    if (!hasStoredAuthToken()) return { loading: true, allowed: false }
+    try {
+      return localStorage.getItem('user') ? { loading: false, allowed: true } : { loading: true, allowed: false }
+    } catch {
+      return { loading: true, allowed: false }
+    }
+  })
 
   useEffect(() => {
     if (!hasStoredAuthToken()) {
