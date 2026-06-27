@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Team = require('../models/Team');
 const Notification = require('../models/Notification');
 const { sendMail } = require('../utils/mailer');
 
@@ -58,11 +59,25 @@ function buildManagerReviewEmail({ manager, submitter, clientName, annualYear, s
 }
 
 async function resolveManagerForSubmitter(submitter) {
-  if (!submitter?.managerId) return null;
-  return User.findById(submitter.managerId).select('name email role isActive').lean();
+  if (!submitter?._id && !submitter?.id) return null;
+  if (submitter?.managerId) {
+    const manager = await User.findById(submitter.managerId).select('name email role isActive').lean();
+    if (manager) return manager;
+  }
+
+  const freshSubmitter = await User.findById(submitter._id || submitter.id).select('managerId').lean();
+  if (freshSubmitter?.managerId) {
+    const manager = await User.findById(freshSubmitter.managerId).select('name email role isActive').lean();
+    if (manager) return manager;
+  }
+
+  const team = await Team.findOne({ members: submitter._id || submitter.id })
+    .populate('manager', 'name email role isActive')
+    .lean();
+  return team?.manager || null;
 }
 
-async function notifyManagerAnnualSubmitted({ client, annualYear, submitter }) {
+async function notifyManagerAnnualSubmitted({ client, annualYear, submitter, preventDuplicate = false }) {
   const manager = await resolveManagerForSubmitter(submitter);
   if (!manager || !manager.isActive || !manager.email) {
     console.warn('Annual review manager notification skipped', {
@@ -75,12 +90,16 @@ async function notifyManagerAnnualSubmitted({ client, annualYear, submitter }) {
   const clientName = client?.data?.basic?.clientLegalName || client?.data?.basic?.tradeName || 'Client';
   const clientId = String(client?._id || '');
   const managerId = String(manager._id || manager.id);
-  const sentCount = await Notification.countDocuments({
+  const existingCount = await Notification.countDocuments({
     kind: 'annual_manager_submission',
     'metadata.clientId': clientId,
     'metadata.annualYear': annualYear,
     'metadata.managerId': managerId
-  }) + 1;
+  });
+  if (preventDuplicate && existingCount > 0) {
+    return { ok: true, skipped: true, reason: 'already_notified', sentCount: existingCount };
+  }
+  const sentCount = existingCount + 1;
 
   let emailSent = false;
   let emailError = '';

@@ -27155,3 +27155,121 @@ button.sales-metric-card {
     padding: 18px;
   }
 }
+
+/* Fast navigation + compact hero polish */
+.page-inline-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border: 1px solid #cde9e5;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 0 16px;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 950;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.07);
+}
+
+.page-inline-loader::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #0f766e;
+  animation: brand-loader-dot 900ms ease-in-out infinite;
+}
+
+.pending-approval-hero,
+.notifications-hero {
+  min-height: 0;
+  padding: 16px 22px;
+}
+
+.pending-approval-title h1,
+.notifications-hero h1 {
+  font-size: clamp(26px, 3vw, 40px);
+  line-height: 1.05;
+}
+
+.pending-approval-title span,
+.notifications-hero p {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.pending-hero-summary {
+  min-height: 92px;
+  padding: 14px 16px;
+}
+
+.pending-hero-summary strong {
+  font-size: 34px;
+}
+
+.pending-back-button {
+  width: 40px;
+  height: 40px;
+}
+
+.pending-refresh-button,
+.notifications-hero-actions button {
+  min-height: 40px;
+}
+
+/* Pro chart treatment */
+.recharts-wrapper {
+  font-family: "Nunito", sans-serif !important;
+}
+
+.recharts-surface {
+  overflow: visible;
+}
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: #dbeafe;
+  stroke-dasharray: 4 7;
+}
+
+.recharts-tooltip-wrapper {
+  filter: drop-shadow(0 18px 30px rgba(15, 23, 42, 0.16));
+}
+
+.recharts-default-tooltip {
+  overflow: hidden;
+  border: 1px solid #cde9e5 !important;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12) !important;
+}
+
+.recharts-tooltip-label {
+  color: #0f766e !important;
+  font-weight: 950 !important;
+}
+
+.recharts-legend-item-text,
+.recharts-text {
+  fill: #475569 !important;
+  font-weight: 850 !important;
+}
+
+.recharts-bar-rectangle path,
+.recharts-pie-sector path {
+  filter: drop-shadow(0 8px 12px rgba(15, 118, 110, 0.16));
+}
+
+.analytics-card,
+.dashboard-panel,
+.operation-panel,
+.sales-card {
+  backdrop-filter: blur(14px);
+}
+
+@media (max-width: 860px) {
+  .pending-approval-hero {
+    grid-template-columns: 1fr;
+  }
+}

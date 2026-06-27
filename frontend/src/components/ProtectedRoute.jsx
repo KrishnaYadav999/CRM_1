@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import BrandLoader from './BrandLoader'
 import api, { clearStoredSession, hasStoredAuthToken } from '../services/api'
 
 export default function ProtectedRoute({ children }) {
@@ -34,7 +33,7 @@ export default function ProtectedRoute({ children }) {
   }, [])
 
   if (state.loading) {
-    return <BrandLoader message="Checking secure access" />
+    return <div className="min-h-screen bg-[#eef7f5]" />
   }
 
   return state.allowed ? children : <Navigate to="/" replace />

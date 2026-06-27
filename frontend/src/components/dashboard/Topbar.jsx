@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell, CalendarCheck2, CheckCircle2, Clock3, FileText, Info, LogOut, Menu, UserRound, X } from 'lucide-react'
 import { roleLabels } from '../../constants/dashboard'
+import api from '../../services/api'
 
 const NOTIFICATIONS_STORAGE_KEY = 'crm.notifications.v1'
 const CALENDAR_STORAGE_KEY = 'crm.calendar.todos.v1'
@@ -113,7 +114,17 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
   useEffect(() => {
     function syncNotificationCount() {
       const nextData = readBellData(currentUser)
-      setBellData(nextData)
+      setBellData((current) => {
+        const serverItems = current.announcements.filter((item) => item.kind && item.kind !== 'announcement-local')
+        const mergedAnnouncements = [...serverItems, ...nextData.announcements]
+          .map((item) => ({ ...item, id: item.id || item._id || item.title }))
+        const uniqueAnnouncements = [...new Map(mergedAnnouncements.map((item) => [String(item.id), item])).values()].slice(0, 5)
+        return {
+          reminders: nextData.reminders,
+          announcements: uniqueAnnouncements,
+          count: nextData.reminders.length + uniqueAnnouncements.length
+        }
+      })
       if (nextData.count > previousNotificationCountRef.current) {
         playSound(notificationAudioRef)
       }
@@ -129,6 +140,39 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
       window.removeEventListener('crm-calendar-items-updated', syncNotificationCount)
     }
   }, [currentUser])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function syncServerNotifications() {
+      try {
+        const response = await api.get('/notifications')
+        if (cancelled) return
+        const serverAnnouncements = (response.data?.notifications || [])
+          .filter((item) => item.status !== 'Inactive')
+          .slice(0, 5)
+        setBellData((current) => {
+          const mergedAnnouncements = [...serverAnnouncements, ...current.announcements]
+            .map((item) => ({ ...item, id: item.id || item._id || item.title }))
+          const uniqueAnnouncements = [...new Map(mergedAnnouncements.map((item) => [String(item.id), item])).values()].slice(0, 5)
+          return {
+            reminders: current.reminders,
+            announcements: uniqueAnnouncements,
+            count: current.reminders.length + uniqueAnnouncements.length
+          }
+        })
+      } catch {
+        // Local reminder data still works when server notifications are temporarily unavailable.
+      }
+    }
+
+    syncServerNotifications()
+    const intervalId = window.setInterval(syncServerNotifications, 15000)
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   function handleProfile() {
     setMenuOpen(false)

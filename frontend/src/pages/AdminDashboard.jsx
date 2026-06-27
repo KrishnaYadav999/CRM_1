@@ -53,7 +53,6 @@ import Sidebar from '../components/dashboard/Sidebar'
 import Topbar from '../components/dashboard/Topbar'
 import UserActionsMenu from '../components/dashboard/UserActionsMenu'
 import UserDetailsModal from '../components/dashboard/UserDetailsModal'
-import BrandLoader from '../components/BrandLoader'
 import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
@@ -2826,7 +2825,9 @@ function SalesValueDrawer({ quotations = [], onClose }) {
 }
 
 export default function AdminDashboard() {
-  const [currentUser, setCurrentUser] = useState(null)
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('user') || 'null') } catch { return null }
+  })
   const [users, setUsers] = useState([])
   const [teams, setTeams] = useState([])
   const [clients, setClients] = useState([])
@@ -3081,6 +3082,7 @@ export default function AdminDashboard() {
       const meResponse = await api.get('/auth/me')
       const user = meResponse.data.user
       setCurrentUser(user)
+      localStorage.setItem('user', JSON.stringify(user))
 
       if (isUserManagementView) {
         if (adminRoles.includes(user.role)) {
@@ -3326,7 +3328,11 @@ export default function AdminDashboard() {
   }
 
   if (loading) {
-    return <BrandLoader message="Loading CRM command center" />
+    return (
+      <main className="min-h-screen bg-[#eef7f5] p-6 text-slate-900">
+        <div className="page-inline-loader">Loading dashboard data...</div>
+      </main>
+    )
   }
 
   return (

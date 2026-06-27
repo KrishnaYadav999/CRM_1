@@ -969,9 +969,13 @@ exports.updateAnnualReturn = async (req, res) => {
       updatedBy: req.user?._id
     });
     const mergedApprovalWorkflow = mergeAnnualWorkflowForSave(existingFiling.approvalWorkflow, filing.approvalWorkflow);
-    const existingStatus = String(existingFiling.status || existingFiling.approvalWorkflow?.status || '').toLowerCase();
+    const existingStatus = String(existingFiling.status || '').toLowerCase();
+    const existingWorkflowStatus = String(existingFiling.approvalWorkflow?.status || '').toLowerCase();
     const nextStatus = String(filing.status || mergedApprovalWorkflow.status || '').toLowerCase();
-    const shouldNotifyManager = nextStatus === 'manager_pending' && existingStatus !== 'manager_pending';
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const userSubmittedForManager = nextStatus === 'manager_pending' && !['manager', 'admin', 'superadmin', 'compliance'].includes(userRole);
+    const shouldNotifyManager = userSubmittedForManager;
+    const preventDuplicateManagerNotification = existingStatus === 'manager_pending' && existingWorkflowStatus === 'manager_pending';
 
     client.data = {
       ...currentData,
@@ -1000,7 +1004,12 @@ exports.updateAnnualReturn = async (req, res) => {
     const annualReturn = await upsertAnnualReturnRecord(client, annualYear, client.data.annualReturn.filings[annualYear], req.body, req.user?._id);
     let managerNotification = null;
     if (shouldNotifyManager) {
-      managerNotification = await notifyManagerAnnualSubmitted({ client, annualYear, submitter: req.user });
+      managerNotification = await notifyManagerAnnualSubmitted({
+        client,
+        annualYear,
+        submitter: req.user,
+        preventDuplicate: preventDuplicateManagerNotification
+      });
     }
     console.log('[AnnualReview:updateAnnualReturn] saved', {
       clientId: String(client._id),
