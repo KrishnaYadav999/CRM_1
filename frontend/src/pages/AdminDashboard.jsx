@@ -3172,10 +3172,11 @@ export default function AdminDashboard() {
       ])
 
       const nextClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
-      const nextLeads = mergeLeadSources(
+      const freshLeads = mergeLeadSources(
         leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [],
-        ccpLeadsResult.status === 'fulfilled' ? (ccpLeadsResult.value.data.leads || []) : []
+        ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false ? (ccpLeadsResult.value.data.leads || []) : []
       )
+      const nextLeads = freshLeads.length ? freshLeads : (cached?.leads || [])
       const nextQuotations = quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []
       const nextAnnualReturns = annualReturnsResult.status === 'fulfilled' ? (annualReturnsResult.value.data.annualReturns || []) : []
       const approvals = approvalsResult.status === 'fulfilled' ? approvalsResult.value.data : {}

@@ -11,11 +11,42 @@ function ccpApiBaseUrl() {
 
 const ccpApi = axios.create({
   baseURL: ccpApiBaseUrl(),
-  timeout: 2500,
+  timeout: 8000,
   headers: {
     Accept: 'application/json'
   }
 })
+
+const CCP_CACHE_PREFIX = 'crm.ccp.direct.cache.v2'
+
+function readCcpCache(key) {
+  const cacheKey = `${CCP_CACHE_PREFIX}.${key}`
+  const stores = [window.sessionStorage, window.localStorage].filter(Boolean)
+
+  for (const store of stores) {
+    try {
+      const parsed = JSON.parse(store.getItem(cacheKey) || '[]')
+      if (Array.isArray(parsed) && parsed.length) return parsed
+    } catch (error) {
+      /* cache miss */
+    }
+  }
+
+  return []
+}
+
+function writeCcpCache(key, rows) {
+  if (!Array.isArray(rows) || !rows.length) return
+
+  const cacheKey = `${CCP_CACHE_PREFIX}.${key}`
+  for (const store of [window.sessionStorage, window.localStorage].filter(Boolean)) {
+    try {
+      store.setItem(cacheKey, JSON.stringify(rows))
+    } catch (error) {
+      /* cache only */
+    }
+  }
+}
 
 function normalizeCollection(payload, key) {
   if (Array.isArray(payload)) return payload
@@ -102,20 +133,26 @@ async function fetchCcpCollection(path, key) {
   try {
     const response = await ccpApi.get(`/ccp/${path}`)
     const payload = response.data || {}
+    const rows = normalizeRows(normalizeCollection(payload, key), key)
+    if (rows.length) writeCcpCache(key, rows)
+    const cachedRows = rows.length ? [] : readCcpCache(key)
+
     return {
       data: {
         ok: payload.ok !== false,
-        [key]: normalizeRows(normalizeCollection(payload, key), key),
-        source: 'ccp-direct'
+        [key]: rows.length ? rows : cachedRows,
+        source: rows.length ? 'ccp-direct' : cachedRows.length ? 'ccp-cache' : 'ccp-direct'
       }
     }
   } catch (error) {
+    const cachedRows = readCcpCache(key)
+
     return {
       data: {
-        ok: false,
-        [key]: [],
+        ok: cachedRows.length > 0,
+        [key]: cachedRows,
         error: error.message || `Unable to fetch CCP ${path}`,
-        source: 'ccp-direct'
+        source: cachedRows.length ? 'ccp-cache' : 'ccp-direct'
       }
     }
   }

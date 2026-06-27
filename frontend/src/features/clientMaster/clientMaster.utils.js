@@ -363,7 +363,13 @@ function mergeClientSources(crmClients, ccpClients) {
 function readCachedOrFreshList(result, listKey, cacheKey) {
   if (result.status === 'fulfilled') {
     const list = result.value.data?.[listKey] || [];
-    writeBrowserCache(cacheKey, list);
+    const cached = readBrowserCache(cacheKey);
+    if (result.value.data?.ok === false) return cached;
+    if (list.length) {
+      writeBrowserCache(cacheKey, list);
+      return list;
+    }
+    if (cached.length) return cached;
     return list;
   }
   return readBrowserCache(cacheKey);

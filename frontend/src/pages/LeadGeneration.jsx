@@ -56,6 +56,27 @@ const tabs = [
   { id: 'contact', label: 'Contact', icon: ContactRound },
   { id: 'assign', label: 'Assign', icon: UserCheck }
 ];
+const LEAD_GENERATION_CACHE_KEY = 'crm.leadGeneration.leads.cache.v2';
+const LEAD_GENERATION_QUOTES_CACHE_KEY = 'crm.leadGeneration.quotations.cache.v1';
+
+function readCachedArray(key) {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(key) || localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedArray(key, rows) {
+  if (!Array.isArray(rows) || !rows.length) return;
+  const payload = JSON.stringify(rows);
+  try {
+    sessionStorage.setItem(key, payload);
+  } catch {
+    try { localStorage.setItem(key, payload); } catch { /* cache only */ }
+  }
+}
 
 const options = {
   communicationMode: ['TeleCalling', 'Referral', 'Physical Visit', 'Campaign', 'Existing Client' , 'Web Database'],
@@ -185,13 +206,24 @@ export default function LeadGeneration() {
       const meResponse = await api.get('/auth/me');
       const me = meResponse.data.user;
       setCurrentUser(me);
-      const [crmLeadsResult, ccpLeadsResult, quotationsResponse] = await Promise.all([
+      const [crmLeadsResult, ccpLeadsResult, quotationsResult] = await Promise.allSettled([
         api.get('/leads'),
         fetchCcpLeads(),
         api.get('/quotations')
       ]);
-      setLeads(mergeLeadSources(crmLeadsResult.data.leads || [], ccpLeadsResult.data.leads || []));
-      setQuotations(quotationsResponse.data.quotations || []);
+      const crmLeads = crmLeadsResult.status === 'fulfilled' ? (crmLeadsResult.value.data.leads || []) : [];
+      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false ? (ccpLeadsResult.value.data.leads || []) : [];
+      const mergedLeads = mergeLeadSources(crmLeads, ccpLeads);
+      const cachedLeads = readCachedArray(LEAD_GENERATION_CACHE_KEY);
+      const nextLeads = mergedLeads.length ? mergedLeads : cachedLeads;
+      setLeads(nextLeads);
+      writeCachedArray(LEAD_GENERATION_CACHE_KEY, nextLeads);
+
+      const freshQuotations = quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : [];
+      const cachedQuotations = readCachedArray(LEAD_GENERATION_QUOTES_CACHE_KEY);
+      const nextQuotations = freshQuotations.length ? freshQuotations : cachedQuotations;
+      setQuotations(nextQuotations);
+      writeCachedArray(LEAD_GENERATION_QUOTES_CACHE_KEY, nextQuotations);
       try {
         const usersResponse = await api.get('/auth/users');
         setStaff(usersResponse.data.users || []);
@@ -200,7 +232,8 @@ export default function LeadGeneration() {
       }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to fetch CCP lead data. Please check CCP backend on port 8081.');
-      setLeads([]);
+      setLeads(readCachedArray(LEAD_GENERATION_CACHE_KEY));
+      setQuotations(readCachedArray(LEAD_GENERATION_QUOTES_CACHE_KEY));
     } finally {
       setLoading(false);
     }
