@@ -140,6 +140,25 @@ function getItemStatusLabel(item, todayKey) {
   return 'Open';
 }
 
+function parseDateKey(value) {
+  const date = new Date(`${value || ''}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function diffDays(fromValue, toValue) {
+  const from = parseDateKey(fromValue);
+  const to = parseDateKey(toValue);
+  if (!from || !to) return 0;
+  return Math.round((to - from) / 86400000);
+}
+
+function getFollowUpProgress(item, todayKey) {
+  if (item.status === 'completed') return 100;
+  if (item.scheduledDate < todayKey) return 20;
+  if ((item.history || []).length) return 55;
+  return 35;
+}
+
 function extractList(response, key) {
   const data = response?.data;
   if (Array.isArray(data)) return data;
@@ -319,6 +338,10 @@ export default function CalendarTodo() {
   const revisedCount = items.filter((item) => (item.history || []).length && item.status !== 'completed').length;
   const overdueCount = items.filter((item) => getItemTone(item, todayKey) === 'overdue').length;
   const upcomingCount = items.filter((item) => getItemTone(item, todayKey) === 'open' && item.scheduledDate >= todayKey).length;
+  const followUpFlowItems = filteredItems
+    .filter((item) => item.type === 'follow-up' || item.category === 'Follow-Up')
+    .sort((a, b) => `${a.scheduledDate || ''} ${a.scheduledTime || ''}`.localeCompare(`${b.scheduledDate || ''} ${b.scheduledTime || ''}`))
+    .slice(0, 10);
   const selectedFollowUps = selectedDateItems.filter((item) => item.type === 'follow-up' || item.category === 'Follow-Up');
   const selectedTodos = selectedDateItems.filter((item) => !(item.type === 'follow-up' || item.category === 'Follow-Up'));
   const selectedTimeline = selectedDateItems
@@ -565,6 +588,8 @@ export default function CalendarTodo() {
             </ResponsiveContainer>
           </article>
         </motion.section>
+
+        <FollowUpFlowBoard items={followUpFlowItems} todayKey={todayKey} />
 
         <motion.section className="calendar-workspace-grid calendar-workspace-premium" variants={staggerGroup} initial="hidden" animate="show">
           <motion.div className="calendar-card calendar-month-card" variants={fadeUp} layout>
@@ -1055,6 +1080,75 @@ function MetricCard({ icon: Icon, label, value, note, tone }) {
       <span><Icon className="h-6 w-6" /></span>
       <div><p>{label}</p><strong>{value}</strong><small>{note}</small></div>
     </article>
+  );
+}
+
+function FollowUpFlowBoard({ items = [], todayKey }) {
+  const dateKeys = [todayKey, ...items.map((item) => item.scheduledDate).filter(Boolean)].sort();
+  const startKey = dateKeys[0] || todayKey;
+  const endKey = dateKeys[dateKeys.length - 1] || todayKey;
+  const totalDays = Math.max(1, diffDays(startKey, endKey) + 2);
+  const todayOffset = Math.max(0, Math.min(100, (diffDays(startKey, todayKey) / totalDays) * 100));
+
+  return (
+    <motion.section className="followup-flow-board" variants={fadeUp} initial="hidden" animate="show" layout>
+      <div className="followup-flow-head">
+        <div>
+          <span>Follow-Up Flow</span>
+          <strong>Scheduled follow-up timeline</strong>
+        </div>
+        <p>{items.length} active follow-ups</p>
+      </div>
+      <div className="followup-flow-table">
+        <div className="followup-flow-month">
+          <span>{formatHumanDate(startKey)}</span>
+          <strong>Follow-Up Window</strong>
+          <span>{formatHumanDate(endKey)}</span>
+        </div>
+        <div className="followup-flow-head-row">
+          <span>WBS</span>
+          <span>Task</span>
+          <span>Assigned</span>
+          <span>Done</span>
+          <span>Timeline</span>
+        </div>
+        <div className="followup-flow-body">
+          <i className="followup-flow-today" style={{ left: `${todayOffset}%` }}><b>Today</b></i>
+          {items.length ? items.map((item, index) => {
+            const tone = getItemTone(item, todayKey);
+            const progress = getFollowUpProgress(item, todayKey);
+            const offset = Math.max(0, Math.min(82, (diffDays(startKey, item.scheduledDate) / totalDays) * 100));
+            const width = item.status === 'completed' ? 18 : tone === 'overdue' ? 24 : 28;
+            const assigned = item.assignedToName || item.assignedTo || item.createdBy || 'Unassigned';
+            return (
+              <motion.div
+                key={item.id}
+                className={`followup-flow-row followup-flow-row-${tone}`}
+                initial={{ opacity: 0, x: -14 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.26, delay: index * 0.035 }}
+              >
+                <span>{index + 1}</span>
+                <strong>{item.title}</strong>
+                <em>{assigned}</em>
+                <div className="followup-flow-ring" style={{ '--done': `${progress}%` }}><b>{progress}</b></div>
+                <div className="followup-flow-track">
+                  <i style={{ left: `${offset}%`, width: `${width}%` }}>
+                    <b>{getItemStatusLabel(item, todayKey)}</b>
+                  </i>
+                  <aside className="followup-flow-analysis">
+                    <strong>{item.title}</strong>
+                    <span>{formatHumanDate(item.scheduledDate)} {item.scheduledTime || 'All day'}</span>
+                    <p>Status: {getItemStatusLabel(item, todayKey)}</p>
+                    <small>{item.status === 'completed' ? `Completed: ${formatHumanDate(item.completedAt)}${item.completionRemarks ? ` - ${item.completionRemarks}` : ''}` : item.description || 'Pending follow-up action'}</small>
+                  </aside>
+                </div>
+              </motion.div>
+            );
+          }) : <div className="followup-flow-empty">No follow-ups found. Add a Follow-Up to see the flow.</div>}
+        </div>
+      </div>
+    </motion.section>
   );
 }
 
