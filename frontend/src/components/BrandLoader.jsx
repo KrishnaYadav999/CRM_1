@@ -42,15 +42,10 @@ function CommandLoader({ message, dismissAfterMs = 0 }) {
           <LoaderRing />
         </div>
       </div>
-      <div className="workspace-loader-stage" aria-hidden="true">
-        <div className="workspace-loader-hand workspace-loader-hand-left" />
-        <div className="workspace-loader-hand workspace-loader-hand-right" />
-        <div className="workspace-loader-bin workspace-loader-bin-a"><i /></div>
-        <div className="workspace-loader-bin workspace-loader-bin-b"><i /></div>
-        <div className="workspace-loader-bin workspace-loader-bin-c"><i /></div>
-        <div className="workspace-loader-item workspace-loader-item-a" />
-        <div className="workspace-loader-item workspace-loader-item-b" />
-        <div className="workspace-loader-item workspace-loader-item-c" />
+      <div className="workspace-loader-video" aria-hidden="true">
+        <video autoPlay muted loop playsInline preload="auto">
+          <source src="/video/crm_vid.mp4" type="video/mp4" />
+        </video>
       </div>
       <div className="workspace-loader-services" aria-hidden="true">
         {serviceLabels.map((label) => <span key={label}>{label}</span>)}
