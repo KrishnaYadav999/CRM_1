@@ -62,3 +62,93 @@ Create frontend:
 - Add User modal with role, team, manager, operation head fields.
 - Create Team modal with manager required, operation head optional, member list filtered by selected manager.
 - Use fast loading for User Management: only fetch `me`, `users`, and `teams`; do not fetch leads, clients, quotations, or annual return data on this route.
+
+## CRM and CCP Two-Way User Sync
+
+CRM already supports the two-way user sync contract below. Build the same contract in CCP.
+
+### CRM to CCP
+When a user is created or updated in CRM, CRM posts to:
+
+- `POST https://ccp-henna.vercel.app/api/crm/users/sync`
+
+Use environment override in CRM backend:
+
+- `CCP_USER_SYNC_URL=https://ccp-henna.vercel.app/api/crm/users/sync`
+- `CCP_SHARED_SECRET=<same secret in CRM and CCP>`
+- `CCP_SYNC_PASSWORD=true` only if CCP should receive first-login password during create.
+
+CRM sends payload:
+
+```json
+{
+  "action": "create",
+  "crmUserId": "crm mongo id",
+  "ccpUserId": "existing ccp id if linked",
+  "name": "User Name",
+  "email": "user@example.com",
+  "avatarUrl": "",
+  "role": "manager",
+  "team": "Operations",
+  "teamId": "optional crm team id",
+  "managerId": "optional crm manager id",
+  "operationHeadId": "optional crm operation head id",
+  "isActive": true,
+  "source": "crm",
+  "createdAt": "date",
+  "updatedAt": "date"
+}
+```
+
+CCP must upsert by `crmUserId`, then by `email`. CCP response should include the final CCP user id:
+
+```json
+{
+  "ok": true,
+  "ccpUserId": "ccp user id",
+  "user": {
+    "_id": "ccp user id",
+    "crmUserId": "crm mongo id",
+    "email": "user@example.com"
+  }
+}
+```
+
+### CCP to CRM
+When a user is created or updated in CCP, CCP must post to CRM:
+
+- `POST <CRM_BACKEND_URL>/api/auth/ccp/users/sync`
+- Header: `x-ccp-secret: <same shared secret>`
+
+Payload:
+
+```json
+{
+  "action": "create",
+  "ccpUserId": "ccp user id",
+  "name": "User Name",
+  "email": "user@example.com",
+  "role": "operation",
+  "team": "No team assigned",
+  "teamId": "",
+  "managerId": "",
+  "operationHeadId": "",
+  "avatarUrl": "",
+  "isActive": true,
+  "source": "ccp",
+  "password": "optional minimum 8 chars"
+}
+```
+
+CRM will upsert by `ccpUserId`, then by `email`. If email belongs to another linked user, CRM returns `409` so CCP should show a clear duplicate email error.
+
+### CRM User Pull for CCP
+CCP can fetch active CRM users from:
+
+- `GET <CRM_BACKEND_URL>/api/auth/ccp/users`
+- Header: `x-ccp-secret: <same shared secret>`
+
+This returns active CRM users with `id`, `_id`, `ccpUserId`, `source`, `name`, `email`, `role`, `team`, `teamId`, `managerId`, `operationHeadId`, `avatarUrl`, `isActive`, `createdAt`, and `updatedAt`.
+
+### CCP Implementation Prompt
+Build CCP user management sync with CRM. Add `POST /api/crm/users/sync` in CCP to receive CRM-created and CRM-updated users. Upsert by `crmUserId`, then email, save `crmUserId`, and return `{ ok: true, ccpUserId, user }`. On CCP user create/update, call CRM `POST /api/auth/ccp/users/sync` with `x-ccp-secret`, stable `ccpUserId`, email, role, team, manager, operation head, active status, and source `ccp`. Also add a manual resync button in CCP admin that calls CRM `GET /api/auth/ccp/users` and upserts active CRM users into CCP. Never create duplicate users for the same email or same linked id.

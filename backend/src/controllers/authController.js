@@ -422,7 +422,7 @@ exports.listUsers = async (req, res) => {
 
 exports.listActiveUsers = async (req, res) => {
   const users = await User.find({ isActive: true })
-    .select('name email avatarUrl role team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
+    .select('ccpUserId source name email avatarUrl role team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, email: 1 });
   res.json({ ok: true, users });
 };

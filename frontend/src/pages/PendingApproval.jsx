@@ -14,7 +14,8 @@ const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function readPendingApprovalCache() {
   try {
-    const parsed = JSON.parse(sessionStorage.getItem(PENDING_APPROVAL_CACHE_KEY) || 'null');
+    const raw = sessionStorage.getItem(PENDING_APPROVAL_CACHE_KEY) || localStorage.getItem(PENDING_APPROVAL_CACHE_KEY) || 'null';
+    const parsed = JSON.parse(raw);
     if (!parsed || Date.now() - Number(parsed.savedAt || 0) > PENDING_APPROVAL_CACHE_TTL_MS) return null;
     return parsed.data || null;
   } catch {
@@ -23,8 +24,14 @@ function readPendingApprovalCache() {
 }
 
 function writePendingApprovalCache(data) {
+  const payload = JSON.stringify({ savedAt: Date.now(), data });
   try {
-    sessionStorage.setItem(PENDING_APPROVAL_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
+    sessionStorage.setItem(PENDING_APPROVAL_CACHE_KEY, payload);
+  } catch {
+    // Cache is only for faster navigation.
+  }
+  try {
+    localStorage.setItem(PENDING_APPROVAL_CACHE_KEY, payload);
   } catch {
     // Cache is only for faster navigation.
   }

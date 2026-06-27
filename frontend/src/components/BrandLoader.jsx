@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
 import { brand } from '../constants/brand';
 
+const serviceLabels = [
+  'Waste Advisory',
+  'Risk Management',
+  'CSR',
+  'ESG',
+  'EPR Credits'
+];
+
 function LoaderRing() {
   return (
     <svg className="crm-loader-ring" width={240} height={240} viewBox="0 0 240 240" aria-hidden="true">
@@ -15,14 +23,37 @@ function LoaderRing() {
 function CommandLoader({ message, dismissAfterMs = 0 }) {
   return (
     <div
-      className={`fixed inset-0 z-[9999] grid place-items-center bg-[#f3f6f8] px-4 ${dismissAfterMs ? 'brand-loader-dismiss' : ''}`}
+      className={`brand-loader brand-loader-workspace ${dismissAfterMs ? 'brand-loader-dismiss' : ''}`}
       role="status"
       aria-live="polite"
       aria-label={message}
       style={dismissAfterMs ? { '--loader-dismiss-delay': `${dismissAfterMs}ms` } : undefined}
     >
-      <div className="grid h-28 w-28 place-items-center sm:h-36 sm:w-36">
-        <LoaderRing />
+      <div className="brand-loader-grid" />
+      <div className="workspace-loader-panel">
+        <div className="workspace-loader-logo">
+          <img src={brand.logoUrl} alt={brand.name} />
+        </div>
+        <div className="workspace-loader-copy">
+          <strong>{brand.name}</strong>
+          <span>{message}</span>
+        </div>
+        <div className="workspace-loader-ring">
+          <LoaderRing />
+        </div>
+      </div>
+      <div className="workspace-loader-stage" aria-hidden="true">
+        <div className="workspace-loader-hand workspace-loader-hand-left" />
+        <div className="workspace-loader-hand workspace-loader-hand-right" />
+        <div className="workspace-loader-bin workspace-loader-bin-a"><i /></div>
+        <div className="workspace-loader-bin workspace-loader-bin-b"><i /></div>
+        <div className="workspace-loader-bin workspace-loader-bin-c"><i /></div>
+        <div className="workspace-loader-item workspace-loader-item-a" />
+        <div className="workspace-loader-item workspace-loader-item-b" />
+        <div className="workspace-loader-item workspace-loader-item-c" />
+      </div>
+      <div className="workspace-loader-services" aria-hidden="true">
+        {serviceLabels.map((label) => <span key={label}>{label}</span>)}
       </div>
     </div>
   );

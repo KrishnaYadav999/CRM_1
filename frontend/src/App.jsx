@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import BrandLoader from './components/BrandLoader'
 import ProtectedRoute from './components/ProtectedRoute'
 
 const Login = lazy(() => import('./pages/Login'))
@@ -17,7 +18,7 @@ const NotFound = lazy(() => import('./pages/NotFound'))
 function App(){
   return (
     <div className="min-h-screen bg-emerald-50">
-      <Suspense fallback={<div className="min-h-screen bg-[#eef7f5]" />}>
+      <Suspense fallback={<BrandLoader message="Opening CRM workspace" />}>
         <Routes>
           <Route path="/" element={<Login/>} />
           <Route path="/verify" element={<VerifyOtp/>} />
