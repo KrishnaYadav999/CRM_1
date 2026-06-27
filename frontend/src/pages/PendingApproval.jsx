@@ -3,11 +3,32 @@ import { ArrowLeft, Check, Clock3, Edit3, Eye, FileText, RefreshCw, ShieldCheck,
 import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
+import BrandLoader from '../components/BrandLoader';
 import ToastMessage from '../components/ToastMessage';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 
 const rowsPerPage = 5;
+const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v2';
+const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function readPendingApprovalCache() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(PENDING_APPROVAL_CACHE_KEY) || 'null');
+    if (!parsed || Date.now() - Number(parsed.savedAt || 0) > PENDING_APPROVAL_CACHE_TTL_MS) return null;
+    return parsed.data || null;
+  } catch {
+    return null;
+  }
+}
+
+function writePendingApprovalCache(data) {
+  try {
+    sessionStorage.setItem(PENDING_APPROVAL_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
+  } catch {
+    // Cache is only for faster navigation.
+  }
+}
 
 function statusBadge(value) {
   const status = String(value || 'PENDING').toUpperCase();
@@ -24,9 +45,10 @@ export default function PendingApproval() {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   });
   const [profileOpen, setProfileOpen] = useState(false);
-  const [pendingClients, setPendingClients] = useState([]);
-  const [pendingQuotations, setPendingQuotations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cachedApprovalData = useMemo(() => readPendingApprovalCache(), []);
+  const [pendingClients, setPendingClients] = useState(() => cachedApprovalData?.pendingClients || []);
+  const [pendingQuotations, setPendingQuotations] = useState(() => cachedApprovalData?.pendingQuotations || []);
+  const [loading, setLoading] = useState(() => !cachedApprovalData);
   const [profileSaving, setProfileSaving] = useState(false);
   const [savingId, setSavingId] = useState('');
   const [error, setError] = useState('');
@@ -50,7 +72,7 @@ export default function PendingApproval() {
   ), [pendingQuotations, quotePage]);
 
   useEffect(() => {
-    loadPage();
+    loadPage({ silent: Boolean(cachedApprovalData) });
   }, []);
 
   useEffect(() => {
@@ -59,7 +81,15 @@ export default function PendingApproval() {
   }, [location.search]);
 
   async function loadPage(options = {}) {
-    if (!options.silent) setLoading(true);
+    const cached = !options.force ? readPendingApprovalCache() : null;
+    if (cached && !options.force) {
+      setPendingClients(cached.pendingClients || []);
+      setPendingQuotations(cached.pendingQuotations || []);
+      if (cached.currentUser) setCurrentUser(cached.currentUser);
+      setLoading(false);
+    } else if (!options.silent) {
+      setLoading(true);
+    }
     setError('');
 
     try {
@@ -69,14 +99,20 @@ export default function PendingApproval() {
       ]);
       setCurrentUser(meResponse.data.user);
       localStorage.setItem('user', JSON.stringify(meResponse.data.user));
-      setPendingClients(approvalsResponse.data.pendingClients || []);
-      setPendingQuotations(approvalsResponse.data.pendingQuotations || []);
+      const snapshot = {
+        currentUser: meResponse.data.user,
+        pendingClients: approvalsResponse.data.pendingClients || [],
+        pendingQuotations: approvalsResponse.data.pendingQuotations || []
+      };
+      setPendingClients(snapshot.pendingClients);
+      setPendingQuotations(snapshot.pendingQuotations);
+      writePendingApprovalCache(snapshot);
       setClientPage(1);
       setQuotePage(1);
     } catch (err) {
       setError(readError(err, 'Unable to load pending approvals.'));
     } finally {
-      if (!options.silent) setLoading(false);
+      if (!options.silent || !cached) setLoading(false);
     }
   }
 
@@ -100,7 +136,7 @@ export default function PendingApproval() {
         payload: row?.payload
       });
       setNotice(`Approval ${status.toLowerCase()} successfully.`);
-      await loadPage({ silent: true });
+      await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to update approval.'));
     } finally {
@@ -122,7 +158,7 @@ export default function PendingApproval() {
         remarks: `${status === 'APPROVED' ? 'Approved' : 'Rejected'} from Pending Approval`
       });
       setNotice(`Quotation ${status.toLowerCase()} successfully.`);
-      await loadPage({ silent: true });
+      await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to update quotation approval.'));
     } finally {
@@ -166,7 +202,7 @@ export default function PendingApproval() {
         remarks: 'Bulk approved from Pending Approval'
       });
       setNotice(`${response.data.approved || 0} pending client approvals completed.`);
-      await loadPage({ silent: true });
+      await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to approve all pending clients.'));
     } finally {
@@ -186,7 +222,7 @@ export default function PendingApproval() {
         remarks: 'Bulk approved from Pending Approval'
       });
       setNotice(`${response.data.approved || 0} pending quotation approvals completed.`);
-      await loadPage({ silent: true });
+      await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to approve all pending quotations.'));
     } finally {
@@ -222,6 +258,10 @@ export default function PendingApproval() {
     navigate('/', { replace: true });
   }
 
+  if (loading && !pendingClients.length && !pendingQuotations.length) {
+    return <BrandLoader message="Loading approval desk" />;
+  }
+
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
       <div className="pending-approval-page">
@@ -249,7 +289,7 @@ export default function PendingApproval() {
             </div>
             <button
               type="button"
-              onClick={loadPage}
+              onClick={() => loadPage({ force: true })}
               className="pending-refresh-button"
             >
               <RefreshCw className="h-4 w-4" />
@@ -259,7 +299,7 @@ export default function PendingApproval() {
 
           {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
           {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
-          {loading && <div className="page-inline-loader">Loading approval data...</div>}
+          {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
 
           <div className="pending-metrics">
             <Metric icon={Clock3} label="Pending Clients" value={pendingClients.length} />

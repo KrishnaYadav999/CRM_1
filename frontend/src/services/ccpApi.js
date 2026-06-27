@@ -11,6 +11,7 @@ function ccpApiBaseUrl() {
 
 const ccpApi = axios.create({
   baseURL: ccpApiBaseUrl(),
+  timeout: 2500,
   headers: {
     Accept: 'application/json'
   }

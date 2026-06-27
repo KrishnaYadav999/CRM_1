@@ -53,6 +53,7 @@ import Sidebar from '../components/dashboard/Sidebar'
 import Topbar from '../components/dashboard/Topbar'
 import UserActionsMenu from '../components/dashboard/UserActionsMenu'
 import UserDetailsModal from '../components/dashboard/UserDetailsModal'
+import BrandLoader from '../components/BrandLoader'
 import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
@@ -60,6 +61,26 @@ import api from '../services/api'
 import { fetchCcpLeads } from '../services/ccpApi'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v2'
+const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
+
+function readSessionCache(key, ttlMs = DASHBOARD_CACHE_TTL_MS) {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(key) || 'null')
+    if (!parsed || Date.now() - Number(parsed.savedAt || 0) > ttlMs) return null
+    return parsed.data || null
+  } catch {
+    return null
+  }
+}
+
+function writeSessionCache(key, data) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), data }))
+  } catch {
+    // Cache is only for faster navigation.
+  }
+}
 
 function readCalendarTodoItems() {
   try {
@@ -3074,8 +3095,27 @@ export default function AdminDashboard() {
     }
   }, [piboCards, selectedPiboCategory])
 
-  async function loadDashboard() {
-    setLoading(true)
+  function applyDashboardData(snapshot = {}) {
+    if (snapshot.currentUser) setCurrentUser(snapshot.currentUser)
+    setUsers(snapshot.users || [])
+    setTeams(snapshot.teams || [])
+    setClients(snapshot.clients || [])
+    setLeads(snapshot.leads || [])
+    setQuotations(snapshot.quotations || [])
+    setAnnualReturns(snapshot.annualReturns || [])
+    setPendingClients(snapshot.pendingClients || [])
+    setPendingQuotations(snapshot.pendingQuotations || [])
+  }
+
+  async function loadDashboard(options = {}) {
+    const cacheKey = `${DASHBOARD_CACHE_KEY}:${location.pathname}`
+    const cached = !options.force ? readSessionCache(cacheKey) : null
+    if (cached) {
+      applyDashboardData(cached)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     setError('')
 
     try {
@@ -3090,12 +3130,34 @@ export default function AdminDashboard() {
             api.get('/auth/admin/users'),
             api.get('/teams')
           ])
-          setUsers(usersResponse.data.users || [])
-          setTeams(teamsResponse.data.teams || [])
+          const snapshot = {
+            currentUser: user,
+            users: usersResponse.data.users || [],
+            teams: teamsResponse.data.teams || [],
+            clients: [],
+            leads: [],
+            quotations: [],
+            annualReturns: [],
+            pendingClients: [],
+            pendingQuotations: []
+          }
+          applyDashboardData(snapshot)
+          writeSessionCache(cacheKey, snapshot)
         } else {
           const usersResponse = await api.get('/auth/users')
-          setUsers(usersResponse.data.users || [user])
-          setTeams([])
+          const snapshot = {
+            currentUser: user,
+            users: usersResponse.data.users || [user],
+            teams: [],
+            clients: [],
+            leads: [],
+            quotations: [],
+            annualReturns: [],
+            pendingClients: [],
+            pendingQuotations: []
+          }
+          applyDashboardData(snapshot)
+          writeSessionCache(cacheKey, snapshot)
         }
         return
       }
@@ -3109,31 +3171,46 @@ export default function AdminDashboard() {
         api.get('/clients/pending-approvals')
       ])
 
-      setClients(clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : [])
-      setLeads(mergeLeadSources(
+      const nextClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
+      const nextLeads = mergeLeadSources(
         leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [],
         ccpLeadsResult.status === 'fulfilled' ? (ccpLeadsResult.value.data.leads || []) : []
-      ))
-      setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : [])
-      setAnnualReturns(annualReturnsResult.status === 'fulfilled' ? (annualReturnsResult.value.data.annualReturns || []) : [])
+      )
+      const nextQuotations = quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []
+      const nextAnnualReturns = annualReturnsResult.status === 'fulfilled' ? (annualReturnsResult.value.data.annualReturns || []) : []
       const approvals = approvalsResult.status === 'fulfilled' ? approvalsResult.value.data : {}
-      setPendingClients(approvals.pendingClients || [])
-      setPendingQuotations(approvals.pendingQuotations || [])
+      const nextPendingClients = approvals.pendingClients || []
+      const nextPendingQuotations = approvals.pendingQuotations || []
 
+      let nextUsers = []
+      let nextTeams = []
       if (adminRoles.includes(user.role)) {
         const [usersResponse, teamsResponse] = await Promise.all([
           api.get('/auth/admin/users'),
           api.get('/teams')
         ])
-        setUsers(usersResponse.data.users || [])
-        setTeams(teamsResponse.data.teams || [])
+        nextUsers = usersResponse.data.users || []
+        nextTeams = teamsResponse.data.teams || []
       } else {
         const usersResponse = await api.get('/auth/users')
-        setUsers(usersResponse.data.users || [user])
-        setTeams([])
+        nextUsers = usersResponse.data.users || [user]
+        nextTeams = []
       }
+      const snapshot = {
+        currentUser: user,
+        users: nextUsers,
+        teams: nextTeams,
+        clients: nextClients,
+        leads: nextLeads,
+        quotations: nextQuotations,
+        annualReturns: nextAnnualReturns,
+        pendingClients: nextPendingClients,
+        pendingQuotations: nextPendingQuotations
+      }
+      applyDashboardData(snapshot)
+      writeSessionCache(cacheKey, snapshot)
     } catch (err) {
-      setError(err?.response?.data?.error || 'Unable to load dashboard')
+      if (!cached) setError(err?.response?.data?.error || 'Unable to load dashboard')
     } finally {
       setLoading(false)
     }
@@ -3328,11 +3405,7 @@ export default function AdminDashboard() {
   }
 
   if (loading) {
-    return (
-      <main className="min-h-screen bg-[#eef7f5] p-6 text-slate-900">
-        <div className="page-inline-loader">Loading dashboard data...</div>
-      </main>
-    )
+    return <BrandLoader message="Loading CRM command center" />
   }
 
   return (
@@ -3400,7 +3473,7 @@ export default function AdminDashboard() {
                 <div className="operations-hero-actions">
                   <button
                     type="button"
-                    onClick={loadDashboard}
+                    onClick={() => loadDashboard({ force: true })}
                     className="btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-teal-200 bg-white px-4 font-black text-teal-700 shadow-sm transition hover:bg-teal-50"
                   >
                     <RefreshCw className="h-4 w-4" />
@@ -3702,7 +3775,7 @@ export default function AdminDashboard() {
                     </select>
                     <button
                       type="button"
-                      onClick={loadDashboard}
+                      onClick={() => loadDashboard({ force: true })}
                       className="btn-lift inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 hover:bg-emerald-50"
                     >
                       <RefreshCw className="h-4 w-4" />
