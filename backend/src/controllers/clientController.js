@@ -3,6 +3,7 @@ const Client = require('../models/Client');
 const Quotation = require('../models/Quotation');
 const AnnualReturn = require('../models/AnnualReturn');
 const PendingApproval = require('../models/PendingApproval');
+const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
 const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
@@ -968,6 +969,9 @@ exports.updateAnnualReturn = async (req, res) => {
       updatedBy: req.user?._id
     });
     const mergedApprovalWorkflow = mergeAnnualWorkflowForSave(existingFiling.approvalWorkflow, filing.approvalWorkflow);
+    const existingStatus = String(existingFiling.status || existingFiling.approvalWorkflow?.status || '').toLowerCase();
+    const nextStatus = String(filing.status || mergedApprovalWorkflow.status || '').toLowerCase();
+    const shouldNotifyManager = nextStatus === 'manager_pending' && existingStatus !== 'manager_pending';
 
     client.data = {
       ...currentData,
@@ -994,6 +998,10 @@ exports.updateAnnualReturn = async (req, res) => {
     client.markModified('data');
     await client.save();
     const annualReturn = await upsertAnnualReturnRecord(client, annualYear, client.data.annualReturn.filings[annualYear], req.body, req.user?._id);
+    let managerNotification = null;
+    if (shouldNotifyManager) {
+      managerNotification = await notifyManagerAnnualSubmitted({ client, annualYear, submitter: req.user });
+    }
     console.log('[AnnualReview:updateAnnualReturn] saved', {
       clientId: String(client._id),
       annualYear,
@@ -1013,7 +1021,7 @@ exports.updateAnnualReturn = async (req, res) => {
         }
       ]))
     });
-    res.json({ ok: true, client, annualReturn: client.data.annualReturn.filings[annualYear], annualReturnRecord: annualReturn });
+    res.json({ ok: true, client, annualReturn: client.data.annualReturn.filings[annualYear], annualReturnRecord: annualReturn, managerNotification });
   } catch (err) {
     console.error('Annual return update error', err);
     const message = err?.name === 'ValidationError'

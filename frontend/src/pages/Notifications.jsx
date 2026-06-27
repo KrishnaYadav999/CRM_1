@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, Bell, Download, Edit3, Eye, FileText, Filter, LayoutGrid, ListChecks, Megaphone, Pin, PinOff, Plus, Search, Sparkles, Trash2, Upload, X } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Archive, Bell, Download, Edit3, Eye, FileText, Filter, LayoutGrid, ListChecks, Pin, PinOff, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import gsap from 'gsap';
 import DashboardShell from '../components/dashboard/DashboardShell';
+import api from '../services/api';
 
 const STORAGE_KEY = 'crm.notifications.v1';
 const tags = ['Training Material', 'Compliance SOPs', 'Company Profile', 'Policy Update', 'Internal Memo'];
@@ -131,14 +131,7 @@ export default function Notifications() {
   const [modalMode, setModalMode] = useState('');
   const [draft, setDraft] = useState(() => emptyDraft());
   const [selected, setSelected] = useState(null);
-
-  const activeCount = notifications.filter((item) => item.status === 'Active').length;
-  const inactiveCount = notifications.filter((item) => item.status === 'Inactive').length;
-  const attachmentCount = notifications.filter((item) => item.attachmentName).length;
-  const pinnedCount = notifications.filter((item) => item.pinned).length;
-  const latestItem = notifications
-    .slice()
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+  const [serverLoading, setServerLoading] = useState(false);
 
   const filteredNotifications = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -152,17 +145,11 @@ export default function Notifications() {
       .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || new Date(b.createdAt) - new Date(a.createdAt));
   }, [notifications, query, statusFilter, tagFilter]);
 
-  const selectedItems = useMemo(() => notifications.filter((item) => selectedIds.includes(item.id)), [notifications, selectedIds]);
-  const tagChartData = useMemo(() => tags.map((tag) => ({
-    tag: tag.replace(' Material', '').replace('Compliance ', ''),
-    count: notifications.filter((item) => item.tag === tag).length
-  })), [notifications]);
-  const featuredItems = useMemo(() => notifications.filter((item) => item.pinned).slice(0, 3), [notifications]);
 
   useEffect(() => {
     const context = gsap.context(() => {
       gsap.from('.notifications-hero', { opacity: 0, y: 18, duration: 0.45, ease: 'power3.out' });
-      gsap.from('.notifications-stat, .notifications-panel, .notifications-insights', {
+      gsap.from('.notifications-panel', {
         opacity: 0,
         y: 16,
         duration: 0.42,
@@ -191,6 +178,29 @@ export default function Notifications() {
     setSelectedIds((ids) => ids.filter((id) => filteredNotifications.some((item) => item.id === id)));
   }, [filteredNotifications]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setServerLoading(true);
+    api.get('/notifications')
+      .then((response) => {
+        if (cancelled) return;
+        const serverItems = Array.isArray(response.data?.notifications) ? response.data.notifications : [];
+        if (serverItems.length) {
+          setNotifications((current) => {
+            const localItems = current.filter((item) => !item.kind || item.kind === 'announcement-local');
+            const merged = [...serverItems, ...localItems]
+              .map((item) => ({ pinned: false, status: 'Active', ...item, id: item.id || item._id || `notice-${Date.now()}` }));
+            return [...new Map(merged.map((item) => [String(item.id), item])).values()];
+          });
+        }
+      })
+      .catch((err) => console.warn('Unable to load server notifications', err?.message || err))
+      .finally(() => {
+        if (!cancelled) setServerLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   function persist(nextItems) {
     setNotifications(nextItems);
     writeNotifications(nextItems);
@@ -215,7 +225,7 @@ export default function Notifications() {
     setModalMode('edit');
   }
 
-  function saveNotification() {
+  async function saveNotification() {
     if (!draft.title.trim() || !draft.description.trim() || !draft.tag) return;
     const author = currentUser?.name || currentUser?.email || 'Current User';
     if (modalMode === 'edit') {
@@ -232,21 +242,25 @@ export default function Notifications() {
         updatedBy: author
       } : item));
     } else {
-      persist([
-        {
-          id: `notice-${Date.now()}`,
-          title: draft.title.trim(),
-          description: draft.description.trim(),
-          tag: draft.tag,
-          status: draft.status || 'Active',
-          attachmentName: draft.attachmentName,
-          attachmentUrl: draft.attachmentUrl,
-          pinned: Boolean(draft.pinned),
-          createdBy: author,
-          createdAt: new Date().toISOString()
-        },
-        ...notifications
-      ]);
+      const localItem = {
+        id: `notice-${Date.now()}`,
+        title: draft.title.trim(),
+        description: draft.description.trim(),
+        tag: draft.tag,
+        status: draft.status || 'Active',
+        attachmentName: draft.attachmentName,
+        attachmentUrl: draft.attachmentUrl,
+        pinned: Boolean(draft.pinned),
+        createdBy: author,
+        createdAt: new Date().toISOString(),
+        kind: 'announcement-local'
+      };
+      try {
+        const response = await api.post('/notifications', localItem);
+        persist([response.data?.notification || localItem, ...notifications]);
+      } catch {
+        persist([localItem, ...notifications]);
+      }
     }
     setModalMode('');
     setSelectedIds([]);
@@ -302,6 +316,12 @@ export default function Notifications() {
     link.click();
   }
 
+  function previewAttachment(item) {
+    if (!item?.attachmentName) return;
+    const href = item.attachmentUrl || `data:text/plain;charset=utf-8,${encodeURIComponent(item.description || item.title || item.attachmentName)}`;
+    window.open(href, '_blank', 'noopener,noreferrer');
+  }
+
   function handleAttachment(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -321,31 +341,19 @@ export default function Notifications() {
             <h1>Announcements that stay organized.</h1>
             <p>Create, publish, and manage every internal update with sharper filters, attachment tracking, and a cleaner review flow.</p>
           </div>
-          <div className="notifications-hero-summary">
-            <span><Sparkles className="h-3.5 w-3.5" /> Latest update</span>
-            <strong>{latestItem ? latestItem.title : 'No notifications yet'}</strong>
-            <small>{latestItem ? formatDate(latestItem.createdAt) : 'Create your first team update'}</small>
-          </div>
           <div className="notifications-hero-actions">
             <button type="button" onClick={openCreate}><Plus className="h-4 w-4" /> Add Notification</button>
             <button type="button" onClick={() => setStatusFilter((value) => value === 'Inactive' ? 'Active' : 'Inactive')}><Archive className="h-4 w-4" /> {statusFilter === 'Inactive' ? 'Show Active' : 'Show Inactive'}</button>
           </div>
         </section>
 
-        <section className="notifications-stats">
-          <StatCard icon={Megaphone} label="Active" value={activeCount} tone="green" />
-          <StatCard icon={Archive} label="Inactive" value={inactiveCount} tone="slate" />
-          <StatCard icon={FileText} label="Attachments" value={attachmentCount} tone="blue" />
-          <StatCard icon={Pin} label="Pinned" value={pinnedCount} tone="violet" />
-        </section>
-
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="mt-4 grid gap-4">
         <section className="notifications-panel">
           <div className="notifications-panel-head">
             <div className="notifications-panel-titlebar">
               <div>
                 <strong>Notification Library</strong>
-                <span>{filteredNotifications.length} record{filteredNotifications.length === 1 ? '' : 's'} found</span>
+                <span>{serverLoading ? 'Syncing...' : `${filteredNotifications.length} record${filteredNotifications.length === 1 ? '' : 's'} found`}</span>
               </div>
               <div className="notifications-status-tabs" aria-label="Notification status filters">
                 {['Active', 'Inactive', ''].map((status) => (
@@ -425,32 +433,6 @@ export default function Notifications() {
           </div>
         </section>
 
-        <aside className="notifications-insights">
-          <div className="notifications-insights-head">
-            <span><Sparkles className="h-4 w-4" /> Live Insights</span>
-            <strong>{latestItem ? formatDate(latestItem.createdAt).split(',')[0] : '-'}</strong>
-          </div>
-          <div className="notifications-chart">
-            <ResponsiveContainer width="100%" height={210}>
-              <BarChart data={tagChartData} margin={{ top: 8, right: 8, left: -24, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="tag" tick={{ fontSize: 10, fontWeight: 800, fill: '#64748b' }} interval={0} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10, fontWeight: 800, fill: '#64748b' }} />
-                <Tooltip cursor={{ fill: '#f8fafc' }} />
-                <Bar dataKey="count" radius={[8, 8, 0, 0]} fill="#0f766e" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="notifications-featured">
-            <strong>Pinned Board</strong>
-            {featuredItems.length ? featuredItems.map((item) => (
-              <button type="button" key={item.id} onClick={() => setSelected(item)}>
-                <Pin className="h-4 w-4" />
-                <span>{item.title}</span>
-              </button>
-            )) : <p>No pinned notifications yet.</p>}
-          </div>
-        </aside>
         </div>
 
         {modalMode && (
@@ -537,7 +519,9 @@ export default function Notifications() {
               {selected.attachmentName && (
                 <div className="notifications-detail-file">
                   <FileText className="h-5 w-5" />
-                  <span>{selected.attachmentName}</span>
+                  <button type="button" className="notifications-file-preview" onClick={() => previewAttachment(selected)} title="View attachment">
+                    {selected.attachmentName}
+                  </button>
                   <button type="button" onClick={() => downloadAttachment(selected)}><Download className="h-4 w-4" /> Download</button>
                 </div>
               )}
@@ -550,18 +534,6 @@ export default function Notifications() {
         )}
       </main>
     </DashboardShell>
-  );
-}
-
-function StatCard({ icon: Icon, label, value, tone }) {
-  return (
-    <article className={`notifications-stat notifications-stat-${tone}`}>
-      <span><Icon className="h-5 w-5" /></span>
-      <div>
-        <p>{label}</p>
-        <strong>{value}</strong>
-      </div>
-    </article>
   );
 }
 

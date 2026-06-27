@@ -27118,3 +27118,40 @@ button.sales-metric-card {
     flex-direction: column;
   }
 }
+/* Notification Center requested cleanup */
+.notifications-hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 20px 24px;
+}
+
+.notifications-hero h1 {
+  margin-top: 10px;
+  font-size: clamp(28px, 3.2vw, 44px);
+}
+
+.notifications-hero p {
+  margin-top: 8px;
+}
+
+.notifications-file-preview {
+  min-width: 0;
+  overflow: hidden;
+  color: #2563eb;
+  font-weight: 950;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notifications-file-preview:hover {
+  color: #0f766e;
+  text-decoration: underline;
+}
+
+@media (max-width: 860px) {
+  .notifications-hero {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+}

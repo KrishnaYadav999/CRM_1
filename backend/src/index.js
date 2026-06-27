@@ -9,6 +9,7 @@ const leadRoutes = require('./routes/leads');
 const clientRoutes = require('./routes/clients');
 const quotationRoutes = require('./routes/quotations');
 const annualReturnRoutes = require('./routes/annualReturns');
+const notificationRoutes = require('./routes/notifications');
 const ccpRoutes = require('./routes/ccp');
 const teamRoutes = require('./routes/teams');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
@@ -86,6 +87,7 @@ app.use('/api/leads', leadRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/annual-returns', annualReturnRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/teams', teamRoutes);
 
 app.get('/', (req, res) => res.send({ ok: true, env: process.env.NODE_ENV }));

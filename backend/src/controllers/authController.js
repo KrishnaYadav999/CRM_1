@@ -18,7 +18,8 @@ function shouldSkipMailInDevelopment() {
   if (process.env.NODE_ENV === 'production') return false;
   if (process.env.OTP_EMAILS_ENABLED === 'true') return false;
   const mailPass = process.env.SMTP_PASS || process.env.MAIL_PASS || process.env.EMAIL_PASS || process.env.GMAIL_PASS || '';
-  return !process.env.SMTP_HOST || !mailPass || /change_me|your-|placeholder/i.test(mailPass);
+  const hasUsableSmtp = Boolean(process.env.SMTP_HOST && mailPass && !isPlaceholderMailSecret(mailPass));
+  return !hasUsableSmtp;
 }
 
 function isPlaceholderMailSecret(value) {
