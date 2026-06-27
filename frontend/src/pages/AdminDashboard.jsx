@@ -1543,24 +1543,8 @@ function EmptyOperationState({ label }) {
   return <div className="operations-empty">{label}</div>
 }
 
-function OperationsChartStudio({ workflowRows = [], piboCards = [], annualStats = {}, convertedLeadCount = 0, totalLeads = 0, score = 0 }) {
+function OperationsChartStudio({ workflowRows = [], score = 0 }) {
   const workflowPeak = Math.max(...workflowRows.map((row) => row.value), 1)
-  const piboTotal = piboCards.reduce((sum, row) => sum + row.value, 0)
-  const piboRows = piboCards.map((row, index) => ({
-    name: row.label,
-    value: row.value,
-    percent: percent(row.value, piboTotal),
-    fill: ['#0f766e', '#2563eb', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6', '#64748b'][index % 7]
-  }))
-  const annualRows = [
-    { name: 'Completed', value: annualStats.completed || 0, fill: '#0f766e' },
-    { name: 'Pending', value: annualStats.pending || 0, fill: '#f59e0b' },
-    { name: 'Rejected', value: annualStats.rejected || 0, fill: '#ef4444' }
-  ]
-  const leadRows = [
-    { name: 'Converted', value: convertedLeadCount, fill: '#0f766e' },
-    { name: 'Open', value: Math.max(0, totalLeads - convertedLeadCount), fill: '#60a5fa' }
-  ]
 
   return (
     <motion.section
@@ -1598,58 +1582,6 @@ function OperationsChartStudio({ workflowRows = [], piboCards = [], annualStats 
                   </i>
                 </div>
               </motion.div>
-            ))}
-          </div>
-        </article>
-
-        <article className="operations-chart-card">
-          <div className="operations-chart-card-head">
-            <div><PieChart className="h-4 w-4" /><strong>Lead Conversion</strong></div>
-            <span>{convertedLeadCount}/{totalLeads}</span>
-          </div>
-          <div className="operations-mini-donut">
-            <ResponsiveContainer width="100%" height={210}>
-              <RechartsPieChart>
-                <Pie data={totalLeads ? leadRows : [{ name: 'No leads', value: 1, fill: '#e2e8f0' }]} dataKey="value" nameKey="name" innerRadius={58} outerRadius={86} paddingAngle={3} stroke="none" animationDuration={1100}>
-                  {(totalLeads ? leadRows : [{ name: 'No leads', fill: '#e2e8f0' }]).map((row) => <Cell key={row.name} fill={row.fill} />)}
-                </Pie>
-                <Tooltip formatter={(value, name) => [`${value} leads`, name]} />
-              </RechartsPieChart>
-            </ResponsiveContainer>
-            <div className="operations-mini-donut-center"><strong>{percent(convertedLeadCount, totalLeads)}%</strong><span>Converted</span></div>
-          </div>
-        </article>
-
-        <article className="operations-chart-card operations-category-card">
-          <div className="operations-chart-card-head">
-            <div><BarChart3 className="h-4 w-4" /><strong>PIBO Category</strong></div>
-            <span>{piboTotal} clients</span>
-          </div>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={piboRows} layout="vertical" margin={{ top: 10, right: 34, left: 0, bottom: 4 }}>
-              <CartesianGrid stroke="#e0f2ee" strokeDasharray="4 6" horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 850 }} />
-              <YAxis dataKey="name" type="category" width={110} tickLine={false} axisLine={false} tick={{ fill: '#334155', fontSize: 10, fontWeight: 950 }} />
-              <Tooltip cursor={{ fill: 'rgba(15, 118, 110, 0.07)' }} formatter={(value, name, item) => [`${value} clients (${item?.payload?.percent || 0}%)`, 'PIBO']} />
-              <Bar dataKey="value" barSize={16} radius={[0, 12, 12, 0]} animationDuration={1200}>
-                {piboRows.map((row) => <Cell key={row.name} fill={row.fill} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </article>
-
-        <article className="operations-chart-card">
-          <div className="operations-chart-card-head">
-            <div><FileCheck2 className="h-4 w-4" /><strong>Annual Returns</strong></div>
-            <span>{annualStats.completed || 0}/{annualStats.total || 0}</span>
-          </div>
-          <div className="operations-status-bars">
-            {annualRows.map((row) => (
-              <div key={row.name}>
-                <span>{row.name}</span>
-                <i><b style={{ width: `${Math.max(8, percent(row.value, annualStats.total || 0))}%`, background: row.fill }} /></i>
-                <strong>{row.value}</strong>
-              </div>
             ))}
           </div>
         </article>
@@ -2153,15 +2085,6 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
         {metrics.map((metric, index) => <SalesMetricCard key={metric.label} metric={metric} index={index} />)}
       </div>
 
-      <SalesChartStudio
-        pipelineRows={pipelineRows}
-        leadSourceRows={leadSourceRows}
-        quotationRows={quotationRows}
-        revenueRows={revenueRows}
-        totalRevenue={salesValue}
-        totalLeads={scopedLeads.length}
-      />
-
       <SalesLeadBreakdownTable rows={buildSalesLeadMatrixRows(scopedLeads)} />
 
       <div className="sales-command-grid sales-command-grid-single">
@@ -2363,114 +2286,6 @@ function SalesMetricCard({ metric, index = 0 }) {
     >
     {content}
   </motion.article>
-  )
-}
-
-function SalesChartStudio({ pipelineRows = [], leadSourceRows = [], quotationRows = [], revenueRows = [], totalRevenue = 0, totalLeads = 0 }) {
-  const pipelineChartRows = pipelineRows.map((row, index) => ({
-    name: row.stage,
-    leads: row.leads.length,
-    value: row.value,
-    fill: ['#06b6d4', '#10b981', '#8b5cf6', '#f59e0b', '#14b8a6', '#22c55e', '#ef4444'][index]
-  }))
-  const revenueChartRows = revenueRows.map((row, index) => ({
-    name: row.stage,
-    value: row.value,
-    fill: ['#0f766e', '#2563eb', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6'][index % 6]
-  }))
-  const pipelinePeak = Math.max(...pipelineChartRows.map((row) => row.leads), 1)
-  const sourceTotal = leadSourceRows.reduce((sum, row) => sum + row.value, 0)
-
-  return (
-    <motion.section
-      className="sales-chart-studio"
-      initial={{ opacity: 0, y: 18 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.42, delay: 0.07 }}
-    >
-      <div className="sales-chart-studio-head">
-        <div>
-          <span>Live Analytics</span>
-          <strong>Sales performance charts</strong>
-        </div>
-        <p>{totalLeads} leads, {formatDashboardInr(totalRevenue)} quotation value</p>
-      </div>
-      <div className="sales-chart-studio-grid">
-        <article className="sales-chart-card sales-chart-card-wide">
-          <div className="sales-chart-card-head">
-            <div><Target className="h-4 w-4" /><strong>Pipeline Flow</strong></div>
-            <span>{totalLeads} leads</span>
-          </div>
-          <div className="sales-pipeline-funnel">
-            {pipelineChartRows.map((row, index) => (
-              <motion.div
-                key={row.name}
-                className="sales-pipeline-funnel-row"
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.32, delay: index * 0.035 }}
-              >
-                <span>{row.name}</span>
-                <i><b style={{ width: `${Math.max(8, (row.leads / pipelinePeak) * 100)}%`, background: row.fill }} /></i>
-                <strong>{row.leads}</strong>
-              </motion.div>
-            ))}
-          </div>
-        </article>
-
-        <article className="sales-chart-card">
-          <div className="sales-chart-card-head">
-            <div><PieChart className="h-4 w-4" /><strong>Lead Sources</strong></div>
-            <span>{sourceTotal}</span>
-          </div>
-          <div className="sales-mini-donut">
-            <ResponsiveContainer width="100%" height={210}>
-              <RechartsPieChart>
-                <Pie data={leadSourceRows.length ? leadSourceRows : [{ label: 'No Leads', value: 1, color: '#e2e8f0' }]} dataKey="value" nameKey="label" innerRadius={58} outerRadius={86} paddingAngle={3} stroke="none" animationDuration={1000}>
-                  {(leadSourceRows.length ? leadSourceRows : [{ label: 'No Leads', color: '#e2e8f0' }]).map((row) => <Cell key={row.label} fill={row.color} />)}
-                </Pie>
-                <Tooltip formatter={(value, name, item) => [`${value} leads (${item?.payload?.percent || 0}%)`, item?.payload?.label || 'Lead Source']} />
-              </RechartsPieChart>
-            </ResponsiveContainer>
-            <div className="sales-mini-donut-center"><strong>{sourceTotal}</strong><span>Sources</span></div>
-          </div>
-        </article>
-
-        <article className="sales-chart-card">
-          <div className="sales-chart-card-head">
-            <div><FileCheck2 className="h-4 w-4" /><strong>Quotation Status</strong></div>
-            <span>{quotationRows.reduce((sum, row) => sum + row.value, 0)}</span>
-          </div>
-          <div className="sales-status-bars">
-            {quotationRows.length ? quotationRows.map((row, index) => (
-              <div key={row.label}>
-                <span>{row.label}</span>
-                <i><b style={{ width: `${Math.max(8, row.percent)}%`, background: row.color }} /></i>
-                <strong>{row.value}</strong>
-              </div>
-            )) : <EmptyOperationState label="No quotation status found" />}
-          </div>
-        </article>
-
-        <article className="sales-chart-card sales-chart-card-wide">
-          <div className="sales-chart-card-head">
-            <div><TrendingUp className="h-4 w-4" /><strong>Revenue By Status</strong></div>
-            <span>{formatDashboardInr(totalRevenue)}</span>
-          </div>
-          <ResponsiveContainer width="100%" height={230}>
-            <BarChart data={revenueChartRows} margin={{ top: 18, right: 14, left: -8, bottom: 6 }}>
-              <CartesianGrid stroke="#e0f2ee" strokeDasharray="4 6" vertical={false} />
-              <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 900 }} />
-              <YAxis tickLine={false} axisLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 850 }} tickFormatter={(value) => `₹${Math.round(Number(value || 0) / 1000)}k`} />
-              <Tooltip cursor={{ fill: 'rgba(20, 184, 166, 0.08)' }} formatter={(value) => [formatDashboardInr(value), 'Quotation value']} />
-              <Bar dataKey="value" radius={[14, 14, 4, 4]} barSize={34} animationDuration={1200} animationEasing="ease-out">
-                {revenueChartRows.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </article>
-      </div>
-    </motion.section>
   )
 }
 
@@ -3741,10 +3556,6 @@ export default function AdminDashboard() {
 
               <OperationsChartStudio
                 workflowRows={workflowRows}
-                piboCards={piboCards}
-                annualStats={operationsAnnualReturnStats}
-                convertedLeadCount={convertedOperationsLeadCount}
-                totalLeads={operationsLeadAnalytics.leads.length}
                 score={operationsScore}
               />
 
