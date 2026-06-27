@@ -360,6 +360,11 @@ function normalizeClientRequestPayload(body = {}) {
   return { data, adminControls };
 }
 
+function readSelectedLeadId(value) {
+  const id = String(value || '').trim();
+  return mongoose.Types.ObjectId.isValid(id) ? id : undefined;
+}
+
 function normalizeAnnualYearKey(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
 }
@@ -789,7 +794,7 @@ exports.listPendingApprovals = async (req, res) => {
 exports.createClient = async (req, res) => {
   const workflowStatus = req.body.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(req.body);
-  const selectedLead = req.body.selectedLead || undefined;
+  const selectedLead = readSelectedLeadId(req.body.selectedLead);
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });
@@ -811,7 +816,7 @@ exports.createClient = async (req, res) => {
 async function createClientRecord(row, userId) {
   const workflowStatus = row.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(row);
-  const selectedLead = row.selectedLead || undefined;
+  const selectedLead = readSelectedLeadId(row.selectedLead);
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     const error = new Error('Client Legal Name is required before submit');
@@ -861,7 +866,7 @@ exports.bulkCreateClients = async (req, res) => {
 exports.updateClient = async (req, res) => {
   const workflowStatus = req.body.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(req.body);
-  const selectedLead = req.body.selectedLead || undefined;
+  const selectedLead = readSelectedLeadId(req.body.selectedLead);
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });

@@ -169,6 +169,36 @@ function mapAnnualReturnRecordToFiling(row = {}) {
   };
 }
 
+function getLeadSelectValue(lead = {}) {
+  return String(lead._id || lead.id || lead.sourceLeadId || lead.leadCode || lead.uniqueId || lead.company || '').trim();
+}
+
+function getLeadIdentityValues(lead = {}) {
+  return [
+    lead._id,
+    lead.id,
+    lead.sourceLeadId,
+    lead.leadCode,
+    lead.uniqueId,
+    lead.leadId,
+    lead.company,
+    lead.companyName,
+    lead.clientName
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+}
+
+function findLeadByValue(leads = [], value = '') {
+  const selected = String(value || '').trim();
+  if (!selected) return null;
+  const selectedLower = selected.toLowerCase();
+  return leads.find((lead) => getLeadIdentityValues(lead).some((candidate) => candidate === selected || candidate.toLowerCase() === selectedLower)) || null;
+}
+
+function getMongoObjectIdOrEmpty(value = '') {
+  const raw = String(value || '').trim();
+  return /^[a-f\d]{24}$/i.test(raw) ? raw : '';
+}
+
 function hydrateClientsWithAnnualReturns(clients = [], annualReturns = []) {
   if (!Array.isArray(annualReturns) || !annualReturns.length) return clients;
   const rowsByClientKey = new Map();
@@ -282,7 +312,7 @@ export default function ClientMaster() {
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const isFirstStepReady = Boolean(String(client.basic?.clientLegalName || client.basic?.tradeName || '').trim());
   const leadOptions = useMemo(() => leads.map((lead) => ({
-    value: lead._id || lead.id,
+    value: getLeadSelectValue(lead),
     label: `${lead.leadCode || 'ATPL-LEAD-0001'} - ${lead.company || 'Untitled lead'} - ${lead.piboCategory || lead.status || 'Draft'}`
   })), [leads]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
@@ -377,21 +407,46 @@ export default function ClientMaster() {
   }
 
   function handleLeadSelect(value) {
-    const selectedLead = leads.find((leadItem) => String(leadItem._id || leadItem.id) === String(value));
+    const selectedLead = findLeadByValue(leads, value);
     if (!selectedLead) {
       setRoot('selectedLead', value);
       return;
     }
+    const leadValue = getLeadSelectValue(selectedLead);
+    const leadCode = selectedLead.leadCode || selectedLead.uniqueId || selectedLead.sourceLeadId || leadValue || '';
+    const company = selectedLead.company || selectedLead.companyName || selectedLead.clientName || '';
+    const email = String(selectedLead.emails || selectedLead.email || '').split(/[,\s;]+/).find(Boolean) || '';
 
     setClient((current) => ({
       ...current,
-      selectedLead: value,
+      selectedLead: leadValue,
       basic: {
         ...current.basic,
-        clientLegalName: current.basic.clientLegalName || selectedLead.company || '',
-        tradeName: current.basic.tradeName || selectedLead.company || '',
+        clientLegalName: current.basic.clientLegalName || company || '',
+        tradeName: current.basic.tradeName || company || '',
         piboCategory: current.basic.piboCategory || selectedLead.piboCategory || '',
         eprCategory: current.basic.eprCategory || selectedLead.eprCategory || ''
+      },
+      importMeta: {
+        ...current.importMeta,
+        leadNumber: current.importMeta?.leadNumber || leadCode,
+        uniqueId: current.importMeta?.uniqueId || leadCode,
+        ccpClientId: current.importMeta?.ccpClientId || selectedLead.sourceLeadId || '',
+        companyName: current.importMeta?.companyName || company,
+        createdBy: current.importMeta?.createdBy || selectedLead.importedCreatedBy || selectedLead.referredBy || '',
+        assignedTo: current.importMeta?.assignedTo || selectedLead.assignedToText || selectedLead.assignedTo?.name || ''
+      },
+      selectedLeadSnapshot: {
+        id: leadValue,
+        sourceLeadId: selectedLead.sourceLeadId || '',
+        leadCode,
+        company,
+        piboCategory: selectedLead.piboCategory || '',
+        eprCategory: selectedLead.eprCategory || '',
+        contactPerson: selectedLead.contactPerson || '',
+        mobileNo1: selectedLead.mobileNo1 || '',
+        email,
+        source: selectedLead.source || ''
       },
       registeredAddress: {
         ...current.registeredAddress,
@@ -422,14 +477,14 @@ export default function ClientMaster() {
         name: current.authorised.name || selectedLead.contactPerson || '',
         designation: current.authorised.designation || selectedLead.designation || '',
         mobile: current.authorised.mobile || selectedLead.mobileNo1 || '',
-        email: current.authorised.email || selectedLead.emails || ''
+        email: current.authorised.email || email || ''
       },
       coordinating: {
         ...current.coordinating,
         name: current.coordinating.name || selectedLead.contactPerson || '',
         designation: current.coordinating.designation || selectedLead.designation || '',
         mobile: current.coordinating.mobile || selectedLead.mobileNo1 || '',
-        email: current.coordinating.email || selectedLead.emails || ''
+        email: current.coordinating.email || email || ''
       }
     }));
   }
@@ -617,7 +672,7 @@ export default function ClientMaster() {
         return;
       }
       const payload = {
-        selectedLead: client.selectedLead,
+        selectedLead: getMongoObjectIdOrEmpty(client.selectedLead),
         adminControls: buildAdminControlsPayload(client.adminControls),
         data: client,
         workflowStatus
