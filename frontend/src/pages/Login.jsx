@@ -34,7 +34,7 @@ export default function Login(){
   return (
     <AuthLayout
       eyebrow="Admin approved login"
-      title="Sign in to e-Connect"
+      title="Sign in to CRM"
       subtitle="Enter your registered work email and password. We will send a secure one-time code for this session."
     >
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">

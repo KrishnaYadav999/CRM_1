@@ -22,6 +22,29 @@ function readMailPass() {
     : String(mailPass).replace(/\s+/g, '');
 }
 
+function readMailFromName() {
+  return String(process.env.MAIL_FROM_NAME || process.env.APP_NAME || 'CRM').trim() || 'CRM';
+}
+
+function quoteDisplayName(name) {
+  return `"${String(name || 'CRM').replace(/["\\]/g, '')}"`;
+}
+
+function formatFromAddress() {
+  const mailUser = readMailUser();
+  const configuredFrom = String(process.env.MAIL_FROM || '').trim();
+  const displayName = readMailFromName();
+
+  if (configuredFrom) {
+    const bracketMatch = configuredFrom.match(/<([^>]+)>/);
+    if (bracketMatch) return `${quoteDisplayName(displayName)} <${bracketMatch[1].trim()}>`;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configuredFrom)) return `${quoteDisplayName(displayName)} <${configuredFrom}>`;
+    return configuredFrom;
+  }
+
+  return mailUser ? `${quoteDisplayName(displayName)} <${mailUser}>` : undefined;
+}
+
 function createTransporter() {
   const mailUser = readMailUser();
   const mailPass = readMailPass();
@@ -57,7 +80,7 @@ function getMailDebugConfig() {
     hasUser: Boolean(mailUser),
     userDomain: String(mailUser || '').split('@')[1] || '',
     hasPassword: Boolean(readMailPass()),
-    from: process.env.MAIL_FROM || mailUser || '',
+    from: formatFromAddress() || '',
     replyTo: process.env.MAIL_REPLY_TO || mailUser || ''
   };
 }
@@ -68,7 +91,7 @@ async function sendMail(to, subject, html) {
   const recipients = normalizeRecipients(to);
   if (!recipients.length) throw new Error('Email recipient is required');
 
-  const from = process.env.MAIL_FROM || mailUser;
+  const from = formatFromAddress();
   const replyTo = process.env.MAIL_REPLY_TO || mailUser || undefined;
   const transporter = createTransporter();
   const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html });

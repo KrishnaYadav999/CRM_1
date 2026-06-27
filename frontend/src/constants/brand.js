@@ -1,4 +1,4 @@
 export const brand = {
-  name: 'e-Connect',
+  name: 'CRM',
   logoUrl: 'https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg'
 }
