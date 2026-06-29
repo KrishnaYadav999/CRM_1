@@ -27592,6 +27592,41 @@ button.sales-metric-card {
   animation: brand-loader-dot 900ms ease-in-out infinite;
 }
 
+.pending-debug-strip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 7px 11px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.pending-debug-strip span {
+  color: #0f766e;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pending-debug-strip strong {
+  color: #0f172a;
+}
+
+.pending-debug-strip em,
+.pending-debug-strip small {
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pending-approval-hero,
 .notifications-hero {
   min-height: 0;

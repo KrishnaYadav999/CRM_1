@@ -65,6 +65,7 @@ export default function PendingApproval() {
   const [savingId, setSavingId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [debugInfo, setDebugInfo] = useState(null);
   const [activeTab, setActiveTab] = useState('clients');
   const [clientPage, setClientPage] = useState(1);
   const [quotePage, setQuotePage] = useState(1);
@@ -115,10 +116,17 @@ export default function PendingApproval() {
       const snapshot = {
         currentUser: meResponse.data.user,
         pendingClients: approvalsResponse.data.pendingClients || [],
-        pendingQuotations: approvalsResponse.data.pendingQuotations || []
+        pendingQuotations: approvalsResponse.data.pendingQuotations || [],
+        debug: approvalsResponse.data.debug || null
       };
       setPendingClients(snapshot.pendingClients);
       setPendingQuotations(snapshot.pendingQuotations);
+      setDebugInfo(snapshot.debug);
+      console.info('[PendingApproval:loaded]', {
+        clients: snapshot.pendingClients.length,
+        quotations: snapshot.pendingQuotations.length,
+        debug: snapshot.debug
+      });
       writePendingApprovalCache(snapshot);
       setClientPage(1);
       setQuotePage(1);
@@ -127,9 +135,22 @@ export default function PendingApproval() {
         const fallback = cached || cachedApprovalData || {};
         setPendingClients(fallback.pendingClients || []);
         setPendingQuotations(fallback.pendingQuotations || []);
+        setDebugInfo({
+          source: 'browser-cache-fallback',
+          message: err?.message || 'Request timed out',
+          clients: fallback.pendingClients?.length || 0,
+          quotations: fallback.pendingQuotations?.length || 0
+        });
+        console.info('[PendingApproval:fallback]', err?.message || err, fallback);
         if (fallback.currentUser) setCurrentUser(fallback.currentUser);
       } else {
         setError(readError(err, 'Unable to load pending approvals.'));
+        setDebugInfo({
+          source: 'error',
+          status: err?.response?.status,
+          message: readError(err, 'Unable to load pending approvals.')
+        });
+        console.error('[PendingApproval:error]', err);
       }
     } finally {
       if (!options.silent || !cached) setLoading(false);
@@ -321,6 +342,14 @@ export default function PendingApproval() {
           {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
           {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
           {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
+          {debugInfo && (
+            <div className="pending-debug-strip">
+              <span>Debug</span>
+              <strong>{debugInfo.source || 'live'}</strong>
+              {debugInfo.ms !== undefined && <em>{debugInfo.ms}ms</em>}
+              {debugInfo.message && <small>{debugInfo.message}</small>}
+            </div>
+          )}
 
           <div className="pending-metrics">
             <Metric icon={Clock3} label="Pending Clients" value={pendingClients.length} />

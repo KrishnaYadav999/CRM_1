@@ -703,6 +703,30 @@ async function syncPendingApprovalRows(rows, type = 'client') {
   return records.map(mapPendingApprovalRecord);
 }
 
+async function readStoredPendingApprovals() {
+  const records = await PendingApproval.find({ approvalStatus: 'PENDING' })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return {
+    pendingClients: records.filter((record) => record.type === 'client').map(mapPendingApprovalRecord),
+    pendingQuotations: records.filter((record) => record.type === 'quotation').map(mapPendingApprovalRecord)
+  };
+}
+
+function backgroundSyncPendingApprovals(clientRows = [], quotationRows = []) {
+  setTimeout(async () => {
+    try {
+      await Promise.all([
+        syncPendingApprovalRows(clientRows, 'client'),
+        syncPendingApprovalRows(quotationRows, 'quotation')
+      ]);
+    } catch (err) {
+      console.error('Pending approval background sync failed', err);
+    }
+  }, 0);
+}
+
 exports.listClients = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
   const clients = await Client.find({
@@ -718,11 +742,13 @@ exports.listClients = async (req, res) => {
 };
 
 exports.listPendingApprovals = async (req, res) => {
-  const [allClients, ccpClients, quotations] = await Promise.all([
+  const startedAt = Date.now();
+  const storedFallback = await readStoredPendingApprovals();
+  const [clientsResult, ccpClientsResult, quotationsResult] = await Promise.allSettled([
     Client.find()
-    .populate('selectedLead', 'leadCode company piboCategory eprCategory contactPerson mobileNo1 importedCreatedBy')
-    .populate('createdBy', 'name email')
-    .sort({ createdAt: -1 })
+      .populate('selectedLead', 'leadCode company piboCategory eprCategory contactPerson mobileNo1 importedCreatedBy')
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 })
       .lean(),
     fetchCcpClients(),
     Quotation.find({ status: { $in: ['draft', 'sent'] } })
@@ -730,6 +756,9 @@ exports.listPendingApprovals = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean()
   ]);
+  const allClients = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
+  const ccpClients = ccpClientsResult.status === 'fulfilled' ? ccpClientsResult.value : [];
+  const quotations = quotationsResult.status === 'fulfilled' ? quotationsResult.value : [];
   const clients = allClients.filter((client) => {
     const status = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
     return status === 'PENDING' && client.data?.importMeta?.approvalOverride !== true;
@@ -790,10 +819,26 @@ exports.listPendingApprovals = async (req, res) => {
   const pendingQuotations = [...quotationRows, ...clientQuotationRows];
 
   const pendingClientRows = mergePendingClients(pendingClients, pendingCcpClients);
-  const storedPendingClients = await syncPendingApprovalRows(pendingClientRows, 'client');
-  const storedPendingQuotations = await syncPendingApprovalRows(pendingQuotations, 'quotation');
+  const responseClients = pendingClientRows.length ? pendingClientRows : storedFallback.pendingClients;
+  const responseQuotations = pendingQuotations.length ? pendingQuotations : storedFallback.pendingQuotations;
 
-  res.json({ ok: true, pendingClients: storedPendingClients, pendingQuotations: storedPendingQuotations });
+  backgroundSyncPendingApprovals(pendingClientRows, pendingQuotations);
+
+  res.json({
+    ok: true,
+    pendingClients: responseClients,
+    pendingQuotations: responseQuotations,
+    debug: {
+      source: pendingClientRows.length || pendingQuotations.length ? 'live' : 'stored-fallback',
+      ms: Date.now() - startedAt,
+      clientsQueryOk: clientsResult.status === 'fulfilled',
+      ccpQueryOk: ccpClientsResult.status === 'fulfilled',
+      quotationsQueryOk: quotationsResult.status === 'fulfilled',
+      ccpRows: Array.isArray(ccpClients) ? ccpClients.length : 0,
+      storedClients: storedFallback.pendingClients.length,
+      storedQuotations: storedFallback.pendingQuotations.length
+    }
+  });
 };
 
 exports.createClient = async (req, res) => {
