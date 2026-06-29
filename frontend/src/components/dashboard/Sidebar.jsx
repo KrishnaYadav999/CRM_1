@@ -82,7 +82,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
         <ChevronsLeft className={`h-5 w-5 transition-transform duration-300 ${collapsed ? 'rotate-180' : ''}`} />
       </button>
 
-      <nav className={`mt-3 flex-1 space-y-3 px-3 pb-5 ${collapsed ? 'overflow-visible px-2' : 'overflow-y-auto px-4'}`}>
+      <nav className={`sidebar-scrollbar mt-3 flex-1 space-y-3 px-3 pb-5 ${collapsed ? 'overflow-visible px-2' : 'overflow-y-auto px-4'}`}>
         {navSections.map((section) => (
           <div key={section.label}>
             {!collapsed && <p className="mb-2 px-3 text-xs font-black uppercase tracking-[0.18em] text-white/45">{section.label}</p>}

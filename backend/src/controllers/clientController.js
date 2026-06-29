@@ -9,6 +9,7 @@ const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
 const DEFAULT_CCP_API_BASE_URL = 'https://ccp-henna.vercel.app/api/ccp';
+const CCP_FETCH_TIMEOUT_MS = 3500;
 
 function ccpBaseUrls() {
   return [
@@ -202,13 +203,17 @@ function normalizeCollection(payload, key) {
 
 async function fetchCcpClients() {
   for (const baseUrl of ccpBaseUrls()) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(`${baseUrl}/clients`);
+      const response = await fetch(`${baseUrl}/clients`, { signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) continue;
       return normalizeCollection(payload, 'clients');
     } catch {
       // Try the next configured CCP URL before giving up.
+    } finally {
+      clearTimeout(timeout);
     }
   }
   return [];

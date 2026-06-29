@@ -338,10 +338,6 @@ export default function CalendarTodo() {
   const revisedCount = items.filter((item) => (item.history || []).length && item.status !== 'completed').length;
   const overdueCount = items.filter((item) => getItemTone(item, todayKey) === 'overdue').length;
   const upcomingCount = items.filter((item) => getItemTone(item, todayKey) === 'open' && item.scheduledDate >= todayKey).length;
-  const followUpFlowItems = filteredItems
-    .filter((item) => item.type === 'follow-up' || item.category === 'Follow-Up')
-    .sort((a, b) => `${a.scheduledDate || ''} ${a.scheduledTime || ''}`.localeCompare(`${b.scheduledDate || ''} ${b.scheduledTime || ''}`))
-    .slice(0, 10);
   const selectedFollowUps = selectedDateItems.filter((item) => item.type === 'follow-up' || item.category === 'Follow-Up');
   const selectedTodos = selectedDateItems.filter((item) => !(item.type === 'follow-up' || item.category === 'Follow-Up'));
   const selectedTimeline = selectedDateItems
@@ -588,8 +584,6 @@ export default function CalendarTodo() {
             </ResponsiveContainer>
           </article>
         </motion.section>
-
-        <FollowUpFlowBoard items={followUpFlowItems} todayKey={todayKey} />
 
         <motion.section className="calendar-workspace-grid calendar-workspace-premium" variants={staggerGroup} initial="hidden" animate="show">
           <motion.div className="calendar-card calendar-month-card" variants={fadeUp} layout>

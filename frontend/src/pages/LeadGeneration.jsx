@@ -796,7 +796,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView }) 
 
         <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="hidden-scrollbar max-h-[520px] overflow-auto">
+          <div className="lead-directory-scroll max-h-[520px] overflow-auto">
             <table className="crm-data-table w-full min-w-[1680px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>

@@ -11,6 +11,7 @@ import api from '../services/api';
 const rowsPerPage = 5;
 const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v2';
 const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
+const PENDING_APPROVAL_REQUEST_TIMEOUT_MS = 4500;
 
 function readPendingApprovalCache() {
   try {
@@ -47,6 +48,10 @@ function readError(err, fallback) {
   return err?.response?.data?.error || fallback;
 }
 
+function isSoftApprovalLoadError(err) {
+  return err?.code === 'ECONNABORTED' || err?.message === 'Network Error' || !err?.response;
+}
+
 export default function PendingApproval() {
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
@@ -55,7 +60,7 @@ export default function PendingApproval() {
   const cachedApprovalData = useMemo(() => readPendingApprovalCache(), []);
   const [pendingClients, setPendingClients] = useState(() => cachedApprovalData?.pendingClients || []);
   const [pendingQuotations, setPendingQuotations] = useState(() => cachedApprovalData?.pendingQuotations || []);
-  const [loading, setLoading] = useState(() => !cachedApprovalData);
+  const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
   const [profileSaving, setProfileSaving] = useState(false);
   const [savingId, setSavingId] = useState('');
   const [error, setError] = useState('');
@@ -89,20 +94,21 @@ export default function PendingApproval() {
 
   async function loadPage(options = {}) {
     const cached = !options.force ? readPendingApprovalCache() : null;
+    const requestConfig = { timeout: PENDING_APPROVAL_REQUEST_TIMEOUT_MS };
     if (cached && !options.force) {
       setPendingClients(cached.pendingClients || []);
       setPendingQuotations(cached.pendingQuotations || []);
       if (cached.currentUser) setCurrentUser(cached.currentUser);
       setLoading(false);
-    } else if (!options.silent) {
+    } else if (!options.silent && !currentUser) {
       setLoading(true);
     }
     setError('');
 
     try {
       const [meResponse, approvalsResponse] = await Promise.all([
-        api.get('/auth/me'),
-        api.get('/clients/pending-approvals')
+        api.get('/auth/me', requestConfig),
+        api.get('/clients/pending-approvals', requestConfig)
       ]);
       setCurrentUser(meResponse.data.user);
       localStorage.setItem('user', JSON.stringify(meResponse.data.user));
@@ -117,7 +123,14 @@ export default function PendingApproval() {
       setClientPage(1);
       setQuotePage(1);
     } catch (err) {
-      setError(readError(err, 'Unable to load pending approvals.'));
+      if (isSoftApprovalLoadError(err)) {
+        const fallback = cached || cachedApprovalData || {};
+        setPendingClients(fallback.pendingClients || []);
+        setPendingQuotations(fallback.pendingQuotations || []);
+        if (fallback.currentUser) setCurrentUser(fallback.currentUser);
+      } else {
+        setError(readError(err, 'Unable to load pending approvals.'));
+      }
     } finally {
       if (!options.silent || !cached) setLoading(false);
     }
@@ -265,7 +278,7 @@ export default function PendingApproval() {
     navigate('/', { replace: true });
   }
 
-  if (loading && !pendingClients.length && !pendingQuotations.length) {
+  if (loading && !currentUser && !pendingClients.length && !pendingQuotations.length) {
     return <BrandLoader message="Loading approval desk" />;
   }
 
@@ -297,7 +310,8 @@ export default function PendingApproval() {
             <button
               type="button"
               onClick={() => loadPage({ force: true })}
-              className="pending-refresh-button"
+              className={`pending-refresh-button ${loading ? 'pending-refresh-loading' : ''}`}
+              disabled={loading}
             >
               <RefreshCw className="h-4 w-4" />
               Refresh

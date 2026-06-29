@@ -63,6 +63,7 @@ import { fetchCcpLeads } from '../services/ccpApi'
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
 const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v2'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
+const DASHBOARD_REQUEST_TIMEOUT_MS = 4500
 
 function readSessionCache(key, ttlMs = DASHBOARD_CACHE_TTL_MS) {
   const stores = [sessionStorage, localStorage].filter(Boolean)
@@ -154,6 +155,44 @@ function formatShortDate(value) {
     month: 'short',
     year: 'numeric'
   }).format(date)
+}
+
+function dateKey(date = new Date()) {
+  return date.toISOString().slice(0, 10)
+}
+
+function parseDateKey(value) {
+  const date = new Date(`${value || ''}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function diffDays(fromValue, toValue) {
+  const from = parseDateKey(fromValue)
+  const to = parseDateKey(toValue)
+  if (!from || !to) return 0
+  return Math.round((to - from) / 86400000)
+}
+
+function getFollowUpTone(item = {}, todayKey = dateKey()) {
+  if (item.status === 'completed') return 'done'
+  if (item.scheduledDate && item.scheduledDate < todayKey) return 'overdue'
+  if ((item.history || []).length) return 'revised'
+  return 'open'
+}
+
+function getFollowUpStatusLabel(item = {}, todayKey = dateKey()) {
+  const tone = getFollowUpTone(item, todayKey)
+  if (tone === 'done') return 'Completed'
+  if (tone === 'overdue') return 'Overdue'
+  if (tone === 'revised') return 'Revised'
+  return 'Open'
+}
+
+function getFollowUpProgress(item = {}, todayKey = dateKey()) {
+  if (item.status === 'completed') return 100
+  if (item.scheduledDate && item.scheduledDate < todayKey) return 20
+  if ((item.history || []).length) return 55
+  return 35
 }
 
 function formatPoDate(value) {
@@ -1603,6 +1642,85 @@ function OperationsChartStudio({ workflowRows = [], score = 0 }) {
   )
 }
 
+function DashboardFollowUpTimeline({ items = [], onView, onCalendar }) {
+  const todayKey = dateKey()
+  const sortedItems = [...items]
+    .filter((item) => item.status !== 'completed')
+    .sort((a, b) => `${a.scheduledDate || ''} ${a.scheduledTime || ''}`.localeCompare(`${b.scheduledDate || ''} ${b.scheduledTime || ''}`))
+    .slice(0, 8)
+  const dateKeys = [todayKey, ...sortedItems.map((item) => item.scheduledDate).filter(Boolean)].sort()
+  const startKey = dateKeys[0] || todayKey
+  const endKey = dateKeys[dateKeys.length - 1] || todayKey
+  const totalDays = Math.max(1, diffDays(startKey, endKey) + 2)
+  const todayOffset = Math.max(0, Math.min(100, (diffDays(startKey, todayKey) / totalDays) * 100))
+
+  return (
+    <motion.section className="followup-flow-board dashboard-followup-flow" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.36, delay: 0.1 }}>
+      <div className="followup-flow-head">
+        <div>
+          <span>Follow-Up Flow</span>
+          <strong>Scheduled follow-up timeline</strong>
+        </div>
+        <div className="followup-flow-actions">
+          <p>{items.length} active follow-ups</p>
+          <button type="button" onClick={onCalendar}>Calendar</button>
+        </div>
+      </div>
+      <div className="followup-flow-table">
+        <div className="followup-flow-month">
+          <span>{formatShortDate(startKey)}</span>
+          <strong>Follow-Up Window</strong>
+          <span>{formatShortDate(endKey)}</span>
+        </div>
+        <div className="followup-flow-head-row">
+          <span>WBS</span>
+          <span>Task</span>
+          <span>Assigned</span>
+          <span>Done</span>
+          <span>Timeline</span>
+        </div>
+        <div className="followup-flow-body">
+          <i className="followup-flow-today" style={{ left: `${todayOffset}%` }}><b>Today</b></i>
+          {sortedItems.length ? sortedItems.map((item, index) => {
+            const tone = getFollowUpTone(item, todayKey)
+            const progress = getFollowUpProgress(item, todayKey)
+            const offset = Math.max(0, Math.min(82, (diffDays(startKey, item.scheduledDate) / totalDays) * 100))
+            const width = item.status === 'completed' ? 18 : tone === 'overdue' ? 24 : 28
+            const assigned = item.assignedToName || item.assignedTo || item.createdBy || 'Unassigned'
+            const title = item.title || `Follow up with ${getCalendarFollowUpCompany(item)}`
+            return (
+              <motion.div
+                key={item.id || item._id || `${title}-${index}`}
+                className={`followup-flow-row followup-flow-row-${tone}`}
+                initial={{ opacity: 0, x: -14 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.26, delay: index * 0.035 }}
+              >
+                <span>{index + 1}</span>
+                <strong>{title}</strong>
+                <em>{assigned}</em>
+                <div className="followup-flow-ring" style={{ '--done': `${progress}%` }}><b>{progress}</b></div>
+                <div className="followup-flow-track">
+                  <i style={{ left: `${offset}%`, width: `${width}%` }}>
+                    <b>{getFollowUpStatusLabel(item, todayKey)}</b>
+                  </i>
+                  <aside className="followup-flow-analysis">
+                    <strong>{title}</strong>
+                    <span>{formatShortDate(item.scheduledDate)} {item.scheduledTime || 'All day'}</span>
+                    <p>Status: {getFollowUpStatusLabel(item, todayKey)}</p>
+                    <small>{item.description || getCalendarFollowUpCompany(item) || 'Pending follow-up action'}</small>
+                  </aside>
+                </div>
+              </motion.div>
+            )
+          }) : <div className="followup-flow-empty">No follow-ups found. Add a Follow-Up to see the flow.</div>}
+        </div>
+      </div>
+      <button type="button" className="sales-donut-link" onClick={onView}>View All Follow-ups <ArrowUpRight className="h-3.5 w-3.5" /></button>
+    </motion.section>
+  )
+}
+
 function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount = 0, annualReturnStats = {}, followUps = [], onViewFollowUps, onOpenCalendar }) {
   const piboTotal = piboCards.reduce((sum, row) => sum + row.value, 0)
   const barRows = piboCards.length
@@ -1723,7 +1841,6 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
       </section>
 
       <div className="operations-followup-grid">
-        <SalesFollowUps leads={followUps} onView={onViewFollowUps} onCalendar={onOpenCalendar} />
         <article className="operations-lead-chart-card operations-annual-return-card">
           <div className="operations-lead-chart-head">
             <div>
@@ -2933,7 +3050,7 @@ export default function AdminDashboard() {
   const [pendingClients, setPendingClients] = useState([])
   const [pendingQuotations, setPendingQuotations] = useState([])
   const [form, setForm] = useState(defaultUserForm)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !currentUser)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -3185,25 +3302,27 @@ export default function AdminDashboard() {
   async function loadDashboard(options = {}) {
     const cacheKey = `${DASHBOARD_CACHE_KEY}:${location.pathname}`
     const cached = !options.force ? readSessionCache(cacheKey) : null
+    const requestConfig = { timeout: DASHBOARD_REQUEST_TIMEOUT_MS }
     if (cached) {
       applyDashboardData(cached)
       setLoading(false)
-    } else {
+    } else if (!currentUser) {
       setLoading(true)
     }
     setError('')
 
     try {
-      const meResponse = await api.get('/auth/me')
+      const meResponse = await api.get('/auth/me', requestConfig)
       const user = meResponse.data.user
       setCurrentUser(user)
       localStorage.setItem('user', JSON.stringify(user))
+      setLoading(false)
 
       if (isUserManagementView) {
         if (adminRoles.includes(user.role)) {
           const [usersResponse, teamsResponse] = await Promise.all([
-            api.get('/auth/admin/users'),
-            api.get('/teams')
+            api.get('/auth/admin/users', requestConfig),
+            api.get('/teams', requestConfig)
           ])
           const snapshot = {
             currentUser: user,
@@ -3219,7 +3338,7 @@ export default function AdminDashboard() {
           applyDashboardData(snapshot)
           writeSessionCache(cacheKey, snapshot)
         } else {
-          const usersResponse = await api.get('/auth/users')
+          const usersResponse = await api.get('/auth/users', requestConfig)
           const snapshot = {
             currentUser: user,
             users: usersResponse.data.users || [user],
@@ -3238,12 +3357,12 @@ export default function AdminDashboard() {
       }
 
       const [clientsResult, leadsResult, ccpLeadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
-        api.get('/clients'),
-        api.get('/leads'),
+        api.get('/clients', requestConfig),
+        api.get('/leads', requestConfig),
         fetchCcpLeads(),
-        api.get('/quotations'),
-        api.get('/annual-returns'),
-        api.get('/clients/pending-approvals')
+        api.get('/quotations', requestConfig),
+        api.get('/annual-returns', requestConfig),
+        api.get('/clients/pending-approvals', requestConfig)
       ])
 
       const nextClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
@@ -3262,13 +3381,13 @@ export default function AdminDashboard() {
       let nextTeams = []
       if (adminRoles.includes(user.role)) {
         const [usersResponse, teamsResponse] = await Promise.all([
-          api.get('/auth/admin/users'),
-          api.get('/teams')
+          api.get('/auth/admin/users', requestConfig),
+          api.get('/teams', requestConfig)
         ])
         nextUsers = usersResponse.data.users || []
         nextTeams = teamsResponse.data.teams || []
       } else {
-        const usersResponse = await api.get('/auth/users')
+        const usersResponse = await api.get('/auth/users', requestConfig)
         nextUsers = usersResponse.data.users || [user]
         nextTeams = []
       }
@@ -3582,9 +3701,25 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              <OperationsChartStudio
-                workflowRows={workflowRows}
-                score={operationsScore}
+              <DashboardFollowUpTimeline
+                items={operationsFollowUps}
+                onCalendar={() => navigate('/calendar')}
+                onView={() => setOperationsReportModal({
+                  title: 'Follow-ups',
+                  subtitle: `${operationsFollowUps.length} calendar follow-up records`,
+                  columns: ['Date', 'Time', 'Title', 'Company', 'Owner', 'Priority', 'Status'],
+                  rows: operationsFollowUps.map((item) => [
+                    formatShortDate(item.scheduledDate),
+                    item.scheduledTime || 'No time',
+                    item.title || '-',
+                    getCalendarFollowUpCompany(item),
+                    getCalendarFollowUpOwner(item),
+                    item.priority || 'Medium',
+                    item.status || 'open'
+                  ]),
+                  actionLabel: 'Open Calendar',
+                  onAction: () => navigate('/calendar')
+                })}
               />
 
               <OperationsLeadAnalytics
