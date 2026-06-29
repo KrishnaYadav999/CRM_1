@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, RefreshCw, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
 import api, { readApiError } from '../services/api'
@@ -12,10 +12,13 @@ export default function VerifyOtp(){
   const [resendCooldown, setResendCooldown] = useState(60)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [otpFocused, setOtpFocused] = useState(false)
+  const otpInputRef = useRef(null)
   const navigate = useNavigate()
   const location = useLocation()
   const email = location.state?.email || localStorage.getItem('login_email') || ''
   const [devOtp, setDevOtp] = useState(() => import.meta.env.DEV ? localStorage.getItem('dev_otp') || '' : '')
+  const otpSlots = Array.from({ length: 6 }, (_, index) => otp[index] || '')
 
   useEffect(() => {
     if (resendCooldown <= 0) return undefined
@@ -84,24 +87,55 @@ export default function VerifyOtp(){
       <form onSubmit={handleVerify} className="mt-8 space-y-5">
         <label className="block">
           <span className="text-sm font-black text-slate-700">Login OTP</span>
-          <div className="group mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition duration-300 focus-within:-translate-y-0.5 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-lg focus-within:shadow-emerald-900/10 focus-within:ring-4 focus-within:ring-emerald-100">
-            <ShieldCheck className="h-5 w-5 text-emerald-600 transition duration-300 group-focus-within:scale-110" />
+          <div
+            className={`auth-otp-field group mt-2 rounded-2xl border bg-slate-50 px-4 py-4 shadow-sm transition duration-300 ${otpFocused ? 'auth-otp-field-focused -translate-y-0.5 border-emerald-500 bg-white shadow-lg shadow-emerald-900/10 ring-4 ring-emerald-100' : 'border-slate-200'}`}
+            onClick={() => otpInputRef.current?.focus()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+                <LockKeyhole className="h-4 w-4" />
+                Secure 6 digit code
+              </span>
+              <span className="auth-otp-progress">{otp.length}/6</span>
+            </div>
+            <div className="relative">
             <input
+              ref={otpInputRef}
               type="text"
               inputMode="numeric"
+              autoComplete="one-time-code"
               maxLength="6"
-              placeholder="000000"
+              placeholder=""
               required
               value={otp}
+              onFocus={() => setOtpFocused(true)}
+              onBlur={() => setOtpFocused(false)}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-              className="min-w-0 flex-1 bg-transparent text-2xl font-black tracking-[0.35em] outline-none placeholder:text-slate-300"
+              className="absolute inset-0 z-10 h-full w-full cursor-text opacity-0"
             />
+              <div className="grid grid-cols-6 gap-2 sm:gap-3">
+                {otpSlots.map((value, index) => {
+                  const active = otpFocused && index === Math.min(otp.length, 5)
+                  const filled = Boolean(value)
+                  return (
+                    <span
+                      key={index}
+                      className={`auth-otp-slot ${filled ? 'auth-otp-slot-filled' : ''} ${active ? 'auth-otp-slot-active' : ''}`}
+                    >
+                      {filled ? value : <i />}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
           </div>
         </label>
         {devOtp && <ToastMessage type="warning">Development OTP: {devOtp}</ToastMessage>}
         {notice && <ToastMessage type="success">{notice}</ToastMessage>}
         {error && <ToastMessage type="error">{error}</ToastMessage>}
-        <button className="btn-lift relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !email || otp.length !== 6}>
+        <button className="btn-lift group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-700 px-5 py-4 font-black text-white shadow-xl shadow-emerald-900/20 transition disabled:cursor-not-allowed disabled:opacity-70" disabled={loading || !email || otp.length !== 6}>
+          <span className="absolute inset-0 -translate-x-full bg-white/20 transition duration-700 group-hover:translate-x-full" />
+          <CheckCircle2 className="relative h-5 w-5" />
           <span className="relative">{loading ? 'Verifying...' : 'Verify and login'}</span>
         </button>
         <button

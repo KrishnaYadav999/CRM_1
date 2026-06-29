@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, KeyRound, Mail } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, KeyRound, Mail, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
 import api, { readApiError } from '../services/api'
@@ -8,6 +8,7 @@ import api, { readApiError } from '../services/api'
 export default function Login(){
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -54,16 +55,32 @@ export default function Login(){
         </label>
         <label className="block">
           <span className="text-sm font-black text-slate-700">Password</span>
-          <div className="group mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition duration-300 focus-within:-translate-y-0.5 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-lg focus-within:shadow-emerald-900/10 focus-within:ring-4 focus-within:ring-emerald-100">
-            <KeyRound className="h-5 w-5 text-emerald-600 transition duration-300 group-focus-within:scale-110" />
+          <div className="auth-password-field group mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm transition duration-300 focus-within:-translate-y-0.5 focus-within:border-emerald-500 focus-within:bg-white focus-within:shadow-lg focus-within:shadow-emerald-900/10 focus-within:ring-4 focus-within:ring-emerald-100">
+            <span className="auth-input-icon">
+              <KeyRound className="h-5 w-5 text-emerald-600 transition duration-300 group-focus-within:scale-110" />
+            </span>
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="Enter your password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-slate-400"
+              className="min-w-0 flex-1 bg-transparent py-1.5 font-semibold outline-none placeholder:text-slate-400"
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((value) => !value)}
+              className={`auth-eye-button ${showPassword ? 'auth-eye-button-active' : ''}`}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              title={showPassword ? 'Hide password' : 'Show password'}
+            >
+              <span />
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-xs font-extrabold text-slate-500">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+            Secure password is protected during OTP verification.
           </div>
         </label>
         {error && <ToastMessage type="error">{error}</ToastMessage>}
