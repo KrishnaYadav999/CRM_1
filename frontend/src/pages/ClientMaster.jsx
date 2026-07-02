@@ -48,6 +48,8 @@ import {
 } from '../features/clientMaster/clientMaster.utils';
 import {
   AnnualReturnHistory,
+  DetailAccordion,
+  EmptyTab,
   annualProcessingTabIds,
   annualProcessingTabLabels,
   formatDisplayDate,

@@ -3838,7 +3838,7 @@ function ProcessingPill({ label, value, icon: Icon, type = 'text', tone = 'white
   );
 }
 
-function DetailAccordion({ title, open, onToggle, children }) {
+export function DetailAccordion({ title, open, onToggle, children }) {
   return (
     <div className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm shadow-emerald-900/5">
       <button type="button" onClick={onToggle} className="flex min-h-14 w-full items-center justify-between gap-4 bg-[linear-gradient(135deg,#f0fdfa_0%,#ffffff_100%)] px-5 text-left font-black text-slate-900">
@@ -3855,7 +3855,7 @@ function DetailAccordion({ title, open, onToggle, children }) {
   );
 }
 
-function EmptyTab({ title, message }) {
+export function EmptyTab({ title, message }) {
   return (
     <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">
       <p className="text-lg font-black text-slate-700">{title}</p>
