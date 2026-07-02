@@ -1579,9 +1579,6 @@ main,
 .min-h-screen,
 .operations-dashboard,
 .sales-dashboard,
-.px-4 > div,
-.sm\:px-6 > div,
-.lg\:px-8 > div,
 .operations-panel,
 .operations-snapshot-panel,
 .sales-panel,
@@ -2117,4 +2114,51 @@ table tbody tr:hover td,
 .topbar-reminder-head *,
 .absolute.right-0.top-14 > div:first-child * {
   color: #ffffff !important;
+}
+
+/* Sidebar recovery: keep navigation dark, not white */
+aside.fixed,
+aside.fixed *,
+aside.fixed > div,
+aside.fixed nav,
+aside.fixed nav > div,
+aside.fixed nav > div > div,
+aside.fixed .grid,
+aside.fixed .overflow-hidden,
+aside.fixed .space-y-1,
+aside.fixed .space-y-2,
+aside.fixed .space-y-3 {
+  background-color: transparent !important;
+}
+
+aside.fixed > div {
+  background:
+    radial-gradient(circle at 16% 10%, rgba(255, 225, 59, 0.15), transparent 18%),
+    radial-gradient(circle at 82% 8%, rgba(240, 82, 43, 0.18), transparent 20%),
+    linear-gradient(180deg, #064226 0%, #052e1b 54%, #17130e 100%) !important;
+}
+
+aside.fixed .sidebar-menu-button:not(.sidebar-menu-button-active),
+aside.fixed .sidebar-child-button:not(.sidebar-child-button-current),
+aside.fixed .sidebar-dashboard-choice:not(.sidebar-dashboard-choice-active) {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.76) !important;
+}
+
+aside.fixed .sidebar-menu-button:not(.sidebar-menu-button-active):hover,
+aside.fixed .sidebar-child-button:not(.sidebar-child-button-current):hover,
+aside.fixed .sidebar-dashboard-choice:not(.sidebar-dashboard-choice-active):hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+aside.fixed .sidebar-child-button-current {
+  background: rgba(166, 230, 53, 0.16) !important;
+  color: #ffffff !important;
+}
+
+aside.fixed .sidebar-menu-button-active,
+aside.fixed .sidebar-dashboard-choice-active {
+  background: linear-gradient(135deg, #ffe13b 0%, #fff7a8 100%) !important;
+  color: #07351f !important;
 }
