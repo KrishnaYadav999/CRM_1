@@ -701,6 +701,15 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
     return () => window.clearTimeout(timer);
   }, [annualToast]);
 
+  useEffect(() => {
+    if (!reviewDrawerOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [reviewDrawerOpen]);
+
   function readDraftValue(label, fallback = '') {
     const saved = annualDraft[label];
     if (saved !== undefined && saved !== null) return saved;

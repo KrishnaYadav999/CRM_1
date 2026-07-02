@@ -520,9 +520,19 @@
 
 .annual-review-backdrop {
   overflow: hidden !important;
+  background: rgba(15, 23, 42, 0.48) !important;
+  backdrop-filter: blur(10px) saturate(0.85) !important;
 }
 
 .annual-review-panel {
+  top: 12px !important;
+  right: 14px !important;
+  bottom: auto !important;
+  height: auto !important;
+  max-height: calc(100vh - 88px) !important;
+  max-width: min(560px, calc(100vw - 28px)) !important;
+  overflow: hidden auto !important;
+  border-radius: 20px !important;
   border-left: 1px solid rgba(203, 213, 225, 0.85) !important;
   background:
     linear-gradient(180deg, #ffffff 0%, #f8fbfb 100%) !important;
@@ -531,12 +541,13 @@
 .annual-review-panel > .sticky {
   background: rgba(255, 255, 255, 0.96) !important;
   backdrop-filter: blur(16px) !important;
+  padding: 14px 18px !important;
 }
 
 .annual-review-panel > .space-y-5 {
   display: grid !important;
-  gap: 14px !important;
-  padding: 16px !important;
+  gap: 12px !important;
+  padding: 14px !important;
 }
 
 .annual-review-panel .rounded-2xl.border.border-slate-200.bg-slate-50\/70 {
@@ -553,7 +564,7 @@
 
 .annual-review-panel .space-y-2 > .rounded-xl {
   border-radius: 12px !important;
-  padding: 12px !important;
+  padding: 10px 12px !important;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05) !important;
 }
 
@@ -568,6 +579,10 @@
   }
 
   .annual-review-panel {
+    top: 0 !important;
+    right: 0 !important;
+    height: 100% !important;
+    max-height: 100% !important;
     max-width: none !important;
     border-radius: 0 !important;
   }
