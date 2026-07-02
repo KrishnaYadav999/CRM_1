@@ -528,10 +528,12 @@
 .annual-review-panel {
   top: 76px !important;
   right: 18px !important;
+  left: 18px !important;
   bottom: auto !important;
+  width: auto !important;
   height: auto !important;
   max-height: calc(100vh - 92px) !important;
-  max-width: min(560px, calc(100vw - 36px)) !important;
+  max-width: none !important;
   overflow: hidden auto !important;
   overscroll-behavior: contain !important;
   scrollbar-color: #7ccfc4 #eef7f5 !important;
@@ -579,6 +581,10 @@ body:has(.annual-review-backdrop) .client-detail-card {
   padding: 14px !important;
 }
 
+.annual-review-panel > .space-y-5 > .rounded-2xl:first-child {
+  width: 100% !important;
+}
+
 .annual-review-panel .rounded-2xl.border.border-slate-200.bg-slate-50\/70 {
   border-color: rgba(48, 115, 123, 0.14) !important;
   background: #f8fbfb !important;
@@ -588,6 +594,7 @@ body:has(.annual-review-backdrop) .client-detail-card {
 
 .annual-review-panel .space-y-2 {
   display: grid !important;
+  grid-template-columns: repeat(2, minmax(260px, 1fr)) !important;
   gap: 9px !important;
 }
 
@@ -610,10 +617,15 @@ body:has(.annual-review-backdrop) .client-detail-card {
   .annual-review-panel {
     top: 0 !important;
     right: 0 !important;
+    left: 0 !important;
     height: 100% !important;
     max-height: 100% !important;
     max-width: none !important;
     border-radius: 0 !important;
+  }
+
+  .annual-review-panel .space-y-2 {
+    grid-template-columns: 1fr !important;
   }
 }
 
