@@ -1570,3 +1570,110 @@ main,
 .rounded-\[28px\].bg-gradient-to-br {
   background: #ffffff !important;
 }
+
+/* Absolute final white surfaces: remove remaining cream/green panel fills */
+html,
+body,
+#root,
+main,
+.min-h-screen,
+.operations-dashboard,
+.sales-dashboard,
+.px-4 > div,
+.sm\:px-6 > div,
+.lg\:px-8 > div,
+.operations-panel,
+.operations-snapshot-panel,
+.sales-panel,
+.sales-pipeline-card,
+.sales-revenue-card,
+.sales-follow-card,
+.sales-recent-card,
+.sales-donut-card,
+.lead-story-panel,
+.client-story-panel,
+.client-directory-table-shell,
+.lead-directory-scroll,
+.crm-data-table,
+.operations-table-wrap,
+.annual-workspace,
+.annual-workspace .annual-toolbar,
+.annual-workspace .annual-workspace-body,
+.annual-workspace .processing-section-card,
+.annual-workspace .annual-section-card,
+.calendar-page,
+.notifications-page,
+.rounded-\[28px\].bg-gradient-to-br,
+.rounded-2xl.bg-white,
+.rounded-\[28px\].bg-white {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+.operations-panel,
+.operations-snapshot-panel,
+.sales-panel,
+.sales-pipeline-card,
+.sales-revenue-card,
+.sales-follow-card,
+.sales-recent-card,
+.sales-donut-card,
+.lead-story-panel,
+.client-story-panel {
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.07) !important;
+}
+
+.operations-snapshot-grid article,
+.sales-metric-card,
+.lead-story-card,
+.client-story-card,
+.metric-output-card,
+.operations-performance-grid > *,
+.operations-pibo-grid > * {
+  background-image: var(--solid-card-bg, none) !important;
+}
+
+.operations-snapshot-grid article:nth-child(1),
+.sales-metric-teal,
+.lead-story-emerald,
+.operations-performance-grid > *:nth-child(5n + 1),
+.operations-pibo-grid > *:nth-child(5n + 1) {
+  --solid-card-bg: linear-gradient(135deg, #075c37 0%, #0d8a4e 100%);
+}
+
+.operations-snapshot-grid article:nth-child(2),
+.sales-metric-blue,
+.lead-story-sky,
+.operations-performance-grid > *:nth-child(5n + 2),
+.operations-pibo-grid > *:nth-child(5n + 2) {
+  --solid-card-bg: linear-gradient(135deg, #123c69 0%, #1f7a9d 100%);
+}
+
+.operations-snapshot-grid article:nth-child(3),
+.sales-metric-orange,
+.lead-story-orange,
+.lead-story-amber,
+.operations-performance-grid > *:nth-child(5n + 3),
+.operations-pibo-grid > *:nth-child(5n + 3) {
+  --solid-card-bg: linear-gradient(135deg, #c2410c 0%, #f97316 100%);
+}
+
+.sales-metric-indigo,
+.lead-story-violet,
+.operations-performance-grid > *:nth-child(5n + 4),
+.operations-pibo-grid > *:nth-child(5n + 4) {
+  --solid-card-bg: linear-gradient(135deg, #312e81 0%, #7c3aed 100%);
+}
+
+.sales-metric-pink,
+.lead-story-rose,
+.operations-performance-grid > *:nth-child(5n),
+.operations-pibo-grid > *:nth-child(5n) {
+  --solid-card-bg: linear-gradient(135deg, #9f1239 0%, #e11d48 100%);
+}
+
+.lead-story-teal {
+  --solid-card-bg: linear-gradient(135deg, #065f5b 0%, #0f9f83 100%);
+}
