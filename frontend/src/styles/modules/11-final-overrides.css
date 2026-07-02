@@ -2162,3 +2162,338 @@ aside.fixed .sidebar-dashboard-choice-active {
   background: linear-gradient(135deg, #ffe13b 0%, #fff7a8 100%) !important;
   color: #07351f !important;
 }
+
+/* Final brand palette: vivid food-market colors, no black backgrounds, no sidebar bubbles */
+:root {
+  --crm-brand-green: #00492c;
+  --crm-brand-green-2: #00733f;
+  --crm-brand-yellow: #f6b816;
+  --crm-brand-red: #e22028;
+  --crm-brand-aqua: #9bccdd;
+  --crm-brand-orange: #c5620b;
+  --crm-brand-cream: #fff7df;
+  --crm-brand-ink: #07351f;
+  --crm-brand-muted: #5d6f62;
+}
+
+body,
+#root,
+.operations-dashboard,
+.sales-dashboard,
+.calendar-page,
+.notifications-page,
+.pending-approval-page,
+.annual-workspace {
+  background: #ffffff !important;
+  color: var(--crm-brand-ink) !important;
+}
+
+aside.fixed > div,
+html aside.fixed > div {
+  background:
+    linear-gradient(135deg, rgba(246, 184, 22, 0.2) 0 18%, transparent 18% 100%),
+    linear-gradient(180deg, var(--crm-brand-green) 0%, #00643a 67%, #0a7a44 100%) !important;
+  box-shadow: 18px 0 42px rgba(0, 73, 44, 0.18) !important;
+}
+
+aside.fixed > div::before {
+  content: none !important;
+  display: none !important;
+}
+
+aside.fixed > div::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 0 !important;
+  height: 138px !important;
+  pointer-events: none !important;
+  background:
+    linear-gradient(135deg, transparent 0 34%, rgba(246, 184, 22, 0.96) 34% 56%, rgba(226, 32, 40, 0.9) 56% 100%) !important;
+  opacity: 0.92 !important;
+}
+
+aside.fixed .sidebar-section-label,
+aside.fixed .sidebar-group-label,
+aside.fixed .text-\[10px\],
+aside.fixed .text-\[11px\] {
+  color: rgba(255, 255, 255, 0.7) !important;
+  letter-spacing: 0.18em !important;
+}
+
+aside.fixed .sidebar-menu-button:not(.sidebar-menu-button-active),
+aside.fixed .sidebar-child-button:not(.sidebar-child-button-current),
+aside.fixed .sidebar-dashboard-choice:not(.sidebar-dashboard-choice-active) {
+  color: rgba(255, 255, 255, 0.86) !important;
+}
+
+aside.fixed .sidebar-menu-button:not(.sidebar-menu-button-active):hover,
+aside.fixed .sidebar-child-button:not(.sidebar-child-button-current):hover,
+aside.fixed .sidebar-dashboard-choice:not(.sidebar-dashboard-choice-active):hover {
+  background: rgba(246, 184, 22, 0.18) !important;
+  color: #ffffff !important;
+}
+
+aside.fixed .sidebar-menu-button-active,
+aside.fixed .sidebar-dashboard-choice-active {
+  background: linear-gradient(135deg, var(--crm-brand-yellow) 0%, #ffe273 100%) !important;
+  color: var(--crm-brand-green) !important;
+  box-shadow: 0 14px 30px rgba(246, 184, 22, 0.22) !important;
+}
+
+aside.fixed .sidebar-child-button-current {
+  background: var(--crm-brand-red) !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 26px rgba(226, 32, 40, 0.2) !important;
+}
+
+.operations-hero,
+.sales-hero,
+.pending-approval-hero,
+.notifications-hero,
+.calendar-hero {
+  background:
+    linear-gradient(100deg, var(--crm-brand-green) 0 52%, var(--crm-brand-red) 52% 74%, var(--crm-brand-yellow) 74% 100%) !important;
+  color: #ffffff !important;
+  border: 0 !important;
+  box-shadow: 0 22px 46px rgba(0, 73, 44, 0.2) !important;
+}
+
+.operations-hero *,
+.sales-hero *,
+.pending-approval-hero *,
+.notifications-hero *,
+.calendar-hero * {
+  color: #ffffff !important;
+}
+
+.operations-hero::before,
+.sales-hero::before,
+.pending-approval-hero::before,
+.notifications-hero::before,
+.calendar-hero::before {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12), transparent 36%),
+    linear-gradient(135deg, transparent 0 54%, rgba(255, 255, 255, 0.18) 54% 62%, transparent 62%) !important;
+  opacity: 1 !important;
+}
+
+.operations-panel,
+.sales-panel,
+.lead-story-panel,
+.client-story-panel,
+.operations-snapshot-panel,
+.sales-pipeline-card,
+.sales-revenue-card,
+.sales-follow-card,
+.sales-recent-card,
+.sales-donut-card,
+.client-directory-table-shell,
+.lead-directory-scroll,
+.crm-data-table,
+.annual-workspace .annual-section-card,
+.annual-workspace .processing-section-card {
+  background: #ffffff !important;
+  border-color: rgba(0, 73, 44, 0.14) !important;
+  box-shadow: 0 18px 44px rgba(0, 73, 44, 0.08) !important;
+}
+
+.operations-panel::before,
+.sales-panel::before,
+.lead-story-panel::before,
+.client-story-panel::before,
+.sales-pipeline-card::before,
+.sales-revenue-card::before,
+.sales-donut-card::before {
+  background: linear-gradient(90deg, var(--crm-brand-yellow), var(--crm-brand-red), var(--crm-brand-green), var(--crm-brand-aqua)) !important;
+}
+
+.operations-snapshot-panel .grid > *,
+.sales-dashboard [class*="grid"] > .kpi-card,
+.sales-dashboard [class*="grid"] > div[class*="rounded"],
+.lead-story-panel .grid > div,
+.client-story-panel .grid > div,
+.client-metric-card,
+.metric-card,
+.kpi-card {
+  color: #ffffff !important;
+  border: 0 !important;
+  box-shadow: 0 18px 34px rgba(0, 73, 44, 0.14) !important;
+}
+
+.operations-snapshot-panel .grid > *:nth-child(6n + 1),
+.sales-dashboard [class*="grid"] > .kpi-card:nth-child(6n + 1),
+.lead-story-panel .grid > div:nth-child(6n + 1),
+.client-story-panel .grid > div:nth-child(6n + 1),
+.client-metric-card:nth-child(6n + 1),
+.metric-card:nth-child(6n + 1),
+.kpi-card:nth-child(6n + 1) {
+  background: linear-gradient(135deg, var(--crm-brand-green), var(--crm-brand-green-2)) !important;
+}
+
+.operations-snapshot-panel .grid > *:nth-child(6n + 2),
+.sales-dashboard [class*="grid"] > .kpi-card:nth-child(6n + 2),
+.lead-story-panel .grid > div:nth-child(6n + 2),
+.client-story-panel .grid > div:nth-child(6n + 2),
+.client-metric-card:nth-child(6n + 2),
+.metric-card:nth-child(6n + 2),
+.kpi-card:nth-child(6n + 2) {
+  background: linear-gradient(135deg, var(--crm-brand-red), #b8161e) !important;
+}
+
+.operations-snapshot-panel .grid > *:nth-child(6n + 3),
+.sales-dashboard [class*="grid"] > .kpi-card:nth-child(6n + 3),
+.lead-story-panel .grid > div:nth-child(6n + 3),
+.client-story-panel .grid > div:nth-child(6n + 3),
+.client-metric-card:nth-child(6n + 3),
+.metric-card:nth-child(6n + 3),
+.kpi-card:nth-child(6n + 3) {
+  background: linear-gradient(135deg, var(--crm-brand-orange), #a54808) !important;
+}
+
+.operations-snapshot-panel .grid > *:nth-child(6n + 4),
+.sales-dashboard [class*="grid"] > .kpi-card:nth-child(6n + 4),
+.lead-story-panel .grid > div:nth-child(6n + 4),
+.client-story-panel .grid > div:nth-child(6n + 4),
+.client-metric-card:nth-child(6n + 4),
+.metric-card:nth-child(6n + 4),
+.kpi-card:nth-child(6n + 4) {
+  background: linear-gradient(135deg, #4f8e8f, var(--crm-brand-aqua)) !important;
+}
+
+.operations-snapshot-panel .grid > *:nth-child(6n + 5),
+.sales-dashboard [class*="grid"] > .kpi-card:nth-child(6n + 5),
+.lead-story-panel .grid > div:nth-child(6n + 5),
+.client-story-panel .grid > div:nth-child(6n + 5),
+.client-metric-card:nth-child(6n + 5),
+.metric-card:nth-child(6n + 5),
+.kpi-card:nth-child(6n + 5) {
+  background: linear-gradient(135deg, #6f7610, var(--crm-brand-green)) !important;
+}
+
+.operations-snapshot-panel .grid > *:nth-child(6n + 6),
+.sales-dashboard [class*="grid"] > .kpi-card:nth-child(6n + 6),
+.lead-story-panel .grid > div:nth-child(6n + 6),
+.client-story-panel .grid > div:nth-child(6n + 6),
+.client-metric-card:nth-child(6n + 6),
+.metric-card:nth-child(6n + 6),
+.kpi-card:nth-child(6n + 6) {
+  background: linear-gradient(135deg, var(--crm-brand-yellow), var(--crm-brand-orange)) !important;
+}
+
+.operations-snapshot-panel .grid > * *,
+.sales-dashboard [class*="grid"] > .kpi-card *,
+.lead-story-panel .grid > div *,
+.client-story-panel .grid > div *,
+.client-metric-card *,
+.metric-card *,
+.kpi-card * {
+  color: inherit !important;
+}
+
+button.bg-emerald-600,
+button.bg-teal-600,
+.operations-view-button,
+.sales-section-head button,
+.pending-refresh-button,
+.btn-lift.border-emerald-200,
+.btn-lift.border-teal-200,
+.bg-emerald-600,
+.bg-teal-600 {
+  background: var(--crm-brand-green) !important;
+  border-color: var(--crm-brand-green) !important;
+  color: #ffffff !important;
+}
+
+button.bg-emerald-600:hover,
+button.bg-teal-600:hover,
+.operations-view-button:hover,
+.sales-section-head button:hover,
+.pending-refresh-button:hover,
+.btn-lift.border-emerald-200:hover,
+.btn-lift.border-teal-200:hover {
+  background: var(--crm-brand-yellow) !important;
+  border-color: var(--crm-brand-yellow) !important;
+  color: var(--crm-brand-green) !important;
+}
+
+.text-blue-600,
+.text-sky-600,
+.text-cyan-600,
+.text-indigo-600 {
+  color: var(--crm-brand-green) !important;
+}
+
+.bg-blue-50,
+.bg-sky-50,
+.bg-cyan-50,
+.bg-indigo-50 {
+  background: rgba(155, 204, 221, 0.28) !important;
+}
+
+.border-blue-200,
+.border-sky-200,
+.border-cyan-200,
+.border-indigo-200 {
+  border-color: rgba(0, 73, 44, 0.18) !important;
+}
+
+.from-teal-700.to-sky-700,
+.from-sky-700.to-cyan-700,
+.from-blue-600.to-indigo-600,
+.from-indigo-600.to-purple-600 {
+  --tw-gradient-from: var(--crm-brand-green) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: var(--crm-brand-red) var(--tw-gradient-to-position) !important;
+}
+
+table th,
+.operations-table th,
+.sales-lead-breakdown-table th,
+.lead-table th,
+.crm-data-table th {
+  background: var(--crm-brand-green) !important;
+  color: #ffffff !important;
+  border-bottom: 4px solid var(--crm-brand-yellow) !important;
+}
+
+table tbody tr:hover td,
+.operations-table tbody tr:hover td,
+.crm-data-table tbody tr:hover td {
+  background: rgba(246, 184, 22, 0.12) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.form-input:focus,
+.annual-table-input:focus,
+.annual-table-textarea:focus {
+  border-color: var(--crm-brand-yellow) !important;
+  box-shadow: 0 0 0 4px rgba(246, 184, 22, 0.22), 0 14px 26px rgba(0, 73, 44, 0.09) !important;
+}
+
+.topbar-reminder-head,
+.absolute.right-0.top-14 > div:first-child {
+  background: linear-gradient(135deg, var(--crm-brand-green), var(--crm-brand-red)) !important;
+}
+
+.dashboard-topbar,
+header,
+.sticky.top-0 {
+  border-bottom-color: rgba(0, 73, 44, 0.12) !important;
+}
+
+.dashboard-topbar::after,
+header::after {
+  background: linear-gradient(90deg, var(--crm-brand-yellow), var(--crm-brand-red), var(--crm-brand-green), var(--crm-brand-aqua)) !important;
+}
+
+.rounded-full.bg-teal-700,
+.rounded-full.bg-emerald-700,
+.user-avatar,
+.avatar {
+  background: linear-gradient(135deg, var(--crm-brand-green), var(--crm-brand-red)) !important;
+  color: #ffffff !important;
+}
