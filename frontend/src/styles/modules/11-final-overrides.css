@@ -36,7 +36,7 @@
 .operations-planner-tone-teal { background: linear-gradient(90deg, #0f766e, #14b8a6) !important; }
 .operations-planner-tone-emerald { background: linear-gradient(90deg, #059669, #22c55e) !important; }
 .operations-planner-tone-orange { background: linear-gradient(90deg, #f97316, #f59e0b) !important; }
-.operations-planner-tone-indigo { background: linear-gradient(90deg, #4f46e5, #8b5cf6) !important; }
+.operations-planner-tone-indigo { background: linear-gradient(90deg, #4a1024, #7c2d12) !important; }
 
 @keyframes chart-bar-grow {
   from {
@@ -1676,4 +1676,150 @@ main,
 
 .lead-story-teal {
   --solid-card-bg: linear-gradient(135deg, #065f5b 0%, #0f9f83 100%);
+}
+
+/* Premium dark KPI palette: no blue tones */
+:root {
+  --crm-dark-forest: linear-gradient(135deg, #052e1b 0%, #0b6b3a 100%);
+  --crm-dark-charcoal: linear-gradient(135deg, #11130f 0%, #3a3d2c 100%);
+  --crm-dark-oxblood: linear-gradient(135deg, #4a1024 0%, #9f1239 100%);
+  --crm-dark-copper: linear-gradient(135deg, #6b250c 0%, #c2410c 100%);
+  --crm-dark-olive: linear-gradient(135deg, #2f3f12 0%, #6b7d18 100%);
+  --crm-dark-plum: linear-gradient(135deg, #3b1027 0%, #7a1f46 100%);
+}
+
+.operations-hero,
+.sales-hero,
+.pending-approval-hero,
+.notifications-hero {
+  background: linear-gradient(118deg, #041d13 0%, #063f24 44%, #151611 100%) !important;
+  box-shadow: 0 24px 52px rgba(4, 29, 19, 0.3) !important;
+}
+
+.operations-panel::before,
+.sales-donut-card::before,
+.sales-panel::before,
+.sales-pipeline-card::before,
+.sales-revenue-card::before,
+.sales-follow-card::before,
+.sales-recent-card::before {
+  height: 3px !important;
+  background: linear-gradient(90deg, #052e1b, #7c2d12, #f97316) !important;
+}
+
+.sales-metric-card,
+.lead-story-card,
+.client-story-card,
+.metric-output-card,
+.operations-snapshot-grid article,
+.operations-performance-grid > *,
+.operations-pibo-grid > * {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 20px 38px rgba(4, 29, 19, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16) !important;
+}
+
+.sales-metric-card::after,
+.lead-story-card::after,
+.client-story-card::after,
+.metric-output-card::after {
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.2), transparent 66%) !important;
+}
+
+.sales-metric-card:hover,
+.lead-story-card:hover,
+.client-story-card:hover,
+.metric-output-card:hover,
+.operations-snapshot-grid article:hover,
+.operations-performance-grid > *:hover,
+.operations-pibo-grid > *:hover {
+  transform: translateY(-3px) !important;
+  box-shadow:
+    0 28px 54px rgba(4, 29, 19, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+}
+
+.sales-metric-teal,
+.lead-story-emerald,
+.operations-snapshot-grid article:nth-child(1),
+.operations-performance-grid > *:nth-child(6n + 1),
+.operations-pibo-grid > *:nth-child(6n + 1) {
+  --solid-card-bg: var(--crm-dark-forest) !important;
+  background: var(--crm-dark-forest) !important;
+}
+
+.sales-metric-blue,
+.lead-story-sky,
+.operations-snapshot-grid article:nth-child(2),
+.operations-performance-grid > *:nth-child(6n + 2),
+.operations-pibo-grid > *:nth-child(6n + 2) {
+  --solid-card-bg: var(--crm-dark-charcoal) !important;
+  background: var(--crm-dark-charcoal) !important;
+}
+
+.sales-metric-orange,
+.lead-story-orange,
+.operations-snapshot-grid article:nth-child(3),
+.operations-performance-grid > *:nth-child(6n + 3),
+.operations-pibo-grid > *:nth-child(6n + 3) {
+  --solid-card-bg: var(--crm-dark-copper) !important;
+  background: var(--crm-dark-copper) !important;
+}
+
+.sales-metric-indigo,
+.lead-story-violet,
+.operations-performance-grid > *:nth-child(6n + 4),
+.operations-pibo-grid > *:nth-child(6n + 4) {
+  --solid-card-bg: var(--crm-dark-oxblood) !important;
+  background: var(--crm-dark-oxblood) !important;
+}
+
+.sales-metric-pink,
+.lead-story-rose,
+.operations-performance-grid > *:nth-child(6n + 5),
+.operations-pibo-grid > *:nth-child(6n + 5) {
+  --solid-card-bg: var(--crm-dark-plum) !important;
+  background: var(--crm-dark-plum) !important;
+}
+
+.lead-story-teal,
+.lead-story-amber,
+.operations-performance-grid > *:nth-child(6n),
+.operations-pibo-grid > *:nth-child(6n) {
+  --solid-card-bg: var(--crm-dark-olive) !important;
+  background: var(--crm-dark-olive) !important;
+}
+
+.text-indigo-600,
+.text-sky-600,
+.text-blue-600,
+.text-violet-600 {
+  color: #7c2d12 !important;
+}
+
+.bg-indigo-50,
+.bg-sky-50,
+.bg-blue-50,
+.bg-violet-50 {
+  background: #fff7ed !important;
+  color: #7c2d12 !important;
+}
+
+.border-indigo-100,
+.border-sky-100,
+.border-blue-100,
+.border-violet-100 {
+  border-color: rgba(124, 45, 18, 0.18) !important;
+}
+
+.from-teal-700.to-sky-700,
+.from-teal-700.to-sky-600,
+.from-indigo-600,
+.to-indigo-700,
+.from-blue-600,
+.to-blue-700 {
+  --tw-gradient-from: #052e1b var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: #7c2d12 var(--tw-gradient-to-position) !important;
 }
