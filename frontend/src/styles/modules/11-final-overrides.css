@@ -929,3 +929,323 @@ body:has(.annual-review-backdrop) .client-detail-card {
     height: 68px;
   }
 }
+
+/* Whole CRM brand refresh: organic market palette + cleaner typography */
+:root {
+  --crm-font-display: "Plus Jakarta Sans", "Nunito", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --crm-green-950: #063f24;
+  --crm-green-900: #0b5a31;
+  --crm-green-800: #0f6f3d;
+  --crm-green-700: #128347;
+  --crm-green-100: #dff5e6;
+  --crm-green-50: #f1fbf3;
+  --crm-orange-600: #f04a22;
+  --crm-orange-500: #ff6a1a;
+  --crm-yellow-500: #f2bd16;
+  --crm-cream: #fff8e9;
+  --crm-paper: #fffdf6;
+  --crm-ink: #132118;
+  --crm-muted: #607064;
+  --crm-line: rgba(6, 63, 36, 0.14);
+  --crm-theme-color: var(--crm-green-800);
+  --primary: var(--crm-green-800);
+  font-family: var(--crm-font-display) !important;
+}
+
+* {
+  font-family: var(--crm-font-display) !important;
+  letter-spacing: 0 !important;
+}
+
+html,
+body,
+#root {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(240, 74, 34, 0.1), transparent 24%),
+    radial-gradient(circle at 92% 4%, rgba(242, 189, 22, 0.11), transparent 26%),
+    linear-gradient(135deg, #f4fbf0 0%, #fffdf6 45%, #eef8ed 100%) !important;
+  color: var(--crm-ink) !important;
+}
+
+body {
+  text-rendering: geometricPrecision;
+}
+
+main,
+.min-h-screen.bg-\[\#eef7f5\],
+.bg-emerald-50 {
+  background:
+    radial-gradient(circle at 9% 2%, rgba(255, 106, 26, 0.08), transparent 24%),
+    radial-gradient(circle at 88% 0%, rgba(11, 90, 49, 0.1), transparent 30%),
+    linear-gradient(135deg, #f5fbef 0%, #fffdf7 50%, #eef8ed 100%) !important;
+}
+
+.crm-topbar {
+  border-color: rgba(6, 63, 36, 0.12) !important;
+  background: rgba(255, 253, 246, 0.92) !important;
+  box-shadow: 0 14px 34px rgba(6, 63, 36, 0.08) !important;
+}
+
+.crm-topbar .text-slate-950,
+.crm-topbar .text-slate-900 {
+  color: var(--crm-green-950) !important;
+}
+
+.crm-topbar .text-teal-700,
+.crm-topbar .text-slate-500 {
+  color: var(--crm-green-700) !important;
+}
+
+.crm-topbar .bg-slate-50,
+.crm-topbar .bg-teal-50 {
+  background: var(--crm-green-50) !important;
+  color: var(--crm-green-900) !important;
+}
+
+.crm-topbar .from-teal-700,
+.crm-topbar .to-sky-600,
+.crm-topbar .to-sky-700 {
+  --tw-gradient-from: var(--crm-green-900) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: var(--crm-orange-600) var(--tw-gradient-to-position) !important;
+}
+
+aside > .relative.flex.h-full {
+  background:
+    radial-gradient(circle at 12% 5%, rgba(255, 106, 26, 0.22), transparent 24%),
+    linear-gradient(180deg, var(--crm-green-900) 0%, var(--crm-green-950) 100%) !important;
+}
+
+.sidebar-menu-button-active,
+.sidebar-dashboard-choice-active {
+  background: var(--crm-paper) !important;
+  color: var(--crm-green-900) !important;
+  box-shadow: 0 18px 34px rgba(6, 63, 36, 0.22) !important;
+}
+
+.sidebar-child-button-current {
+  background: rgba(255, 248, 233, 0.16) !important;
+  color: #ffffff !important;
+}
+
+.sidebar-menu-button:hover:not(.sidebar-menu-button-active),
+.sidebar-child-button:hover,
+.sidebar-dashboard-choice:hover {
+  background: rgba(255, 248, 233, 0.13) !important;
+}
+
+.operations-hero,
+.lead-story-panel,
+.client-story-panel,
+.notifications-hero,
+.pending-approval-hero,
+.annual-workspace .annual-toolbar {
+  border-color: var(--crm-line) !important;
+  background:
+    radial-gradient(circle at 86% 7%, rgba(240, 74, 34, 0.16), transparent 28%),
+    radial-gradient(circle at 7% 12%, rgba(18, 131, 71, 0.13), transparent 30%),
+    linear-gradient(135deg, #fffdf6 0%, #f2faef 58%, #fff3dc 100%) !important;
+  box-shadow: 0 24px 58px rgba(6, 63, 36, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.86) !important;
+}
+
+.operations-hero-icon,
+.lead-story-icon,
+.annual-workspace .annual-back-button,
+.btn-lift.bg-emerald-700,
+.btn-lift.bg-emerald-600,
+.bg-emerald-700,
+.bg-emerald-600,
+.bg-teal-700 {
+  background:
+    linear-gradient(135deg, var(--crm-green-900) 0%, var(--crm-green-700) 72%, var(--crm-orange-600) 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 16px 32px rgba(6, 63, 36, 0.22) !important;
+}
+
+.operations-panel,
+.operations-snapshot-panel,
+.sales-donut-card,
+.sales-panel,
+.sales-pipeline-card,
+.sales-revenue-card,
+.sales-follow-card,
+.sales-recent-card,
+.lead-story-card,
+.client-story-card,
+.operations-lead-chart-card,
+.notifications-card,
+.calendar-page-premium,
+.annual-workspace .processing-section-card,
+.annual-workspace .annual-section-card,
+.annual-review-panel,
+.rounded-2xl.bg-white,
+.rounded-\[28px\].bg-white {
+  border-color: var(--crm-line) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(242, 189, 22, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(255, 253, 246, 0.98) 0%, rgba(248, 253, 241, 0.98) 100%) !important;
+  box-shadow: 0 18px 44px rgba(6, 63, 36, 0.075), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.operations-panel::before,
+.sales-donut-card::before,
+.sales-panel::before,
+.sales-pipeline-card::before,
+.sales-revenue-card::before,
+.sales-follow-card::before,
+.sales-recent-card::before,
+.lead-story-topline {
+  background: linear-gradient(90deg, var(--crm-green-900), var(--crm-green-700), var(--crm-orange-600), var(--crm-yellow-500)) !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+.operations-hero h1,
+.brand-loader-title,
+.app-loader-title,
+.sales-section-head strong,
+.sales-donut-head strong,
+.operations-panel-head strong,
+.lead-story-panel h2,
+.text-slate-950,
+.text-slate-900 {
+  color: var(--crm-green-950) !important;
+  font-weight: 900 !important;
+}
+
+p,
+small,
+.text-slate-500,
+.text-slate-600,
+.operations-hero p,
+.operations-panel-head p {
+  color: var(--crm-muted) !important;
+}
+
+.text-teal-700,
+.text-emerald-700,
+.text-emerald-800,
+.text-indigo-600,
+.operations-eyebrow,
+.brand-loader-eyebrow,
+.app-loader-eyebrow {
+  color: var(--crm-green-800) !important;
+}
+
+.text-orange-600,
+.text-amber-600 {
+  color: var(--crm-orange-600) !important;
+}
+
+button,
+.btn-lift,
+select,
+input,
+textarea,
+.form-input {
+  border-radius: 12px !important;
+}
+
+input,
+select,
+textarea,
+.form-input,
+.annual-table-input,
+.annual-table-textarea {
+  border-color: rgba(6, 63, 36, 0.16) !important;
+  background: rgba(255, 253, 246, 0.94) !important;
+  color: var(--crm-ink) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.form-input:focus,
+.annual-table-input:focus,
+.annual-table-textarea:focus {
+  border-color: var(--crm-orange-600) !important;
+  box-shadow: 0 0 0 4px rgba(240, 74, 34, 0.14), 0 12px 28px rgba(6, 63, 36, 0.08) !important;
+}
+
+.btn-lift.border-emerald-200,
+.btn-lift.border-teal-200,
+.operations-view-button,
+.sales-donut-link,
+.sales-section-head button,
+.pending-refresh-button {
+  border-color: rgba(18, 131, 71, 0.22) !important;
+  background: var(--crm-paper) !important;
+  color: var(--crm-green-900) !important;
+}
+
+.btn-lift.border-emerald-200:hover,
+.btn-lift.border-teal-200:hover,
+.operations-view-button:hover,
+.sales-section-head button:hover,
+.pending-refresh-button:hover {
+  border-color: rgba(240, 74, 34, 0.34) !important;
+  background: #fff3dc !important;
+  color: var(--crm-orange-600) !important;
+}
+
+.operations-status-yes,
+.bg-emerald-50,
+.bg-teal-50 {
+  background-color: var(--crm-green-50) !important;
+  color: var(--crm-green-800) !important;
+}
+
+.operations-status-no,
+.bg-amber-50,
+.bg-orange-50 {
+  background-color: #fff3dc !important;
+  color: #b83a18 !important;
+}
+
+table th,
+.operations-table th,
+.sales-lead-breakdown-table th,
+.lead-table th {
+  background: linear-gradient(180deg, #eaf7e9 0%, #dff1dd 100%) !important;
+  color: var(--crm-green-950) !important;
+}
+
+table td,
+.operations-table td,
+.sales-lead-breakdown-table td,
+.lead-table td {
+  border-color: rgba(6, 63, 36, 0.1) !important;
+}
+
+.recharts-text,
+.recharts-legend-item-text {
+  fill: var(--crm-muted) !important;
+  color: var(--crm-muted) !important;
+  font-family: var(--crm-font-display) !important;
+}
+
+.brand-loader,
+.app-loader {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(240, 74, 34, 0.14), transparent 28%),
+    radial-gradient(circle at 82% 76%, rgba(18, 131, 71, 0.18), transparent 28%),
+    linear-gradient(135deg, var(--crm-green-950) 0%, var(--crm-green-900) 42%, #fff3dc 42%, #fffdf6 100%) !important;
+}
+
+.brand-loader-card,
+.app-loader-card {
+  border-color: rgba(255, 248, 233, 0.42) !important;
+  background:
+    radial-gradient(circle at 82% 0%, rgba(240, 74, 34, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(255, 253, 246, 0.97), rgba(241, 251, 243, 0.94)) !important;
+}
+
+.brand-loader-card::before {
+  background: linear-gradient(90deg, var(--crm-green-900), var(--crm-orange-600), var(--crm-yellow-500)) !important;
+}
+
+::selection {
+  background: rgba(240, 74, 34, 0.22);
+  color: var(--crm-green-950);
+}
