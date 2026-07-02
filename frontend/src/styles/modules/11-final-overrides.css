@@ -520,22 +520,51 @@
 
 .annual-review-backdrop {
   overflow: hidden !important;
-  background: rgba(15, 23, 42, 0.48) !important;
-  backdrop-filter: blur(10px) saturate(0.85) !important;
+  background: rgba(15, 23, 42, 0.5) !important;
+  backdrop-filter: blur(12px) saturate(0.82) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(0.82) !important;
 }
 
 .annual-review-panel {
-  top: 12px !important;
-  right: 14px !important;
+  top: 76px !important;
+  right: 18px !important;
   bottom: auto !important;
   height: auto !important;
-  max-height: calc(100vh - 88px) !important;
-  max-width: min(560px, calc(100vw - 28px)) !important;
+  max-height: calc(100vh - 92px) !important;
+  max-width: min(560px, calc(100vw - 36px)) !important;
   overflow: hidden auto !important;
+  overscroll-behavior: contain !important;
+  scrollbar-color: #7ccfc4 #eef7f5 !important;
+  scrollbar-width: thin !important;
   border-radius: 20px !important;
   border-left: 1px solid rgba(203, 213, 225, 0.85) !important;
   background:
     linear-gradient(180deg, #ffffff 0%, #f8fbfb 100%) !important;
+}
+
+.annual-review-panel::-webkit-scrollbar {
+  width: 8px !important;
+}
+
+.annual-review-panel::-webkit-scrollbar-track {
+  border-radius: 999px !important;
+  background: #eef7f5 !important;
+}
+
+.annual-review-panel::-webkit-scrollbar-thumb {
+  border: 2px solid #eef7f5 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #8ddbd0, #2c8c85) !important;
+}
+
+.annual-review-panel::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #5fc9bd, #176c70) !important;
+}
+
+body:has(.annual-review-backdrop) .annual-toolbar,
+body:has(.annual-review-backdrop) .annual-workspace-body,
+body:has(.annual-review-backdrop) .client-detail-card {
+  filter: blur(5px) saturate(0.85) !important;
 }
 
 .annual-review-panel > .sticky {

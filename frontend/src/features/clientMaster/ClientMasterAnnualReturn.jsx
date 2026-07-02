@@ -703,10 +703,24 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
 
   useEffect(() => {
     if (!reviewDrawerOpen) return undefined;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
     const previousOverflow = document.body.style.overflow;
+    const previousPosition = document.body.style.position;
+    const previousTop = document.body.style.top;
+    const previousWidth = document.body.style.width;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
     return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
       document.body.style.overflow = previousOverflow;
+      document.body.style.position = previousPosition;
+      document.body.style.top = previousTop;
+      document.body.style.width = previousWidth;
+      window.scrollTo(0, scrollY);
     };
   }, [reviewDrawerOpen]);
 
@@ -2179,7 +2193,7 @@ function AnnualReviewDrawer({ workflow, mode = 'popup', roleLabel, debugInfo = {
   ]);
   const isDrawer = mode === 'drawer';
   const backdropClass = isDrawer
-    ? 'annual-review-backdrop fixed bottom-0 left-0 right-0 top-16 z-[120] bg-slate-950/35 backdrop-blur-sm'
+    ? 'annual-review-backdrop fixed inset-0 z-[120] bg-slate-950/35 backdrop-blur-sm'
     : 'annual-review-backdrop fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-slate-950/45 px-4 py-6 backdrop-blur-sm sm:py-10';
   const panelClass = isDrawer
     ? 'annual-review-panel absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto rounded-l-[20px] bg-white shadow-2xl shadow-slate-950/30 animate-[drawerIn_.24s_ease-out]'
