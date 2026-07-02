@@ -1,16 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileText, KeyRound, Plus, RefreshCw, Save, ShieldCheck, Upload, X } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
+import { adminRoles } from '../../constants/dashboard';
+import { quotationServiceCategoryOptions, selectOptions } from './clientMaster.constants';
+import { UploadButton } from './ClientMasterFormSections';
 import {
   annualDraftLegacyKeys,
   buildAnnualReturnYears,
   formatDateInputValue,
   getAnnualDraftAliasValue,
+  getAssignedName,
   getClientQuotationContext,
   getClientUniqueId,
   getFirstAnnualReturnYear,
+  getMsmeRows,
   normalizeFinancialYearLabel,
   readClientData
 } from './clientMaster.utils';
