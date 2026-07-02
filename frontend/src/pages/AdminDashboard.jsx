@@ -2666,7 +2666,14 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
   }
 
   return (
-    <motion.section className="sales-donut-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.36, delay: 0.2 }} whileHover={{ y: -2 }}>
+    <motion.section
+      className="sales-donut-card sales-donut-card-animated"
+      initial={{ opacity: 0, y: 24, scale: 0.98 }}
+      whileInView={{ opacity: 1, y: 0, scale: 1 }}
+      viewport={{ once: false, amount: 0.42 }}
+      transition={{ duration: 0.48, ease: [0.22, 1, 0.36, 1] }}
+      whileHover={{ y: -3 }}
+    >
       <div className="sales-donut-head">
         <div><Icon className="h-4 w-4" /><strong>{title}</strong></div>
         <div className="sales-period-controls">
@@ -2723,6 +2730,7 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
           <ResponsiveContainer width="100%" height={184}>
             <RechartsPieChart>
               <Pie
+                key={`${title}-${period}-${chartRows.map((row) => `${row.label}:${row.value}`).join('|')}`}
                 data={chartRows}
                 dataKey="value"
                 nameKey="label"
@@ -2730,8 +2738,11 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
                 outerRadius={80}
                 paddingAngle={rows.length > 1 ? 3 : 0}
                 stroke="none"
-                animationDuration={950}
+                animationBegin={140}
+                animationDuration={1250}
                 animationEasing="ease-out"
+                startAngle={450}
+                endAngle={90}
               >
                 {chartRows.map((row) => <Cell key={row.label} fill={row.color} />)}
               </Pie>
@@ -2740,8 +2751,8 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
           <div className="sales-chart-center"><strong>{total}</strong><span>{centerLabel}</span></div>
         </div>
         <div className="sales-donut-legend">
-          {rows.length ? visibleRows.map((row) => (
-            <div key={row.label}>
+          {rows.length ? visibleRows.map((row, index) => (
+            <div key={row.label} style={{ '--legend-index': index }}>
               <span style={{ background: row.color }} />
               <p>{row.label}</p>
               <strong>{row.value}</strong>
