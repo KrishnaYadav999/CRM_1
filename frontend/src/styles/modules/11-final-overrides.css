@@ -526,22 +526,25 @@
 }
 
 .annual-review-panel {
-  top: 64px !important;
+  top: 0 !important;
   right: 0 !important;
   left: auto !important;
   bottom: 0 !important;
-  width: min(620px, calc(100vw - 24px)) !important;
-  height: auto !important;
+  width: min(520px, 100vw) !important;
+  height: 100dvh !important;
   max-height: none !important;
   max-width: none !important;
   overflow: hidden auto !important;
   overscroll-behavior: contain !important;
   scrollbar-color: #7ccfc4 #eef7f5 !important;
   scrollbar-width: thin !important;
-  border-radius: 20px 0 0 20px !important;
+  border-radius: 16px 0 0 16px !important;
   border-left: 1px solid rgba(203, 213, 225, 0.85) !important;
+  border-top: 1px solid rgba(203, 213, 225, 0.85) !important;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.85) !important;
   background:
     linear-gradient(180deg, #ffffff 0%, #f8fbfb 100%) !important;
+  box-shadow: -22px 0 48px rgba(15, 23, 42, 0.26) !important;
 }
 
 .annual-review-panel::-webkit-scrollbar {
@@ -572,13 +575,13 @@ body:has(.annual-review-backdrop) .client-detail-card {
 .annual-review-panel > .sticky {
   background: rgba(255, 255, 255, 0.96) !important;
   backdrop-filter: blur(16px) !important;
-  padding: 14px 18px !important;
+  padding: 14px 18px 13px !important;
 }
 
 .annual-review-panel > .space-y-5 {
   display: grid !important;
   gap: 12px !important;
-  padding: 14px !important;
+  padding: 14px 14px 18px !important;
 }
 
 .annual-review-panel > .space-y-5 > .rounded-2xl:first-child {
@@ -618,8 +621,9 @@ body:has(.annual-review-backdrop) .client-detail-card {
     top: 0 !important;
     right: 0 !important;
     left: 0 !important;
-    height: 100% !important;
-    max-height: 100% !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
     max-width: none !important;
     border-radius: 0 !important;
   }
