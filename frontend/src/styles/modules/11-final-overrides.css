@@ -503,6 +503,76 @@
   50% { transform: translateY(-4px); }
 }
 
+/* Client data processing: tighter top spacing and review drawer polish */
+.annual-workspace {
+  margin-top: 0 !important;
+}
+
+.annual-workspace .annual-toolbar {
+  margin-top: 0 !important;
+  margin-bottom: 10px !important;
+  padding-top: 0 !important;
+}
+
+.annual-workspace .annual-workspace-body {
+  padding-top: 8px !important;
+}
+
+.annual-review-backdrop {
+  overflow: hidden !important;
+}
+
+.annual-review-panel {
+  border-left: 1px solid rgba(203, 213, 225, 0.85) !important;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f8fbfb 100%) !important;
+}
+
+.annual-review-panel > .sticky {
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+.annual-review-panel > .space-y-5 {
+  display: grid !important;
+  gap: 14px !important;
+  padding: 16px !important;
+}
+
+.annual-review-panel .rounded-2xl.border.border-slate-200.bg-slate-50\/70 {
+  border-color: rgba(48, 115, 123, 0.14) !important;
+  background: #f8fbfb !important;
+  padding: 10px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.annual-review-panel .space-y-2 {
+  display: grid !important;
+  gap: 9px !important;
+}
+
+.annual-review-panel .space-y-2 > .rounded-xl {
+  border-radius: 12px !important;
+  padding: 12px !important;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05) !important;
+}
+
+.annual-review-panel .space-y-2 > .rounded-xl .text-sm {
+  font-size: 13px !important;
+  line-height: 1.25 !important;
+}
+
+@media (max-width: 640px) {
+  .annual-review-backdrop {
+    left: 0 !important;
+  }
+
+  .annual-review-panel {
+    max-width: none !important;
+    border-radius: 0 !important;
+  }
+}
+
 /* Annual return top tabs: final premium segmented navigation */
 .annual-workspace .annual-workspace-body {
   gap: 0 !important;

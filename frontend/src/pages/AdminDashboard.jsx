@@ -3097,6 +3097,15 @@ export default function AdminDashboard() {
   const routeRole = normalizeKey(currentUser?.role)
   const canManageUsers = adminRoles.includes(currentUser?.role) || routeRole === 'manager' || routeRole.includes('operation head')
 
+  useEffect(() => {
+    if (!sidebarOpen) return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [sidebarOpen])
+
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
       const text = `${user.name || ''} ${user.email || ''} ${user.role || ''} ${user.team || ''}`.toLowerCase()

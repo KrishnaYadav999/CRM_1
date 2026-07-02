@@ -2124,10 +2124,11 @@ function AnnualReviewDrawer({ workflow, mode = 'popup', roleLabel, debugInfo = {
   const managerCorrectionMode = reviewStage === 'manager' && workflowStatus === 'compliance_rejected';
   const showAllParts = ['manager', 'compliance', 'complete'].includes(getAnnualReviewStage(workflow)) ||
     ['manager_rejected', 'compliance_rejected'].includes(workflowStatus);
-  const visiblePartPattern = getAnnualReviewVisiblePattern(activeSectionTitle, showAllParts);
   const allSectionTitles = sectionTitles.length ? sectionTitles : Object.keys(workflow.sections || {});
-  const visibleSectionTitles = allSectionTitles
-    .filter((title) => visiblePartPattern.test(String(title || '')));
+  const visiblePartPattern = getAnnualReviewVisiblePattern(activeSectionTitle, showAllParts);
+  const visibleSectionTitles = allSectionTitles.length
+    ? allSectionTitles
+    : allSectionTitles.filter((title) => visiblePartPattern.test(String(title || '')));
   const managerProgress = getAnnualReviewProgress(workflow, allSectionTitles, 'manager');
   const complianceProgress = getAnnualReviewProgress(workflow, allSectionTitles, 'compliance');
   useEffect(() => {
@@ -2169,11 +2170,11 @@ function AnnualReviewDrawer({ workflow, mode = 'popup', roleLabel, debugInfo = {
   ]);
   const isDrawer = mode === 'drawer';
   const backdropClass = isDrawer
-    ? 'fixed inset-0 z-[120] bg-slate-950/35 backdrop-blur-sm'
-    : 'fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-slate-950/45 px-4 py-6 backdrop-blur-sm sm:py-10';
+    ? 'annual-review-backdrop fixed bottom-0 left-0 right-0 top-16 z-[120] bg-slate-950/35 backdrop-blur-sm'
+    : 'annual-review-backdrop fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-slate-950/45 px-4 py-6 backdrop-blur-sm sm:py-10';
   const panelClass = isDrawer
-    ? 'absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto rounded-l-[24px] bg-white shadow-2xl shadow-slate-950/30 animate-[drawerIn_.24s_ease-out]'
-    : 'relative max-h-[calc(100vh-48px)] w-full max-w-xl overflow-y-auto rounded-[24px] bg-white shadow-2xl shadow-slate-950/30 animate-[app-loader-card-in_.28s_cubic-bezier(.22,1,.36,1)] sm:max-h-[calc(100vh-80px)]';
+    ? 'annual-review-panel absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto rounded-l-[20px] bg-white shadow-2xl shadow-slate-950/30 animate-[drawerIn_.24s_ease-out]'
+    : 'annual-review-panel relative max-h-[calc(100vh-48px)] w-full max-w-xl overflow-y-auto rounded-[24px] bg-white shadow-2xl shadow-slate-950/30 animate-[app-loader-card-in_.28s_cubic-bezier(.22,1,.36,1)] sm:max-h-[calc(100vh-80px)]';
 
   return (
     <div className={backdropClass}>

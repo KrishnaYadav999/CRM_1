@@ -720,7 +720,7 @@ export default function ClientMaster() {
 
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
-      <div className="px-4 py-6 sm:px-6 lg:px-8">
+      <div className="px-4 pb-6 pt-3 sm:px-6 sm:pt-4 lg:px-8">
         <div className="rounded-[28px] bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-4 shadow-sm ring-1 ring-emerald-100 sm:p-5 lg:p-6">
           <div className="flex flex-wrap items-center justify-between gap-5">
             <div className="flex items-center gap-4">
