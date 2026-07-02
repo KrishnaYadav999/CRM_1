@@ -1249,3 +1249,191 @@ table td,
   background: rgba(240, 74, 34, 0.22);
   color: var(--crm-green-950);
 }
+
+/* Final solid brand pass: no glass templates, dark heroes, colored KPI cards */
+:root {
+  --crm-dark-panel: #062f1b;
+  --crm-dark-panel-2: #101820;
+  --crm-card-paper-solid: #fffdf4;
+}
+
+.operations-hero,
+.sales-hero,
+.pending-approval-hero,
+.notifications-hero {
+  border: 0 !important;
+  background: linear-gradient(115deg, #073b22 0%, #0b5a31 45%, #111827 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 22px 46px rgba(6, 47, 27, 0.24) !important;
+}
+
+.operations-hero *,
+.sales-hero *,
+.pending-approval-hero *,
+.notifications-hero * {
+  color: #ffffff !important;
+}
+
+.operations-hero .operations-eyebrow,
+.sales-hero .operations-eyebrow,
+.pending-approval-hero .notifications-kicker,
+.notifications-hero .notifications-kicker {
+  color: #ffb08a !important;
+}
+
+.sales-hero h1,
+.operations-hero h1,
+.pending-approval-hero h1,
+.notifications-hero h1 {
+  color: #ffffff !important;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.14) !important;
+}
+
+.sales-hero p:last-child,
+.operations-hero p,
+.pending-approval-hero p,
+.notifications-hero p {
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+
+.operations-panel,
+.operations-snapshot-panel,
+.sales-panel,
+.sales-pipeline-card,
+.sales-revenue-card,
+.sales-follow-card,
+.sales-recent-card,
+.sales-donut-card,
+.lead-story-panel,
+.lead-story-card,
+.client-story-card,
+.operations-lead-chart-card,
+.annual-workspace .processing-section-card,
+.annual-workspace .annual-section-card,
+.rounded-2xl.bg-white,
+.rounded-\[28px\].bg-white {
+  background: var(--crm-card-paper-solid) !important;
+  border-color: rgba(6, 47, 27, 0.14) !important;
+  box-shadow: 0 16px 34px rgba(6, 47, 27, 0.08) !important;
+}
+
+.sales-metric-card {
+  overflow: hidden !important;
+  border: 0 !important;
+  color: #ffffff !important;
+  box-shadow: 0 16px 30px rgba(6, 47, 27, 0.18) !important;
+}
+
+.sales-metric-card::before {
+  height: 0 !important;
+  background: none !important;
+}
+
+.sales-metric-card::after {
+  content: "";
+  position: absolute;
+  right: -28px;
+  top: -34px;
+  width: 118px;
+  height: 118px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+}
+
+.sales-metric-card > span {
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24) !important;
+}
+
+.sales-metric-card p,
+.sales-metric-card strong,
+.sales-metric-card small {
+  position: relative;
+  z-index: 1;
+  color: #ffffff !important;
+}
+
+.sales-metric-card p {
+  opacity: 0.82;
+}
+
+.sales-metric-card small {
+  opacity: 0.76;
+}
+
+.sales-metric-teal {
+  background: linear-gradient(135deg, #075c37 0%, #0d8a4e 100%) !important;
+}
+
+.sales-metric-blue {
+  background: linear-gradient(135deg, #123c69 0%, #1f7a9d 100%) !important;
+}
+
+.sales-metric-orange {
+  background: linear-gradient(135deg, #c2410c 0%, #f97316 100%) !important;
+}
+
+.sales-metric-indigo {
+  background: linear-gradient(135deg, #312e81 0%, #7c3aed 100%) !important;
+}
+
+.sales-metric-pink {
+  background: linear-gradient(135deg, #9f1239 0%, #e11d48 100%) !important;
+}
+
+.sales-metric-card:hover {
+  box-shadow: 0 22px 42px rgba(6, 47, 27, 0.24) !important;
+}
+
+.operations-snapshot-grid article:nth-child(1),
+.operations-performance-grid > *:nth-child(5n + 1),
+.operations-pibo-grid > *:nth-child(5n + 1) {
+  background: #075c37 !important;
+  color: #ffffff !important;
+}
+
+.operations-snapshot-grid article:nth-child(2),
+.operations-performance-grid > *:nth-child(5n + 2),
+.operations-pibo-grid > *:nth-child(5n + 2) {
+  background: #123c69 !important;
+  color: #ffffff !important;
+}
+
+.operations-snapshot-grid article:nth-child(3),
+.operations-performance-grid > *:nth-child(5n + 3),
+.operations-pibo-grid > *:nth-child(5n + 3) {
+  background: #c2410c !important;
+  color: #ffffff !important;
+}
+
+.operations-performance-grid > *:nth-child(5n + 4),
+.operations-pibo-grid > *:nth-child(5n + 4) {
+  background: #312e81 !important;
+  color: #ffffff !important;
+}
+
+.operations-performance-grid > *:nth-child(5n),
+.operations-pibo-grid > *:nth-child(5n) {
+  background: #9f1239 !important;
+  color: #ffffff !important;
+}
+
+.operations-snapshot-grid article *,
+.operations-performance-grid > * *,
+.operations-pibo-grid > * * {
+  color: inherit !important;
+}
+
+.operations-panel::before,
+.sales-donut-card::before,
+.sales-panel::before,
+.sales-pipeline-card::before,
+.sales-revenue-card::before,
+.sales-follow-card::before,
+.sales-recent-card::before {
+  background: #f04a22 !important;
+}
