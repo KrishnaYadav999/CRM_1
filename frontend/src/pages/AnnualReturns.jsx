@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
+import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 function display(value, fallback = '-') {
   if (value === undefined || value === null || value === '') return fallback;
@@ -63,8 +64,8 @@ export default function AnnualReturns() {
     setError('');
     try {
       const [meResponse, annualResponse] = await Promise.all([
-        api.get('/auth/me'),
-        api.get('/annual-returns')
+        api.get(API_ENDPOINTS.auth.me),
+        api.get(API_ENDPOINTS.annualReturns.list)
       ]);
       setCurrentUser(meResponse.data.user);
       setRows(annualResponse.data.annualReturns || []);

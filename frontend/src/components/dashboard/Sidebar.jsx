@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BriefcaseBusiness, ChevronDown, ChevronsLeft, Gauge, X } from 'lucide-react'
-import { brand } from '../../constants/brand'
 import { adminRoles, navSections } from '../../constants/dashboard'
 
 export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onClose, dashboardMode = 'operations', onDashboardModeChange }) {
@@ -52,16 +51,8 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   }
 
   return (
-    <div className="relative flex h-full min-h-screen flex-col overflow-visible bg-[#30737B] text-white">
-      <div className={`flex items-center px-4 py-5 ${collapsed ? 'justify-center' : 'justify-between'}`}>
-        <div className={`flex min-w-0 items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
-          <div className={`${collapsed ? 'h-14 w-14' : 'h-16 w-16'} grid shrink-0 place-items-center rounded-2xl border border-white/20 bg-white p-2 shadow-lg shadow-slate-950/10`}>
-            <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
-          </div>
-          <div className={`min-w-0 transition-all duration-200 ${collapsed ? 'hidden opacity-0' : 'block opacity-100'}`}>
-            <p className="text-2xl font-black leading-none text-white">{brand.name}</p>
-          </div>
-        </div>
+    <div className="relative flex h-full min-h-0 flex-col overflow-visible bg-[#30737B] pt-4 text-white">
+      <div className={`flex items-center px-3 pb-2 ${collapsed ? 'justify-center' : 'justify-end'}`}>
         <button
           type="button"
           onClick={onClose}
@@ -75,14 +66,14 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
       <button
         type="button"
         onClick={onToggleCollapsed}
-        className={`btn-lift absolute z-50 hidden h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white text-[#30737B] shadow-lg shadow-slate-950/20 transition hover:bg-emerald-50 lg:inline-flex ${collapsed ? '-right-7 top-[72px]' : '-right-5 top-8'}`}
+        className={`btn-lift absolute -right-5 top-4 z-50 hidden h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white text-[#30737B] shadow-lg shadow-slate-950/20 transition hover:bg-emerald-50 lg:inline-flex ${collapsed ? 'rotate-180' : ''}`}
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
-        <ChevronsLeft className={`h-5 w-5 transition-transform duration-300 ${collapsed ? 'rotate-180' : ''}`} />
+        <ChevronsLeft className="h-5 w-5 transition-transform duration-300" />
       </button>
 
-      <nav className={`sidebar-scrollbar mt-3 flex-1 space-y-3 px-3 pb-5 ${collapsed ? 'overflow-visible px-2' : 'overflow-y-auto px-4'}`}>
+      <nav className={`sidebar-scrollbar mt-2 flex-1 space-y-3 px-3 pb-5 ${collapsed ? 'overflow-visible px-2' : 'overflow-y-auto px-4'}`}>
         {navSections.map((section) => (
           <div key={section.label}>
             {!collapsed && <p className="mb-2 px-3 text-xs font-black uppercase tracking-[0.18em] text-white/45">{section.label}</p>}

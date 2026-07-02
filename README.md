@@ -25,8 +25,8 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
-Frontend: `http://localhost:5173`  
-Backend: `http://localhost:5000`
+Frontend: `http://localhost:6173`  
+Backend: `http://localhost:6000`
 
 ## Login Flow
 

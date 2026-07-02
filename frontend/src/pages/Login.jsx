@@ -4,6 +4,7 @@ import { ArrowRight, Eye, EyeOff, KeyRound, Mail, ShieldCheck } from 'lucide-rea
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
 import api, { readApiError } from '../services/api'
+import { API_ENDPOINTS } from '../services/apiEndpoints'
 
 export default function Login(){
   const [email, setEmail] = useState('')
@@ -18,7 +19,7 @@ export default function Login(){
     setLoading(true)
     setError('')
     try{
-      const res = await api.post('/auth/request-otp', { email, password })
+      const res = await api.post(API_ENDPOINTS.auth.requestOtp, { email, password })
       localStorage.setItem('login_email', email)
       if (import.meta.env.DEV && res.data?.devOtp) {
         localStorage.setItem('dev_otp', res.data.devOtp)

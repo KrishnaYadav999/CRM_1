@@ -10,9 +10,9 @@ export default defineConfig({
     include: ['react', 'react-dom', 'framer-motion', 'react-countup']
   },
   server: {
-    port: 5173,
+    port: 6173,
     proxy: {
-      '/api': 'http://localhost:5000'
+      '/api': 'http://localhost:6000'
     }
   }
 })

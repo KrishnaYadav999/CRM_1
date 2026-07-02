@@ -3,6 +3,7 @@ import { Archive, Bell, Download, Edit3, Eye, FileText, Filter, LayoutGrid, List
 import gsap from 'gsap';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import api from '../services/api';
+import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 const STORAGE_KEY = 'crm.notifications.v1';
 const tags = ['Training Material', 'Compliance SOPs', 'Company Profile', 'Policy Update', 'Internal Memo'];
@@ -181,7 +182,7 @@ export default function Notifications() {
   useEffect(() => {
     let cancelled = false;
     setServerLoading(true);
-    api.get('/notifications')
+    api.get(API_ENDPOINTS.notifications.list)
       .then((response) => {
         if (cancelled) return;
         const serverItems = Array.isArray(response.data?.notifications) ? response.data.notifications : [];
@@ -256,7 +257,7 @@ export default function Notifications() {
         kind: 'announcement-local'
       };
       try {
-        const response = await api.post('/notifications', localItem);
+        const response = await api.post(API_ENDPOINTS.notifications.create, localItem);
         persist([response.data?.notification || localItem, ...notifications]);
       } catch {
         persist([localItem, ...notifications]);

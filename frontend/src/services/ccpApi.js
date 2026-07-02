@@ -1,52 +1,5 @@
-import axios from 'axios'
-
-const DEFAULT_CCP_API_URL = 'https://ccp-henna.vercel.app/api'
-
-function ccpApiBaseUrl() {
-  const configuredUrl = import.meta.env.VITE_CCP_API_URL
-  const legacyBaseUrl = import.meta.env.VITE_CCP_API_BASE_URL
-  const baseUrl = configuredUrl || legacyBaseUrl?.replace(/\/ccp\/?$/, '') || DEFAULT_CCP_API_URL
-  return String(baseUrl).replace(/\/+$/, '')
-}
-
-const ccpApi = axios.create({
-  baseURL: ccpApiBaseUrl(),
-  timeout: 3500,
-  headers: {
-    Accept: 'application/json'
-  }
-})
-
-const CCP_CACHE_PREFIX = 'crm.ccp.direct.cache.v2'
-
-function readCcpCache(key) {
-  const cacheKey = `${CCP_CACHE_PREFIX}.${key}`
-  const stores = [window.sessionStorage, window.localStorage].filter(Boolean)
-
-  for (const store of stores) {
-    try {
-      const parsed = JSON.parse(store.getItem(cacheKey) || '[]')
-      if (Array.isArray(parsed) && parsed.length) return parsed
-    } catch (error) {
-      /* cache miss */
-    }
-  }
-
-  return []
-}
-
-function writeCcpCache(key, rows) {
-  if (!Array.isArray(rows) || !rows.length) return
-
-  const cacheKey = `${CCP_CACHE_PREFIX}.${key}`
-  for (const store of [window.sessionStorage, window.localStorage].filter(Boolean)) {
-    try {
-      store.setItem(cacheKey, JSON.stringify(rows))
-    } catch (error) {
-      /* cache only */
-    }
-  }
-}
+import api from './api'
+import { API_ENDPOINTS } from './apiEndpoints'
 
 function normalizeCollection(payload, key) {
   if (Array.isArray(payload)) return payload
@@ -130,30 +83,16 @@ function normalizeRows(rows, key) {
 }
 
 async function fetchCcpCollection(path, key) {
-  try {
-    const response = await ccpApi.get(`/ccp/${path}`)
-    const payload = response.data || {}
-    const rows = normalizeRows(normalizeCollection(payload, key), key)
-    if (rows.length) writeCcpCache(key, rows)
-    const cachedRows = rows.length ? [] : readCcpCache(key)
+  const response = await api.get(API_ENDPOINTS.ccp.collection(path))
+  const payload = response.data || {}
+  const rows = normalizeRows(normalizeCollection(payload, key), key)
 
-    return {
-      data: {
-        ok: payload.ok !== false,
-        [key]: rows.length ? rows : cachedRows,
-        source: rows.length ? 'ccp-direct' : cachedRows.length ? 'ccp-cache' : 'ccp-direct'
-      }
-    }
-  } catch (error) {
-    const cachedRows = readCcpCache(key)
-
-    return {
-      data: {
-        ok: cachedRows.length > 0,
-        [key]: cachedRows,
-        error: error.message || `Unable to fetch CCP ${path}`,
-        source: cachedRows.length ? 'ccp-cache' : 'ccp-direct'
-      }
+  return {
+    data: {
+      ...payload,
+      ok: payload.ok !== false,
+      [key]: rows,
+      source: payload.source || 'ccp-live'
     }
   }
 }
@@ -166,4 +105,4 @@ export function fetchCcpClients() {
   return fetchCcpCollection('clients', 'clients')
 }
 
-export default ccpApi
+export default api

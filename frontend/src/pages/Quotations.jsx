@@ -4,6 +4,7 @@ import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileText, Filter, 
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
+import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeads } from '../services/ccpApi';
 
 const ANANT_LOGO_URL = 'https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg';
@@ -329,12 +330,12 @@ export default function Quotations() {
     setLoading(true);
     setError('');
     try {
-      const meResponse = await api.get('/auth/me');
+      const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       const [crmLeadsResult, ccpLeadsResult, quotationsResponse] = await Promise.all([
-        api.get('/leads').catch(() => ({ data: { leads: [] } })),
+        api.get(API_ENDPOINTS.leads.list).catch(() => ({ data: { leads: [] } })),
         fetchCcpLeads(),
-        api.get('/quotations')
+        api.get(API_ENDPOINTS.quotations.list)
       ]);
       setCurrentUser(me);
       setLeads(mergeLeadLists(crmLeadsResult.data.leads || [], ccpLeadsResult.data.leads || []));
@@ -477,7 +478,9 @@ export default function Quotations() {
     setNotice('');
     try {
       const payload = { ...quotation, status };
-      const response = editingId ? await api.put(`/quotations/${editingId}`, payload) : await api.post('/quotations', payload);
+      const response = editingId
+        ? await api.put(API_ENDPOINTS.quotations.detail(editingId), payload)
+        : await api.post(API_ENDPOINTS.quotations.create, payload);
       setSuccessModal({
         title: editingId ? 'Quotation Updated Successfully!' : 'Quotation Created Successfully!',
         message: `${response.data.quotation?.quotationNumber || 'Quotation'} has been saved and sent to Pending Approval.`

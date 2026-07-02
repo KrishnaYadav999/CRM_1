@@ -58,6 +58,7 @@ import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
 import api from '../services/api'
+import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { fetchCcpLeads } from '../services/ccpApi'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
@@ -250,6 +251,17 @@ function splitName(name = '') {
     firstName: parts[0] || 'User',
     lastName: parts.slice(1).join(' ') || '-'
   }
+}
+
+function buildUserSyncNotice(ccpSync, successMessage) {
+  if (!ccpSync) return successMessage
+  if (ccpSync.ok) return `${successMessage} CCP sync completed.`
+
+  const reason = ccpSync.error || ccpSync.message || 'CCP sync failed'
+  if (ccpSync.status === 409) {
+    return `${successMessage} CCP sync duplicate email issue: ${reason}`
+  }
+  return `${successMessage} CCP sync pending: ${reason}`
 }
 
 function readClientData(client = {}) {
@@ -3312,7 +3324,7 @@ export default function AdminDashboard() {
     setError('')
 
     try {
-      const meResponse = await api.get('/auth/me', requestConfig)
+      const meResponse = await api.get(API_ENDPOINTS.auth.me, requestConfig)
       const user = meResponse.data.user
       setCurrentUser(user)
       localStorage.setItem('user', JSON.stringify(user))
@@ -3321,8 +3333,8 @@ export default function AdminDashboard() {
       if (isUserManagementView) {
         if (adminRoles.includes(user.role)) {
           const [usersResponse, teamsResponse] = await Promise.all([
-            api.get('/auth/admin/users', requestConfig),
-            api.get('/teams', requestConfig)
+            api.get(API_ENDPOINTS.auth.adminUsers, requestConfig),
+            api.get(API_ENDPOINTS.teams.list, requestConfig)
           ])
           const snapshot = {
             currentUser: user,
@@ -3338,7 +3350,7 @@ export default function AdminDashboard() {
           applyDashboardData(snapshot)
           writeSessionCache(cacheKey, snapshot)
         } else {
-          const usersResponse = await api.get('/auth/users', requestConfig)
+          const usersResponse = await api.get(API_ENDPOINTS.auth.users, requestConfig)
           const snapshot = {
             currentUser: user,
             users: usersResponse.data.users || [user],
@@ -3357,12 +3369,12 @@ export default function AdminDashboard() {
       }
 
       const [clientsResult, leadsResult, ccpLeadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
-        api.get('/clients', requestConfig),
-        api.get('/leads', requestConfig),
+        api.get(API_ENDPOINTS.clients.list, requestConfig),
+        api.get(API_ENDPOINTS.leads.list, requestConfig),
         fetchCcpLeads(),
-        api.get('/quotations', requestConfig),
-        api.get('/annual-returns', requestConfig),
-        api.get('/clients/pending-approvals', requestConfig)
+        api.get(API_ENDPOINTS.quotations.list, requestConfig),
+        api.get(API_ENDPOINTS.annualReturns.list, requestConfig),
+        api.get(API_ENDPOINTS.clients.pendingApprovals, requestConfig)
       ])
 
       const nextClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
@@ -3381,13 +3393,13 @@ export default function AdminDashboard() {
       let nextTeams = []
       if (adminRoles.includes(user.role)) {
         const [usersResponse, teamsResponse] = await Promise.all([
-          api.get('/auth/admin/users', requestConfig),
-          api.get('/teams', requestConfig)
+          api.get(API_ENDPOINTS.auth.adminUsers, requestConfig),
+          api.get(API_ENDPOINTS.teams.list, requestConfig)
         ])
         nextUsers = usersResponse.data.users || []
         nextTeams = teamsResponse.data.teams || []
       } else {
-        const usersResponse = await api.get('/auth/users', requestConfig)
+        const usersResponse = await api.get(API_ENDPOINTS.auth.users, requestConfig)
         nextUsers = usersResponse.data.users || [user]
         nextTeams = []
       }
@@ -3420,7 +3432,7 @@ export default function AdminDashboard() {
     const name = `${form.firstName} ${form.lastName}`.trim()
 
     try {
-      const response = await api.post('/auth/admin/create-user', {
+      const response = await api.post(API_ENDPOINTS.auth.createUser, {
         name,
         email: form.email,
         password: form.password,
@@ -3435,7 +3447,7 @@ export default function AdminDashboard() {
       setUsers((prevUsers) => [response.data.user, ...prevUsers])
       setForm(defaultUserForm)
       setModalOpen(false)
-      setNotice('New user added successfully. They can login with OTP from the sign-in page.')
+      setNotice(buildUserSyncNotice(response.data.ccpSync, 'New user added successfully. They can login with OTP from the sign-in page.'))
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to create user')
     } finally {
@@ -3449,7 +3461,7 @@ export default function AdminDashboard() {
     setNotice('')
 
     try {
-      const response = await api.post('/teams', teamForm)
+      const response = await api.post(API_ENDPOINTS.teams.create, teamForm)
       setTeams((prevTeams) => [response.data.team, ...prevTeams])
       setTeamModalOpen(false)
       setNotice('Team created successfully. Manager can now see selected users plus their own data.')
@@ -3472,7 +3484,7 @@ export default function AdminDashboard() {
     const id = editingUser._id || editingUser.id
 
     try {
-      const response = await api.put(`/auth/admin/users/${id}`, {
+      const response = await api.put(API_ENDPOINTS.auth.adminUser(id), {
         name,
         email: editForm.email,
         avatarUrl: editForm.avatarUrl,
@@ -3489,7 +3501,7 @@ export default function AdminDashboard() {
       )
       setEditingUser(null)
       setEditForm(defaultUserForm)
-      setNotice('User updated successfully.')
+      setNotice(buildUserSyncNotice(response.data.ccpSync, 'User updated successfully.'))
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to update user')
     } finally {
@@ -3503,7 +3515,7 @@ export default function AdminDashboard() {
     setNotice('')
 
     try {
-      const response = await api.put('/auth/me', profile)
+      const response = await api.put(API_ENDPOINTS.auth.me, profile)
       const updatedUser = response.data.user
       setCurrentUser(updatedUser)
       setUsers((prevUsers) =>
@@ -3523,7 +3535,7 @@ export default function AdminDashboard() {
     setNotice('')
 
     try {
-      await api.put('/auth/me/password', passwords)
+      await api.put(API_ENDPOINTS.auth.password, passwords)
       setNotice('Password updated successfully.')
     } catch (err) {
       const message = err?.response?.data?.error || 'Unable to update password'
@@ -3604,10 +3616,18 @@ export default function AdminDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-[#eef7f5] text-slate-900">
-      <div className="flex min-h-screen">
+    <main className="min-h-screen bg-[#eef7f5] pt-16 text-slate-900">
+      <Topbar
+        currentUser={currentUser}
+        onOpenProfile={() => setProfileOpen(true)}
+        onOpenSidebar={() => setSidebarOpen(true)}
+        onToggleSidebar={() => setSidebarCollapsed((value) => !value)}
+        sidebarCollapsed={sidebarCollapsed}
+        onLogout={handleLogout}
+      />
+      <div className="flex min-h-[calc(100vh-4rem)]">
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-[296px] border-r border-emerald-100 bg-white shadow-xl shadow-emerald-900/5 transition-all duration-300 ease-out lg:translate-x-0 ${
+          className={`fixed bottom-0 left-0 top-16 z-40 w-[296px] border-r border-emerald-100 bg-white shadow-xl shadow-emerald-900/5 transition-all duration-300 ease-out lg:translate-x-0 ${
             sidebarCollapsed ? 'lg:w-[84px]' : 'lg:w-[296px]'
           } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
         >
@@ -3625,22 +3645,13 @@ export default function AdminDashboard() {
         {sidebarOpen && (
           <button
             type="button"
-            className="fixed inset-0 z-30 bg-slate-950/30 lg:hidden"
+            className="fixed bottom-0 left-0 right-0 top-16 z-30 bg-slate-950/30 lg:hidden"
             onClick={() => setSidebarOpen(false)}
             aria-label="Close navigation"
           />
         )}
 
         <section className={`min-w-0 flex-1 transition-all duration-300 ease-out ${sidebarCollapsed ? 'lg:ml-[84px]' : 'lg:ml-[296px]'}`}>
-          <Topbar
-            currentUser={currentUser}
-            onOpenProfile={() => setProfileOpen(true)}
-            onOpenSidebar={() => setSidebarOpen(true)}
-            onToggleSidebar={() => setSidebarCollapsed((value) => !value)}
-            sidebarCollapsed={sidebarCollapsed}
-            onLogout={handleLogout}
-          />
-
           <div className="px-4 py-6 sm:px-6 lg:px-8">
             <div className={isUserManagementView ? 'space-y-6' : 'operations-dashboard'}>
               {!isUserManagementView && (

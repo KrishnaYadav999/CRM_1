@@ -1,7 +1,8 @@
 import axios from 'axios'
+import { API_ENDPOINTS } from './apiEndpoints'
 
 const productionBaseURL = '/api'
-const defaultBaseURL = import.meta.env.DEV ? 'http://localhost:5000/api' : productionBaseURL
+const defaultBaseURL = productionBaseURL
 const configuredBaseURL = import.meta.env.VITE_CRM_API_URL || import.meta.env.VITE_API_URL
 const baseURL =
   configuredBaseURL?.includes('localhost:8081') || configuredBaseURL?.includes('crm-1-eight.vercel.app')
@@ -46,6 +47,26 @@ export function readApiError(error, fallback = 'Something went wrong') {
   return fallback
 }
 
+export function apiGet(endpoint, config) {
+  return api.get(endpoint, config)
+}
+
+export function apiPost(endpoint, data, config) {
+  return api.post(endpoint, data, config)
+}
+
+export function apiPut(endpoint, data, config) {
+  return api.put(endpoint, data, config)
+}
+
+export function apiPatch(endpoint, data, config) {
+  return api.patch(endpoint, data, config)
+}
+
+export function apiDelete(endpoint, config) {
+  return api.delete(endpoint, config)
+}
+
 api.interceptors.request.use((config) => {
   const token = getStoredToken()
 
@@ -67,3 +88,4 @@ api.interceptors.response.use(
 )
 
 export default api
+export { API_ENDPOINTS }

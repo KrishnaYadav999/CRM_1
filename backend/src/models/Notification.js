@@ -14,7 +14,10 @@ const NotificationSchema = new mongoose.Schema({
   attachmentUrl: { type: String, trim: true, default: '' },
   pinned: { type: Boolean, default: false },
   metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
-  readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  crmNotificationId: { type: String, unique: true, sparse: true, trim: true },
+  ccpNotificationId: { type: String, unique: true, sparse: true, trim: true },
+  source: { type: String, trim: true, default: 'crm' }
 }, { timestamps: true });
 
 NotificationSchema.index({ kind: 1, 'metadata.clientId': 1, 'metadata.annualYear': 1, 'metadata.managerId': 1 });

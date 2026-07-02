@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck } from 'lu
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
 import api, { readApiError } from '../services/api'
+import { API_ENDPOINTS } from '../services/apiEndpoints'
 
 export default function VerifyOtp(){
   const [otp, setOtp] = useState('')
@@ -36,7 +37,7 @@ export default function VerifyOtp(){
         setError('Session expired. Please login again.')
         return
       }
-      const res = await api.post('/auth/verify-otp', { email, otp })
+      const res = await api.post(API_ENDPOINTS.auth.verifyOtp, { email, otp })
       localStorage.setItem('token', res.data.token)
       localStorage.setItem('user', JSON.stringify(res.data.user))
       localStorage.removeItem('login_email')
@@ -57,7 +58,7 @@ export default function VerifyOtp(){
     setError('')
     setNotice('')
     try {
-      const res = await api.post('/auth/resend-otp', { email })
+      const res = await api.post(API_ENDPOINTS.auth.resendOtp, { email })
       setOtp('')
       setNotice(res.data?.message || 'A new OTP has been sent to your email.')
       setResendCooldown(60)

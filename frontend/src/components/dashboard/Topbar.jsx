@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell, CalendarCheck2, CheckCircle2, Clock3, FileText, Info, LogOut, Menu, UserRound, X } from 'lucide-react'
+import { brand } from '../../constants/brand'
 import { roleLabels } from '../../constants/dashboard'
 import api from '../../services/api'
+import { API_ENDPOINTS } from '../../services/apiEndpoints'
 
 const NOTIFICATIONS_STORAGE_KEY = 'crm.notifications.v1'
 const CALENDAR_STORAGE_KEY = 'crm.calendar.todos.v1'
@@ -146,7 +148,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
 
     async function syncServerNotifications() {
       try {
-        const response = await api.get('/notifications')
+        const response = await api.get(API_ENDPOINTS.notifications.list)
         if (cancelled) return
         const serverAnnouncements = (response.data?.notifications || [])
           .filter((item) => item.status !== 'Inactive')
@@ -192,7 +194,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
 
   return (
     <>
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+    <header className="crm-topbar fixed left-0 right-0 top-0 z-[60] border-b border-slate-200 bg-white/90 backdrop-blur-xl">
       <div className="flex min-h-16 items-center justify-between gap-4 px-4 sm:px-5 lg:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button
@@ -202,6 +204,20 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
             aria-label="Open sidebar"
           >
             <Menu className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="btn-lift flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1 transition hover:bg-teal-50"
+            aria-label="Go to dashboard"
+          >
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm shadow-slate-950/5">
+              <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
+            </span>
+            <span className="min-w-0 text-left">
+              <span className="block truncate text-lg font-black leading-tight text-slate-950">{brand.name}</span>
+              <span className="hidden truncate text-xs font-extrabold uppercase tracking-[0.14em] text-teal-700 sm:block">Anant Tattva</span>
+            </span>
           </button>
         </div>
 

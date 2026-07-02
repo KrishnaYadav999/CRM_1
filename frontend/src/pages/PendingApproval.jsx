@@ -7,11 +7,13 @@ import BrandLoader from '../components/BrandLoader';
 import ToastMessage from '../components/ToastMessage';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
+import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 const rowsPerPage = 5;
 const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v2';
 const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
-const PENDING_APPROVAL_REQUEST_TIMEOUT_MS = 4500;
+const PENDING_APPROVAL_AUTH_TIMEOUT_MS = 4500;
+const PENDING_APPROVAL_DATA_TIMEOUT_MS = 20000;
 
 function readPendingApprovalCache() {
   try {
@@ -95,7 +97,11 @@ export default function PendingApproval() {
 
   async function loadPage(options = {}) {
     const cached = !options.force ? readPendingApprovalCache() : null;
-    const requestConfig = { timeout: PENDING_APPROVAL_REQUEST_TIMEOUT_MS };
+    const authRequestConfig = { timeout: PENDING_APPROVAL_AUTH_TIMEOUT_MS };
+    const dataRequestConfig = {
+      timeout: PENDING_APPROVAL_DATA_TIMEOUT_MS,
+      params: { _: Date.now() }
+    };
     if (cached && !options.force) {
       setPendingClients(cached.pendingClients || []);
       setPendingQuotations(cached.pendingQuotations || []);
@@ -107,14 +113,25 @@ export default function PendingApproval() {
     setError('');
 
     try {
-      const [meResponse, approvalsResponse] = await Promise.all([
-        api.get('/auth/me', requestConfig),
-        api.get('/clients/pending-approvals', requestConfig)
+      const [meResult, approvalsResult] = await Promise.allSettled([
+        api.get(API_ENDPOINTS.auth.me, authRequestConfig),
+        api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig)
       ]);
-      setCurrentUser(meResponse.data.user);
-      localStorage.setItem('user', JSON.stringify(meResponse.data.user));
+
+      const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
+      const approvalsResponse = approvalsResult.status === 'fulfilled' ? approvalsResult.value : null;
+
+      if (meResponse?.data?.user) {
+        setCurrentUser(meResponse.data.user);
+        localStorage.setItem('user', JSON.stringify(meResponse.data.user));
+      }
+
+      if (!approvalsResponse) {
+        throw approvalsResult.reason || new Error('Unable to load pending approvals');
+      }
+
       const snapshot = {
-        currentUser: meResponse.data.user,
+        currentUser: meResponse?.data?.user || currentUser || cached?.currentUser || cachedApprovalData?.currentUser || null,
         pendingClients: approvalsResponse.data.pendingClients || [],
         pendingQuotations: approvalsResponse.data.pendingQuotations || [],
         debug: approvalsResponse.data.debug || null
@@ -138,6 +155,7 @@ export default function PendingApproval() {
         setDebugInfo({
           source: 'browser-cache-fallback',
           message: err?.message || 'Request timed out',
+          timeout: PENDING_APPROVAL_DATA_TIMEOUT_MS,
           clients: fallback.pendingClients?.length || 0,
           quotations: fallback.pendingQuotations?.length || 0
         });
@@ -165,7 +183,7 @@ export default function PendingApproval() {
     setNotice('');
 
     try {
-      await api.patch(`/clients/${id}/approval`, {
+      await api.patch(API_ENDPOINTS.clients.approval(id), {
         status,
         approvalRecordId: row?.approvalRecordId,
         source: row?.source,
@@ -193,7 +211,7 @@ export default function PendingApproval() {
     setNotice('');
 
     try {
-      await api.patch(`/quotations/${id}/approval`, {
+      await api.patch(API_ENDPOINTS.quotations.approval(id), {
         status,
         approvalRecordId: row?.approvalRecordId,
         remarks: `${status === 'APPROVED' ? 'Approved' : 'Rejected'} from Pending Approval`
@@ -239,7 +257,7 @@ export default function PendingApproval() {
     setNotice('');
 
     try {
-      const response = await api.patch('/clients/pending-approvals/clients/approve-all', {
+      const response = await api.patch(API_ENDPOINTS.clients.approveAllPendingClients, {
         remarks: 'Bulk approved from Pending Approval'
       });
       setNotice(`${response.data.approved || 0} pending client approvals completed.`);
@@ -259,7 +277,7 @@ export default function PendingApproval() {
     setNotice('');
 
     try {
-      const response = await api.patch('/quotations/pending-approvals/approve-all', {
+      const response = await api.patch(API_ENDPOINTS.quotations.approveAllPending, {
         remarks: 'Bulk approved from Pending Approval'
       });
       setNotice(`${response.data.approved || 0} pending quotation approvals completed.`);
@@ -274,7 +292,7 @@ export default function PendingApproval() {
   async function handleUpdateProfile(profile) {
     setProfileSaving(true);
     try {
-      const response = await api.put('/auth/me', profile);
+      const response = await api.put(API_ENDPOINTS.auth.me, profile);
       setCurrentUser(response.data.user);
     } finally {
       setProfileSaving(false);
@@ -284,7 +302,7 @@ export default function PendingApproval() {
   async function handleUpdatePassword(passwords) {
     setProfileSaving(true);
     try {
-      await api.put('/auth/me/password', passwords);
+      await api.put(API_ENDPOINTS.auth.password, passwords);
     } catch (err) {
       throw new Error(readError(err, 'Unable to update password'));
     } finally {

@@ -4,6 +4,7 @@ import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'rechar
 import { ArrowLeft, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Edit3, Eye, History, ListChecks, Plus, Search, UserPlus, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import api from '../services/api';
+import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi';
 import { getClientUniqueId, mergeClientSources, mergeLeadSources, readCachedOrFreshList, readClientData } from '../features/clientMaster/clientMaster.utils';
 
@@ -251,12 +252,12 @@ export default function CalendarTodo() {
     let mounted = true;
     async function loadOptions() {
       const [clientsResult, ccpClientsResult, leadsResult, ccpLeadsResult, usersResult, adminUsersResult] = await Promise.allSettled([
-        api.get('/clients'),
+        api.get(API_ENDPOINTS.clients.list),
         fetchCcpClients(),
-        api.get('/leads'),
+        api.get(API_ENDPOINTS.leads.list),
         fetchCcpLeads(),
-        api.get('/auth/users'),
-        api.get('/auth/admin/users')
+        api.get(API_ENDPOINTS.auth.users),
+        api.get(API_ENDPOINTS.auth.adminUsers)
       ]);
       if (!mounted) return;
       const crmClients = clientsResult.status === 'fulfilled' ? extractList(clientsResult.value, 'clients') : [];

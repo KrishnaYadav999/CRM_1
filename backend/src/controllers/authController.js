@@ -169,6 +169,13 @@ async function saveSyncedCcpUserId(user, syncResult) {
   await user.save();
 }
 
+async function ensureCrmUserId(user) {
+  if (!user || user.crmUserId) return user;
+  user.crmUserId = String(user._id || user.id);
+  await user.save();
+  return user;
+}
+
 exports.requestOtp = async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   const password = String(req.body.password || '');
@@ -304,6 +311,7 @@ exports.createUserByAdmin = async (req, res) => {
   if (existing) return res.status(400).json({ error: 'User already exists' });
   const user = new User({ name, email, password: await bcrypt.hash(password, 10), role, team, teamId, managerId, operationHeadId, isActive, avatarUrl, createdBy: req.user?._id });
   await user.save();
+  await ensureCrmUserId(user);
   const ccpSync = await syncUserToCcp(user, { action: 'create', password });
   if (ccpSync.ok === false) console.error('CCP user sync failed', ccpSync);
   await saveSyncedCcpUserId(user, ccpSync);
@@ -347,6 +355,7 @@ exports.updateUserByAdmin = async (req, res) => {
   user.isActive = isActive;
   if (req.body.avatarUrl !== undefined) user.avatarUrl = avatarUrl;
   await user.save();
+  await ensureCrmUserId(user);
   const ccpSync = await syncUserToCcp(user, { action: 'update' });
   if (ccpSync.ok === false) console.error('CCP user sync failed', ccpSync);
   await saveSyncedCcpUserId(user, ccpSync);
@@ -422,14 +431,14 @@ exports.listUsers = async (req, res) => {
 
 exports.listActiveUsers = async (req, res) => {
   const users = await User.find({ isActive: true })
-    .select('ccpUserId source name email avatarUrl role team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
+    .select('crmUserId ccpUserId source name email avatarUrl role team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, email: 1 });
   res.json({ ok: true, users });
 };
 
 exports.listUsersForCcp = async (req, res) => {
   const users = await User.find({ isActive: true })
-    .select('name email avatarUrl role team teamId managerId operationHeadId isActive createdAt updatedAt')
+    .select('crmUserId ccpUserId source name email avatarUrl role team teamId managerId operationHeadId isActive createdAt updatedAt')
     .sort({ name: 1, email: 1 });
 
   res.json({
@@ -437,6 +446,7 @@ exports.listUsersForCcp = async (req, res) => {
     users: users.map((user) => ({
       id: user._id,
       _id: user._id,
+      crmUserId: user.crmUserId || String(user._id),
       name: user.name,
       email: user.email,
       ccpUserId: user.ccpUserId,
@@ -471,6 +481,7 @@ exports.syncUsersToCcp = async (req, res) => {
 
 exports.syncUserFromCcp = async (req, res) => {
   const action = String(req.body.action || '').trim().toLowerCase();
+  const crmUserId = String(req.body.crmUserId || '').trim();
   const ccpUserId = String(req.body.ccpUserId || req.body.id || req.body._id || '').trim();
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').toLowerCase().trim();
@@ -514,13 +525,15 @@ exports.syncUserFromCcp = async (req, res) => {
     user.avatarUrl = avatarUrl;
     user.isActive = isActive;
     user.ccpUserId = ccpUserId;
+    user.crmUserId = user.crmUserId || crmUserId || String(user._id);
     user.source = source;
     if (!user.password && password) user.password = await bcrypt.hash(password, 10);
     await user.save();
-    return res.json({ ok: true, user: publicUser(user) });
+    return res.json({ ok: true, crmUserId: user.crmUserId || String(user._id), user: publicUser(user) });
   }
 
   const userData = {
+    crmUserId: crmUserId || undefined,
     ccpUserId,
     source,
     name,
@@ -536,12 +549,14 @@ exports.syncUserFromCcp = async (req, res) => {
   if (password) userData.password = await bcrypt.hash(password, 10);
 
   const createdUser = await User.create(userData);
-  return res.status(201).json({ ok: true, user: publicUser(createdUser) });
+  await ensureCrmUserId(createdUser);
+  return res.status(201).json({ ok: true, crmUserId: createdUser.crmUserId || String(createdUser._id), user: publicUser(createdUser) });
 };
 
 function publicUser(user) {
   return {
     id: user._id,
+    crmUserId: user.crmUserId || String(user._id),
     ccpUserId: user.ccpUserId,
     source: user.source,
     name: user.name,

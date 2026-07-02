@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { requireAuth } = require('../middleware/auth');
 const User = require('../models/User');
 const { ROLES } = require('../constants/roles');
@@ -7,6 +8,7 @@ const { getVisibleUserScope } = require('../utils/visibilityScope');
 const router = express.Router();
 
 const DEFAULT_CCP_API_BASE_URL = 'https://ccp-henna.vercel.app/api/ccp';
+const DEFAULT_CCP_DB_NAME = 'ccp';
 const CCP_FULL_ACCESS_ROLES = ROLES;
 
 function ccpBaseUrls() {
@@ -28,6 +30,26 @@ function normalizeCollection(payload, key) {
   if (Array.isArray(payload?.items)) return { ...payload, ok: payload.ok !== false, [key]: payload.items };
   if (Array.isArray(payload?.rows)) return { ...payload, ok: payload.ok !== false, [key]: payload.rows };
   return { ok: payload?.ok !== false, [key]: [] };
+}
+
+function ccpDbName() {
+  return String(process.env.CCP_DB_NAME || DEFAULT_CCP_DB_NAME).trim() || DEFAULT_CCP_DB_NAME;
+}
+
+async function fetchCcpRowsFromMongo(path, key) {
+  const db = mongoose.connection.useDb(ccpDbName(), { useCache: true });
+  const rows = await db.collection(path)
+    .find({})
+    .sort({ createdAt: -1, _id: -1 })
+    .toArray();
+
+  return {
+    ok: true,
+    [key]: rows,
+    source: 'ccp-mongo',
+    sourceDb: ccpDbName(),
+    sourceCollection: path
+  };
 }
 
 function isFilled(value) {
@@ -269,6 +291,23 @@ function canReadAllCcpRows(user) {
 async function fetchCcp(path, key, req, res) {
   const baseUrls = ccpBaseUrls();
   let lastError = '';
+
+  try {
+    const directRows = await fetchCcpRowsFromMongo(path, key);
+    if (directRows[key].length) {
+      const usersByIdentity = await buildUsersByIdentity();
+      const scope = await getVisibleUserScope(req.user);
+      const normalizedRows = normalizeRowsForCrm(directRows[key], key);
+      const rows = normalizedRows.map((row) => attachAssignedUserByIdentity(row, usersByIdentity, key));
+      directRows[key] = filterByScope(
+        rows,
+        canReadAllCcpRows(req.user) ? null : scope
+      );
+      return res.json(directRows);
+    }
+  } catch (err) {
+    lastError = err.message || `Unable to read CCP ${path} from MongoDB`;
+  }
 
   for (const baseUrl of baseUrls) {
     try {

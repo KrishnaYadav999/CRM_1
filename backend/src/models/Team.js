@@ -6,6 +6,9 @@ const TeamSchema = new mongoose.Schema({
   members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   manager: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   operationHead: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  crmTeamId: { type: String, unique: true, sparse: true, trim: true },
+  ccpTeamId: { type: String, unique: true, sparse: true, trim: true },
+  source: { type: String, trim: true, default: 'crm' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 

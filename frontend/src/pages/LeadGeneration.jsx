@@ -6,7 +6,9 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
 import api from '../services/api';
+import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeads } from '../services/ccpApi';
+import { mergeLeadSources } from '../features/clientMaster/clientMaster.utils';
 
 const emptyLead = {
   sourceLeadId: '',
@@ -56,28 +58,6 @@ const tabs = [
   { id: 'contact', label: 'Contact', icon: ContactRound },
   { id: 'assign', label: 'Assign', icon: UserCheck }
 ];
-const LEAD_GENERATION_CACHE_KEY = 'crm.leadGeneration.leads.cache.v2';
-const LEAD_GENERATION_QUOTES_CACHE_KEY = 'crm.leadGeneration.quotations.cache.v1';
-
-function readCachedArray(key) {
-  try {
-    const parsed = JSON.parse(sessionStorage.getItem(key) || localStorage.getItem(key) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCachedArray(key, rows) {
-  if (!Array.isArray(rows) || !rows.length) return;
-  const payload = JSON.stringify(rows);
-  try {
-    sessionStorage.setItem(key, payload);
-  } catch {
-    try { localStorage.setItem(key, payload); } catch { /* cache only */ }
-  }
-}
-
 const options = {
   communicationMode: ['TeleCalling', 'Referral', 'Physical Visit', 'Campaign', 'Existing Client' , 'Web Database'],
   status: ['Potential - Interested', 'Potential - Not Interested', 'Need Assistance', 'Lost', 'Existing Client'],
@@ -203,37 +183,31 @@ export default function LeadGeneration() {
   async function loadPage() {
     setLoading(true);
     try {
-      const meResponse = await api.get('/auth/me');
+      const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
       const [crmLeadsResult, ccpLeadsResult, quotationsResult] = await Promise.allSettled([
-        api.get('/leads'),
+        api.get(API_ENDPOINTS.leads.list),
         fetchCcpLeads(),
-        api.get('/quotations')
+        api.get(API_ENDPOINTS.quotations.list)
       ]);
-      const crmLeads = crmLeadsResult.status === 'fulfilled' ? (crmLeadsResult.value.data.leads || []) : [];
-      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false ? (ccpLeadsResult.value.data.leads || []) : [];
-      const mergedLeads = mergeLeadSources(crmLeads, ccpLeads);
-      const cachedLeads = readCachedArray(LEAD_GENERATION_CACHE_KEY);
-      const nextLeads = mergedLeads.length ? mergedLeads : cachedLeads;
-      setLeads(nextLeads);
-      writeCachedArray(LEAD_GENERATION_CACHE_KEY, nextLeads);
-
-      const freshQuotations = quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : [];
-      const cachedQuotations = readCachedArray(LEAD_GENERATION_QUOTES_CACHE_KEY);
-      const nextQuotations = freshQuotations.length ? freshQuotations : cachedQuotations;
-      setQuotations(nextQuotations);
-      writeCachedArray(LEAD_GENERATION_QUOTES_CACHE_KEY, nextQuotations);
+      if (crmLeadsResult.status === 'rejected') throw crmLeadsResult.reason;
+      const crmLeads = crmLeadsResult.value.data.leads || [];
+      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
+        ? (ccpLeadsResult.value.data.leads || [])
+        : [];
+      setLeads(mergeLeadSources(crmLeads, ccpLeads));
+      setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
       try {
-        const usersResponse = await api.get('/auth/users');
+        const usersResponse = await api.get(API_ENDPOINTS.auth.users);
         setStaff(usersResponse.data.users || []);
       } catch {
         setStaff([meResponse.data.user]);
       }
     } catch (err) {
-      setError(err?.response?.data?.error || 'Unable to fetch CCP lead data. Please check CCP backend on port 8081.');
-      setLeads(readCachedArray(LEAD_GENERATION_CACHE_KEY));
-      setQuotations(readCachedArray(LEAD_GENERATION_QUOTES_CACHE_KEY));
+      setError(err?.response?.data?.error || 'Unable to fetch lead data.');
+      setLeads([]);
+      setQuotations([]);
     } finally {
       setLoading(false);
     }
@@ -342,7 +316,7 @@ export default function LeadGeneration() {
           workflowStatus: 'draft'
         };
       });
-      const response = await api.post('/leads/bulk', { leads: payload });
+      const response = await api.post(API_ENDPOINTS.leads.bulk, { leads: payload });
       const successCount = response.data.imported || 0;
       const failures = response.data.failures || [];
 
@@ -373,8 +347,8 @@ export default function LeadGeneration() {
     setError('');
     setNotice('');
     try {
-      if (editingLeadId) await api.put(`/leads/${editingLeadId}`, { ...lead, workflowStatus });
-      else await api.post('/leads', { ...lead, workflowStatus });
+      if (editingLeadId) await api.put(API_ENDPOINTS.leads.detail(editingLeadId), { ...lead, workflowStatus });
+      else await api.post(API_ENDPOINTS.leads.create, { ...lead, workflowStatus });
       setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
       showToast(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.', 'success');
       if (workflowStatus === 'submitted') setLead(emptyLead);
@@ -1475,32 +1449,6 @@ function compareLeadCode(a, b) {
   const right = Number.parseInt(String(b.leadCode || '').replace(/\D/g, ''), 10) || 0;
   if (left !== right) return left - right;
   return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
-}
-
-function getLeadMergeKey(item) {
-  return String(item?._id || item?.id || item?.sourceLeadId || item?.leadCode || item?.company || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function mergeLeadSources(crmLeads, ccpLeads) {
-  const merged = [];
-  const indexByKey = new Map();
-
-  [...ccpLeads, ...crmLeads].forEach((item) => {
-    const key = getLeadMergeKey(item);
-    if (key && indexByKey.has(key)) {
-      const index = indexByKey.get(key);
-      merged[index] = { ...merged[index], ...item };
-      return;
-    }
-
-    if (key) indexByKey.set(key, merged.length);
-    merged.push(item);
-  });
-
-  return merged;
 }
 
 function formatExcelValue(value, field) {
