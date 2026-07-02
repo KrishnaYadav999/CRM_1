@@ -526,19 +526,19 @@
 }
 
 .annual-review-panel {
-  top: 76px !important;
-  right: 18px !important;
-  left: 18px !important;
-  bottom: auto !important;
-  width: auto !important;
+  top: 64px !important;
+  right: 0 !important;
+  left: auto !important;
+  bottom: 0 !important;
+  width: min(620px, calc(100vw - 24px)) !important;
   height: auto !important;
-  max-height: calc(100vh - 92px) !important;
+  max-height: none !important;
   max-width: none !important;
   overflow: hidden auto !important;
   overscroll-behavior: contain !important;
   scrollbar-color: #7ccfc4 #eef7f5 !important;
   scrollbar-width: thin !important;
-  border-radius: 20px !important;
+  border-radius: 20px 0 0 20px !important;
   border-left: 1px solid rgba(203, 213, 225, 0.85) !important;
   background:
     linear-gradient(180deg, #ffffff 0%, #f8fbfb 100%) !important;
@@ -594,7 +594,7 @@ body:has(.annual-review-backdrop) .client-detail-card {
 
 .annual-review-panel .space-y-2 {
   display: grid !important;
-  grid-template-columns: repeat(2, minmax(260px, 1fr)) !important;
+  grid-template-columns: 1fr !important;
   gap: 9px !important;
 }
 
