@@ -138,6 +138,52 @@ function mapAnnualReturnRecordToFiling(row = {}) {
   };
 }
 
+function getSavedAnnualYearLabels(data = {}) {
+  const annualReturn = data.annualReturn && typeof data.annualReturn === 'object' && !Array.isArray(data.annualReturn)
+    ? data.annualReturn
+    : {};
+  const filingYears = annualReturn.filings && typeof annualReturn.filings === 'object' && !Array.isArray(annualReturn.filings)
+    ? Object.keys(annualReturn.filings)
+    : [];
+  return [...new Set([
+    ...filingYears,
+    annualReturn.selectedYear,
+    annualReturn.lastSavedYear
+  ].map(normalizeFinancialYearLabel).filter(Boolean))];
+}
+
+function buildAnnualHubYears(firstAnnualReturnYear, data = {}, routeAnnualYear = '') {
+  const computedYears = buildAnnualReturnYears(firstAnnualReturnYear);
+  const existingByLabel = new Map(computedYears.map((year) => [year.label, year]));
+  const labels = [...new Set([
+    ...computedYears.map((year) => year.label),
+    ...getSavedAnnualYearLabels(data),
+    normalizeFinancialYearLabel(routeAnnualYear)
+  ].filter(Boolean))];
+
+  return labels
+    .map((label) => {
+      const startYear = Number(label.split('-')[0]);
+      const filing = data.annualReturn?.filings?.[label] || {};
+      return {
+        ...(existingByLabel.get(label) || {}),
+        startYear,
+        label,
+        period: 'April - March',
+        status: filing.status
+          ? `Saved ${filing.status}`
+          : existingByLabel.get(label)?.status || 'Open hub'
+      };
+    })
+    .sort((first, second) => first.startYear - second.startYear);
+}
+
+function debugAnnualFlow(label, payload = {}) {
+  const snapshot = { label, at: new Date().toISOString(), ...payload };
+  window.__crmAnnualDebug = snapshot;
+  console.debug('[CRM AnnualReturn]', snapshot);
+}
+
 function getLeadSelectValue(lead = {}) {
   return String(lead._id || lead.id || lead.sourceLeadId || lead.leadCode || lead.uniqueId || lead.company || '').trim();
 }
@@ -291,15 +337,32 @@ export default function ClientMaster() {
   }, []);
 
   useEffect(() => {
-    if (!routeClientKey || (!clients.length && !annualReturnRecords.length)) return;
+    if (!routeClientKey || (!clients.length && !annualReturnRecords.length)) {
+      if (routeClientKey) {
+        debugAnnualFlow('route-waiting-for-data', {
+          routeClientKey,
+          routeAnnualYear: routeAnnualYearLabel,
+          clients: clients.length,
+          annualReturnRecords: annualReturnRecords.length
+        });
+      }
+      return;
+    }
     const matchedClient = findClientByRouteKey(clients, routeClientKey);
     if (matchedClient) {
+      debugAnnualFlow('route-client-matched', {
+        routeClientKey,
+        routeAnnualYear: routeAnnualYearLabel,
+        clientId: matchedClient._id || matchedClient.id,
+        annualYears: getSavedAnnualYearLabels(readClientData(matchedClient))
+      });
       setViewMode('list');
       setViewClient(matchedClient);
       return;
     }
     const normalizedRouteKey = normalizeAnnualClientKey(decodeURIComponent(routeClientKey));
-    const annualRow = annualReturnRecords.find((row) => getAnnualReturnMatchKeys(row).includes(normalizedRouteKey));
+    const matchingAnnualRows = annualReturnRecords.filter((row) => getAnnualReturnMatchKeys(row).includes(normalizedRouteKey));
+    const annualRow = matchingAnnualRows.find((row) => normalizeFinancialYearLabel(row.annualYear) === normalizeFinancialYearLabel(routeAnnualYearLabel)) || matchingAnnualRows[0];
     if (annualRow) {
       const clientData = annualRow.clientData && typeof annualRow.clientData === 'object' ? annualRow.clientData : {};
       const annualClient = hydrateClientsWithAnnualReturns([{
@@ -307,11 +370,24 @@ export default function ClientMaster() {
         id: annualRow.clientKey || routeClientKey,
         adminControls: annualRow.adminControls || {},
         data: clientData
-      }], [annualRow])[0];
+      }], matchingAnnualRows.length ? matchingAnnualRows : [annualRow])[0];
+      debugAnnualFlow('route-annual-record-fallback', {
+        routeClientKey,
+        routeAnnualYear: routeAnnualYearLabel,
+        annualRowYear: annualRow.annualYear,
+        hydratedYears: getSavedAnnualYearLabels(readClientData(annualClient))
+      });
       setViewMode('list');
       setViewClient(annualClient);
+      return;
     }
-  }, [annualReturnRecords, clients, routeClientKey]);
+    debugAnnualFlow('route-client-not-found', {
+      routeClientKey,
+      routeAnnualYear: routeAnnualYearLabel,
+      clients: clients.length,
+      annualReturnRecords: annualReturnRecords.length
+    });
+  }, [annualReturnRecords, clients, routeClientKey, routeAnnualYearLabel]);
 
   async function loadPage() {
     setLoading(true);
@@ -906,19 +982,10 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
   const initialAnnualYearLabel = normalizeFinancialYearLabel(initialAnnualYear);
   const annualYears = useMemo(() => {
-    const years = buildAnnualReturnYears(firstAnnualReturnYear);
-    if (!initialAnnualYearLabel || years.some((year) => year.label === initialAnnualYearLabel)) return years;
-    const startYear = Number(initialAnnualYearLabel.split('-')[0]);
-    return [
-      ...years,
-      {
-        startYear,
-        label: initialAnnualYearLabel,
-        period: 'April - March',
-        status: 'Open hub'
-      }
-    ].sort((first, second) => first.startYear - second.startYear);
-  }, [firstAnnualReturnYear, initialAnnualYearLabel]);
+    return buildAnnualHubYears(firstAnnualReturnYear, data, initialAnnualYearLabel);
+  }, [data, firstAnnualReturnYear, initialAnnualYearLabel]);
+  const annualYearLabelsKey = annualYears.map((year) => year.label).join('|');
+  const clientViewKey = String(client?._id || client?.id || getClientUniqueId(client) || clientName);
   const [selectedAnnualYear, setSelectedAnnualYear] = useState(() => (
     initialAnnualYearLabel && annualYears.some((year) => year.label === initialAnnualYearLabel) ? initialAnnualYearLabel : ''
   ));
@@ -967,17 +1034,36 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   })), [currentUser, staff]);
 
   useEffect(() => {
-    setSelectedAnnualYear((current) => (current && annualYears.some((year) => year.label === current) ? current : ''));
-  }, [annualYears]);
-
-  useEffect(() => {
     if (initialTab) setActiveClientTab(initialTab);
     if (initialAnnualYearLabel && annualYears.some((year) => year.label === initialAnnualYearLabel)) {
       setSelectedAnnualYear(initialAnnualYearLabel);
     } else if (initialAnnualYear) {
       setSelectedAnnualYear('');
     }
-  }, [client?._id, client?.id, initialTab, initialAnnualYear, initialAnnualYearLabel, annualYears]);
+  }, [clientViewKey, initialTab, initialAnnualYear, initialAnnualYearLabel]);
+
+  useEffect(() => {
+    setSelectedAnnualYear((current) => {
+      if (current && annualYears.some((year) => year.label === current)) return current;
+      if (initialAnnualYearLabel && annualYears.some((year) => year.label === initialAnnualYearLabel)) return initialAnnualYearLabel;
+      return '';
+    });
+  }, [annualYearLabelsKey, initialAnnualYearLabel]);
+
+  useEffect(() => {
+    debugAnnualFlow('client-view-annual-state', {
+      clientId: client?._id || client?.id,
+      clientName,
+      initialTab,
+      activeClientTab,
+      initialAnnualYear,
+      initialAnnualYearLabel,
+      selectedAnnualYear,
+      isAnnualProcessingView,
+      annualYears: annualYears.map((year) => year.label),
+      savedAnnualYears: getSavedAnnualYearLabels(data)
+    });
+  }, [activeClientTab, annualYearLabelsKey, client?._id, client?.id, clientName, initialAnnualYear, initialAnnualYearLabel, initialTab, isAnnualProcessingView, selectedAnnualYear]);
 
   function toggleDetailGroup(id) {
     setOpenDetailGroups((current) => ({ ...current, [id]: !current[id] }));

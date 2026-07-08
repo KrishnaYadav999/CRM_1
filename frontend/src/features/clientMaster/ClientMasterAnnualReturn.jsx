@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
+import ToastMessage from '../../components/ToastMessage';
 import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { adminRoles } from '../../constants/dashboard';
@@ -1727,6 +1728,21 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
     ));
   }, [activeProcessingTab, activeSections]);
 
+  function openAnnualYear(year) {
+    const clientKey = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || getClientUniqueId(client);
+    const nextYear = year?.label || '';
+    console.debug('[CRM AnnualReturn]', {
+      label: 'hub-card-open',
+      at: new Date().toISOString(),
+      clientKey,
+      annualYear: nextYear,
+      availableYears: years.map((item) => item.label),
+      hasStoredFiling: Boolean(data.annualReturn?.filings?.[nextYear])
+    });
+    onSelectYear(nextYear);
+    navigate(`/sales/client-data-processing/${encodeURIComponent(clientKey)}/${encodeURIComponent(nextYear)}`);
+  }
+
   return (
     <div className="mt-5 space-y-5">
       {annualToast && (
@@ -1748,12 +1764,11 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
             {years.map((year, index) => {
               const active = selected?.label === year.label;
               const [yearStart, yearEnd] = year.label.split('-');
-              const clientKey = client?._id || client?.id || getClientUniqueId(client);
               return (
                 <button
                   key={year.label}
                   type="button"
-                  onClick={() => navigate(`/sales/client-data-processing/${encodeURIComponent(clientKey)}/${encodeURIComponent(year.label)}`)}
+                  onClick={() => openAnnualYear(year)}
                   className={`annual-year-card ${active ? 'annual-year-card-active' : ''}`}
                   style={{ '--delay': `${index * 90}ms` }}
                 >

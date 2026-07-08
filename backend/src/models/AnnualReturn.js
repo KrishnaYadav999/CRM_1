@@ -12,6 +12,7 @@ const AnnualReturnSchema = new mongoose.Schema({
   status: { type: String, trim: true, default: 'draft', index: true },
   activeTab: { type: String, trim: true },
   activeSection: { type: String, trim: true },
+  filings: { type: mongoose.Schema.Types.Mixed, default: {} },
   draft: { type: mongoose.Schema.Types.Mixed, default: {} },
   basicInfo: { type: mongoose.Schema.Types.Mixed, default: {} },
   financials: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -26,6 +27,6 @@ const AnnualReturnSchema = new mongoose.Schema({
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-AnnualReturnSchema.index({ clientKey: 1, annualYear: 1 }, { unique: true });
+AnnualReturnSchema.index({ clientKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('AnnualReturn', AnnualReturnSchema);

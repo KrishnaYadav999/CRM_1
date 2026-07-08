@@ -194,7 +194,7 @@ html[data-crm-card-layout="only-shadow"] section.rounded-2xl {
 }
 
 html aside.fixed > div {
-  background: var(--crm-sidebar-color, #30737b) !important;
+  background: var(--crm-sidebar-color, #0f5d46) !important;
 }
 
 html header.crm-topbar {

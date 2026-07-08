@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Clock3, Edit3, Eye, FileText, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Clock3, Edit3, Eye, FileText, RefreshCw, RotateCcw, Search, X, XCircle, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -46,6 +46,26 @@ function statusBadge(value) {
   return <span className={`pending-status pending-status-${tone}`}>{status}</span>;
 }
 
+function formatApprovalValue(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(formatApprovalValue).filter((item) => item && item !== '-').join(', ') || '-';
+  if (typeof value === 'object') {
+    return value.name || value.fullName || value.email || value.username || value.companyName || value.clientName || value.id || value._id || '-';
+  }
+  return String(value);
+}
+
+function getApprovalStatus(row) {
+  return String(row?.approvalStatus || row?.status || 'PENDING').toUpperCase();
+}
+
+function rowMatchesSearch(row, query) {
+  if (!query.trim()) return true;
+  const needle = query.trim().toLowerCase();
+  return Object.values(row || {}).some((value) => formatApprovalValue(value).toLowerCase().includes(needle));
+}
+
 function readError(err, fallback) {
   return err?.response?.data?.error || fallback;
 }
@@ -71,20 +91,49 @@ export default function PendingApproval() {
   const [activeTab, setActiveTab] = useState('clients');
   const [clientPage, setClientPage] = useState(1);
   const [quotePage, setQuotePage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [piboFilter, setPiboFilter] = useState('all');
   const navigate = useNavigate();
   const location = useLocation();
   const canApprove = adminRoles.includes(currentUser?.role);
 
-  const clientTotalPages = Math.max(1, Math.ceil(pendingClients.length / rowsPerPage));
-  const quoteTotalPages = Math.max(1, Math.ceil(pendingQuotations.length / rowsPerPage));
+  const allApprovalRows = useMemo(() => [...pendingClients, ...pendingQuotations], [pendingClients, pendingQuotations]);
+  const piboOptions = useMemo(() => {
+    const values = allApprovalRows
+      .map((row) => formatApprovalValue(row?.piboCategory))
+      .filter((value) => value && value !== '-');
+    return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+  }, [allApprovalRows]);
+  const filterRow = (row) => {
+    const statusMatches = statusFilter === 'all' || getApprovalStatus(row) === statusFilter;
+    const piboMatches = piboFilter === 'all' || formatApprovalValue(row?.piboCategory) === piboFilter;
+    return statusMatches && piboMatches && rowMatchesSearch(row, searchTerm);
+  };
+  const filteredClients = useMemo(() => (
+    typeFilter === 'quotations' ? [] : pendingClients.filter(filterRow)
+  ), [pendingClients, searchTerm, statusFilter, piboFilter, typeFilter]);
+  const filteredQuotations = useMemo(() => (
+    typeFilter === 'clients' ? [] : pendingQuotations.filter(filterRow)
+  ), [pendingQuotations, searchTerm, statusFilter, piboFilter, typeFilter]);
+  const approvedTodayCount = useMemo(() => (
+    allApprovalRows.filter((row) => getApprovalStatus(row) === 'APPROVED').length
+  ), [allApprovalRows]);
+  const rejectedCount = useMemo(() => (
+    allApprovalRows.filter((row) => getApprovalStatus(row) === 'REJECTED').length
+  ), [allApprovalRows]);
+
+  const clientTotalPages = Math.max(1, Math.ceil(filteredClients.length / rowsPerPage));
+  const quoteTotalPages = Math.max(1, Math.ceil(filteredQuotations.length / rowsPerPage));
 
   const visibleClients = useMemo(() => (
-    pendingClients.slice((clientPage - 1) * rowsPerPage, clientPage * rowsPerPage)
-  ), [clientPage, pendingClients]);
+    filteredClients.slice((clientPage - 1) * rowsPerPage, clientPage * rowsPerPage)
+  ), [clientPage, filteredClients]);
 
   const visibleQuotations = useMemo(() => (
-    pendingQuotations.slice((quotePage - 1) * rowsPerPage, quotePage * rowsPerPage)
-  ), [pendingQuotations, quotePage]);
+    filteredQuotations.slice((quotePage - 1) * rowsPerPage, quotePage * rowsPerPage)
+  ), [filteredQuotations, quotePage]);
 
   useEffect(() => {
     loadPage({ silent: Boolean(cachedApprovalData) });
@@ -94,6 +143,18 @@ export default function PendingApproval() {
     const tab = new URLSearchParams(location.search).get('tab');
     if (tab === 'quotations' || tab === 'clients') setActiveTab(tab);
   }, [location.search]);
+
+  useEffect(() => {
+    setClientPage(1);
+    setQuotePage(1);
+  }, [searchTerm, typeFilter, statusFilter, piboFilter]);
+
+  function resetFilters() {
+    setSearchTerm('');
+    setTypeFilter('all');
+    setStatusFilter('all');
+    setPiboFilter('all');
+  }
 
   async function loadPage(options = {}) {
     const cached = !options.force ? readPendingApprovalCache() : null;
@@ -341,11 +402,6 @@ export default function PendingApproval() {
                 <span>Review client masters and quotation requests with a focused approval workflow.</span>
               </div>
             </div>
-            <div className="pending-hero-summary">
-              <span>Waiting review</span>
-              <strong>{pendingClients.length + pendingQuotations.length}</strong>
-              <small>{canApprove ? 'Admin approval access enabled' : 'View-only access for this account'}</small>
-            </div>
             <button
               type="button"
               onClick={() => loadPage({ force: true })}
@@ -370,26 +426,68 @@ export default function PendingApproval() {
           )}
 
           <div className="pending-metrics">
-            <Metric icon={Clock3} label="Pending Clients" value={pendingClients.length} />
-            <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} />
-            <Metric icon={ShieldCheck} label="Total Approvals" value={pendingClients.length + pendingQuotations.length} />
+            <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />
+            <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" />
+            <Metric icon={CheckCircle2} label="Approved Today" value={approvedTodayCount} hint="Since midnight" tone="teal" />
+            <Metric icon={XCircle} label="Rejected" value={rejectedCount} hint="Since midnight" tone="rose" />
           </div>
 
           <section className="pending-approval-panel">
+            <div className="pending-filter-bar">
+              <label className="pending-search-field">
+                <Search className="h-4 w-4" />
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search approval..."
+                />
+              </label>
+              <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Filter approval type">
+                <option value="all">All Types</option>
+                <option value="clients">Clients</option>
+                <option value="quotations">Quotations</option>
+              </select>
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter approval status">
+                <option value="all">All Status</option>
+                <option value="PENDING">Pending</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+              <select value={piboFilter} onChange={(event) => setPiboFilter(event.target.value)} aria-label="Filter PIBO category">
+                <option value="all">All PIBO Category</option>
+                {piboOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+              <button type="button" className="pending-reset-button" onClick={resetFilters}>
+                <RotateCcw className="h-4 w-4" />
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => loadPage({ force: true })}
+                className={`pending-refresh-button pending-refresh-button-compact ${loading ? 'pending-refresh-loading' : ''}`}
+                disabled={loading}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </button>
+            </div>
             <div className="pending-tabs-wrap">
               <div className="pending-tabs">
                 <ApprovalTab
                   active={activeTab === 'clients'}
                   icon={Clock3}
                   label="Pending Clients"
-                  count={pendingClients.length}
+                  count={filteredClients.length}
                   onClick={() => setActiveTab('clients')}
                 />
                 <ApprovalTab
                   active={activeTab === 'quotations'}
                   icon={FileText}
                   label="Pending Quotations"
-                  count={pendingQuotations.length}
+                  count={filteredQuotations.length}
                   onClick={() => setActiveTab('quotations')}
                 />
               </div>
@@ -398,10 +496,12 @@ export default function PendingApproval() {
             {activeTab === 'clients' ? (
               <ApprovalTable
                 title="Pending Clients"
-                columns={['Client Name', 'Approval Status', 'PIBO Category', 'EPR Category', 'Created By', 'Request Date', 'Request Time', 'Actions']}
+                columns={['Client Name', 'Approval Status', 'PIBO Category', 'EPR Category', 'Created By', 'Request Date', 'Actions']}
                 emptyText="No pending clients found."
                 page={clientPage}
                 totalPages={clientTotalPages}
+                showing={visibleClients.length}
+                total={filteredClients.length}
                 onPrev={() => setClientPage((value) => Math.max(1, value - 1))}
                 onNext={() => setClientPage((value) => Math.min(clientTotalPages, value + 1))}
                 actions={canApprove ? (
@@ -425,8 +525,7 @@ export default function PendingApproval() {
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>
                     <Cell>{client.createdBy}</Cell>
-                    <Cell>{client.requestDate}</Cell>
-                    <Cell>{client.requestTime}</Cell>
+                    <Cell>{[formatApprovalValue(client.requestDate), formatApprovalValue(client.requestTime)].filter((item) => item !== '-').join(' ')}</Cell>
                     <ActionCell row={client} savingId={savingId} onUpdate={updateApproval} canApprove={canApprove} />
                   </tr>
                 ))}
@@ -438,6 +537,8 @@ export default function PendingApproval() {
                 emptyText="No pending quotations found."
                 page={quotePage}
                 totalPages={quoteTotalPages}
+                showing={visibleQuotations.length}
+                total={filteredQuotations.length}
                 onPrev={() => setQuotePage((value) => Math.max(1, value - 1))}
                 onNext={() => setQuotePage((value) => Math.min(quoteTotalPages, value + 1))}
                 actions={canApprove ? (
@@ -499,17 +600,18 @@ export default function PendingApproval() {
   );
 }
 
-function Metric({ icon: Icon, label, value }) {
+function Metric({ icon: Icon, label, value, hint = '', tone = 'mint' }) {
   const animatedValue = useCountUp(value);
   return (
-    <div className="pending-metric-card">
+    <div className={`pending-metric-card pending-metric-${tone}`}>
+      <span>
+        <Icon className="h-5 w-5" />
+      </span>
       <div>
         <p>{label}</p>
-        <span>
-          <Icon className="h-5 w-5" />
-        </span>
+        <strong className="count-up-number">{animatedValue}</strong>
+        {hint && <small>{hint}</small>}
       </div>
-      <strong className="count-up-number">{animatedValue}</strong>
     </div>
   );
 }
@@ -561,7 +663,7 @@ function useCountUp(value, duration = 900) {
   return displayValue;
 }
 
-function ApprovalTable({ title, columns, children, emptyText, page, totalPages, onPrev, onNext, actions = null }) {
+function ApprovalTable({ title, columns, children, emptyText, page, totalPages, onPrev, onNext, actions = null, showing = 0, total = 0 }) {
   const hasRows = React.Children.count(children) > 0;
 
   return (
@@ -569,7 +671,7 @@ function ApprovalTable({ title, columns, children, emptyText, page, totalPages, 
       <div className="pending-table-head">
         <div>
           <h2>{title}</h2>
-          <span>Page {page} of {totalPages}</span>
+          <span>Showing {showing} of {total} entries</span>
         </div>
         {actions}
       </div>
@@ -592,9 +694,12 @@ function ApprovalTable({ title, columns, children, emptyText, page, totalPages, 
         </table>
       </div>
       <div className="pending-pager">
-        <button type="button" disabled={page === 1} onClick={onPrev}>Prev</button>
-        <span>Page {page} of {totalPages}</span>
-        <button type="button" disabled={page === totalPages} onClick={onNext}>Next</button>
+        <span>Showing {showing} of {total} entries</span>
+        <div>
+          <button type="button" disabled={page === 1} onClick={onPrev}>‹</button>
+          <strong>{page}</strong>
+          <button type="button" disabled={page === totalPages} onClick={onNext}>›</button>
+        </div>
       </div>
     </div>
   );
@@ -603,7 +708,7 @@ function ApprovalTable({ title, columns, children, emptyText, page, totalPages, 
 function Cell({ children, strong = false }) {
   return (
     <td className={strong ? 'pending-cell-strong' : ''}>
-      {children || '-'}
+      {React.isValidElement(children) ? children : formatApprovalValue(children)}
     </td>
   );
 }

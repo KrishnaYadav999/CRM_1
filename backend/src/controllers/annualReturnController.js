@@ -46,6 +46,73 @@ function mapClientFiling(client, annualYear, filing = {}) {
   };
 }
 
+function mapAnnualReturnDocumentFiling(document = {}, annualYear = '', filing = {}) {
+  const client = document.client && typeof document.client === 'object' ? document.client : null;
+  const clientData = document.clientData && typeof document.clientData === 'object'
+    ? document.clientData
+    : readClientData(client);
+  return {
+    _id: `${document._id}-${annualYear}`,
+    annualReturnId: document._id,
+    client: document.client,
+    clientKey: document.clientKey,
+    annualYear,
+    clientName: document.clientName || clientData.basic?.clientLegalName || clientData.basic?.tradeName || 'Untitled client',
+    piboCategory: document.piboCategory || clientData.basic?.piboCategory || '',
+    eprCategory: document.eprCategory || clientData.basic?.eprCategory || '',
+    currentSpoc: filing.annual?.currentSpoc || document.currentSpoc || '',
+    previousSpoc: filing.annual?.previousSpoc || document.previousSpoc || '',
+    status: filing.status || 'draft',
+    activeTab: filing.activeTab || '',
+    activeSection: filing.activeSection || '',
+    draft: filing.draft || {},
+    basicInfo: filing.basicInfo || {},
+    financials: filing.financials || {},
+    data: filing.data || {},
+    brandOwner: filing.brandOwner || {},
+    importer: filing.importer || {},
+    annual: filing.annual || {},
+    approvalWorkflow: filing.approvalWorkflow || {},
+    clientData,
+    adminControls: document.adminControls || client?.adminControls || {},
+    savedAt: filing.savedAt || document.savedAt || document.updatedAt,
+    updatedAt: filing.savedAt || document.updatedAt || document.savedAt,
+    updatedBy: document.updatedBy
+  };
+}
+
+function expandAnnualReturnDocument(document = {}) {
+  const rows = [];
+  const filings = document.filings && typeof document.filings === 'object' && !Array.isArray(document.filings)
+    ? document.filings
+    : {};
+
+  Object.entries(filings).forEach(([annualYear, filing]) => {
+    if (!annualYear || !filing || typeof filing !== 'object' || Array.isArray(filing)) return;
+    rows.push(mapAnnualReturnDocumentFiling(document, annualYear, filing));
+  });
+
+  if (!rows.length && document.annualYear) {
+    rows.push(mapAnnualReturnDocumentFiling(document, document.annualYear, {
+      annualYear: document.annualYear,
+      status: document.status,
+      activeTab: document.activeTab,
+      activeSection: document.activeSection,
+      draft: document.draft,
+      basicInfo: document.basicInfo,
+      financials: document.financials,
+      data: document.data,
+      brandOwner: document.brandOwner,
+      importer: document.importer,
+      annual: document.annual,
+      approvalWorkflow: document.approvalWorkflow,
+      savedAt: document.savedAt
+    }));
+  }
+
+  return rows;
+}
+
 function readWorkflowStage(workflow = {}) {
   const currentStage = String(workflow.currentStage || '').toLowerCase();
   const status = String(workflow.status || '').toLowerCase();
@@ -112,7 +179,11 @@ exports.listAnnualReturns = async (req, res) => {
     .sort({ updatedAt: -1 })
     .lean();
   const index = new Map();
-  annualReturns.forEach((row) => index.set(`${row.clientKey}:${row.annualYear}`, row));
+  annualReturns.forEach((document) => {
+    expandAnnualReturnDocument(document).forEach((row) => {
+      index.set(`${row.clientKey}:${row.annualYear}`, row);
+    });
+  });
 
   const clients = await Client.find({ 'data.annualReturn.filings': { $exists: true } })
     .select('data adminControls updatedAt')

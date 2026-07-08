@@ -53,16 +53,16 @@ import Sidebar from '../components/dashboard/Sidebar'
 import Topbar from '../components/dashboard/Topbar'
 import UserActionsMenu from '../components/dashboard/UserActionsMenu'
 import UserDetailsModal from '../components/dashboard/UserDetailsModal'
-import BrandLoader from '../components/BrandLoader'
 import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
-import { fetchCcpLeads } from '../services/ccpApi'
+import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi'
+import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v2'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v3'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 4500
 
@@ -92,12 +92,23 @@ function writeSessionCache(key, data) {
 }
 
 function readCalendarTodoItems() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(CALENDAR_TODO_STORAGE_KEY) || '[]')
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
+  const items = []
+  const seen = new Set()
+  for (const store of [localStorage, sessionStorage].filter(Boolean)) {
+    try {
+      const parsed = JSON.parse(store.getItem(CALENDAR_TODO_STORAGE_KEY) || '[]')
+      if (!Array.isArray(parsed)) continue
+      parsed.forEach((item, index) => {
+        const key = String(item.id || item._id || `${item.title || ''}-${item.scheduledDate || ''}-${item.scheduledTime || ''}-${index}`)
+        if (seen.has(key)) return
+        seen.add(key)
+        items.push(item)
+      })
+    } catch {
+      // Try the next browser store.
+    }
   }
+  return items
 }
 
 function isCalendarFollowUp(item = {}) {
@@ -106,32 +117,76 @@ function isCalendarFollowUp(item = {}) {
 
 function calendarItemBelongsToUser(item = {}, user = {}) {
   const safeUser = user || {}
+  const role = normalizeKey(safeUser.role)
+  if (adminRoles.includes(safeUser.role) || role === 'manager' || role.includes('operation head')) return true
   const userTokens = [safeUser.name, safeUser.email, safeUser.firstName && safeUser.lastName ? `${safeUser.firstName} ${safeUser.lastName}` : '', safeUser._id, safeUser.id]
     .filter(Boolean)
     .map((value) => normalizeKey(value))
   if (!userTokens.length) return true
-  const ownerTokens = [item.assignedTo, item.createdBy, item.owner, item.scheduledBy]
+  const ownerTokens = [item.assignedTo, item.assignedToName, item.assignedToEmail, item.assignedToId, item.createdBy, item.owner, item.scheduledBy]
     .filter(Boolean)
     .map((value) => normalizeKey(value))
   if (!ownerTokens.length) return true
   return ownerTokens.some((owner) => userTokens.some((token) => owner === token || owner.includes(token) || token.includes(owner)))
 }
 
-function getCalendarFollowUpsForUser(user = {}) {
+function getLeadFollowUpCompany(lead = {}) {
+  return displayValue(lead.companyName || lead.company || lead.clientName || lead['Company Name'] || lead.Company || lead.leadCompanyName, 'Lead follow-up')
+}
+
+function getLeadFollowUpOwner(lead = {}) {
+  return displayValue(lead.assignedToName || lead.assignedTo || lead.ownerName || lead.createdByName || lead.createdBy || lead.leadGeneratedBy, 'Unassigned')
+}
+
+function buildLeadFollowUpItems(leads = []) {
+  return leads
+    .filter((lead) => lead.nextFollowUpDate || lead['Next Follow-Up Date'])
+    .map((lead, index) => {
+      const scheduledDate = lead.nextFollowUpDate || lead['Next Follow-Up Date']
+      const scheduledTime = lead.nextFollowUpTime || lead['Next Follow-Up Time'] || ''
+      const company = getLeadFollowUpCompany(lead)
+      return {
+        id: `lead-follow-up-${lead._id || lead.id || lead.leadCode || lead.leadNumber || index}`,
+        title: lead.followUpTitle || `Follow up with ${company}`,
+        description: lead.followUpRemarks || lead['Follow-Up Remarks'] || lead.remarks || '',
+        clientName: lead.clientName || '',
+        leadCompanyName: company,
+        leadNumber: lead.leadCode || lead.leadNumber || lead['Lead Number'] || '',
+        assignedTo: getLeadFollowUpOwner(lead),
+        assignedToName: getLeadFollowUpOwner(lead),
+        scheduledDate,
+        scheduledTime,
+        priority: lead.priority || 'Medium',
+        category: 'Follow-Up',
+        status: lead.followUpStatus || lead.status || 'open',
+        type: 'follow-up',
+        source: 'lead'
+      }
+    })
+}
+
+function getCalendarFollowUpsForUser(user = {}, extraItems = []) {
   const safeUser = user || {}
-  return readCalendarTodoItems()
+  const seen = new Set()
+  return [...readCalendarTodoItems(), ...extraItems]
     .filter(isCalendarFollowUp)
-    .filter((item) => item.status !== 'completed')
+    .filter((item) => normalizeKey(item.status) !== 'completed')
     .filter((item) => calendarItemBelongsToUser(item, safeUser))
+    .filter((item, index) => {
+      const key = String(item.id || item._id || `${item.title || ''}-${item.scheduledDate || ''}-${item.scheduledTime || ''}-${index}`)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     .sort((a, b) => `${a.scheduledDate || ''} ${a.scheduledTime || ''}`.localeCompare(`${b.scheduledDate || ''} ${b.scheduledTime || ''}`))
 }
 
 function getCalendarFollowUpCompany(item = {}) {
-  return item.clientName || item.leadCompanyName || item.leadNumber || item.clientNumber || 'Follow-up'
+  return displayValue(item.clientName || item.leadCompanyName || item.leadNumber || item.clientNumber, 'Follow-up')
 }
 
 function getCalendarFollowUpOwner(item = {}) {
-  return item.assignedTo || item.createdBy || 'SM'
+  return displayValue(item.assignedToName || item.assignedTo || item.createdBy, 'SM')
 }
 
 function formatDateTime(value) {
@@ -175,7 +230,7 @@ function diffDays(fromValue, toValue) {
 }
 
 function getFollowUpTone(item = {}, todayKey = dateKey()) {
-  if (item.status === 'completed') return 'done'
+  if (normalizeKey(item.status) === 'completed') return 'done'
   if (item.scheduledDate && item.scheduledDate < todayKey) return 'overdue'
   if ((item.history || []).length) return 'revised'
   return 'open'
@@ -190,7 +245,7 @@ function getFollowUpStatusLabel(item = {}, todayKey = dateKey()) {
 }
 
 function getFollowUpProgress(item = {}, todayKey = dateKey()) {
-  if (item.status === 'completed') return 100
+  if (normalizeKey(item.status) === 'completed') return 100
   if (item.scheduledDate && item.scheduledDate < todayKey) return 20
   if ((item.history || []).length) return 55
   return 35
@@ -749,11 +804,21 @@ function percent(value, total) {
 }
 
 function normalizeText(value = '') {
-  return String(value || '').trim().toLowerCase()
+  return displayValue(value).trim().toLowerCase()
 }
 
 function normalizeKey(value = '') {
   return normalizeText(value).replace(/\s+/g, ' ')
+}
+
+function displayValue(value, fallback = '') {
+  if (value === null || value === undefined) return fallback
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.map((item) => displayValue(item)).filter(Boolean).join(', ') || fallback
+  if (typeof value === 'object') {
+    return value.name || value.email || value.label || value.title || value.companyName || value.clientName || value._id || value.id || fallback
+  }
+  return fallback
 }
 
 function normalizeBusinessKey(value = '') {
@@ -1363,8 +1428,52 @@ function getScopedOperationsRows(rows = [], users = [], currentUser = {}) {
   return rows.filter((row) => getUserMatchKeys(row.user).some((key) => currentUserKeys.includes(key)) || (row.assignedKeys || []).some((key) => currentUserKeys.includes(key)))
 }
 
-function buildUserPerformanceCards(rows = [], users = [], currentUser = {}) {
+function getLeadUserKey(lead = {}, users = []) {
+  const ownerKeys = getLeadOwnerKeys(lead)
+  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+  if (matchedUser) return getUserId(matchedUser) || getUserName(matchedUser)
+  return getLeadOwnerName(lead) || 'unassigned'
+}
+
+function getLeadUserName(lead = {}, users = []) {
+  const ownerKeys = getLeadOwnerKeys(lead)
+  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+  return matchedUser ? getUserName(matchedUser) : getLeadOwnerName(lead)
+}
+
+function getOperationRowUserKeys(row = {}) {
+  return [
+    getUserId(row.user),
+    row.userName,
+    ...(row.assignedKeys || [])
+  ].map(normalizeKey).filter(Boolean)
+}
+
+function getCompletedAnnualFilingCountForRow(row = {}) {
+  const completedFilings = (row.annualReturns || []).filter((annualRow) => {
+    return getAnnualTabCompletedCount(annualRow) >= 4 || isAnnualReturnDone(annualRow)
+  }).length
+  if (completedFilings) return completedFilings
+  return (row.annualTotal && row.annualDone >= row.annualTotal) ? 1 : 0
+}
+
+function buildUserPerformanceCards(rows = [], users = [], currentUser = {}, leads = []) {
   const userRows = new Map()
+  leads.forEach((lead) => {
+    const key = getLeadUserKey(lead, users) || 'unassigned'
+    const existing = userRows.get(key) || {
+      id: key,
+      name: getLeadUserName(lead, users) || 'Unassigned',
+      done: 0,
+      total: 0,
+      pendingCompliance: 0,
+      matchKeys: []
+    }
+    existing.total += 1
+    existing.matchKeys = [...new Set([...existing.matchKeys, ...getLeadOwnerKeys(lead), normalizeKey(key), normalizeKey(existing.name)])]
+    userRows.set(key, existing)
+  })
+
   rows.forEach((row) => {
     const key = getUserId(row.user) || row.userName || 'unassigned'
     const existing = userRows.get(key) || {
@@ -1372,11 +1481,13 @@ function buildUserPerformanceCards(rows = [], users = [], currentUser = {}) {
       name: row.userName || 'Unassigned',
       done: 0,
       total: 0,
-      pendingCompliance: 0
+      pendingCompliance: 0,
+      matchKeys: []
     }
-    existing.done += row.annualDone
-    existing.total += row.annualTotal
+    existing.done += getCompletedAnnualFilingCountForRow(row)
+    if (!existing.total) existing.total += 1
     if (row.compliancePending) existing.pendingCompliance += 1
+    existing.matchKeys = [...new Set([...existing.matchKeys, ...getOperationRowUserKeys(row), normalizeKey(key), normalizeKey(existing.name)])]
     userRows.set(key, existing)
   })
 
@@ -1386,13 +1497,17 @@ function buildUserPerformanceCards(rows = [], users = [], currentUser = {}) {
       const id = getUserId(user)
       if (!id || userRows.has(id)) return
       if (adminRoles.includes(currentUser?.role) || userBelongsToManager(user, currentUser) || id === getUserId(currentUser)) {
-        userRows.set(id, { id, name: getUserName(user), done: 0, total: 0, pendingCompliance: 0 })
+        userRows.set(id, { id, name: getUserName(user), done: 0, total: 0, pendingCompliance: 0, matchKeys: getUserMatchKeys(user) })
       }
     })
   }
 
   return [...userRows.values()]
-    .map((row) => ({ ...row, percent: percent(row.done, row.total), tone: getPerformanceTone(percent(row.done, row.total)) }))
+    .map((row) => {
+      const safeDone = Math.min(row.done, row.total || row.done)
+      const completion = percent(safeDone, row.total)
+      return { ...row, done: safeDone, leadTotal: row.total, percent: completion, tone: getPerformanceTone(completion) }
+    })
     .sort((a, b) => b.total - a.total || b.percent - a.percent)
 }
 
@@ -1400,23 +1515,20 @@ function buildManagerPerformanceCards(users = [], rows = []) {
   return buildManagerCards(users, rows).map((row) => ({ ...row, tone: getPerformanceTone(row.percent) }))
 }
 
-function getOperationRowUserKey(row = {}) {
-  return getUserId(row.user) || row.userName || 'unassigned'
-}
-
 function PerformanceCard({ item, type = 'user', selected = false, onClick }) {
+  const isUserPerformance = type === 'user'
   const content = (
     <>
       <div>
         <span>{type === 'manager' ? 'Manager' : 'User'}</span>
         <strong>{item.name}</strong>
-        <p>{item.done}/{item.total} filings completed</p>
+        <p>{item.done}/{item.total} {isUserPerformance ? 'annual returns completed' : 'filings completed'}</p>
       </div>
       <div className="operations-performance-meter">
         <b>{item.percent}%</b>
         <i><em style={{ width: `${item.percent}%` }} /></i>
       </div>
-      {item.pendingCompliance ? <small>{item.pendingCompliance} waiting compliance approval</small> : <small>Assigned filing progress</small>}
+      {item.pendingCompliance ? <small>{item.pendingCompliance} waiting compliance approval</small> : <small>{isUserPerformance ? 'Lead to annual return progress' : 'Assigned filing progress'}</small>}
     </>
   )
 
@@ -1527,6 +1639,101 @@ function PanelHeader({ icon: Icon, title, note }) {
       </div>
       <p>{note}</p>
     </div>
+  )
+}
+
+function AdminDashboardSkeleton() {
+  return (
+    <main className="min-h-screen bg-[#eef7f5] pt-16 text-slate-900">
+      <section className="admin-dashboard-skeleton operations-dashboard" aria-label="Loading dashboard">
+        <div className="operations-hero admin-skeleton-hero">
+          <span className="admin-skeleton-block admin-skeleton-icon" />
+          <div className="admin-skeleton-copy">
+            <i className="admin-skeleton-line admin-skeleton-line-lg" />
+            <i className="admin-skeleton-line admin-skeleton-line-sm" />
+          </div>
+          <span className="admin-skeleton-block admin-skeleton-button" />
+        </div>
+
+        <section className="operations-panel operations-snapshot-panel">
+          <div className="admin-skeleton-panel-head">
+            <i className="admin-skeleton-block" />
+            <div>
+              <span className="admin-skeleton-line admin-skeleton-line-md" />
+              <span className="admin-skeleton-line admin-skeleton-line-sm" />
+            </div>
+          </div>
+          <div className="operations-snapshot-grid">
+            {[0, 1, 2].map((item) => (
+              <article key={item} className="operations-kpi-card admin-skeleton-card">
+                <i className="admin-skeleton-line admin-skeleton-line-sm" />
+                <strong className="admin-skeleton-number" />
+                <span className="admin-skeleton-meter" />
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <div className="operations-dashboard-row operations-dashboard-row-followup">
+          <section className="dashboard-followup-flow admin-skeleton-flow">
+            <div className="followup-flow-head">
+              <div>
+                <span className="admin-skeleton-line admin-skeleton-line-sm" />
+                <strong className="admin-skeleton-line admin-skeleton-line-lg" />
+              </div>
+              <span className="admin-skeleton-block admin-skeleton-button" />
+            </div>
+            <div className="followup-flow-table admin-skeleton-timeline">
+              <div className="followup-flow-month">
+                <span className="admin-skeleton-line admin-skeleton-line-xs" />
+                <strong className="admin-skeleton-line admin-skeleton-line-md" />
+                <span className="admin-skeleton-line admin-skeleton-line-xs" />
+              </div>
+              <div className="followup-flow-head-row">
+                {['wbs', 'task', 'assigned', 'done', 'timeline'].map((item) => <span key={item} className="admin-skeleton-line" />)}
+              </div>
+              <div className="followup-flow-body">
+                {[0, 1, 2, 3].map((item) => (
+                  <div key={item} className="admin-skeleton-row">
+                    <span />
+                    <strong />
+                    <em />
+                    <i />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section className="operations-panel operations-pibo-chart-panel admin-skeleton-pibo">
+          <div className="admin-skeleton-panel-head">
+            <i className="admin-skeleton-block" />
+            <div>
+              <span className="admin-skeleton-line admin-skeleton-line-md" />
+              <span className="admin-skeleton-line admin-skeleton-line-sm" />
+            </div>
+          </div>
+          <div className="operations-pibo-chart-layout">
+            <div className="operations-pibo-bar-card-modern admin-skeleton-chart-card">
+              <div className="operations-pibo-modern-chart">
+                {[0, 1, 2, 3, 4, 5].map((item) => <span key={item} style={{ width: `${36 + item * 9}%` }} />)}
+              </div>
+              <div className="operations-pibo-bar-legend">
+                {[0, 1, 2, 3, 4, 5].map((item) => <span key={item} className="admin-skeleton-pill" />)}
+              </div>
+            </div>
+            <div className="operations-lead-chart-card operations-lead-pie-card-featured admin-skeleton-chart-card">
+              <div className="admin-skeleton-donut" />
+              <div className="admin-skeleton-pill-list">
+                <span />
+                <span />
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
   )
 }
 
@@ -1654,17 +1861,82 @@ function OperationsChartStudio({ workflowRows = [], score = 0 }) {
   )
 }
 
-function DashboardFollowUpTimeline({ items = [], onView, onCalendar }) {
+function getFollowUpAssigneeTokens(item = {}) {
+  const assigned = item.assignedTo && typeof item.assignedTo === 'object' ? item.assignedTo : {}
+  const createdBy = item.createdBy && typeof item.createdBy === 'object' ? item.createdBy : {}
+  return [
+    item.assignedToName,
+    item.assignedToEmail,
+    item.assignedToId,
+    item.ownerName,
+    item.ownerEmail,
+    item.ownerId,
+    item.scheduledBy,
+    item.createdByName,
+    item.createdByEmail,
+    item.createdById,
+    assigned.name,
+    assigned.email,
+    assigned._id,
+    assigned.id,
+    createdBy.name,
+    createdBy.email,
+    createdBy._id,
+    createdBy.id,
+    typeof item.assignedTo === 'string' ? item.assignedTo : '',
+    typeof item.createdBy === 'string' ? item.createdBy : ''
+  ].filter(Boolean).map((value) => normalizeKey(value))
+}
+
+function resolveFollowUpAssignee(item = {}, users = []) {
+  const assigned = item.assignedTo && typeof item.assignedTo === 'object' ? item.assignedTo : null
+  const createdBy = item.createdBy && typeof item.createdBy === 'object' ? item.createdBy : null
+  const tokens = getFollowUpAssigneeTokens(item)
+  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => tokens.includes(key)))
+  const source = matchedUser || assigned || createdBy || {}
+  const rawName = item.assignedToName || source.name || source.fullName || source.email || (typeof item.assignedTo === 'string' ? item.assignedTo : '') || item.createdByName || (typeof item.createdBy === 'string' ? item.createdBy : '')
+  const looksLikeId = /^[a-f0-9]{16,}$/i.test(String(rawName || '').trim())
+  return {
+    name: looksLikeId ? 'Unassigned' : displayValue(rawName, 'Unassigned'),
+    email: source.email || item.assignedToEmail || item.createdByEmail || '',
+    avatarUrl: source.avatarUrl || source.avatar || source.profileImage || ''
+  }
+}
+
+function UserAvatar({ user, className = '' }) {
+  const name = displayValue(user?.name || user?.email, 'U')
+  const initial = name.charAt(0).toUpperCase()
+  return (
+    <span className={`followup-flow-avatar ${className}`}>
+      {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initial}
+    </span>
+  )
+}
+
+function DashboardFollowUpTimeline({ items = [], users = [], onView, onCalendar }) {
   const todayKey = dateKey()
   const sortedItems = [...items]
-    .filter((item) => item.status !== 'completed')
+    .filter((item) => normalizeKey(item.status) !== 'completed')
     .sort((a, b) => `${a.scheduledDate || ''} ${a.scheduledTime || ''}`.localeCompare(`${b.scheduledDate || ''} ${b.scheduledTime || ''}`))
-    .slice(0, 8)
+    .slice(0, 4)
   const dateKeys = [todayKey, ...sortedItems.map((item) => item.scheduledDate).filter(Boolean)].sort()
   const startKey = dateKeys[0] || todayKey
   const endKey = dateKeys[dateKeys.length - 1] || todayKey
-  const totalDays = Math.max(1, diffDays(startKey, endKey) + 2)
-  const todayOffset = Math.max(0, Math.min(100, (diffDays(startKey, todayKey) / totalDays) * 100))
+  const totalDays = Math.max(8, diffDays(startKey, endKey) + 4)
+  const timelineDays = Array.from({ length: Math.min(10, totalDays + 1) }, (_, index) => {
+    const date = parseDateKey(startKey) || new Date()
+    date.setDate(date.getDate() + index)
+    return dateKey(date)
+  })
+  const todayOffset = Math.max(0, Math.min(100, (diffDays(startKey, todayKey) / Math.max(1, timelineDays.length - 1)) * 100))
+  const dayLabel = (value) => {
+    const date = parseDateKey(value)
+    if (!date) return { date: 'N/A', day: '' }
+    return {
+      date: new Intl.DateTimeFormat('en', { month: 'short', day: '2-digit' }).format(date),
+      day: new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date)
+    }
+  }
 
   return (
     <motion.section className="followup-flow-board dashboard-followup-flow" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.36, delay: 0.1 }}>
@@ -1680,26 +1952,38 @@ function DashboardFollowUpTimeline({ items = [], onView, onCalendar }) {
       </div>
       <div className="followup-flow-table">
         <div className="followup-flow-month">
-          <span>{formatShortDate(startKey)}</span>
+          <span>{formatShortDate(startKey)} - {formatShortDate(endKey)}</span>
           <strong>Follow-Up Window</strong>
-          <span>{formatShortDate(endKey)}</span>
         </div>
         <div className="followup-flow-head-row">
           <span>WBS</span>
           <span>Task</span>
           <span>Assigned</span>
-          <span>Done</span>
+          <span>Priority</span>
+          <span>Status</span>
           <span>Timeline</span>
         </div>
+        <div className="followup-flow-date-row">
+          {timelineDays.map((value) => {
+            const label = dayLabel(value)
+            return (
+              <span key={value} className={value === todayKey ? 'followup-flow-date-today' : ''}>
+                <b>{label.date}</b>
+                <small>{label.day}</small>
+              </span>
+            )
+          })}
+        </div>
         <div className="followup-flow-body">
-          <i className="followup-flow-today" style={{ left: `${todayOffset}%` }}><b>Today</b></i>
+          <i className="followup-flow-today" style={{ left: `${todayOffset}%`, '--today-left': `calc(${todayOffset}% + ${626 * (1 - todayOffset / 100)}px)` }}><b>Today</b></i>
           {sortedItems.length ? sortedItems.map((item, index) => {
             const tone = getFollowUpTone(item, todayKey)
-            const progress = getFollowUpProgress(item, todayKey)
-            const offset = Math.max(0, Math.min(82, (diffDays(startKey, item.scheduledDate) / totalDays) * 100))
-            const width = item.status === 'completed' ? 18 : tone === 'overdue' ? 24 : 28
-            const assigned = item.assignedToName || item.assignedTo || item.createdBy || 'Unassigned'
-            const title = item.title || `Follow up with ${getCalendarFollowUpCompany(item)}`
+            const offset = Math.max(0, Math.min(82, (diffDays(startKey, item.scheduledDate) / Math.max(1, timelineDays.length - 1)) * 100))
+            const width = normalizeKey(item.status) === 'completed' ? 18 : tone === 'overdue' ? 18 : 28 + (index % 2) * 8
+            const assignee = resolveFollowUpAssignee(item, users)
+            const title = displayValue(item.title, `Follow up with ${getCalendarFollowUpCompany(item)}`)
+            const priority = displayValue(item.priority, tone === 'overdue' ? 'High' : 'Medium')
+            const status = displayValue(getFollowUpStatusLabel(item, todayKey), 'Open')
             return (
               <motion.div
                 key={item.id || item._id || `${title}-${index}`}
@@ -1708,13 +1992,17 @@ function DashboardFollowUpTimeline({ items = [], onView, onCalendar }) {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.26, delay: index * 0.035 }}
               >
-                <span>{index + 1}</span>
+                <span>{`OPS-${String(index + 1).padStart(2, '0')}`}</span>
                 <strong>{title}</strong>
-                <em>{assigned}</em>
-                <div className="followup-flow-ring" style={{ '--done': `${progress}%` }}><b>{progress}</b></div>
+                <div className="followup-flow-assignee">
+                  <UserAvatar user={assignee} />
+                  <em>{assignee.name}</em>
+                </div>
+                <mark className={`followup-flow-priority followup-flow-priority-${normalizeKey(priority)}`}>{priority}</mark>
+                <mark className={`followup-flow-status followup-flow-status-${tone}`}>{status}</mark>
                 <div className="followup-flow-track">
                   <i style={{ left: `${offset}%`, width: `${width}%` }}>
-                    <b>{getFollowUpStatusLabel(item, todayKey)}</b>
+                    <b>{status}</b>
                   </i>
                   <aside className="followup-flow-analysis">
                     <strong>{title}</strong>
@@ -1748,22 +2036,10 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
   const remainingLeads = Math.max(0, totalLeads - convertedLeadCount)
   const leadPieRows = totalLeads
     ? [
-      { label: 'Converted Lead', value: convertedLeadCount, color: '#0f9f83' },
-      { label: 'Not Converted', value: remainingLeads, color: '#dbeafe' }
+      { label: 'Converted Lead', value: convertedLeadCount, percent: percent(convertedLeadCount, totalLeads), color: '#0f9f83' },
+      { label: 'Remaining Lead', value: remainingLeads, percent: percent(remainingLeads, totalLeads), color: '#facc15' }
     ]
     : [{ label: 'No Leads', value: 1, color: '#e2e8f0' }]
-  const annualTotal = annualReturnStats.total || 0
-  const annualCompleted = annualReturnStats.completed || 0
-  const annualPending = annualReturnStats.pending || 0
-  const annualRejected = annualReturnStats.rejected || annualReturnStats.overdue || 0
-  const annualPercent = percent(annualCompleted, annualTotal)
-  const annualRows = [
-    { label: 'Completed', value: annualCompleted, percent: percent(annualCompleted, annualTotal), color: '#0f9f83' },
-    { label: 'Pending', value: annualPending, percent: percent(annualPending, annualTotal), color: '#f59e0b' },
-    { label: 'Rejected', value: annualRejected, percent: percent(annualRejected, annualTotal), color: '#ef4444' }
-  ]
-  const annualPieRows = annualTotal ? annualRows : [{ label: 'No Annual Returns', value: 1, percent: 0, color: '#e2e8f0' }]
-
   return (
     <div className="operations-analytics-stack">
       <section className="operations-panel operations-pibo-chart-panel">
@@ -1778,24 +2054,19 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
               <span>{piboTotal} clients</span>
             </div>
             <div className="operations-pibo-modern-chart">
-              <ResponsiveContainer width="100%" height={Math.max(330, barRows.length * 42)}>
-                <BarChart data={barRows} layout="vertical" margin={{ top: 12, right: 52, left: 4, bottom: 12 }}>
+              <ResponsiveContainer width="100%" height={Math.max(270, barRows.length * 32)}>
+                <BarChart data={barRows} layout="vertical" margin={{ top: 6, right: 44, left: 18, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="4 6" horizontal={false} stroke="#d8ebe7" />
                   <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={{ stroke: '#dbe7e5' }} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 900 }} />
-                  <YAxis dataKey="name" type="category" width={178} tickLine={false} axisLine={false} tick={{ fill: '#26384d', fontSize: 10, fontWeight: 950 }} />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(15, 118, 110, 0.07)' }}
-                    contentStyle={{ border: '1px solid #bfe3dd', borderRadius: 12, boxShadow: '0 18px 36px rgba(15, 23, 42, 0.14)', fontWeight: 900 }}
-                    formatter={(value, name, item) => [`${value} clients (${item?.payload?.percent || 0}%)`, 'PIBO']}
-                  />
-                  <Bar dataKey="value" radius={[0, 12, 12, 0]} barSize={18} animationDuration={1100} animationEasing="ease-out" label={{ position: 'right', fill: '#0f172a', fontSize: 12, fontWeight: 950 }}>
+                  <YAxis dataKey="name" type="category" width={210} tickLine={false} axisLine={false} tick={{ fill: '#26384d', fontSize: 10, fontWeight: 950 }} />
+                  <Bar dataKey="value" radius={[0, 12, 12, 0]} barSize={15} animationDuration={1100} animationEasing="ease-out" label={{ position: 'right', fill: '#0f172a', fontSize: 12, fontWeight: 950 }}>
                     {barRows.map((row) => <Cell key={row.id} fill={row.fill} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div className="operations-pibo-bar-legend">
-              {barRows.filter((row) => row.value > 0).slice(0, 4).map((row) => (
+              {barRows.map((row) => (
                 <span key={row.id}><i style={{ background: row.fill }} />{row.name}: {row.value}</span>
               ))}
             </div>
@@ -1826,23 +2097,29 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
                     >
                       {leadPieRows.map((row) => <Cell key={row.label} fill={row.color} />)}
                     </Pie>
+                    <Tooltip
+                      cursor={false}
+                      contentStyle={{ border: '1px solid #bfdbfe', borderRadius: 12, boxShadow: '0 18px 36px rgba(15, 23, 42, 0.16)', fontWeight: 900 }}
+                      formatter={(value, name, item) => [`${value} leads (${item?.payload?.percent || 0}%)`, item?.payload?.label || name]}
+                    />
                   </RechartsPieChart>
                 </ResponsiveContainer>
                 <div className="operations-lead-pie-center">
                   <strong>{totalLeads}</strong>
                   <span>Leads</span>
                 </div>
-              </div>
-              <div className="operations-lead-legend">
-                <div>
-                  <span style={{ background: '#2563eb' }} />
-                  <p>Total Lead</p>
+                </div>
+                <div className="operations-lead-legend">
+                <div title={`Converted Lead: ${totalLeads} (100%)`}>
+                  <span style={{ background: '#facc15' }} />
+                  <p>Remaining Lead</p>
                   <strong>{totalLeads}</strong>
                   <small>100%</small>
                 </div>
-                <div>
+                <div className="operations-lead-legend-muted" title={`Total Lead: ${convertedLeadCount} (${percent(convertedLeadCount, totalLeads)}%)`}>
                   <span style={{ background: '#0f9f83' }} />
-                  <p>Converted Lead</p>
+                  <p>
+Converted Lead</p>
                   <strong>{convertedLeadCount}</strong>
                   <small>{percent(convertedLeadCount, totalLeads)}%</small>
                 </div>
@@ -1851,53 +2128,85 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
           </article>
         </div>
       </section>
-
-      <div className="operations-followup-grid">
-        <article className="operations-lead-chart-card operations-annual-return-card">
-          <div className="operations-lead-chart-head">
-            <div>
-              <strong>Annual Return Progress</strong>
-              <p>Completed, pending and rejected annual return work</p>
-            </div>
-            <span>{annualTotal} total</span>
-          </div>
-          <div className="operations-annual-return-body">
-            <div className="operations-annual-donut">
-              <ResponsiveContainer width="100%" height={210}>
-                <RechartsPieChart>
-                  <Pie
-                    data={annualPieRows}
-                    dataKey="value"
-                    nameKey="label"
-                    innerRadius={64}
-                    outerRadius={84}
-                    paddingAngle={annualTotal ? 3 : 0}
-                    stroke="none"
-                    animationDuration={900}
-                  >
-                    {annualPieRows.map((row) => <Cell key={row.label} fill={row.color} />)}
-                  </Pie>
-                </RechartsPieChart>
-              </ResponsiveContainer>
-              <div className="operations-lead-pie-center">
-                <strong>{annualPercent}%</strong>
-                <span>Completed</span>
-              </div>
-            </div>
-            <div className="operations-annual-legend">
-              {annualRows.map((row) => (
-                <div key={row.label}>
-                  <span style={{ background: row.color }} />
-                  <p>{row.label}</p>
-                  <strong>{row.value}</strong>
-                  <small>({row.percent}%)</small>
-                </div>
-              ))}
-            </div>
-          </div>
-        </article>
-      </div>
     </div>
+  )
+}
+
+function OperationsAnnualReturnProgress({ annualReturnStats = {} }) {
+  const [hoveredAnnualRow, setHoveredAnnualRow] = useState(null)
+  const annualTotal = annualReturnStats.total || 0
+  const annualCompleted = annualReturnStats.completed || 0
+  const annualPending = annualReturnStats.pending || 0
+  const annualRejected = annualReturnStats.rejected || annualReturnStats.overdue || 0
+  const annualPercent = percent(annualCompleted, annualTotal)
+  const annualRows = [
+    { label: 'Completed', value: annualCompleted, percent: percent(annualCompleted, annualTotal), color: '#0f9f83' },
+    { label: 'Pending', value: annualPending, percent: percent(annualPending, annualTotal), color: '#facc15' },
+    { label: 'Rejected', value: annualRejected, percent: percent(annualRejected, annualTotal), color: '#ef4444' }
+  ]
+  const annualPieRows = annualTotal
+    ? annualRows.filter((row) => row.value > 0)
+    : [{ label: 'No Annual Returns', value: 1, percent: 0, color: '#e2e8f0' }]
+  const activeAnnualRow = hoveredAnnualRow || { label: 'Completed', percent: annualPercent }
+
+  return (
+    <article className="operations-lead-chart-card operations-annual-return-card">
+      <div className="operations-lead-chart-head">
+        <div>
+          <strong>Annual Return Progress</strong>
+          <p>Completed, pending and rejected annual return work</p>
+        </div>
+        <span>{annualTotal} total</span>
+      </div>
+      <div className="operations-annual-return-body">
+        <div className="operations-annual-donut">
+          <ResponsiveContainer width="100%" height={210}>
+            <RechartsPieChart>
+              <Pie
+                data={annualPieRows}
+                dataKey="value"
+                nameKey="label"
+                innerRadius={60}
+                outerRadius={86}
+                startAngle={180}
+                endAngle={0}
+                paddingAngle={annualTotal && annualPieRows.length > 1 ? 4 : 0}
+                minAngle={annualTotal ? 8 : 0}
+                cornerRadius={10}
+                stroke="#ffffff"
+                strokeWidth={annualTotal ? 4 : 0}
+                animationDuration={900}
+              >
+                {annualPieRows.map((row) => <Cell key={row.label} fill={row.color} />)}
+              </Pie>
+            </RechartsPieChart>
+          </ResponsiveContainer>
+          <div className="operations-lead-pie-center">
+            <strong>{activeAnnualRow.percent}%</strong>
+            <span>{activeAnnualRow.label}</span>
+          </div>
+        </div>
+        <div className="operations-annual-legend">
+          {annualRows.map((row) => (
+            <div
+              key={row.label}
+              data-percent={`${row.percent}%`}
+              aria-label={`${row.label}: ${row.value} (${row.percent}%)`}
+              onMouseEnter={() => setHoveredAnnualRow(row)}
+              onMouseLeave={() => setHoveredAnnualRow(null)}
+              onFocus={() => setHoveredAnnualRow(row)}
+              onBlur={() => setHoveredAnnualRow(null)}
+              tabIndex={0}
+            >
+              <span style={{ background: row.color }} />
+              <p>{row.label}</p>
+              <strong>{row.value}</strong>
+              <small>({row.percent}%)</small>
+            </div>
+          ))}
+        </div>
+      </div>
+    </article>
   )
 }
 
@@ -2168,7 +2477,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
   const recentQuotes = [...scopedQuotations]
     .sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0))
     .slice(0, 5)
-  const calendarFollowUps = useMemo(() => getCalendarFollowUpsForUser(currentUser), [currentUser])
+  const calendarFollowUps = useMemo(() => getCalendarFollowUpsForUser(currentUser, buildLeadFollowUpItems(leads)), [currentUser, leads])
   const followUps = calendarFollowUps.slice(0, 5)
   const allActivities = [
     ...scopedLeads.map((lead) => ({
@@ -2229,10 +2538,6 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
 
       <SalesLeadBreakdownTable rows={buildSalesLeadMatrixRows(scopedLeads)} />
 
-      <div className="sales-command-grid sales-command-grid-single">
-        <SalesPipelineBoard rows={pipelineRows} quotations={scopedQuotations} />
-      </div>
-
       <div className="sales-insight-grid">
         <SalesDonutCard
           title="Lead Sources"
@@ -2246,7 +2551,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
           onView={() => setReportModal({
             title: 'Lead Sources',
             subtitle: `${periodLeads.length} leads in selected period`,
-            columns: ['Lead Generated By', 'Date', 'Lead Source', 'Company'],
+            columns: ['Referred By', 'Date', 'Lead Source', 'Company'],
             rows: periodLeads.map((lead) => [
               getLeadOwnerName(lead),
               formatShortDate(getLeadCreatedDate(lead)),
@@ -2265,11 +2570,11 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
             rows: calendarFollowUps.map((item) => [
               formatShortDate(item.scheduledDate),
               item.scheduledTime || 'No time',
-              item.title || '-',
+              displayValue(item.title, '-'),
               getCalendarFollowUpCompany(item),
               getCalendarFollowUpOwner(item),
-              item.priority || 'Medium',
-              item.status || 'open'
+              displayValue(item.priority, 'Medium'),
+              displayValue(item.status, 'open')
             ]),
             actionLabel: 'Open Calendar',
             onAction: () => navigate('/calendar')
@@ -2328,10 +2633,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
 }
 
 function SalesLeadBreakdownTable({ rows = [] }) {
-  const [breakdownPage, setBreakdownPage] = useState(1)
   const rowsPerPage = 5
-  const totalPages = Math.max(1, Math.ceil(rows.length / rowsPerPage))
-  const visibleRows = rows.slice((breakdownPage - 1) * rowsPerPage, breakdownPage * rowsPerPage)
   const totals = rows.reduce((acc, row) => {
     salesCommunicationModes.forEach((mode) => { acc.communication[mode] += row.communication[mode] || 0 })
     salesLeadStatuses.forEach((status) => { acc.statuses[status] += row.statuses[status] || 0 })
@@ -2343,21 +2645,17 @@ function SalesLeadBreakdownTable({ rows = [] }) {
     total: 0
   })
 
-  useEffect(() => {
-    setBreakdownPage((page) => Math.min(page, totalPages))
-  }, [totalPages])
-
   return (
     <motion.section className="sales-lead-breakdown-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.36, delay: 0.08 }}>
       <div className="sales-section-head">
         <div><ListChecks className="h-4 w-4" /><strong>Lead Breakdown</strong></div>
-        <p>Showing {rows.length ? (breakdownPage - 1) * rowsPerPage + 1 : 0}-{Math.min(breakdownPage * rowsPerPage, rows.length)} of {rows.length}</p>
+        <p>{rows.length > rowsPerPage ? `Showing first ${rowsPerPage}, scroll for ${rows.length - rowsPerPage} more` : `${rows.length} rows`}</p>
       </div>
       <div className="sales-lead-breakdown-wrap">
         <table className="sales-lead-breakdown-table">
           <thead>
             <tr>
-              <th rowSpan={2}>Lead Generated By</th>
+              <th rowSpan={2}>Referred By</th>
               <th colSpan={salesCommunicationModes.length}>Lead Client Communication Mode</th>
               <th colSpan={salesLeadStatuses.length}>Lead Status</th>
               <th rowSpan={2}>Total</th>
@@ -2368,7 +2666,7 @@ function SalesLeadBreakdownTable({ rows = [] }) {
             </tr>
           </thead>
           <tbody>
-            {visibleRows.length ? visibleRows.map((row) => (
+            {rows.length ? rows.map((row) => (
               <tr key={row.key}>
                 <td><strong>{row.owner}</strong></td>
                 {salesCommunicationModes.map((mode) => <td key={mode}><span>{row.communication[mode] || 0}</span></td>)}
@@ -2391,13 +2689,6 @@ function SalesLeadBreakdownTable({ rows = [] }) {
           ) : null}
         </table>
       </div>
-      {rows.length > rowsPerPage && (
-        <div className="sales-breakdown-pager">
-          <button type="button" disabled={breakdownPage === 1} onClick={() => setBreakdownPage((page) => Math.max(1, page - 1))}>Previous</button>
-          <span>Page {breakdownPage} of {totalPages}</span>
-          <button type="button" disabled={breakdownPage === totalPages} onClick={() => setBreakdownPage((page) => Math.min(totalPages, page + 1))}>Next</button>
-        </div>
-      )}
     </motion.section>
   )
 }
@@ -2869,7 +3160,7 @@ function TodayLeadsModal({ leads = [], onClose }) {
         <div className="sales-today-table">
           <table>
             <thead>
-              <tr><th>Company Name</th><th>Lead Generated By</th><th>Date</th><th>Lead Source</th></tr>
+              <tr><th>Company Name</th><th>Referred By</th><th>Date</th><th>Lead Source</th></tr>
             </thead>
             <tbody>
               {leads.length ? leads.map((lead, index) => (
@@ -3218,14 +3509,15 @@ export default function AdminDashboard() {
     }
   }, [scopedOperationsRows])
   const operationsScore = scopedOperationAnalytics.score
-  const piboCards = useMemo(() => buildPiboCategoryCards(scopedOperationsRows), [scopedOperationsRows])
+  const piboCards = useMemo(() => buildPiboCategoryCards(allOperationsRows), [allOperationsRows])
   const operationsLeadAnalytics = useMemo(
     () => buildOperationsLeadAnalytics(leads, users, currentUser),
     [currentUser, leads, users]
   )
+  const leadFollowUpItems = useMemo(() => buildLeadFollowUpItems(leads), [leads])
   const operationsFollowUps = useMemo(
-    () => getCalendarFollowUpsForUser(currentUser),
-    [currentUser]
+    () => getCalendarFollowUpsForUser(currentUser, leadFollowUpItems),
+    [currentUser, leadFollowUpItems]
   )
   const convertedOperationsLeadCount = useMemo(
     () => operationsLeadAnalytics.leads.filter((lead) => leadConvertedToClientMaster(lead, clients)).length,
@@ -3243,33 +3535,37 @@ export default function AdminDashboard() {
     }
   }, [scopedOperationsRows])
   const userPerformanceCards = useMemo(
-    () => buildUserPerformanceCards(scopedOperationsRows, users, currentUser),
-    [currentUser, scopedOperationsRows, users]
+    () => buildUserPerformanceCards(scopedOperationsRows, users, currentUser, operationsLeadAnalytics.leads),
+    [currentUser, operationsLeadAnalytics.leads, scopedOperationsRows, users]
   )
   const selectedPerformanceUser = useMemo(
     () => userPerformanceCards.find((item) => String(item.id) === String(selectedPerformanceUserId)) || null,
     [selectedPerformanceUserId, userPerformanceCards]
   )
   const selectedPerformanceRows = useMemo(
-    () => selectedPerformanceUser ? scopedOperationsRows.filter((row) => String(getOperationRowUserKey(row)) === String(selectedPerformanceUser.id)) : [],
+    () => {
+      if (!selectedPerformanceUser) return []
+      const selectedKeys = new Set((selectedPerformanceUser.matchKeys || [selectedPerformanceUser.id, selectedPerformanceUser.name]).map(normalizeKey).filter(Boolean))
+      return scopedOperationsRows.filter((row) => getOperationRowUserKeys(row).some((key) => selectedKeys.has(key)))
+    },
     [scopedOperationsRows, selectedPerformanceUser]
   )
   const selectedOperationsRows = useMemo(() => {
     if (selectedPiboCategory) {
-      return scopedOperationsRows.filter((row) => normalizeKey(row.category) === normalizeKey(selectedPiboCategory))
+      return allOperationsRows.filter((row) => normalizeKey(row.category) === normalizeKey(selectedPiboCategory))
     }
     if (selectedPerformanceUser) return selectedPerformanceRows
     return scopedOperationsRows
-  }, [scopedOperationsRows, selectedPerformanceRows, selectedPerformanceUser, selectedPiboCategory])
+  }, [allOperationsRows, scopedOperationsRows, selectedPerformanceRows, selectedPerformanceUser, selectedPiboCategory])
   const selectedOperationsTitle = selectedPiboCategory
     ? `${selectedPiboCategory} Clients`
     : selectedPerformanceUser
       ? `${selectedPerformanceUser.name} Clients`
       : 'Operations Client Table'
   const selectedOperationsNote = selectedPiboCategory
-    ? `${selectedOperationsRows.length} ${selectedPiboCategory} clients in your visible scope`
+    ? `${selectedOperationsRows.length} ${selectedPiboCategory} clients in Client Master`
     : selectedPerformanceUser
-      ? `${selectedOperationsRows.length} clients, ${selectedPerformanceUser.done}/${selectedPerformanceUser.total} filings completed`
+      ? `${selectedOperationsRows.length} clients, ${selectedPerformanceUser.done}/${selectedPerformanceUser.total} annual returns completed`
       : `${scopedOperationsRows.length} visible clients`
   const managerPerformanceCards = useMemo(
     () => buildManagerPerformanceCards(users, scopedOperationsRows),
@@ -3388,8 +3684,9 @@ export default function AdminDashboard() {
         return
       }
 
-      const [clientsResult, leadsResult, ccpLeadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
+      const [clientsResult, ccpClientsResult, leadsResult, ccpLeadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.clients.list, requestConfig),
+        fetchCcpClients(),
         api.get(API_ENDPOINTS.leads.list, requestConfig),
         fetchCcpLeads(),
         api.get(API_ENDPOINTS.quotations.list, requestConfig),
@@ -3397,7 +3694,12 @@ export default function AdminDashboard() {
         api.get(API_ENDPOINTS.clients.pendingApprovals, requestConfig)
       ])
 
-      const nextClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
+      const crmClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
+      const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
+        ? (ccpClientsResult.value.data.clients || [])
+        : []
+      const mergedClients = mergeClientSources(crmClients, ccpClients)
+      const nextClients = mergedClients.length ? mergedClients : (cached?.clients || [])
       const freshLeads = mergeLeadSources(
         leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [],
         ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false ? (ccpLeadsResult.value.data.leads || []) : []
@@ -3632,7 +3934,7 @@ export default function AdminDashboard() {
   }
 
   if (loading) {
-    return <BrandLoader message="Loading CRM command center" />
+    return <AdminDashboardSkeleton />
   }
 
   return (
@@ -3691,9 +3993,12 @@ export default function AdminDashboard() {
                 <div className="flex min-w-0 items-center gap-4">
                   <span className="operations-hero-icon"><Activity className="h-6 w-6" /></span>
                   <div className="min-w-0">
-                    <p className="operations-eyebrow">{operationsRoleLabel}</p>
                     <h1>Operations Dashboard</h1>
-                    <p>PIBO category, annual return performance, quotation status, PO status, and user ownership are shown here.</p>
+                    <div className="operations-hero-meta">
+                      <span><Users className="h-3.5 w-3.5" /> {clients.length.toLocaleString('en-IN')} clients</span>
+                      <span><FileText className="h-3.5 w-3.5" /> {quotations.length.toLocaleString('en-IN')} quotations</span>
+                      <span><CalendarDays className="h-3.5 w-3.5" /> {operationsFollowUps.length.toLocaleString('en-IN')} follow-ups</span>
+                    </div>
                   </div>
                 </div>
                 <div className="operations-hero-actions">
@@ -3714,44 +4019,69 @@ export default function AdminDashboard() {
               <section className="operations-panel operations-snapshot-panel">
                 <PanelHeader icon={PieChart} title="Operations Snapshot" note="Lead, conversion and annual return overview" />
                 <div className="operations-snapshot-grid">
-                  <article>
-                    <span>Total Lead</span>
-                    <strong>{operationsLeadAnalytics.leads.length}</strong>
-                    <small>Visible leads in current role scope</small>
+                  <article className="operations-kpi-card operations-kpi-card-blue">
+                    <div className="operations-kpi-content">
+                      <strong>{clients.length.toLocaleString('en-IN')}</strong>
+                      <span>Total Clients</span>
+                      <small>12% vs last month</small>
+                    </div>
+                    <div className="operations-kpi-icon"><Users className="h-5 w-5" /></div>
+                    <i aria-hidden="true" />
                   </article>
-                  <article>
-                    <span>Converted Lead</span>
-                    <strong>{convertedOperationsLeadCount}</strong>
-                    <small>Converted into Client Master</small>
+                  <article className="operations-kpi-card operations-kpi-card-green">
+                    <div className="operations-kpi-content">
+                      <strong>{quotations.filter((quote) => !['approved', 'rejected', 'closed'].includes(String(quote.status || quote.approvalStatus || '').toLowerCase())).length.toLocaleString('en-IN')}</strong>
+                      <span>Open Quotations</span>
+                      <small>8% vs last month</small>
+                    </div>
+                    <div className="operations-kpi-icon"><FileText className="h-5 w-5" /></div>
+                    <i aria-hidden="true" />
                   </article>
-                  <article>
-                    <span>Annual Return</span>
-                    <strong>{operationsAnnualReturnStats.completed}/{operationsAnnualReturnStats.total}</strong>
-                    <small>{percent(operationsAnnualReturnStats.completed, operationsAnnualReturnStats.total)}% completed</small>
+                  <article className="operations-kpi-card operations-kpi-card-cyan">
+                    <div className="operations-kpi-content">
+                      <strong>{operationsFollowUps.filter((item) => item.scheduledDate === dateKey()).length.toLocaleString('en-IN')}</strong>
+                      <span>Today's Follow-ups</span>
+                      <small>0% vs yesterday</small>
+                    </div>
+                    <div className="operations-kpi-icon"><CalendarDays className="h-5 w-5" /></div>
+                    <i aria-hidden="true" />
+                  </article>
+                  <article className="operations-kpi-card operations-kpi-card-violet">
+                    <div className="operations-kpi-content">
+                      <strong>{activeUsers.toLocaleString('en-IN')}</strong>
+                      <span>Active Users</span>
+                      <small>6% vs last month</small>
+                    </div>
+                    <div className="operations-kpi-icon"><UserRound className="h-5 w-5" /></div>
+                    <i aria-hidden="true" />
                   </article>
                 </div>
               </section>
 
-              <DashboardFollowUpTimeline
-                items={operationsFollowUps}
-                onCalendar={() => navigate('/calendar')}
-                onView={() => setOperationsReportModal({
-                  title: 'Follow-ups',
-                  subtitle: `${operationsFollowUps.length} calendar follow-up records`,
-                  columns: ['Date', 'Time', 'Title', 'Company', 'Owner', 'Priority', 'Status'],
-                  rows: operationsFollowUps.map((item) => [
-                    formatShortDate(item.scheduledDate),
-                    item.scheduledTime || 'No time',
-                    item.title || '-',
-                    getCalendarFollowUpCompany(item),
-                    getCalendarFollowUpOwner(item),
-                    item.priority || 'Medium',
-                    item.status || 'open'
-                  ]),
-                  actionLabel: 'Open Calendar',
-                  onAction: () => navigate('/calendar')
-                })}
-              />
+              <div className="operations-dashboard-row operations-dashboard-row-followup">
+                <DashboardFollowUpTimeline
+                  items={operationsFollowUps}
+                  users={users}
+                  onCalendar={() => navigate('/calendar')}
+                  onView={() => setOperationsReportModal({
+                    title: 'Follow-ups',
+                    subtitle: `${operationsFollowUps.length} calendar follow-up records`,
+                    columns: ['Date', 'Time', 'Title', 'Company', 'Owner', 'Priority', 'Status'],
+                    rows: operationsFollowUps.map((item) => [
+                      formatShortDate(item.scheduledDate),
+                      item.scheduledTime || 'No time',
+                      displayValue(item.title, '-'),
+                      getCalendarFollowUpCompany(item),
+                      getCalendarFollowUpOwner(item),
+                      displayValue(item.priority, 'Medium'),
+                      displayValue(item.status, 'open')
+                    ]),
+                    actionLabel: 'Open Calendar',
+                    onAction: () => navigate('/calendar')
+                  })}
+                />
+
+              </div>
 
               <OperationsLeadAnalytics
                 analytics={operationsLeadAnalytics}
@@ -3767,11 +4097,11 @@ export default function AdminDashboard() {
                   rows: operationsFollowUps.map((item) => [
                     formatShortDate(item.scheduledDate),
                     item.scheduledTime || 'No time',
-                    item.title || '-',
+                    displayValue(item.title, '-'),
                     getCalendarFollowUpCompany(item),
                     getCalendarFollowUpOwner(item),
-                    item.priority || 'Medium',
-                    item.status || 'open'
+                    displayValue(item.priority, 'Medium'),
+                    displayValue(item.status, 'open')
                   ]),
                   actionLabel: 'Open Calendar',
                   onAction: () => navigate('/calendar')
@@ -3779,22 +4109,46 @@ export default function AdminDashboard() {
               />
 
               {canSeeTeamPerformance && (
-                <section className="operations-panel">
-                  <PanelHeader icon={TrendingUp} title="Annual Return Performance" note="Team wise annual return completion" />
-                  <div className="operations-performance-grid">
-                    {userPerformanceCards.length ? userPerformanceCards.map((item) => (
-                      <PerformanceCard
-                        key={item.id}
-                        item={item}
-                        selected={String(selectedPerformanceUserId) === String(item.id)}
-                        onClick={() => {
-                          setSelectedPiboCategory('')
-                          setSelectedPerformanceUserId((current) => String(current) === String(item.id) ? '' : item.id)
-                        }}
-                      />
-                    )) : <EmptyOperationState label="No annual return ownership found" />}
-                  </div>
-                </section>
+                <div className="operations-dashboard-row operations-dashboard-row-annual">
+                  <OperationsAnnualReturnProgress annualReturnStats={operationsAnnualReturnStats} />
+                  <section className="operations-panel operations-performance-panel">
+                    <PanelHeader icon={TrendingUp} title="Annual Return Performance" note="Team wise annual return completion" />
+                    <div className="operations-performance-grid">
+                      {userPerformanceCards.length ? userPerformanceCards.slice(0, 5).map((item) => (
+                        <PerformanceCard
+                          key={item.id}
+                          item={item}
+                          selected={String(selectedPerformanceUserId) === String(item.id)}
+                          onClick={() => {
+                            setSelectedPiboCategory('')
+                            setSelectedPerformanceUserId((current) => String(current) === String(item.id) ? '' : item.id)
+                          }}
+                        />
+                      )) : <EmptyOperationState label="No annual return ownership found" />}
+                    </div>
+                    {userPerformanceCards.length > 5 && (
+                      <button
+                        type="button"
+                        className="operations-performance-more"
+                        onClick={() => setOperationsReportModal({
+                          title: 'Remaining Annual Return Users',
+                          subtitle: `${userPerformanceCards.length - 5} users outside the top 5 performance cards`,
+                          columns: ['User', 'Completed', 'Assigned Leads', 'Progress', 'Pending Compliance'],
+                          rows: userPerformanceCards.slice(5).map((item) => [
+                            item.name,
+                            item.done,
+                            item.total,
+                            `${item.percent}%`,
+                            item.pendingCompliance || 0
+                          ])
+                        })}
+                      >
+                        <strong>{userPerformanceCards.length - 5} more users</strong>
+                        <span>{userPerformanceCards.slice(5).reduce((sum, item) => sum + (item.total || 0), 0)} leads in remaining team workload</span>
+                      </button>
+                    )}
+                  </section>
+                </div>
               )}
 
               {canSeeTeamPerformance && (

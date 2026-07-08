@@ -436,6 +436,25 @@ function getAnnualReturnClientName(client) {
   ).trim();
 }
 
+function mapAnnualReturnRecordToFiling(row = {}) {
+  return {
+    annualYear: row.annualYear,
+    status: row.status || row.approvalWorkflow?.status || 'draft',
+    activeTab: row.activeTab || '',
+    activeSection: row.activeSection || '',
+    draft: isPlainObject(row.draft) ? row.draft : {},
+    basicInfo: isPlainObject(row.basicInfo) ? row.basicInfo : {},
+    financials: isPlainObject(row.financials) ? row.financials : {},
+    data: isPlainObject(row.data) ? row.data : {},
+    brandOwner: isPlainObject(row.brandOwner) ? row.brandOwner : {},
+    importer: isPlainObject(row.importer) ? row.importer : {},
+    annual: isPlainObject(row.annual) ? row.annual : {},
+    approvalWorkflow: isPlainObject(row.approvalWorkflow) ? row.approvalWorkflow : {},
+    savedAt: row.savedAt || row.updatedAt || new Date(),
+    updatedBy: row.updatedBy
+  };
+}
+
 async function upsertAnnualReturnRecord(client, annualYear, filing, requestBody = {}, userId) {
   const clientKey = getAnnualReturnClientKey(client, requestBody.clientKey || requestBody.clientId);
   const clientData = isPlainObject(client.data) ? client.data : {};
@@ -445,37 +464,81 @@ async function upsertAnnualReturnRecord(client, annualYear, filing, requestBody 
 
   if (!clientKey || !annualYear) return null;
 
-  return AnnualReturn.findOneAndUpdate(
-    { clientKey, annualYear },
-    {
-      $set: {
-        client: client._id,
-        clientKey,
-        annualYear,
-        clientName: getAnnualReturnClientName(client),
-        piboCategory: String(basic.piboCategory || '').trim(),
-        eprCategory: String(basic.eprCategory || '').trim(),
-        currentSpoc: String(annual.currentSpoc || requestBody.currentSpoc || '').trim(),
-        previousSpoc: String(annual.previousSpoc || requestBody.previousSpoc || '').trim(),
-        status: filing.status,
-        activeTab: filing.activeTab,
-        activeSection: filing.activeSection,
-        draft: filing.draft,
-        basicInfo: filing.basicInfo,
-        financials: filing.financials,
-        data: filing.data,
-        brandOwner: filing.brandOwner,
-        importer: filing.importer,
-        annual: filing.annual,
-        approvalWorkflow: filing.approvalWorkflow,
-        clientData: clientDataSnapshot,
-        adminControls: isPlainObject(client.adminControls) ? client.adminControls : {},
-        savedAt: filing.savedAt,
-        updatedBy: userId
-      }
-    },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  );
+  const existingRecords = await AnnualReturn.find({ clientKey }).sort({ createdAt: 1, updatedAt: 1 });
+  const canonical = existingRecords[0] || new AnnualReturn({ clientKey });
+  const filings = {};
+
+  existingRecords.forEach((record) => {
+    const recordFilings = isPlainObject(record.filings) ? record.filings : {};
+    Object.entries(recordFilings).forEach(([year, savedFiling]) => {
+      if (year && isPlainObject(savedFiling)) filings[year] = savedFiling;
+    });
+    if (record.annualYear) {
+      filings[record.annualYear] = {
+        ...(isPlainObject(filings[record.annualYear]) ? filings[record.annualYear] : {}),
+        ...mapAnnualReturnRecordToFiling(record)
+      };
+    }
+  });
+
+  filings[annualYear] = {
+    ...(isPlainObject(filings[annualYear]) ? filings[annualYear] : {}),
+    ...filing,
+    annualYear,
+    savedAt: filing.savedAt || new Date(),
+    updatedBy: userId
+  };
+
+  const duplicateIds = existingRecords
+    .filter((record) => String(record._id) !== String(canonical._id))
+    .map((record) => record._id);
+  const shouldDeferTopLevelYear = existingRecords.some((record) => (
+    String(record._id) !== String(canonical._id) && String(record.annualYear || '') === String(annualYear)
+  ));
+
+  canonical.client = client._id;
+  canonical.clientKey = clientKey;
+  canonical.annualYear = shouldDeferTopLevelYear ? (canonical.annualYear || annualYear) : annualYear;
+  canonical.clientName = getAnnualReturnClientName(client);
+  canonical.piboCategory = String(basic.piboCategory || '').trim();
+  canonical.eprCategory = String(basic.eprCategory || '').trim();
+  canonical.currentSpoc = String(annual.currentSpoc || requestBody.currentSpoc || '').trim();
+  canonical.previousSpoc = String(annual.previousSpoc || requestBody.previousSpoc || '').trim();
+  canonical.status = filing.status;
+  canonical.activeTab = filing.activeTab;
+  canonical.activeSection = filing.activeSection;
+  canonical.filings = filings;
+  canonical.draft = filing.draft;
+  canonical.basicInfo = filing.basicInfo;
+  canonical.financials = filing.financials;
+  canonical.data = filing.data;
+  canonical.brandOwner = filing.brandOwner;
+  canonical.importer = filing.importer;
+  canonical.annual = filing.annual;
+  canonical.approvalWorkflow = filing.approvalWorkflow;
+  canonical.clientData = clientDataSnapshot;
+  canonical.adminControls = isPlainObject(client.adminControls) ? client.adminControls : {};
+  canonical.savedAt = filing.savedAt;
+  canonical.updatedBy = userId;
+  canonical.markModified('filings');
+
+  await canonical.save();
+
+  if (duplicateIds.length) {
+    await AnnualReturn.deleteMany({ _id: { $in: duplicateIds } });
+    if (shouldDeferTopLevelYear) {
+      canonical.annualYear = annualYear;
+      await canonical.save();
+    }
+    console.info('[AnnualReturn] consolidated duplicate client records', {
+      clientKey,
+      canonicalId: String(canonical._id),
+      removed: duplicateIds.length,
+      years: Object.keys(filings)
+    });
+  }
+
+  return canonical;
 }
 
 function buildCcpClientApprovalPayload(body = {}, status, userId, remarks = '') {

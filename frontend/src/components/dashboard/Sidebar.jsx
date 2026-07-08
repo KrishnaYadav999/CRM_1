@@ -51,32 +51,31 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-visible bg-[#30737B] pt-4 text-white">
-      <div className={`flex items-center px-3 pb-2 ${collapsed ? 'justify-center' : 'justify-end'}`}>
+    <div className="relative flex h-full min-h-0 flex-col overflow-visible bg-[#0f5d46] pt-4 text-white">
+      <div className={`pointer-events-none absolute top-4 z-50 flex items-center ${collapsed ? 'left-1/2 -translate-x-1/2' : 'right-3'}`}>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          className={`btn-lift pointer-events-auto hidden h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[#0b4938] text-white shadow-lg shadow-slate-950/20 transition hover:bg-[#0a3f31] lg:inline-flex ${collapsed ? 'rotate-180' : ''}`}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <ChevronsLeft className="h-4 w-4 transition-transform duration-300" />
+        </button>
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white lg:hidden"
+          className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/15 lg:hidden"
           aria-label="Close sidebar"
         >
           <X className="h-5 w-5" />
         </button>
       </div>
 
-      <button
-        type="button"
-        onClick={onToggleCollapsed}
-        className={`btn-lift absolute -right-5 top-4 z-50 hidden h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white text-[#30737B] shadow-lg shadow-slate-950/20 transition hover:bg-emerald-50 lg:inline-flex ${collapsed ? 'rotate-180' : ''}`}
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        <ChevronsLeft className="h-5 w-5 transition-transform duration-300" />
-      </button>
-
-      <nav className={`sidebar-scrollbar mt-2 flex-1 space-y-3 px-3 pb-5 ${collapsed ? 'overflow-visible px-2' : 'overflow-y-auto px-4'}`}>
+      <nav className={`sidebar-scrollbar flex-1 space-y-5 px-3 pb-5 ${collapsed ? 'overflow-visible px-2 pt-12' : 'overflow-y-auto px-4 pt-5'}`}>
         {navSections.map((section) => (
           <div key={section.label}>
-            {!collapsed && <p className="mb-2 px-3 text-xs font-black uppercase tracking-[0.18em] text-white/45">{section.label}</p>}
+            {!collapsed && <p className="mb-4 px-1 text-xs font-black uppercase tracking-[0.24em] text-emerald-100/60">{section.label === 'Operations' ? 'Navigation' : section.label}</p>}
             <div className="space-y-2">
               {section.items.filter(canShowItem).map((item) => {
                 const Icon = item.icon
@@ -92,12 +91,12 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                     <button
                       type="button"
                       onClick={() => toggleGroup(item, hasChildren)}
-                      className={`sidebar-menu-button group flex min-h-12 w-full items-center rounded-xl text-left font-black transition-all duration-200 ${
-                        collapsed ? 'justify-center px-0' : 'justify-between px-3'
+                      className={`sidebar-menu-button group flex min-h-12 w-full items-center rounded-[18px] text-left font-black transition-all duration-200 ${
+                        collapsed ? 'justify-center px-0' : 'justify-between px-4'
                       } ${
                         isPrimaryActive
-                          ? 'sidebar-menu-button-active bg-white text-[#30737B] shadow-xl shadow-slate-950/15'
-                          : 'text-white/80 hover:bg-white/10 hover:text-white'
+                          ? 'sidebar-menu-button-active bg-[#f45b0b] text-white shadow-xl shadow-orange-950/20'
+                          : 'text-white hover:bg-white/10'
                       }`}
                       aria-expanded={hasChildren ? (collapsed ? isFlyoutOpen : isOpen) : undefined}
                       title={collapsed ? item.label : undefined}
@@ -125,10 +124,10 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                     <button
                                       type="button"
                                       onClick={() => setDashboardChoicesOpen((value) => !value)}
-                                      className={`sidebar-child-button flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 text-left text-sm font-black transition ${
+                                      className={`sidebar-child-button flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm font-black transition ${
                                         location.pathname === '/dashboard'
-                                          ? 'sidebar-child-button-current bg-white/18 text-white'
-                                          : 'text-white/65 hover:bg-white/10 hover:text-white'
+                                          ? 'sidebar-child-button-current bg-white/14 text-white'
+                                          : 'text-emerald-50/78 hover:bg-white/10 hover:text-white'
                                       }`}
                                       aria-expanded={dashboardChoicesOpen}
                                     >
@@ -143,10 +142,10 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                         <button
                                           type="button"
                                           onClick={() => chooseDashboard('operations')}
-                                          className={`sidebar-dashboard-choice flex min-h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-black transition ${
+                                          className={`sidebar-dashboard-choice flex min-h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-xs font-black transition ${
                                             dashboardMode === 'operations' && location.pathname === '/dashboard'
-                                              ? 'sidebar-dashboard-choice-active bg-white text-[#30737B]'
-                                              : 'text-white/70 hover:bg-white/10 hover:text-white'
+                                              ? 'sidebar-dashboard-choice-active bg-[#f45b0b] text-white'
+                                              : 'text-emerald-50/75 hover:bg-white/10 hover:text-white'
                                           }`}
                                         >
                                           <Gauge className="h-3.5 w-3.5" />
@@ -155,10 +154,10 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                         <button
                                           type="button"
                                           onClick={() => chooseDashboard('sales')}
-                                          className={`sidebar-dashboard-choice flex min-h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-black transition ${
+                                          className={`sidebar-dashboard-choice flex min-h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-xs font-black transition ${
                                             dashboardMode === 'sales' && location.pathname === '/dashboard'
-                                              ? 'sidebar-dashboard-choice-active bg-white text-[#30737B]'
-                                              : 'text-white/70 hover:bg-white/10 hover:text-white'
+                                              ? 'sidebar-dashboard-choice-active bg-[#f45b0b] text-white'
+                                              : 'text-emerald-50/75 hover:bg-white/10 hover:text-white'
                                           }`}
                                         >
                                           <BriefcaseBusiness className="h-3.5 w-3.5" />
@@ -180,10 +179,10 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                       onClose?.()
                                     }
                                   }}
-                                  className={`sidebar-child-button flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-black transition ${
+                                  className={`sidebar-child-button flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-black transition ${
                                     isChildActive
-                                      ? 'sidebar-child-button-current bg-white/18 text-white'
-                                      : 'text-white/65 hover:bg-white/10 hover:text-white'
+                                      ? 'sidebar-child-button-current bg-[#f45b0b] text-white'
+                                      : 'text-emerald-50/78 hover:bg-white/10 hover:text-white'
                                   }`}
                                 >
                                   <ChildIcon className="h-4 w-4 shrink-0" />
@@ -215,8 +214,8 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                   }}
                                   className={`flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-black transition ${
                                     dashboardMode === 'operations' && location.pathname === '/dashboard'
-                                      ? 'bg-teal-700 text-white'
-                                      : 'text-slate-700 hover:bg-teal-50 hover:text-teal-800'
+                                      ? 'bg-[#f45b0b] text-white'
+                                      : 'text-slate-700 hover:bg-emerald-50 hover:text-[#0f5d46]'
                                   }`}
                                 >
                                   <Gauge className="h-4 w-4 shrink-0" />
@@ -230,8 +229,8 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                   }}
                                   className={`flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-black transition ${
                                     dashboardMode === 'sales' && location.pathname === '/dashboard'
-                                      ? 'bg-teal-700 text-white'
-                                      : 'text-slate-700 hover:bg-teal-50 hover:text-teal-800'
+                                      ? 'bg-[#f45b0b] text-white'
+                                      : 'text-slate-700 hover:bg-emerald-50 hover:text-[#0f5d46]'
                                   }`}
                                 >
                                   <BriefcaseBusiness className="h-4 w-4 shrink-0" />
@@ -254,8 +253,8 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                               }}
                               className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-black transition ${
                                 isChildActive
-                                  ? 'bg-teal-700 text-white'
-                                  : 'text-slate-700 hover:bg-teal-50 hover:text-teal-800'
+                                  ? 'bg-[#f45b0b] text-white'
+                                  : 'text-slate-700 hover:bg-emerald-50 hover:text-[#0f5d46]'
                               }`}
                             >
                               <ChildIcon className="h-4 w-4 shrink-0" />

@@ -7,7 +7,7 @@ export const defaultThemeSettings = {
   layoutWidth: 'fluid',
   cardLayout: 'bordered',
   sidebarSize: 'default',
-  sidebarColor: '#30737B',
+  sidebarColor: '#0f5d46',
   topbarColor: '#ffffff',
   themeColor: '#30737B'
 }
