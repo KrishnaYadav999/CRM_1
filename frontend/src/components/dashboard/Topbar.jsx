@@ -146,6 +146,18 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
   useEffect(() => {
     let cancelled = false
 
+    async function syncServerCalendarItems() {
+      try {
+        const response = await api.get(API_ENDPOINTS.calendarItems.list)
+        if (cancelled) return
+        const serverItems = Array.isArray(response.data?.items) ? response.data.items : []
+        localStorage.setItem(CALENDAR_STORAGE_KEY, JSON.stringify(serverItems))
+        window.dispatchEvent(new CustomEvent('crm-calendar-items-updated'))
+      } catch {
+        // Local reminders still work when calendar API is temporarily unavailable.
+      }
+    }
+
     async function syncServerNotifications() {
       try {
         const response = await api.get(API_ENDPOINTS.notifications.list)
@@ -168,8 +180,12 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
       }
     }
 
+    syncServerCalendarItems()
     syncServerNotifications()
-    const intervalId = window.setInterval(syncServerNotifications, 15000)
+    const intervalId = window.setInterval(() => {
+      syncServerCalendarItems()
+      syncServerNotifications()
+    }, 15000)
     return () => {
       cancelled = true
       window.clearInterval(intervalId)

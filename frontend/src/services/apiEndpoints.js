@@ -44,6 +44,11 @@ const API_ENDPOINTS = {
     list: '/notifications',
     create: '/notifications'
   },
+  calendarItems: {
+    list: '/calendar-items',
+    create: '/calendar-items',
+    detail: (id) => `/calendar-items/${encodePathValue(id)}`
+  },
   teams: {
     list: '/teams',
     create: '/teams',

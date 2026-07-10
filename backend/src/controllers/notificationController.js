@@ -139,7 +139,7 @@ exports.createNotification = async (req, res) => {
     kind: 'announcement',
     createdBy: req.user._id,
     createdByName: req.user.name || req.user.email || 'CRM User',
-    visibleToRoles: ['operation', 'manager', 'compliance', 'sales', 'admin', 'superadmin'],
+    visibleToRoles: ['operation', 'manager', 'compliance', 'sales', 'accounts', 'admin', 'superadmin'],
     attachmentName: String(req.body.attachmentName || '').trim(),
     attachmentUrl: String(req.body.attachmentUrl || '').trim(),
     pinned: Boolean(req.body.pinned)

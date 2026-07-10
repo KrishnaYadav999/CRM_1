@@ -779,6 +779,7 @@ export default function ClientMaster() {
         ) : (
           <ClientDirectoryView
             clients={clients}
+            totalClientCount={totalClientCount}
             staff={staff}
             currentUser={currentUser}
             loading={loading}
@@ -1065,6 +1066,19 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
     });
   }, [activeClientTab, annualYearLabelsKey, client?._id, client?.id, clientName, initialAnnualYear, initialAnnualYearLabel, initialTab, isAnnualProcessingView, selectedAnnualYear]);
 
+  useEffect(() => {
+    let mounted = true;
+    api.get(API_ENDPOINTS.calendarItems.list)
+      .then((response) => {
+        if (!mounted) return;
+        const serverItems = Array.isArray(response.data?.items) ? response.data.items : [];
+        setCalendarItems(serverItems);
+        writeCalendarTodoItems(serverItems);
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+
   function toggleDetailGroup(id) {
     setOpenDetailGroups((current) => ({ ...current, [id]: !current[id] }));
   }
@@ -1080,24 +1094,26 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
         .map((value) => String(value).trim().toLowerCase());
       return keys.includes(String(payload.assignedTo || '').trim().toLowerCase());
     });
+    const newItem = {
+      ...payload,
+      id: `${payload.type}-${Date.now()}`,
+      clientKey: calendarClientKey,
+      clientNumber: getClientUniqueId(client),
+      clientName,
+      leadNumber: data.importMeta?.leadNumber || client.selectedLead?.leadCode || '',
+      assignedToName: assignedUser?.name || payload.assignedTo,
+      assignedToEmail: assignedUser?.email || '',
+      assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
+      createdAt: new Date().toISOString(),
+      createdBy: currentUser?.name || currentUser?.email || ''
+    };
     const nextItems = [
-      {
-        ...payload,
-        id: `${payload.type}-${Date.now()}`,
-        clientKey: calendarClientKey,
-        clientNumber: getClientUniqueId(client),
-        clientName,
-        leadNumber: data.importMeta?.leadNumber || client.selectedLead?.leadCode || '',
-        assignedToName: assignedUser?.name || payload.assignedTo,
-        assignedToEmail: assignedUser?.email || '',
-        assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
-        createdAt: new Date().toISOString(),
-        createdBy: currentUser?.name || currentUser?.email || ''
-      },
+      newItem,
       ...calendarItems
     ];
     setCalendarItems(nextItems);
     writeCalendarTodoItems(nextItems);
+    api.post(API_ENDPOINTS.calendarItems.create, newItem).catch(() => {});
     setInteractionModalType('');
   }
 

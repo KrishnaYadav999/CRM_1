@@ -3370,7 +3370,7 @@ export default function AdminDashboard() {
   const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [rowsPerPage, setRowsPerPage] = useState(5)
+  const [rowsPerPage, setRowsPerPage] = useState(8)
   const [operationsRowsPerPage, setOperationsRowsPerPage] = useState(5)
   const [operationsPage, setOperationsPage] = useState(1)
   const [selectedPerformanceUserId, setSelectedPerformanceUserId] = useState('')
@@ -4388,7 +4388,7 @@ export default function AdminDashboard() {
                 <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
                   <span className="text-sm font-black text-slate-900">Rows per page</span>
                   <select value={rowsPerPage} onChange={(event) => setRowsPerPage(Number(event.target.value))} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-black text-slate-900 outline-none focus:border-emerald-300">
-                    <option value={5}>5</option>
+                    <option value={8}>8</option>
                     <option value={10}>10</option>
                     <option value={20}>20</option>
                   </select>

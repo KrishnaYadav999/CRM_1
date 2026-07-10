@@ -13,9 +13,9 @@ import {
   Users
 } from 'lucide-react'
 
-export const roles = ['operation', 'admin', 'superadmin', 'manager', 'compliance', 'sales']
+export const roles = ['operation', 'admin', 'superadmin', 'manager', 'compliance', 'sales', 'accounts']
 export const adminRoles = ['admin', 'superadmin']
-export const defaultTeams = ['No team assigned', 'Operations', 'Compliance', 'Sales', 'Client Success', 'Management']
+export const defaultTeams = ['No team assigned', 'Operations', 'Compliance', 'Sales', 'Accounts', 'Client Success', 'Management']
 
 export const roleLabels = {
   operation: 'Operation',
@@ -23,7 +23,8 @@ export const roleLabels = {
   superadmin: 'Super Admin',
   manager: 'Manager',
   compliance: 'Compliance Manager',
-  sales: 'Sales'
+  sales: 'Sales',
+  accounts: 'Accounts'
 }
 
 export const defaultUserForm = {

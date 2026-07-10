@@ -269,7 +269,9 @@
 }
 
 .calendar-todo-modal .calendar-form-grid {
-  gap: 18px;
+  align-items: start;
+  column-gap: 18px;
+  row-gap: 16px;
   margin-top: 24px;
 }
 
@@ -308,6 +310,39 @@
 
 .calendar-todo-modal .calendar-form-grid textarea {
   min-height: 92px;
+}
+
+.calendar-todo-modal .calendar-field-compact {
+  align-content: start;
+  gap: 7px;
+}
+
+.calendar-todo-modal .calendar-update-reason-field textarea {
+  height: 58px;
+  min-height: 58px;
+  max-height: 58px;
+  padding-top: 10px;
+  resize: none;
+}
+
+.calendar-todo-modal .calendar-scheduled-date-field input {
+  height: 58px;
+}
+
+.calendar-field-count {
+  display: block;
+  min-height: 16px;
+  margin-top: -2px;
+  text-align: right;
+  color: #7b8794;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.calendar-todo-modal .calendar-modal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .calendar-todo-modal .calendar-modal-actions {

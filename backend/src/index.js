@@ -12,6 +12,7 @@ const annualReturnRoutes = require('./routes/annualReturns');
 const notificationRoutes = require('./routes/notifications');
 const ccpRoutes = require('./routes/ccp');
 const teamRoutes = require('./routes/teams');
+const calendarItemRoutes = require('./routes/calendarItems');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
 
 process.on('uncaughtException', (err) => {
@@ -89,6 +90,7 @@ app.use('/api/quotations', quotationRoutes);
 app.use('/api/annual-returns', annualReturnRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/teams', teamRoutes);
+app.use('/api/calendar-items', calendarItemRoutes);
 
 app.get('/', (req, res) => res.send({ ok: true, env: process.env.NODE_ENV }));
 

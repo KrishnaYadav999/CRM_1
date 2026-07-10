@@ -86,6 +86,7 @@ function emptyTodo(date = new Date()) {
     clientNumber: '',
     clientName: '',
     leadNumber: '',
+    updateReason: '',
     priority: 'Medium',
     category: 'General',
     scheduledDate: dateKey(date),
@@ -103,14 +104,23 @@ function getClientData(client = {}) {
 
 function getClientOption(client = {}) {
   const data = getClientData(client);
-  const uniqueId = getClientUniqueId(client) || data.importMeta?.uniqueId || data.importMeta?.ccpClientId || client.clientCode || client.code || client._id || client.id || 'CLIENT';
+  const clientNumber = [
+    getClientUniqueId(client),
+    data.importMeta?.uniqueId,
+    data.importMeta?.ccpClientId,
+    client.uniqueId,
+    client.clientCode,
+    client.code,
+    client._id,
+    client.id
+  ].find((value) => value && String(value).trim() && String(value).trim() !== '-') || 'CLIENT';
   const company = data.basic?.clientLegalName || data.basic?.tradeName || client.clientName || client.companyName || 'Untitled Client';
   const category = data.basic?.piboCategory || data.basic?.eprCategory || '';
   return {
-    value: String(uniqueId),
-    label: [uniqueId, company, category].filter(Boolean).join(' - '),
+    value: String(clientNumber),
+    label: [clientNumber, company, category].filter(Boolean).join(' - '),
     company,
-    id: String(client._id || client.id || uniqueId)
+    id: String(client._id || client.id || clientNumber)
   };
 }
 
@@ -235,7 +245,9 @@ export default function CalendarTodo() {
     : calendarView === 'week'
       ? `${formatHumanDate(selectedWeekStart)} - ${formatHumanDate(selectedWeekEnd)}`
       : `${months[month]} ${year}`;
-  const clientOptions = useMemo(() => clients.map(getClientOption), [clients]);
+  const clientOptions = useMemo(() => clients
+    .map(getClientOption)
+    .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' })), [clients]);
   const leadOptions = useMemo(() => leads.map(getLeadOption), [leads]);
   const userOptions = useMemo(() => users.map((user) => ({
     value: user.name || user.email || user._id || user.id,
@@ -278,6 +290,26 @@ export default function CalendarTodo() {
     loadOptions();
     return () => { mounted = false; };
   }, [storedUser]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadCalendarItems() {
+      const localItems = readCalendarItems();
+      try {
+        const response = await api.get(API_ENDPOINTS.calendarItems.list);
+        if (!mounted) return;
+        const serverItems = extractList(response, 'items');
+        setItems(serverItems);
+        writeCalendarItems(serverItems);
+      } catch {
+        if (!mounted) return;
+        setItems(localItems);
+        writeCalendarItems(localItems);
+      }
+    }
+    loadCalendarItems();
+    return () => { mounted = false; };
+  }, []);
 
   const filteredItems = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -399,9 +431,22 @@ export default function CalendarTodo() {
     setTimelinePage((page) => Math.min(page, timelineTotalPages));
   }, [followUpTotalPages, todoTotalPages, timelineTotalPages]);
 
-  function persist(nextItems) {
+  function persist(nextItems, changedItem = null, action = 'update') {
     setItems(nextItems);
     writeCalendarItems(nextItems);
+    if (!changedItem?.title) return;
+    const request = action === 'create'
+      ? api.post(API_ENDPOINTS.calendarItems.create, changedItem)
+      : api.put(API_ENDPOINTS.calendarItems.detail(changedItem.id || changedItem._id), changedItem);
+    request.then((response) => {
+      const savedItem = response.data?.item;
+      if (!savedItem) return;
+      setItems((current) => {
+        const merged = current.map((item) => String(item.id || item._id) === String(changedItem.id || changedItem._id) ? savedItem : item);
+        writeCalendarItems(merged);
+        return merged;
+      });
+    }).catch(() => {});
   }
 
   function openAddTodo(date = selectedDate) {
@@ -410,15 +455,15 @@ export default function CalendarTodo() {
   }
 
   function saveTodo() {
-    if (!todoDraft.title.trim()) return;
+    if (!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate) return;
     const selectedClient = clientOptions.find((option) => option.value === todoDraft.clientNumber);
     const selectedLead = leadOptions.find((option) => option.value === todoDraft.leadNumber);
     const assignedUser = userLookup.get(String(todoDraft.assignedTo || '').trim().toLowerCase());
-    persist([
-      {
+    const newItem = {
         ...todoDraft,
         id: `todo-${Date.now()}`,
         title: todoDraft.title.trim(),
+        updateReason: todoDraft.updateReason.trim(),
         clientName: selectedClient?.company || todoDraft.clientName,
         leadCompanyName: selectedLead?.company || '',
         assignedToName: assignedUser?.name || todoDraft.assignedTo,
@@ -426,14 +471,15 @@ export default function CalendarTodo() {
         assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
         createdAt: new Date().toISOString(),
         createdBy: storedUser?.name || storedUser?.email || ''
-      },
-      ...items
-    ]);
+      };
+    persist([newItem, ...items], newItem, 'create');
     setModalDate(null);
   }
 
   function toggleDone(id) {
-    persist(items.map((item) => item.id === id ? { ...item, status: item.status === 'completed' ? 'open' : 'completed', completedAt: item.status === 'completed' ? '' : new Date().toISOString() } : item));
+    const updatedItem = items.find((item) => item.id === id);
+    const nextItem = updatedItem ? { ...updatedItem, status: updatedItem.status === 'completed' ? 'open' : 'completed', completedAt: updatedItem.status === 'completed' ? '' : new Date().toISOString() } : null;
+    persist(items.map((item) => item.id === id ? nextItem : item), nextItem);
   }
 
   function requestCompletion(item) {
@@ -446,7 +492,8 @@ export default function CalendarTodo() {
 
   function saveCompletion() {
     if (!completionTarget || !completionRemarks.trim()) return;
-    persist(items.map((item) => item.id === completionTarget.id ? {
+    let changedItem = null;
+    const nextItems = items.map((item) => item.id === completionTarget.id ? (changedItem = {
       ...item,
       status: 'completed',
       completedAt: new Date().toISOString(),
@@ -459,17 +506,19 @@ export default function CalendarTodo() {
         },
         ...(item.completionHistory || [])
       ]
-    } : item));
+    }) : item);
+    persist(nextItems, changedItem);
     setCompletionTarget(null);
     setCompletionRemarks('');
   }
 
   function reviseItem(id, nextDate) {
     if (!nextDate) return;
-    persist(items.map((item) => {
+    let changedItem = null;
+    const nextItems = items.map((item) => {
       if (item.status === 'completed') return item;
       if (item.id !== id || item.scheduledDate === nextDate) return item;
-      return {
+      changedItem = {
         ...item,
         scheduledDate: nextDate,
         status: item.status === 'completed' ? 'completed' : 'open',
@@ -483,7 +532,9 @@ export default function CalendarTodo() {
           }
         ]
       };
-    }));
+      return changedItem;
+    });
+    persist(nextItems, changedItem);
     setReviseDraft('');
   }
 
@@ -497,9 +548,10 @@ export default function CalendarTodo() {
     if (!assignmentTarget || assignmentTarget.status === 'completed' || !assignmentDraft.assignedTo) return;
     const assignedBy = storedUser?.name || storedUser?.email || 'Current User';
     const assignedUser = userLookup.get(String(assignmentDraft.assignedTo || '').trim().toLowerCase());
-    persist(items.map((item) => {
+    let changedItem = null;
+    const nextItems = items.map((item) => {
       if (item.id !== assignmentTarget.id) return item;
-      return {
+      changedItem = {
         ...item,
         assignedTo: assignmentDraft.assignedTo,
         assignedToName: assignedUser?.name || assignmentDraft.assignedTo,
@@ -516,7 +568,9 @@ export default function CalendarTodo() {
           ...(item.assignmentHistory || [])
         ]
       };
-    }));
+      return changedItem;
+    });
+    persist(nextItems, changedItem);
     setAssignmentTarget(null);
     setAssignmentDraft({ assignedTo: '', reason: '' });
   }
@@ -969,7 +1023,16 @@ export default function CalendarTodo() {
                 </Field>
                 <Field label="Priority"><select value={todoDraft.priority} onChange={(event) => setTodoDraft((current) => ({ ...current, priority: event.target.value }))}>{priorities.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
                 <Field label="Category"><select value={todoDraft.category} onChange={(event) => setTodoDraft((current) => ({ ...current, category: event.target.value }))}>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
-                <Field label="Reminder Date"><input type="date" value={todoDraft.scheduledDate} onChange={(event) => setTodoDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
+                <Field label="Update Reason" required className="calendar-field-compact calendar-update-reason-field">
+                  <textarea
+                    maxLength={500}
+                    value={todoDraft.updateReason}
+                    onChange={(event) => setTodoDraft((current) => ({ ...current, updateReason: event.target.value }))}
+                    placeholder="Please provide a reason for this update"
+                  />
+                  <em className="calendar-field-count">{todoDraft.updateReason.length} / 500</em>
+                </Field>
+                <Field label="Scheduled Date" required className="calendar-field-compact calendar-scheduled-date-field"><input type="date" value={todoDraft.scheduledDate} onChange={(event) => setTodoDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
                 <Field label="Reminder Time"><input type="time" value={todoDraft.scheduledTime} onChange={(event) => setTodoDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
                 <Field label="Assign To User" wide>
                   <SearchSelect
@@ -982,7 +1045,7 @@ export default function CalendarTodo() {
               </div>
               <div className="calendar-modal-actions">
                 <button type="button" onClick={() => setModalDate(null)}>Cancel</button>
-                <button type="button" onClick={saveTodo}>Add Todo</button>
+                <button type="button" disabled={!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate} onClick={saveTodo}>Add Todo</button>
               </div>
             </motion.div>
           </motion.div>
@@ -1044,6 +1107,7 @@ export default function CalendarTodo() {
                 <Detail label="Scheduled" value={`${formatHumanDate(currentDetailItem.scheduledDate)} ${currentDetailItem.scheduledTime || ''}`.trim()} />
               </div>
               {currentDetailItem.description && <p className="calendar-detail-description">{currentDetailItem.description}</p>}
+              {currentDetailItem.updateReason && <p className="calendar-detail-description"><strong>Update Reason:</strong> {currentDetailItem.updateReason}</p>}
               <div className="calendar-revise-box">
                 <label>
                   <span>Revise Date</span>
@@ -1147,8 +1211,8 @@ function FollowUpFlowBoard({ items = [], todayKey }) {
   );
 }
 
-function Field({ label, required = false, wide = false, children }) {
-  return <label className={wide ? 'calendar-field-wide' : ''}><span>{required && <i>* </i>}{label}</span>{children}</label>;
+function Field({ label, required = false, wide = false, className = '', children }) {
+  return <label className={[wide ? 'calendar-field-wide' : '', className].filter(Boolean).join(' ')}><span>{required && <i>* </i>}{label}</span>{children}</label>;
 }
 
 function SearchSelect({ value, options = [], placeholder, onChange }) {
@@ -1156,8 +1220,7 @@ function SearchSelect({ value, options = [], placeholder, onChange }) {
   const [query, setQuery] = useState('');
   const selected = options.find((option) => String(option.value) === String(value));
   const filtered = options
-    .filter((option) => option.label.toLowerCase().includes(query.trim().toLowerCase()))
-    .slice(0, 80);
+    .filter((option) => option.label.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <div className="calendar-search-select">

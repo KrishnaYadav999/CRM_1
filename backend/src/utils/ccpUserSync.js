@@ -78,4 +78,4 @@ async function syncUsersToCcp(users) {
   return results;
 }
 
-module.exports = { syncUserToCcp, syncUsersToCcp };
+module.exports = { syncUserToCcp, syncUsersToCcp, __test: { buildUserPayload } };
