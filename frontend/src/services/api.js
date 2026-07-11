@@ -38,6 +38,36 @@ export function hasStoredAuthToken() {
   return getStoredToken().split('.').length === 3
 }
 
+function sanitizeSessionValue(value, depth = 0) {
+  if (depth > 5) return undefined
+  if (typeof value === 'string') {
+    if (value.startsWith('blob:')) return ''
+    if (value.startsWith('data:') && value.length > 50000) return ''
+    return value.length > 100000 ? '' : value
+  }
+  if (Array.isArray(value)) return value.slice(0, 100).map((item) => sanitizeSessionValue(item, depth + 1)).filter((item) => item !== undefined)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeSessionValue(item, depth + 1)]).filter(([, item]) => item !== undefined))
+}
+
+export function storeSessionUser(user) {
+  const sanitized = sanitizeSessionValue(user || {})
+  localStorage.removeItem('user')
+  try {
+    localStorage.setItem('user', JSON.stringify(sanitized))
+    return sanitized
+  } catch {
+    const minimal = {
+      _id: sanitized?._id || sanitized?.id || '', id: sanitized?.id || sanitized?._id || '',
+      name: sanitized?.name || '', firstName: sanitized?.firstName || '', lastName: sanitized?.lastName || '',
+      email: sanitized?.email || '', role: sanitized?.role || '', team: sanitized?.team || '',
+      teamId: sanitized?.teamId || '', isActive: sanitized?.isActive !== false
+    }
+    localStorage.setItem('user', JSON.stringify(minimal))
+    return minimal
+  }
+}
+
 export function readApiError(error, fallback = 'Something went wrong') {
   const data = error?.response?.data
   const message = data?.error || data?.message || error?.message

@@ -31,6 +31,7 @@ import {
   formatDateInputValue,
   getAnnualDraftAliasValue,
   getAssignedName,
+  getClientAliases,
   getClientQuotationContext,
   getClientQuotations,
   getClientUniqueId,
@@ -39,7 +40,7 @@ import {
   getMsmeSummary,
   getVisibilityStatus,
   mapExcelRowToClient,
-  mergeClientSources,
+  mergeClientData,
   mergeLeadSources,
   normalizePersonName,
   normalizeFinancialYearLabel,
@@ -267,6 +268,44 @@ function hydrateClientsWithAnnualReturns(clients = [], annualReturns = []) {
   });
 }
 
+function isLeadPlaceholderRow(item = {}) {
+  const uniqueId = getClientUniqueId(item);
+  return /^ATPL-LEA/i.test(uniqueId) || /^ATPL-LEAD/i.test(uniqueId);
+}
+
+function getClientMasterRows(crmClients = [], ccpClients = []) {
+  const rows = [...ccpClients, ...crmClients].filter((item) => !isLeadPlaceholderRow(item));
+  const rowsByAlias = new Map();
+
+  rows.forEach((item) => {
+    getClientAliases(item).forEach((alias) => {
+      const list = rowsByAlias.get(alias) || [];
+      list.push(item);
+      rowsByAlias.set(alias, list);
+    });
+  });
+
+  return rows.map((item) => {
+    const relatedRows = [...new Set(getClientAliases(item).flatMap((alias) => rowsByAlias.get(alias) || []))]
+      .filter((row) => row !== item);
+    if (!relatedRows.length) return item;
+
+    const mergedData = relatedRows.reduce((currentData, relatedRow) => {
+      return mergeClientData(currentData, readClientData(relatedRow));
+    }, readClientData(item));
+    const mergedAdminControls = relatedRows.reduce((controls, relatedRow) => ({
+      ...(relatedRow.adminControls || {}),
+      ...controls
+    }), item.adminControls || {});
+
+    return {
+      ...item,
+      adminControls: mergedAdminControls,
+      data: mergedData
+    };
+  });
+}
+
 const emptyClient = {
   selectedLead: '',
   adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'DISCONTINUED', assignedTo: '' },
@@ -304,6 +343,7 @@ export default function ClientMaster() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [leads, setLeads] = useState([]);
   const [clients, setClients] = useState([]);
+  const [totalClientCount, setTotalClientCount] = useState(0);
   const [annualReturnRecords, setAnnualReturnRecords] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -404,15 +444,16 @@ export default function ClientMaster() {
       const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
         ? (ccpClientsResult.value.data.clients || [])
         : [];
-      const mergedClients = mergeClientSources(crmClients, ccpClients);
+      const visibleClients = getClientMasterRows(crmClients, ccpClients);
+      setTotalClientCount(visibleClients.length);
       try {
         const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
         const annualRows = annualReturnsResponse.data.annualReturns || [];
         setAnnualReturnRecords(annualRows);
-        setClients(hydrateClientsWithAnnualReturns(mergedClients, annualRows));
+        setClients(hydrateClientsWithAnnualReturns(visibleClients, annualRows));
       } catch {
         setAnnualReturnRecords([]);
-        setClients(mergedClients);
+        setClients(visibleClients);
       }
       const [crmLeadsResult, ccpLeadsResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.leads.list),
@@ -439,6 +480,7 @@ export default function ClientMaster() {
       setError(err?.response?.data?.error || 'Unable to fetch client master data.');
       setLeads([]);
       setClients([]);
+      setTotalClientCount(0);
       setQuotations([]);
     } finally {
       setLoading(false);

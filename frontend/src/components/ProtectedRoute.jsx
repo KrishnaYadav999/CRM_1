@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import BrandLoader from './BrandLoader'
-import api, { clearStoredSession, hasStoredAuthToken } from '../services/api'
+import api, { clearStoredSession, hasStoredAuthToken, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 
 export default function ProtectedRoute({ children }) {
@@ -24,7 +24,7 @@ export default function ProtectedRoute({ children }) {
     api.get(API_ENDPOINTS.auth.me)
       .then((response) => {
         if (response.data?.user) {
-          localStorage.setItem('user', JSON.stringify(response.data.user))
+          storeSessionUser(response.data.user)
         }
         setState({ loading: false, allowed: true })
       })

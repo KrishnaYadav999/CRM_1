@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
-import api, { readApiError } from '../services/api'
+import api, { readApiError, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 
 export default function VerifyOtp(){
@@ -39,7 +39,7 @@ export default function VerifyOtp(){
       }
       const res = await api.post(API_ENDPOINTS.auth.verifyOtp, { email, otp })
       localStorage.setItem('token', res.data.token)
-      localStorage.setItem('user', JSON.stringify(res.data.user))
+      storeSessionUser(res.data.user)
       localStorage.removeItem('login_email')
       localStorage.removeItem('dev_otp')
       navigate('/dashboard')

@@ -1611,7 +1611,8 @@
 }
 
 .client-interaction-modal {
-  width: min(720px, 100%);
+  width: min(720px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
 }
 
 .client-interaction-modal-head h3 {
@@ -1623,6 +1624,11 @@
   .calendar-form-grid,
   .client-interaction-form {
     grid-template-columns: 1fr;
+  }
+
+  .client-interaction-modal {
+    width: calc(100vw - 28px);
+    max-width: calc(100vw - 28px);
   }
 
   .calendar-hero,

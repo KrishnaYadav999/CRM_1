@@ -6,7 +6,7 @@ import ProfileModal from '../components/dashboard/ProfileModal';
 import BrandLoader from '../components/BrandLoader';
 import ToastMessage from '../components/ToastMessage';
 import { adminRoles } from '../constants/dashboard';
-import api from '../services/api';
+import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 const rowsPerPage = 5;
@@ -184,7 +184,7 @@ export default function PendingApproval() {
 
       if (meResponse?.data?.user) {
         setCurrentUser(meResponse.data.user);
-        localStorage.setItem('user', JSON.stringify(meResponse.data.user));
+        storeSessionUser(meResponse.data.user);
       }
 
       if (!approvalsResponse) {
@@ -416,14 +416,6 @@ export default function PendingApproval() {
           {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
           {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
           {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
-          {debugInfo && (
-            <div className="pending-debug-strip">
-              <span>Debug</span>
-              <strong>{debugInfo.source || 'live'}</strong>
-              {debugInfo.ms !== undefined && <em>{debugInfo.ms}ms</em>}
-              {debugInfo.message && <small>{debugInfo.message}</small>}
-            </div>
-          )}
 
           <div className="pending-metrics">
             <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />

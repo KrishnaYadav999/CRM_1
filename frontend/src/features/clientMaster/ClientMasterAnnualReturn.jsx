@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
@@ -1857,7 +1858,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
             <div className={`annual-tab-content min-w-0 ${annualTransitioning ? 'annual-tab-content-switching' : ''}`}>
               <div className="annual-panel-head">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#30737B]">Step {activeTabIndex + 1} of {processingTabs.length} · {completedAnnualCount}/{processingTabs.length} done</p>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#30737B]">Step {activeTabIndex + 1} of {processingTabs.length} - {completedAnnualCount}/{processingTabs.length} done</p>
                   <h4 className="mt-1 text-xl font-black text-slate-950">{processingTabs[activeTabIndex]?.label}</h4>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1912,7 +1913,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           </div>
         </section>
       )}
-      {reviewDrawerOpen && (
+      {reviewDrawerOpen && createPortal(
         <AnnualReviewDrawer
           workflow={approvalWorkflow}
           mode={reviewUiMode}
@@ -1927,7 +1928,8 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           onSubmitToManager={submitDataForManager}
           onApprove={(sectionTitle) => handleAnnualReview('APPROVED', sectionTitle)}
           onReject={(sectionTitle) => handleAnnualReview('REJECTED', sectionTitle)}
-        />
+        />,
+        document.body
       )}
       {annualCompletionModal && (
         <div className="annual-completion-backdrop" role="presentation" onClick={() => setAnnualCompletionModal(null)}>
@@ -2229,7 +2231,7 @@ function AnnualReviewDrawer({ workflow, mode = 'popup', roleLabel, debugInfo = {
             </button>
           </div>
         </div>
-        <div className="space-y-5 px-5 py-5">
+        <div className="annual-review-body space-y-5 px-5 py-5">
           <AnnualTrackingTimeline workflow={workflow} managerProgress={managerProgress} complianceProgress={complianceProgress} />
           {canSubmitToManager && (
             <button type="button" disabled={saving} onClick={onSubmitToManager} className="btn-lift inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-60">

@@ -152,6 +152,32 @@ exports.createNotification = async (req, res) => {
   res.status(201).json({ ok: true, notification: mapNotification(item), ccpSync });
 };
 
+exports.updateNotification = async (req, res) => {
+  const title = String(req.body.title || '').trim();
+  const description = String(req.body.description || '').trim();
+  if (!title || !description) return res.status(400).json({ error: 'Title and description are required' });
+
+  const item = await Notification.findById(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Notification not found' });
+
+  Object.assign(item, {
+    title,
+    description,
+    tag: String(req.body.tag || 'General').trim() || 'General',
+    status: String(req.body.status || 'Active').trim() || 'Active',
+    attachmentName: String(req.body.attachmentName || '').trim(),
+    attachmentUrl: String(req.body.attachmentUrl || '').trim(),
+    pinned: Boolean(req.body.pinned)
+  });
+  await item.save();
+
+  const ccpSync = await syncNotificationToCcp(item, { action: 'update' });
+  if (ccpSync.ok === false) console.error('CCP notification update sync failed', ccpSync);
+  await saveSyncedCcpNotificationId(item, ccpSync);
+
+  return res.json({ ok: true, notification: mapNotification(item), ccpSync });
+};
+
 exports.listNotificationsForCcp = async (req, res) => {
   const notifications = await Notification.find()
     .populate('createdBy', 'crmUserId ccpUserId name email')

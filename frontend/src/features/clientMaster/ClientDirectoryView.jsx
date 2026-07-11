@@ -28,7 +28,76 @@ function buildStaffFilterOptions(staff = [], clients = []) {
   return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView, selectOptions = {} }) {
+function normalizeClientSearchText(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function collectClientSearchValues(value, values = [], depth = 0) {
+  if (value === null || value === undefined || depth > 4) return values;
+  if (['string', 'number', 'boolean'].includes(typeof value)) {
+    const text = String(value).trim();
+    if (text) values.push(text);
+    return values;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectClientSearchValues(item, values, depth + 1));
+    return values;
+  }
+  if (typeof value === 'object') {
+    Object.values(value).forEach((item) => collectClientSearchValues(item, values, depth + 1));
+  }
+  return values;
+}
+
+function clientMatchesSearch(item, term) {
+  const normalizedTerm = normalizeClientSearchText(term);
+  if (!normalizedTerm) return true;
+  const data = readClientData(item);
+  const compactTerm = normalizedTerm.replace(/\s+/g, '');
+  const haystack = normalizeClientSearchText([
+    getClientUniqueId(item),
+    item.clientName,
+    item.companyName,
+    item.company,
+    item.name,
+    item.tradeName,
+    item.basic?.clientLegalName,
+    item.basic?.tradeName,
+    item.selectedLead?.company,
+    item.selectedLead?.companyName,
+    item.selectedLead?.leadCode,
+    data.basic?.clientLegalName,
+    data.basic?.tradeName,
+    data.basic?.companyName,
+    data.registeredAddress?.address1,
+    data.registeredAddress?.address2,
+    data.registeredAddress?.city,
+    data.registeredAddress?.state,
+    data.registeredAddress?.pincode,
+    data.communicationAddress?.address1,
+    data.communicationAddress?.city,
+    data.communicationAddress?.state,
+    getVisibilityStatus(item),
+    getAssignedName(item),
+    data.basic?.piboCategory,
+    data.basic?.eprCategory,
+    getMsmeSummary(data),
+    data.cpcb?.status,
+    data.otp?.mobile,
+    data.otp?.personName,
+    ...collectClientSearchValues(data.importMeta),
+    ...collectClientSearchValues(item.selectedLead)
+  ].filter(Boolean).join(' '));
+  const compactHaystack = haystack.replace(/\s+/g, '');
+  return haystack.includes(normalizedTerm) ||
+    compactHaystack.includes(compactTerm);
+}
+
+function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -38,25 +107,11 @@ function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView
   const deferredQuery = useDeferredValue(query);
 
   const filteredClients = useMemo(() => {
-    const term = deferredQuery.trim().toLowerCase();
+    const term = deferredQuery.trim();
     return clients.filter((item) => {
       const data = readClientData(item);
       const visibility = getVisibilityStatus(item);
-      const haystack = [
-        getClientUniqueId(item),
-        data.basic?.clientLegalName,
-        data.basic?.tradeName,
-        data.registeredAddress?.state,
-        visibility,
-        getAssignedName(item),
-        data.basic?.piboCategory,
-        data.basic?.eprCategory,
-        getMsmeSummary(data),
-        data.cpcb?.status,
-        data.otp?.mobile,
-        data.otp?.personName
-      ].filter(Boolean).join(' ').toLowerCase();
-      const matchesSearch = !term || haystack.includes(term);
+      const matchesSearch = clientMatchesSearch(item, term);
       const cpcbStatus = readClientData(item).cpcb?.status;
       const matchesVisibility = !visibilityFilter || visibility === visibilityFilter;
       const matchesStaff = matchesAssignedStaff(item, staff, staffFilter);
@@ -88,7 +143,7 @@ function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView
     const discontinued = clients.filter((item) => ['DISCONTINUED', 'SUSPENDED'].includes(getVisibilityStatus(item))).length;
     const annualReturn = clients.filter((item) => getFirstAnnualReturnYear(item)).length;
     return [
-      { label: 'Live Applications', value: clients.length, note: 'Active client records', icon: Building2, tone: 'emerald', filter: 'live' },
+      { label: 'Live Applications', value: totalClientCount || clients.length, note: 'Active client records', icon: Building2, tone: 'emerald', filter: 'live' },
       { label: 'Annual Return', value: annualReturn, note: 'Return year mapped', icon: FileText, tone: 'violet', filter: 'annual' },
       { label: 'Processed Apps', value: portalApproved, note: 'CPCB approved', icon: CheckCircle2, tone: 'teal', filter: 'processed' },
       { label: 'Pending Apps', value: pending, note: 'ATPL pending', icon: FileCheck2, tone: 'amber', filter: 'pending' },
@@ -96,7 +151,7 @@ function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView
       { label: 'Rejected', value: rejected, note: 'Portal rejected', icon: X, tone: 'rose', filter: 'rejected' },
       { label: 'Discontinued', value: discontinued, note: 'Hidden or archived', icon: FolderCheck, tone: 'orange', filter: 'discontinued' }
     ];
-  }, [clients]);
+  }, [clients, totalClientCount]);
   const selectedMetric = metricStats.find((stat) => stat.filter === metricFilter);
 
   function exportExcel() {

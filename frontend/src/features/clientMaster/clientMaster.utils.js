@@ -587,8 +587,40 @@ function getClientQuotations(quotations, client) {
     .sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0));
 }
 
+function getAnnualReturnFilingYears(annualReturn = {}) {
+  const filings = annualReturn?.filings && typeof annualReturn.filings === 'object' && !Array.isArray(annualReturn.filings)
+    ? Object.keys(annualReturn.filings)
+    : [];
+  return filings
+    .map(normalizeFinancialYearLabel)
+    .filter(Boolean)
+    .sort((left, right) => (parseFinancialYearStart(left) || 0) - (parseFinancialYearStart(right) || 0));
+}
+
 function getFirstAnnualReturnYear(item, data = readClientData(item)) {
-  return data.basic?.firstAnnualReturnYear || data.firstAnnualReturnYear || item?.firstAnnualReturnYear || '';
+  const annualReturn = data.annualReturn && typeof data.annualReturn === 'object' && !Array.isArray(data.annualReturn)
+    ? data.annualReturn
+    : {};
+  const savedFilingYears = getAnnualReturnFilingYears(annualReturn);
+  const candidates = [
+    data.basic?.firstAnnualReturnYear,
+    data.basic?.annualReturnYear,
+    data.basic?.firstAnnualYear,
+    data.firstAnnualReturnYear,
+    data.annualReturnYear,
+    annualReturn.firstAnnualReturnYear,
+    annualReturn.firstAnnualYear,
+    annualReturn.annualReturnYear,
+    annualReturn.selectedYear,
+    annualReturn.lastSavedYear,
+    savedFilingYears[0],
+    item?.firstAnnualReturnYear,
+    item?.annualReturnYear,
+    item?.annualYear,
+    item?.returnYear
+  ];
+  const match = candidates.find((value) => normalizeFinancialYearLabel(value));
+  return match ? normalizeFinancialYearLabel(match) : '';
 }
 
 function parseFinancialYearStart(value) {

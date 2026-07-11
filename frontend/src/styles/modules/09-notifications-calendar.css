@@ -39,6 +39,7 @@
 
 .calendar-modal,
 .client-interaction-modal {
+  box-sizing: border-box;
   width: min(1120px, 100%);
   max-height: min(90vh, 760px);
   overflow: visible;
@@ -94,6 +95,8 @@
 .client-interaction-form label {
   display: grid;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   gap: 8px;
   color: #1f2937;
   font-weight: 950;
@@ -111,6 +114,10 @@
 .client-interaction-form input,
 .client-interaction-form select,
 .client-interaction-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 40px;
   border: 1px solid #d7e1df;
   border-radius: 10px;
@@ -118,6 +125,12 @@
   color: #0f172a;
   font-weight: 850;
   outline: none;
+}
+
+.client-interaction-modal {
+  width: min(720px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
+  overflow: hidden;
 }
 
 .calendar-search-select {

@@ -39,6 +39,7 @@ const LeadSchema = new mongoose.Schema({
   nextFollowUpDate: { type: String, trim: true },
   nextFollowUpTime: { type: String, trim: true },
   followUpRemarks: { type: String, trim: true },
+  followUpHistory: { type: Array, default: [] },
   importedCreatedAt: { type: String, trim: true },
   importedUpdatedAt: { type: String, trim: true },
   workflowStatus: { type: String, enum: ['draft', 'submitted'], default: 'draft' },

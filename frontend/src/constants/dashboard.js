@@ -4,10 +4,8 @@ import {
   CalendarDays,
   ClipboardList,
   Clock3,
-  FileStack,
   FileText,
   Gauge,
-  Headphones,
   Home,
   UserRound,
   Users
@@ -69,9 +67,7 @@ export const navSections = [
           { label: 'Client Master', icon: UserRound, path: '/sales/client-master' },
           { label: 'Add Quotation', icon: FileText, path: '/sales/quotations?mode=add' }
         ]
-      },
-      { label: 'Client Data Processing', icon: FileStack },
-      { label: 'Client Connect', icon: Headphones }
+      }
     ]
   }
 ]

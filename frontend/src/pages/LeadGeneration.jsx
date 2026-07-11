@@ -379,6 +379,10 @@ export default function LeadGeneration() {
             lead={viewLead}
             quotations={quotations}
             onBack={() => setViewLead(null)}
+            onLeadUpdated={(updatedLead) => {
+              setViewLead(updatedLead);
+              setLeads((current) => current.map((item) => String(item._id || item.id) === String(updatedLead._id || updatedLead.id) ? updatedLead : item));
+            }}
             onAddQuotation={(quotationId) => {
               if (quotationId) navigate('/sales/quotations', { state: { editQuotationId: quotationId } });
               else navigate('/sales/quotations');
@@ -1020,54 +1024,112 @@ function MetricOutputCard({ stat, leads, onClose, onExport }) {
   );
 }
 
-function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation }) {
-  const [activeTab, setActiveTab] = useState('overview');
-  const hasBusinessCard = Boolean(lead.businessCardUrl);
-  const companyName = lead.company || 'Lead Details';
-  const initials = companyName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'LD';
-  const location = [lead.city, lead.state, lead.pinCode].filter(Boolean).join(', ');
-  const leadQuotations = quotations.filter((quotation) => {
-    const leadId = String(lead._id || lead.id || '');
-    return String(quotation.leadId || '') === leadId || String(quotation.leadCode || '') === String(lead.leadCode || '');
+function todayDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatFollowUpDate(value) {
+  if (!value) return '-';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
+}
+
+function buildLeadFollowUpRows(lead = {}) {
+  const rows = [];
+  if (lead.nextFollowUpDate || lead.nextFollowUpTime || lead.followUpRemarks) {
+    rows.push({
+      id: 'current-follow-up',
+      scheduledDate: lead.nextFollowUpDate || '',
+      scheduledTime: lead.nextFollowUpTime || '',
+      remarks: lead.followUpRemarks || '',
+      reason: 'Current follow-up',
+      createdAt: lead.updatedAt || lead.createdAt || ''
+    });
+  }
+  (Array.isArray(lead.followUpHistory) ? lead.followUpHistory : []).forEach((item, index) => {
+    rows.push({
+      id: item.id || `history-${index}`,
+      scheduledDate: item.scheduledDate || item.nextFollowUpDate || '',
+      scheduledTime: item.scheduledTime || item.nextFollowUpTime || '',
+      remarks: item.remarks || item.followUpRemarks || '',
+      reason: item.reason || item.updateReason || '',
+      createdAt: item.createdAt || ''
+    });
   });
+  return rows;
+}
+
+function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation, onLeadUpdated }) {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [detailLead, setDetailLead] = useState(lead);
+  const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
+  const [followUpSaving, setFollowUpSaving] = useState(false);
+  const [followUpError, setFollowUpError] = useState('');
+  const [followUpDraft, setFollowUpDraft] = useState({
+    scheduledDate: todayDateKey(),
+    scheduledTime: '',
+    remarks: '',
+    reason: ''
+  });
+  useEffect(() => {
+    setDetailLead(lead);
+  }, [lead]);
+  const activeLead = detailLead || lead;
+  const hasBusinessCard = Boolean(activeLead.businessCardUrl);
+  const companyName = activeLead.company || 'Lead Details';
+  const initials = companyName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'LD';
+  const location = [activeLead.city, activeLead.state, activeLead.pinCode].filter(Boolean).join(', ');
+  const leadQuotations = quotations.filter((quotation) => {
+    const leadId = String(activeLead._id || activeLead.id || '');
+    return String(quotation.leadId || '') === leadId || String(quotation.leadCode || '') === String(activeLead.leadCode || '');
+  });
+  const followUpRows = buildLeadFollowUpRows(activeLead);
+  const todayKey = todayDateKey();
+  const upcomingFollowUps = followUpRows
+    .filter((item) => item.scheduledDate && item.scheduledDate >= todayKey)
+    .sort((a, b) => `${a.scheduledDate} ${a.scheduledTime}`.localeCompare(`${b.scheduledDate} ${b.scheduledTime}`));
+  const previousFollowUps = followUpRows
+    .filter((item) => !item.scheduledDate || item.scheduledDate < todayKey)
+    .sort((a, b) => `${b.scheduledDate} ${b.scheduledTime}`.localeCompare(`${a.scheduledDate} ${a.scheduledTime}`));
   const basicInfoRows = [
-    ['Lead ID', lead.leadCode, FileText],
-    ['Company', lead.company, Building2],
-    ['Industry', lead.industryType, Building2],
-    ['Status', lead.status, CheckCircle2, 'pill'],
-    ['EPR Category', lead.eprCategory, FileText],
-    ['PIBO Category', lead.piboCategory, FileText],
-    ['Services Offered', lead.servicesOffered, CheckCircle2],
-    ['Source', lead.source, FileText]
+    ['Lead ID', activeLead.leadCode, FileText],
+    ['Company', activeLead.company, Building2],
+    ['Industry', activeLead.industryType, Building2],
+    ['Status', activeLead.status, CheckCircle2, 'pill'],
+    ['EPR Category', activeLead.eprCategory, FileText],
+    ['PIBO Category', activeLead.piboCategory, FileText],
+    ['Services Offered', activeLead.servicesOffered, CheckCircle2],
+    ['Source', activeLead.source, FileText]
   ];
   const addressInfoRows = [
-    ['Address Line 1', lead.addressLine1, MapPin],
-    ['Address Line 2', lead.addressLine2, MapPin],
-    ['Address Line 3', lead.addressLine3, MapPin],
-    ['State', lead.state, MapPin],
-    ['City', lead.city, MapPin],
-    ['PIN', lead.pinCode, MapPin],
-    ['Website', lead.website, Eye],
-    ['Notes', lead.notes || 'Not specified', FileText]
+    ['Address Line 1', activeLead.addressLine1, MapPin],
+    ['Address Line 2', activeLead.addressLine2, MapPin],
+    ['Address Line 3', activeLead.addressLine3, MapPin],
+    ['State', activeLead.state, MapPin],
+    ['City', activeLead.city, MapPin],
+    ['PIN', activeLead.pinCode, MapPin],
+    ['Website', activeLead.website, Eye],
+    ['Notes', activeLead.notes || 'Not specified', FileText]
   ];
   const contactInfoRows = [
-    ['Contact Person', lead.contactPerson, ContactRound],
-    ['Designation', lead.designation, ContactRound],
-    ['Mobile 1', lead.mobileNo1, Phone],
-    ['Mobile 2', lead.mobileNo2, Phone],
-    ['Email', lead.emails, Mail],
-    ['Emails Sent', lead.emailsSentCount || 0, Mail],
-    ['Last Email Sent', lead.lastEmailSent || 'No emails sent yet', Mail],
-    ['Referred By', lead.referredBy, UserCheck]
+    ['Contact Person', activeLead.contactPerson, ContactRound],
+    ['Designation', activeLead.designation, ContactRound],
+    ['Mobile 1', activeLead.mobileNo1, Phone],
+    ['Mobile 2', activeLead.mobileNo2, Phone],
+    ['Email', activeLead.emails, Mail],
+    ['Emails Sent', activeLead.emailsSentCount || 0, Mail],
+    ['Last Email Sent', activeLead.lastEmailSent || 'No emails sent yet', Mail],
+    ['Referred By', activeLead.referredBy, UserCheck]
   ];
   const assignedRows = [
-    ['Assigned To', lead.assignedTo?.name || lead.assignedToText],
-    ['Assigned Email', lead.assignedTo?.email],
-    ['Assigned By', lead.assignedBy],
-    ['Lead Date', lead.leadDate],
-    ['Next Follow-Up Date', lead.nextFollowUpDate],
-    ['Next Follow-Up Time', lead.nextFollowUpTime],
-    ['Follow-Up Remarks', lead.followUpRemarks]
+    ['Assigned To', activeLead.assignedTo?.name || activeLead.assignedToText],
+    ['Assigned Email', activeLead.assignedTo?.email],
+    ['Assigned By', activeLead.assignedBy],
+    ['Lead Date', activeLead.leadDate],
+    ['Next Follow-Up Date', activeLead.nextFollowUpDate],
+    ['Next Follow-Up Time', activeLead.nextFollowUpTime],
+    ['Follow-Up Remarks', activeLead.followUpRemarks]
   ];
   const tabs = [
     { id: 'overview', label: 'Overview', icon: FileText },
@@ -1077,8 +1139,70 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation 
   ];
 
   function sendIntroMail() {
-    const email = String(lead.emails || '').split(/[,\s;]+/).find(Boolean);
+    const email = String(activeLead.emails || '').split(/[,\s;]+/).find(Boolean);
     if (email) window.location.href = `mailto:${email}?subject=${encodeURIComponent(`Introduction from Anant Tattva`)}`;
+  }
+
+  function openFollowUpModal() {
+    setFollowUpDraft({
+      scheduledDate: activeLead.nextFollowUpDate || todayDateKey(),
+      scheduledTime: activeLead.nextFollowUpTime || '',
+      remarks: '',
+      reason: ''
+    });
+    setFollowUpError('');
+    setFollowUpModalOpen(true);
+  }
+
+  async function saveFollowUp() {
+    if (!followUpDraft.scheduledDate || !followUpDraft.remarks.trim()) {
+      setFollowUpError('Scheduled date and follow-up remarks are required.');
+      return;
+    }
+    const leadId = activeLead._id || activeLead.id;
+    if (!leadId) {
+      setFollowUpError('This lead cannot be updated because its CRM id is missing.');
+      return;
+    }
+    const previousCurrent = activeLead.nextFollowUpDate || activeLead.nextFollowUpTime || activeLead.followUpRemarks
+      ? [{
+          id: `previous-${Date.now()}`,
+          scheduledDate: activeLead.nextFollowUpDate || '',
+          scheduledTime: activeLead.nextFollowUpTime || '',
+          remarks: activeLead.followUpRemarks || '',
+          reason: 'Previous current follow-up',
+          createdAt: new Date().toISOString()
+        }]
+      : [];
+    const newEntry = {
+      id: `follow-up-${Date.now()}`,
+      scheduledDate: followUpDraft.scheduledDate,
+      scheduledTime: followUpDraft.scheduledTime,
+      remarks: followUpDraft.remarks.trim(),
+      reason: followUpDraft.reason.trim(),
+      createdAt: new Date().toISOString()
+    };
+    const payload = {
+      ...activeLead,
+      assignedTo: activeLead.assignedTo?._id || activeLead.assignedTo?.id || activeLead.assignedTo || '',
+      nextFollowUpDate: newEntry.scheduledDate,
+      nextFollowUpTime: newEntry.scheduledTime,
+      followUpRemarks: newEntry.remarks,
+      followUpHistory: [newEntry, ...previousCurrent, ...(Array.isArray(activeLead.followUpHistory) ? activeLead.followUpHistory : [])]
+    };
+    setFollowUpSaving(true);
+    setFollowUpError('');
+    try {
+      const response = await api.put(API_ENDPOINTS.leads.detail(leadId), payload);
+      const updatedLead = response.data?.lead || payload;
+      setDetailLead(updatedLead);
+      onLeadUpdated?.(updatedLead);
+      setFollowUpModalOpen(false);
+    } catch (err) {
+      setFollowUpError(err?.response?.data?.error || 'Unable to save follow-up.');
+    } finally {
+      setFollowUpSaving(false);
+    }
   }
 
   return (
@@ -1111,9 +1235,9 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation 
                 <div className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-white bg-[#30737B] text-2xl font-black text-white shadow-lg shadow-teal-900/20">{initials}</div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-black uppercase text-white">{lead.status || 'Draft'}</span>
-                    <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-black uppercase text-violet-700">{lead.eprCategory || 'EPR Not Set'}</span>
-                    <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-black uppercase text-blue-700">{lead.piboCategory || 'PIBO Not Set'}</span>
+                    <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-black uppercase text-white">{activeLead.status || 'Draft'}</span>
+                    <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-black uppercase text-violet-700">{activeLead.eprCategory || 'EPR Not Set'}</span>
+                    <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-black uppercase text-blue-700">{activeLead.piboCategory || 'PIBO Not Set'}</span>
                   </div>
                   <h1 className="mt-3 text-3xl font-black leading-tight text-slate-950 sm:text-4xl">{companyName}</h1>
                   <p className="mt-2 max-w-4xl text-sm font-bold text-slate-500">{location || 'Location not set'}</p>
@@ -1121,9 +1245,9 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation 
               </div>
               <div className="rounded-2xl border border-white/80 bg-white/80 p-4 shadow-sm shadow-teal-900/5 backdrop-blur xl:min-w-[640px]">
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <LeadInlineMeta label="Lead ID" value={lead.leadCode} icon={FileText} />
-                  <LeadInlineMeta label="Contact" value={lead.contactPerson} icon={ContactRound} />
-                  <LeadInlineMeta label="Mobile" value={lead.mobileNo1} icon={Phone} />
+                  <LeadInlineMeta label="Lead ID" value={activeLead.leadCode} icon={FileText} />
+                  <LeadInlineMeta label="Contact" value={activeLead.contactPerson} icon={ContactRound} />
+                  <LeadInlineMeta label="Mobile" value={activeLead.mobileNo1} icon={Phone} />
                   <LeadInlineMeta label="Quotations" value={leadQuotations.length} icon={FileText} />
                 </div>
               </div>
@@ -1153,7 +1277,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation 
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Overview</p>
                   <h2 className="text-2xl font-black text-slate-950">Lead intelligence</h2>
                 </div>
-                <span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-600">Updated {lead.importedUpdatedAt || lead.updatedAt || 'Recently'}</span>
+                <span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-600">Updated {activeLead.importedUpdatedAt || activeLead.updatedAt || 'Recently'}</span>
               </div>
               <div className="space-y-4">
                 <LeadDetailGroup title="Basic Information" icon={Building2} rows={basicInfoRows} defaultOpen />
@@ -1173,7 +1297,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation 
             <div className="p-6">
               {hasBusinessCard ? (
                 <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                  <img src={lead.businessCardUrl} alt="Business card" className="max-h-[560px] w-full object-contain" />
+                  <img src={activeLead.businessCardUrl} alt="Business card" className="max-h-[560px] w-full object-contain" />
                 </div>
               ) : (
                 <EmptyDetailState title="No business card uploaded." />
@@ -1202,15 +1326,39 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation 
               <Clock3 className="h-5 w-5 text-slate-500" />
               <h2 className="text-xl font-black text-slate-900">Follow-Up Tracker</h2>
             </div>
-            <button type="button" className="btn-lift min-h-10 rounded-lg bg-orange-500 px-5 text-sm font-black text-white">Add Follow-Up</button>
+            <button type="button" onClick={openFollowUpModal} className="btn-lift min-h-10 rounded-lg bg-orange-500 px-5 text-sm font-black text-white">Add Follow-Up</button>
           </div>
           <div className="space-y-5 p-6">
-            <FollowUpBox title="Upcoming Follow-Ups" tone="orange" message={lead.nextFollowUpDate ? `${lead.nextFollowUpDate}${lead.nextFollowUpTime ? ` at ${lead.nextFollowUpTime}` : ''}` : 'No upcoming follow-ups.'} />
-            <FollowUpBox title="Previous Follow-Ups" tone="slate" message={lead.followUpRemarks || 'No past follow-ups.'} />
+            <FollowUpBox title="Upcoming Follow-Ups" tone="orange" items={upcomingFollowUps} emptyMessage="No upcoming follow-ups." />
+            <FollowUpBox title="Previous Follow-Ups" tone="slate" items={previousFollowUps} emptyMessage="No past follow-ups." />
           </div>
         </aside>
         </div>
       </div>
+      {followUpModalOpen && (
+        <div className="fixed inset-0 z-[120] grid place-items-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm" onClick={() => !followUpSaving && setFollowUpModalOpen(false)}>
+          <section className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/25" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-600">Follow-Up</p>
+                <h3 className="mt-1 text-2xl font-black text-slate-950">Add Lead Follow-Up</h3>
+              </div>
+              <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-50 text-slate-600 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="grid gap-4 px-6 py-5 sm:grid-cols-2">
+              <Field label="Scheduled Date" required><input type="date" className="form-input" value={followUpDraft.scheduledDate} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
+              <Field label="Scheduled Time"><input type="time" className="form-input" value={followUpDraft.scheduledTime} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
+              <Field label="Follow-Up Remarks" required className="sm:col-span-2"><textarea className="form-input min-h-28 resize-y" value={followUpDraft.remarks} onChange={(event) => setFollowUpDraft((current) => ({ ...current, remarks: event.target.value }))} placeholder="Enter follow-up note or outcome" /></Field>
+              <Field label="Update Reason" className="sm:col-span-2"><textarea className="form-input min-h-20 resize-y" value={followUpDraft.reason} onChange={(event) => setFollowUpDraft((current) => ({ ...current, reason: event.target.value }))} placeholder="Why is this follow-up being added?" /></Field>
+              {followUpError && <p className="sm:col-span-2 rounded-lg bg-red-50 px-4 py-3 text-sm font-black text-red-600">{followUpError}</p>}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Cancel</button>
+              <button type="button" disabled={followUpSaving || !followUpDraft.scheduledDate || !followUpDraft.remarks.trim()} onClick={saveFollowUp} className="min-h-10 rounded-lg bg-orange-500 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Saving...' : 'Save Follow-Up'}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -1366,7 +1514,7 @@ function formatInr(value) {
   });
 }
 
-function FollowUpBox({ title, tone, message }) {
+function FollowUpBox({ title, tone, items = [], emptyMessage }) {
   const colors = tone === 'orange'
     ? 'border-orange-200 bg-orange-50 text-orange-900'
     : 'border-slate-200 bg-slate-50 text-slate-900';
@@ -1376,8 +1524,24 @@ function FollowUpBox({ title, tone, message }) {
       <div className={`border-b px-5 py-4 ${colors}`}>
         <h3 className="font-black">{title}</h3>
       </div>
-      <div className="grid min-h-32 place-items-center p-5 text-center">
-        <p className="font-black text-slate-500">{message}</p>
+      <div className="min-h-32 p-5">
+        {items.length ? (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm shadow-slate-900/5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <strong className="text-sm font-black text-slate-950">{formatFollowUpDate(item.scheduledDate)}{item.scheduledTime ? ` at ${item.scheduledTime}` : ''}</strong>
+                  {item.reason && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-500">{item.reason}</span>}
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6 text-slate-600">{item.remarks || 'No remarks added.'}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="grid min-h-24 place-items-center text-center">
+            <p className="font-black text-slate-500">{emptyMessage}</p>
+          </div>
+        )}
       </div>
     </section>
   );

@@ -56,7 +56,7 @@ import UserDetailsModal from '../components/dashboard/UserDetailsModal'
 import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
-import api from '../services/api'
+import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi'
 import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
@@ -2434,6 +2434,44 @@ function AnnualReturnYearModal({ row, onClose, onSelectYear }) {
   )
 }
 
+function SalesAnalyticsBars({ title, subtitle, rows = [], tone = 'teal', delay = 0 }) {
+  const max = Math.max(1, ...rows.map((row) => row.value))
+  const total = rows.reduce((sum, row) => sum + row.value, 0)
+  return (
+    <motion.article className={`sales-mix-card sales-mix-${tone}`} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .42, delay }}>
+      <header><div><span>{subtitle}</span><h3>{title}</h3></div><b>{total}</b></header>
+      <div className="sales-mix-bars">
+        {rows.length ? rows.map((row, index) => {
+          const percentValue = Math.round((row.value / Math.max(total, 1)) * 100)
+          return (
+            <div className="sales-mix-row" key={`${row.label}-${index}`} title={`${row.label}: ${row.value} (${percentValue}%)`}>
+              <strong>{row.label}</strong>
+              <div><motion.i initial={{ width: 0 }} animate={{ width: `${Math.max(4, (row.value / max) * 100)}%` }} transition={{ duration: .72, delay: delay + index * .055, ease: [0.22, 1, 0.36, 1] }} /></div>
+              <em>{row.value}</em><small>{percentValue}%</small>
+            </div>
+          )
+        }) : <p className="sales-mix-empty">No data available yet</p>}
+      </div>
+    </motion.article>
+  )
+}
+
+function SalesMixAnalytics({ analytics, total }) {
+  return (
+    <section className="sales-mix-section">
+      <div className="sales-mix-top-grid">
+        <SalesAnalyticsBars title="Top Industries" subtitle="Market concentration" rows={analytics.industries} tone="blue" delay={.06} />
+        <SalesAnalyticsBars title="PIBO Category" subtitle="Compliance segments" rows={analytics.pibo} tone="violet" delay={.11} />
+        <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={analytics.states} tone="green" delay={.16} />
+      </div>
+      <div className="sales-mix-bottom-grid">
+        <SalesAnalyticsBars title="Team Workload · Leads Assigned" subtitle="Ownership balance" rows={analytics.workload} tone="amber" delay={.2} />
+        <SalesAnalyticsBars title="Services Offered" subtitle="Solution portfolio" rows={analytics.services} tone="teal" delay={.25} />
+      </div>
+    </section>
+  )
+}
+
 function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
   const navigate = useNavigate()
   const [reportModal, setReportModal] = useState(null)
@@ -2517,6 +2555,37 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
     { label: 'Today Lead', value: todayLeads.length, note: 'Generated today', icon: CalendarDays, tone: 'pink', onClick: onOpenTodayLeads }
   ]
 
+  const salesMixAnalytics = useMemo(() => {
+    const firstValue = (record, keys, fallback = 'Others') => {
+      for (const key of keys) {
+        const value = key.split('.').reduce((next, part) => next?.[part], record)
+        if (Array.isArray(value) && value.length) return value.join(', ')
+        if (String(value || '').trim()) return String(value).trim()
+      }
+      return fallback
+    }
+    const distribution = (records, keys, limit = 6) => {
+      const counts = new Map()
+      records.forEach((record) => {
+        const raw = firstValue(record, keys)
+        const values = raw.split(/[,|/]+/).map((value) => value.trim()).filter(Boolean)
+        ;(values.length ? values : ['Others']).forEach((value) => counts.set(value, (counts.get(value) || 0) + 1))
+      })
+      const sorted = [...counts].sort((a, b) => b[1] - a[1])
+      const shown = sorted.slice(0, limit)
+      const remainder = sorted.slice(limit).reduce((sum, [, value]) => sum + value, 0)
+      if (remainder) shown.push(['Others', remainder])
+      return shown.map(([label, value]) => ({ label, value }))
+    }
+    return {
+      industries: distribution(scopedLeads, ['industry', 'industryType', 'businessType', 'sector', 'companyIndustry']),
+      pibo: distribution(scopedLeads, ['piboCategory', 'piboType', 'category', 'leadDetails.piboCategory']),
+      states: distribution(scopedLeads, ['state', 'address.state', 'registeredState', 'companyState', 'location.state']),
+      workload: distribution(scopedLeads, ['assignedToName', 'ownerName', 'createdByName', 'referredBy', 'assignedTo.name'], 8),
+      services: distribution(scopedLeads, ['serviceOffered', 'services', 'eprCategory', 'serviceCategory', 'leadDetails.eprCategory'])
+    }
+  }, [scopedLeads])
+
   return (
     <motion.div
       className="sales-dashboard"
@@ -2535,6 +2604,8 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
       <div className="sales-metric-grid">
         {metrics.map((metric, index) => <SalesMetricCard key={metric.label} metric={metric} index={index} />)}
       </div>
+
+      <SalesMixAnalytics analytics={salesMixAnalytics} total={scopedLeads.length} />
 
       <SalesLeadBreakdownTable rows={buildSalesLeadMatrixRows(scopedLeads)} />
 
@@ -3643,7 +3714,7 @@ export default function AdminDashboard() {
       const meResponse = await api.get(API_ENDPOINTS.auth.me, requestConfig)
       const user = meResponse.data.user
       setCurrentUser(user)
-      localStorage.setItem('user', JSON.stringify(user))
+      storeSessionUser(user)
       setLoading(false)
 
       if (isUserManagementView) {

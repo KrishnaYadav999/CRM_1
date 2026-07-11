@@ -44,6 +44,7 @@ function cleanBody(body) {
     'nextFollowUpDate',
     'nextFollowUpTime',
     'followUpRemarks',
+    'followUpHistory',
     'importedCreatedAt',
     'importedUpdatedAt',
     'workflowStatus'
@@ -52,6 +53,7 @@ function cleanBody(body) {
       const value = typeof body[key] === 'string' ? body[key].trim() : body[key];
       if (key === 'assignedTo' && !value) return;
       data[key] = key === 'emailsSentCount' ? Number(value) || 0 : value;
+      if (key === 'followUpHistory') data[key] = Array.isArray(value) ? value : [];
     }
   });
   return data;

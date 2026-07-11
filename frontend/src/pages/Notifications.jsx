@@ -7,6 +7,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 const STORAGE_KEY = 'crm.notifications.v1';
 const tags = ['Training Material', 'Compliance SOPs', 'Company Profile', 'Policy Update', 'Internal Memo'];
+const CUSTOM_TAG_VALUE = '__custom__';
 const statuses = ['Active', 'Inactive'];
 
 const seedNotifications = [
@@ -95,6 +96,7 @@ function emptyDraft() {
     title: '',
     description: '',
     tag: '',
+    customTag: '',
     status: 'Active',
     attachmentName: '',
     attachmentUrl: '',
@@ -118,6 +120,11 @@ function tagClass(tag) {
   return String(tag || 'General').toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
+function isUsableAttachmentUrl(url = '') {
+  const value = String(url || '').trim();
+  return Boolean(value && !value.startsWith('blob:'));
+}
+
 export default function Notifications() {
   const pageRef = useRef(null);
   const currentUser = useMemo(() => {
@@ -133,6 +140,12 @@ export default function Notifications() {
   const [draft, setDraft] = useState(() => emptyDraft());
   const [selected, setSelected] = useState(null);
   const [serverLoading, setServerLoading] = useState(false);
+  const tagOptions = useMemo(() => {
+    const customTags = notifications
+      .map((item) => String(item.tag || '').trim())
+      .filter((tag) => tag && !tags.includes(tag));
+    return [...new Set([...tags, ...customTags])];
+  }, [notifications]);
 
   const filteredNotifications = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -213,10 +226,13 @@ export default function Notifications() {
   }
 
   function openEdit(item) {
+    const tag = String(item.tag || '').trim();
+    const isKnownTag = tags.includes(tag);
     setDraft({
       title: item.title,
       description: item.description,
-      tag: item.tag,
+      tag: isKnownTag ? tag : CUSTOM_TAG_VALUE,
+      customTag: isKnownTag ? '' : tag,
       status: item.status,
       attachmentName: item.attachmentName || '',
       attachmentUrl: item.attachmentUrl || '',
@@ -227,27 +243,51 @@ export default function Notifications() {
   }
 
   async function saveNotification() {
-    if (!draft.title.trim() || !draft.description.trim() || !draft.tag) return;
+    const finalTag = draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag;
+    if (!draft.title.trim() || !draft.description.trim() || !finalTag) return;
     const author = currentUser?.name || currentUser?.email || 'Current User';
     if (modalMode === 'edit') {
-      persist(notifications.map((item) => item.id === draft.id ? {
-        ...item,
+      const updatedItem = {
+        ...notifications.find((item) => item.id === draft.id),
+        id: draft.id,
+        _id: draft._id,
         title: draft.title.trim(),
         description: draft.description.trim(),
-        tag: draft.tag,
+        tag: finalTag,
         status: draft.status || 'Active',
         attachmentName: draft.attachmentName,
         attachmentUrl: draft.attachmentUrl,
         pinned: Boolean(draft.pinned),
         updatedAt: new Date().toISOString(),
         updatedBy: author
-      } : item));
+      };
+      try {
+        const response = await api.put(API_ENDPOINTS.notifications.detail(draft._id || draft.id), updatedItem);
+        const saved = response.data?.notification || updatedItem;
+        persist(notifications.map((item) => item.id === draft.id ? saved : item));
+      } catch {
+        persist(notifications.map((item) => item.id === draft.id ? updatedItem : item));
+      }
+      /* legacy local merge retained by the fallback above */
+      /*
+      persist(notifications.map((item) => item.id === draft.id ? {
+        ...item,
+        title: draft.title.trim(),
+        description: draft.description.trim(),
+        tag: finalTag,
+        status: draft.status || 'Active',
+        attachmentName: draft.attachmentName,
+        attachmentUrl: draft.attachmentUrl,
+        pinned: Boolean(draft.pinned),
+        updatedAt: new Date().toISOString(),
+        updatedBy: author
+      } : item)); */
     } else {
       const localItem = {
         id: `notice-${Date.now()}`,
         title: draft.title.trim(),
         description: draft.description.trim(),
-        tag: draft.tag,
+        tag: finalTag,
         status: draft.status || 'Active',
         attachmentName: draft.attachmentName,
         attachmentUrl: draft.attachmentUrl,
@@ -311,6 +351,7 @@ export default function Notifications() {
 
   function downloadAttachment(item) {
     if (!item.attachmentName) return;
+    if (item.attachmentUrl && !isUsableAttachmentUrl(item.attachmentUrl)) return;
     const link = document.createElement('a');
     link.href = item.attachmentUrl || `data:text/plain;charset=utf-8,${encodeURIComponent(item.title)}`;
     link.download = item.attachmentName;
@@ -319,6 +360,7 @@ export default function Notifications() {
 
   function previewAttachment(item) {
     if (!item?.attachmentName) return;
+    if (item.attachmentUrl && !isUsableAttachmentUrl(item.attachmentUrl)) return;
     const href = item.attachmentUrl || `data:text/plain;charset=utf-8,${encodeURIComponent(item.description || item.title || item.attachmentName)}`;
     window.open(href, '_blank', 'noopener,noreferrer');
   }
@@ -326,11 +368,15 @@ export default function Notifications() {
   function handleAttachment(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    setDraft((current) => ({
-      ...current,
-      attachmentName: file.name,
-      attachmentUrl: URL.createObjectURL(file)
-    }));
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDraft((current) => ({
+        ...current,
+        attachmentName: file.name,
+        attachmentUrl: String(reader.result || '')
+      }));
+    };
+    reader.readAsDataURL(file);
   }
 
   return (
@@ -376,7 +422,7 @@ export default function Notifications() {
               </label>
               <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
                 <option value="">All Tags</option>
-                {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                {tagOptions.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
               </select>
               <button type="button" className={density === 'compact' ? 'notifications-density active' : 'notifications-density'} onClick={() => setDensity((value) => value === 'compact' ? 'comfortable' : 'compact')} title="Toggle density">
                 {density === 'compact' ? <LayoutGrid className="h-4 w-4" /> : <ListChecks className="h-4 w-4" />}
@@ -466,8 +512,16 @@ export default function Notifications() {
                   <Field label="Tag" required>
                     <select value={draft.tag} onChange={(event) => setDraft((current) => ({ ...current, tag: event.target.value }))}>
                       <option value="">Select tag</option>
-                      {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                      {tagOptions.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                      <option value={CUSTOM_TAG_VALUE}>Custom tag</option>
                     </select>
+                    {draft.tag === CUSTOM_TAG_VALUE && (
+                      <input
+                        value={draft.customTag || ''}
+                        onChange={(event) => setDraft((current) => ({ ...current, customTag: event.target.value }))}
+                        placeholder="Write custom tag"
+                      />
+                    )}
                   </Field>
                   <Field label="Status">
                     <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
@@ -498,7 +552,7 @@ export default function Notifications() {
 
               <div className="notifications-modal-actions">
                 <button type="button" onClick={() => setModalMode('')}>Cancel</button>
-                <button type="button" disabled={!draft.title.trim() || !draft.description.trim() || !draft.tag} onClick={saveNotification}>Save Notification</button>
+                <button type="button" disabled={!draft.title.trim() || !draft.description.trim() || !(draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag)} onClick={saveNotification}>Save Notification</button>
               </div>
             </section>
           </div>
@@ -517,13 +571,24 @@ export default function Notifications() {
               <em className={`notification-tag notification-tag-${tagClass(selected.tag)}`}>{selected.tag}</em>
               <p>{selected.description}</p>
               {selected.attachmentName && (
-                <div className="notifications-detail-file">
-                  <FileText className="h-5 w-5" />
-                  <button type="button" className="notifications-file-preview" onClick={() => previewAttachment(selected)} title="View attachment">
-                    {selected.attachmentName}
-                  </button>
-                  <button type="button" onClick={() => downloadAttachment(selected)}><Download className="h-4 w-4" /> Download</button>
-                </div>
+                <>
+                  <div className="notifications-detail-file">
+                    <FileText className="h-5 w-5" />
+                    <button
+                      type="button"
+                      className="notifications-file-preview"
+                      disabled={Boolean(selected.attachmentUrl && !isUsableAttachmentUrl(selected.attachmentUrl))}
+                      onClick={() => previewAttachment(selected)}
+                      title={isUsableAttachmentUrl(selected.attachmentUrl) || !selected.attachmentUrl ? 'View attachment' : 'Attachment link expired'}
+                    >
+                      {selected.attachmentName}
+                    </button>
+                    <button type="button" disabled={Boolean(selected.attachmentUrl && !isUsableAttachmentUrl(selected.attachmentUrl))} onClick={() => downloadAttachment(selected)}><Download className="h-4 w-4" /> Download</button>
+                  </div>
+                  {selected.attachmentUrl && !isUsableAttachmentUrl(selected.attachmentUrl) && (
+                    <small className="notifications-attachment-expired">Old attachment link expired. Edit notification and upload the file again.</small>
+                  )}
+                </>
               )}
               <div className="notifications-detail-footer">
                 <span>Created by <b>{selected.createdBy || 'User'}</b></span>

@@ -93,6 +93,247 @@
   }
 }
 
+/* Annual review drawer: viewport-level overlay */
+.annual-review-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 10000 !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: flex-end !important;
+  overflow: hidden !important;
+  padding: 10px !important;
+  background: rgba(15, 23, 42, .44) !important;
+  backdrop-filter: blur(7px) saturate(.82) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(.82) !important;
+}
+.annual-review-panel {
+  position: relative !important;
+  inset: auto !important;
+  width: min(620px, calc(100vw - 20px)) !important;
+  height: calc(100dvh - 20px) !important;
+  min-height: 0 !important;
+  max-height: calc(100dvh - 20px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(255,255,255,.7) !important;
+  border-radius: 18px !important;
+  background: #fff !important;
+  box-shadow: -22px 0 60px rgba(15,23,42,.28) !important;
+}
+.annual-review-panel > .sticky { flex: 0 0 auto !important; top: 0 !important; }
+.annual-review-panel .annual-review-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+@media (max-width: 640px) {
+  .annual-review-backdrop { padding: 0 !important; }
+  .annual-review-panel { width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; border-radius: 0 !important; }
+}
+
+/* Annual Return top summary only — premium client context bar */
+.annual-workspace .annual-toolbar {
+  position: relative !important;
+  display: grid !important;
+  grid-template-columns: 52px minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  margin: 0 0 14px !important;
+  overflow: hidden !important;
+  border: 1px solid #d5e6e3 !important;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, rgba(255,255,255,.98), rgba(244,251,249,.96)) !important;
+  padding: 10px !important;
+  box-shadow: 0 13px 34px rgba(19, 71, 68, .07), inset 0 1px 0 #fff !important;
+}
+
+.annual-workspace .annual-toolbar::after {
+  content: "" !important;
+  position: absolute !important;
+  top: -70px !important;
+  right: -60px !important;
+  width: 190px !important;
+  height: 190px !important;
+  border-radius: 999px !important;
+  background: radial-gradient(circle, rgba(245,158,11,.09), transparent 68%) !important;
+  pointer-events: none !important;
+}
+
+.annual-workspace .annual-toolbar .annual-back-button {
+  position: relative !important;
+  z-index: 1 !important;
+  align-self: stretch !important;
+  width: 52px !important;
+  min-width: 52px !important;
+  height: auto !important;
+  min-height: 78px !important;
+  border: 1px solid #08716c !important;
+  border-radius: 13px !important;
+  background: linear-gradient(155deg, #178a83, #086c68) !important;
+  color: #fff !important;
+  box-shadow: 0 10px 22px rgba(8,108,104,.21) !important;
+  transition: transform .2s ease, box-shadow .2s ease !important;
+}
+
+.annual-workspace .annual-toolbar .annual-back-button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 14px 26px rgba(8,108,104,.27) !important;
+}
+
+.annual-workspace .annual-toolbar .annual-summary-strip {
+  position: relative !important;
+  z-index: 1 !important;
+  display: grid !important;
+  grid-template-columns: minmax(320px, 1.65fr) repeat(3, minmax(190px, 1fr)) !important;
+  gap: 9px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.annual-workspace .annual-toolbar .annual-summary-card {
+  position: relative !important;
+  min-width: 0 !important;
+  min-height: 78px !important;
+  display: grid !important;
+  grid-template-columns: 40px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 11px !important;
+  overflow: hidden !important;
+  border: 1px solid #e0e9e7 !important;
+  border-radius: 13px !important;
+  background: rgba(255,255,255,.92) !important;
+  padding: 13px 14px !important;
+  box-shadow: 0 5px 15px rgba(23,57,55,.035) !important;
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease !important;
+}
+
+.annual-workspace .annual-toolbar .annual-summary-card:hover {
+  z-index: 2 !important;
+  transform: translateY(-2px) !important;
+  border-color: #bfded9 !important;
+  box-shadow: 0 12px 25px rgba(23,89,84,.09) !important;
+}
+
+.annual-workspace .annual-toolbar .annual-summary-card-client {
+  border-color: #bfe1dc !important;
+  border-left: 4px solid #12847e !important;
+  background: linear-gradient(135deg, #fff 0%, #ecfbf7 100%) !important;
+}
+
+.annual-workspace .annual-summary-icon {
+  width: 40px !important;
+  height: 40px !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid #cce5e1 !important;
+  border-radius: 12px !important;
+  background: linear-gradient(180deg, #fff, #eef9f7) !important;
+  color: #087872 !important;
+  box-shadow: 0 5px 12px rgba(12,101,96,.06) !important;
+}
+
+.annual-workspace .annual-summary-copy { min-width: 0 !important; }
+.annual-workspace .annual-summary-label {
+  display: block !important;
+  overflow: hidden !important;
+  color: #718398 !important;
+  font-size: 9px !important;
+  font-weight: 950 !important;
+  letter-spacing: .16em !important;
+  line-height: 1.2 !important;
+  text-overflow: ellipsis !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+.annual-workspace .annual-summary-value {
+  display: block !important;
+  overflow: hidden !important;
+  margin-top: 5px !important;
+  color: #102330 !important;
+  font-size: 14px !important;
+  font-weight: 950 !important;
+  letter-spacing: -.015em !important;
+  line-height: 1.2 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.annual-workspace .annual-summary-card-client .annual-summary-value { font-size: 16px !important; }
+.annual-workspace .annual-summary-meta {
+  display: inline-flex !important;
+  width: fit-content !important;
+  margin-top: 5px !important;
+  border: 1px solid #cce6e1 !important;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,.76) !important;
+  padding: 3px 8px !important;
+  color: #08706b !important;
+  font-size: 8px !important;
+  font-weight: 950 !important;
+  letter-spacing: .1em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+@media (max-width: 1180px) {
+  .annual-workspace .annual-toolbar .annual-summary-strip { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+  .annual-workspace .annual-toolbar .annual-summary-card-client { grid-column: 1 / -1 !important; }
+}
+
+@media (max-width: 700px) {
+  .annual-workspace .annual-toolbar { grid-template-columns: 44px minmax(0,1fr) !important; padding: 7px !important; }
+  .annual-workspace .annual-toolbar .annual-back-button { width: 44px !important; min-width: 44px !important; }
+  .annual-workspace .annual-toolbar .annual-summary-strip { grid-template-columns: 1fr !important; }
+  .annual-workspace .annual-toolbar .annual-summary-card-client { grid-column: auto !important; }
+  .annual-workspace .annual-toolbar .annual-summary-card { min-height: 70px !important; }
+}
+
+/* Unified Annual Return summary bar */
+.annual-workspace .annual-toolbar .annual-summary-strip {
+  gap: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid #cfe2df !important;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, #ffffff 0%, #f7fcfb 100%) !important;
+  box-shadow: 0 7px 20px rgba(23, 71, 67, .05) !important;
+}
+.annual-workspace .annual-toolbar .annual-summary-card,
+.annual-workspace .annual-toolbar .annual-summary-card-client {
+  min-height: 78px !important;
+  border: 0 !important;
+  border-right: 1px solid #e1ebe9 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.annual-workspace .annual-toolbar .annual-summary-card:last-child { border-right: 0 !important; }
+.annual-workspace .annual-toolbar .annual-summary-card:hover {
+  background: rgba(235, 249, 246, .65) !important;
+  border-color: #e1ebe9 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+@media (max-width: 1180px) {
+  .annual-workspace .annual-toolbar .annual-summary-card:nth-child(2) { border-right: 0 !important; }
+  .annual-workspace .annual-toolbar .annual-summary-card:nth-child(-n+2) { border-bottom: 1px solid #e1ebe9 !important; }
+}
+@media (max-width: 700px) {
+  .annual-workspace .annual-toolbar .annual-summary-card,
+  .annual-workspace .annual-toolbar .annual-summary-card-client {
+    grid-column: auto !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid #e1ebe9 !important;
+  }
+  .annual-workspace .annual-toolbar .annual-summary-card:last-child { border-bottom: 0 !important; }
+}
+
 @media (max-width: 860px) {
   .pending-approval-hero {
     grid-template-columns: 1fr;
@@ -519,32 +760,34 @@
 }
 
 .annual-review-backdrop {
-  overflow: hidden !important;
-  background: rgba(15, 23, 42, 0.5) !important;
-  backdrop-filter: blur(12px) saturate(0.82) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(0.82) !important;
+  overflow-y: auto !important;
+  background: rgba(15, 23, 42, 0.38) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .annual-review-panel {
-  top: 0 !important;
-  right: 0 !important;
+  position: fixed !important;
+  top: 24px !important;
+  right: 24px !important;
   left: auto !important;
-  bottom: 0 !important;
-  width: min(520px, 100vw) !important;
-  height: 100dvh !important;
-  max-height: none !important;
+  bottom: 24px !important;
+  width: min(620px, calc(100vw - 48px)) !important;
+  height: calc(100dvh - 48px) !important;
+  max-height: calc(100dvh - 48px) !important;
   max-width: none !important;
-  overflow: hidden auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
   overscroll-behavior: contain !important;
+  pointer-events: auto !important;
+  touch-action: pan-y !important;
   scrollbar-color: #7ccfc4 #eef7f5 !important;
   scrollbar-width: thin !important;
-  border-radius: 16px 0 0 16px !important;
-  border-left: 1px solid rgba(203, 213, 225, 0.85) !important;
-  border-top: 1px solid rgba(203, 213, 225, 0.85) !important;
-  border-bottom: 1px solid rgba(203, 213, 225, 0.85) !important;
+  border: 1px solid rgba(203, 213, 225, 0.92) !important;
+  border-radius: 18px !important;
   background:
     linear-gradient(180deg, #ffffff 0%, #f8fbfb 100%) !important;
-  box-shadow: -22px 0 48px rgba(15, 23, 42, 0.26) !important;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.26) !important;
 }
 
 .annual-review-panel::-webkit-scrollbar {
@@ -569,13 +812,16 @@
 body:has(.annual-review-backdrop) .annual-toolbar,
 body:has(.annual-review-backdrop) .annual-workspace-body,
 body:has(.annual-review-backdrop) .client-detail-card {
-  filter: blur(5px) saturate(0.85) !important;
+  filter: none !important;
 }
 
 .annual-review-panel > .sticky {
-  background: rgba(255, 255, 255, 0.96) !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 2 !important;
+  background: rgba(255, 255, 255, 0.98) !important;
   backdrop-filter: blur(16px) !important;
-  padding: 11px 18px 10px !important;
+  padding: 16px 20px 14px !important;
 }
 
 .annual-review-panel > .sticky h3 {
@@ -591,8 +837,8 @@ body:has(.annual-review-backdrop) .client-detail-card {
 
 .annual-review-panel > .space-y-5 {
   display: grid !important;
-  gap: 9px !important;
-  padding: 11px 12px 14px !important;
+  gap: 14px !important;
+  padding: 14px 16px 20px !important;
 }
 
 .annual-review-panel > .space-y-5 > .overflow-hidden:first-child {
@@ -601,16 +847,16 @@ body:has(.annual-review-backdrop) .client-detail-card {
 }
 
 .annual-review-panel > .space-y-5 > .overflow-hidden:first-child > div:first-child {
-  padding: 10px 12px !important;
+  padding: 14px 16px !important;
 }
 
 .annual-review-panel > .space-y-5 > .overflow-hidden:first-child > div:last-child {
-  padding: 10px 12px 12px !important;
+  padding: 14px 16px 16px !important;
 }
 
 .annual-review-panel > .space-y-5 > .overflow-hidden:first-child h4 {
   margin-top: 2px !important;
-  font-size: 16px !important;
+  font-size: 17px !important;
   line-height: 1.15 !important;
 }
 
@@ -646,7 +892,7 @@ body:has(.annual-review-backdrop) .client-detail-card {
 .annual-review-panel .rounded-2xl.border.border-slate-200.bg-slate-50\/70 {
   border-color: rgba(48, 115, 123, 0.14) !important;
   background: #f8fbfb !important;
-  padding: 8px !important;
+  padding: 10px !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
 }
 
@@ -657,17 +903,17 @@ body:has(.annual-review-backdrop) .client-detail-card {
 .annual-review-panel .space-y-2 {
   display: grid !important;
   grid-template-columns: 1fr !important;
-  gap: 7px !important;
+  gap: 10px !important;
 }
 
 .annual-review-panel .space-y-2 > .rounded-xl {
-  border-radius: 11px !important;
-  padding: 8px 10px !important;
+  border-radius: 12px !important;
+  padding: 12px 14px !important;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045) !important;
 }
 
 .annual-review-panel .space-y-2 > .rounded-xl .text-sm {
-  font-size: 12px !important;
+  font-size: 13px !important;
   line-height: 1.25 !important;
 }
 
@@ -694,6 +940,7 @@ body:has(.annual-review-backdrop) .client-detail-card {
     height: 100dvh !important;
     max-height: 100dvh !important;
     max-width: none !important;
+    overflow-y: auto !important;
     border-radius: 0 !important;
   }
 
@@ -710,7 +957,7 @@ body:has(.annual-review-backdrop) .client-detail-card {
 .annual-workspace .annual-stepper {
   position: relative !important;
   display: flex !important;
-  width: fit-content !important;
+  width: 100% !important;
   max-width: 100% !important;
   align-items: center !important;
   gap: 8px !important;
@@ -733,10 +980,11 @@ body:has(.annual-review-backdrop) .client-detail-card {
   position: relative !important;
   isolation: isolate !important;
   display: flex !important;
+  flex: 1 1 0 !important;
   min-width: 116px !important;
   min-height: 40px !important;
   align-items: center !important;
-  justify-content: flex-start !important;
+  justify-content: center !important;
   gap: 8px !important;
   overflow: hidden !important;
   border: 1px solid transparent !important;
@@ -846,6 +1094,22 @@ body:has(.annual-review-backdrop) .client-detail-card {
   box-shadow: 0 6px 12px rgba(22, 163, 74, 0.2) !important;
 }
 
+/* Final cascade: annual client context header */
+.annual-workspace .annual-toolbar { display:grid!important;grid-template-columns:52px minmax(0,1fr)!important;gap:10px!important;margin:0 0 14px!important;border:1px solid #d5e6e3!important;border-radius:18px!important;background:linear-gradient(135deg,#fff,#f4fbf9)!important;padding:10px!important;box-shadow:0 13px 34px rgba(19,71,68,.07)!important; }
+.annual-workspace .annual-toolbar .annual-back-button { align-self:stretch!important;width:52px!important;min-width:52px!important;height:auto!important;border:1px solid #08716c!important;border-radius:13px!important;background:linear-gradient(155deg,#178a83,#086c68)!important;color:#fff!important;box-shadow:0 10px 22px rgba(8,108,104,.21)!important; }
+.annual-workspace .annual-toolbar .annual-summary-strip { display:grid!important;grid-template-columns:minmax(320px,1.65fr) repeat(3,minmax(190px,1fr))!important;gap:9px!important;width:100%!important;min-width:0!important;background:transparent!important;padding:0!important;box-shadow:none!important; }
+.annual-workspace .annual-toolbar .annual-summary-card { min-width:0!important;min-height:78px!important;display:grid!important;grid-template-columns:40px minmax(0,1fr)!important;align-items:center!important;gap:11px!important;border:1px solid #e0e9e7!important;border-radius:13px!important;background:rgba(255,255,255,.94)!important;padding:13px 14px!important;box-shadow:0 5px 15px rgba(23,57,55,.04)!important;transition:.2s ease!important; }
+.annual-workspace .annual-toolbar .annual-summary-card:hover { transform:translateY(-2px)!important;border-color:#bfded9!important;box-shadow:0 12px 25px rgba(23,89,84,.09)!important; }
+.annual-workspace .annual-toolbar .annual-summary-card-client { border-color:#bfe1dc!important;border-left:4px solid #12847e!important;background:linear-gradient(135deg,#fff,#ecfbf7)!important; }
+.annual-workspace .annual-summary-icon { width:40px!important;height:40px!important;border:1px solid #cce5e1!important;border-radius:12px!important;background:linear-gradient(180deg,#fff,#eef9f7)!important;color:#087872!important;box-shadow:0 5px 12px rgba(12,101,96,.06)!important; }
+.annual-workspace .annual-summary-label { color:#718398!important;font-size:9px!important;letter-spacing:.16em!important; }
+.annual-workspace .annual-summary-value { overflow:hidden!important;margin-top:5px!important;color:#102330!important;font-size:14px!important;letter-spacing:-.015em!important;text-overflow:ellipsis!important;white-space:nowrap!important; }
+.annual-workspace .annual-summary-card-client .annual-summary-value { font-size:16px!important; }
+.annual-workspace .annual-summary-meta { width:fit-content!important;margin-top:5px!important;border:1px solid #cce6e1!important;border-radius:999px!important;background:#fff!important;padding:3px 8px!important;color:#08706b!important;font-size:8px!important;letter-spacing:.1em!important; }
+
+@media (max-width:1180px) { .annual-workspace .annual-toolbar .annual-summary-strip { grid-template-columns:repeat(2,minmax(0,1fr))!important; } .annual-workspace .annual-toolbar .annual-summary-card-client { grid-column:1/-1!important; } }
+@media (max-width:700px) { .annual-workspace .annual-toolbar { grid-template-columns:44px minmax(0,1fr)!important;padding:7px!important; } .annual-workspace .annual-toolbar .annual-back-button { width:44px!important;min-width:44px!important; } .annual-workspace .annual-toolbar .annual-summary-strip { grid-template-columns:1fr!important; } .annual-workspace .annual-toolbar .annual-summary-card-client { grid-column:auto!important; } }
+
 .annual-workspace .annual-step-active .annual-step-check {
   background: #ffffff !important;
   color: #0f766e !important;
@@ -864,6 +1128,32 @@ body:has(.annual-review-backdrop) .client-detail-card {
     flex: 0 0 136px !important;
     scroll-snap-align: start !important;
   }
+}
+
+/* Larger, clearer assignee photos in follow-up timeline */
+.operations-dashboard .dashboard-followup-flow .followup-flow-assignee {
+  gap: 10px !important;
+  padding-inline: 14px !important;
+}
+.operations-dashboard .dashboard-followup-flow .followup-flow-avatar {
+  width: 38px !important;
+  height: 38px !important;
+  flex: 0 0 38px !important;
+  border: 3px solid #ffffff !important;
+  font-size: 13px !important;
+  box-shadow: 0 0 0 1px #cce7e3, 0 7px 16px rgba(15, 77, 72, .14) !important;
+}
+.operations-dashboard .dashboard-followup-flow .followup-flow-avatar img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center top !important;
+  transform: scale(1.08) !important;
+}
+.operations-dashboard .dashboard-followup-flow .followup-flow-assignee em {
+  font-size: 11.5px !important;
+  line-height: 1.25 !important;
 }
 
 @media (max-width: 640px) {
@@ -3168,6 +3458,399 @@ body:has(.annual-review-backdrop) .client-detail-card {
   }
 }
 
+/* Disabled: experimental Annual Return redesign. Original styles restored. */
+@media not all {
+/* Annual return processing: premium client workspace */
+.annual-workspace {
+  --annual-accent: #f35b25;
+  --annual-accent-soft: #fff1eb;
+  --annual-ink: #18202b;
+  --annual-muted: #697386;
+  --annual-line: #e7e9ee;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.95) !important;
+  border-radius: 24px !important;
+  background: #f7f7f8 !important;
+  padding: 14px !important;
+  box-shadow: 0 22px 60px rgba(27,31,42,.10) !important;
+}
+
+.annual-workspace .annual-toolbar {
+  display: grid !important;
+  grid-template-columns: 48px minmax(0,1fr) !important;
+  align-items: stretch !important;
+  gap: 12px !important;
+  margin: 0 0 14px !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+.annual-workspace .annual-toolbar .annual-back-button {
+  width: 48px !important; min-width: 48px !important; height: auto !important;
+  border: 0 !important; border-radius: 16px !important; background: #20242d !important; color: #fff !important;
+  box-shadow: 0 10px 22px rgba(24,32,43,.18) !important;
+}
+.annual-workspace .annual-toolbar .annual-summary-strip {
+  display: grid !important; grid-template-columns: 1.55fr repeat(3,minmax(175px,1fr)) !important;
+  gap: 10px !important; width: 100% !important;
+}
+.annual-workspace .annual-toolbar .annual-summary-card {
+  min-width: 0 !important; min-height: 88px !important; display: flex !important; align-items: center !important;
+  gap: 12px !important; border: 1px solid #fff !important; border-radius: 17px !important;
+  background: #fff !important; padding: 16px !important; box-shadow: 0 8px 24px rgba(27,31,42,.045) !important;
+  transition: transform .18s ease, box-shadow .18s ease !important;
+}
+.annual-workspace .annual-toolbar .annual-summary-card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(27,31,42,.08) !important; }
+.annual-workspace .annual-toolbar .annual-summary-card-client { background: linear-gradient(135deg,#ff6b35,#ef4a13) !important; }
+.annual-workspace .annual-summary-card-client .annual-summary-label,
+.annual-workspace .annual-summary-card-client .annual-summary-value,
+.annual-workspace .annual-summary-card-client .annual-summary-meta { color: #fff !important; }
+.annual-workspace .annual-summary-icon {
+  width: 43px !important; height: 43px !important; flex: 0 0 43px !important; display: grid !important; place-items: center !important;
+  border: 0 !important; border-radius: 13px !important; background: var(--annual-accent-soft) !important; color: var(--annual-accent) !important;
+}
+.annual-workspace .annual-summary-card-client .annual-summary-icon { background: rgba(255,255,255,.18) !important; color: #fff !important; }
+.annual-workspace .annual-summary-label { color: #8a91a0 !important; font-size: 9px !important; letter-spacing: .15em !important; }
+.annual-workspace .annual-summary-value { color: var(--annual-ink) !important; font-size: 14px !important; letter-spacing: -.015em !important; }
+
+.annual-workspace .annual-workspace-body { display: block !important; border: 0 !important; border-radius: 20px !important; background: #fff !important; overflow: hidden !important; }
+.annual-workspace .annual-stepper {
+  display: grid !important; grid-template-columns: repeat(4,1fr) !important; gap: 0 !important;
+  width: 100% !important; min-width: 0 !important; border: 0 !important; border-bottom: 1px solid var(--annual-line) !important;
+  background: #fff !important; padding: 8px !important;
+}
+.annual-workspace .annual-step {
+  min-height: 58px !important; display: flex !important; justify-content: center !important; gap: 10px !important;
+  border: 0 !important; border-radius: 13px !important; background: transparent !important; color: #697386 !important;
+  font-weight: 800 !important;
+}
+.annual-workspace .annual-step::after { display: none !important; }
+.annual-workspace .annual-step:hover { background: #faf4f1 !important; color: var(--annual-accent) !important; }
+.annual-workspace .annual-step-active { background: linear-gradient(135deg,#ff6730,#f04a14) !important; color: #fff !important; box-shadow: 0 9px 20px rgba(243,91,37,.20) !important; }
+.annual-workspace .annual-step-icon { border: 0 !important; background: #f3f4f6 !important; color: #6b7280 !important; }
+.annual-workspace .annual-step-active .annual-step-icon { background: rgba(255,255,255,.18) !important; color: #fff !important; }
+
+.annual-workspace .annual-tab-content { background: #fafafa !important; }
+.annual-workspace .annual-panel-head {
+  min-height: 82px !important; border-bottom: 1px solid var(--annual-line) !important;
+  background: #fff !important; padding: 18px 22px !important;
+}
+.annual-workspace .annual-panel-head p { color: var(--annual-accent) !important; }
+.annual-workspace .annual-panel-head h4 { color: var(--annual-ink) !important; font-size: 22px !important; letter-spacing: -.025em !important; }
+.annual-workspace .annual-year-badge { border: 0 !important; border-radius: 999px !important; background: var(--annual-accent-soft) !important; color: var(--annual-accent) !important; padding: 9px 13px !important; }
+.annual-workspace .annual-section-content { padding: 16px !important; }
+.annual-workspace .processing-section-card { border: 1px solid var(--annual-line) !important; border-radius: 17px !important; background: #fff !important; box-shadow: 0 8px 24px rgba(27,31,42,.035) !important; }
+.annual-workspace .processing-section-label { color: var(--annual-ink) !important; }
+.annual-workspace .processing-section-card button[class*="border"] { border-color: #e5e7eb !important; }
+.annual-workspace .processing-section-card button[class*="text-orange"],
+.annual-workspace .processing-section-card button[aria-current="true"] { color: var(--annual-accent) !important; border-color: #ffb79d !important; background: var(--annual-accent-soft) !important; }
+.annual-workspace .mt-5.flex.flex-wrap.justify-end { margin: 0 !important; border-top: 1px solid var(--annual-line); background: #fff; padding: 14px 18px !important; }
+.annual-workspace .mt-5.flex.flex-wrap.justify-end > button:first-child { border-radius: 11px !important; background: linear-gradient(135deg,#ff6730,#ed4711) !important; box-shadow: 0 10px 22px rgba(243,91,37,.22) !important; }
+
+@media (max-width: 1100px) {
+  .annual-workspace .annual-toolbar .annual-summary-strip { grid-template-columns: repeat(2,1fr) !important; }
+  .annual-workspace .annual-summary-card-client { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .annual-workspace { padding: 8px !important; border-radius: 17px !important; }
+  .annual-workspace .annual-toolbar { grid-template-columns: 42px 1fr !important; }
+  .annual-workspace .annual-toolbar .annual-back-button { width: 42px !important; min-width: 42px !important; }
+  .annual-workspace .annual-toolbar .annual-summary-strip { grid-template-columns: 1fr !important; }
+  .annual-workspace .annual-summary-card-client { grid-column: auto; }
+  .annual-workspace .annual-stepper { grid-template-columns: repeat(4,minmax(54px,1fr)) !important; overflow-x: auto !important; }
+  .annual-workspace .annual-step { min-width: 0 !important; padding: 8px 4px !important; font-size: 10px !important; flex-direction: column !important; gap: 4px !important; }
+}
+
+/* Annual return final visual direction: clean blue enterprise UI */
+.annual-workspace {
+  --annual-accent: #356ee8;
+  --annual-accent-soft: #edf3ff;
+  --annual-ink: #172033;
+  --annual-muted: #758096;
+  --annual-line: #e5e9f2;
+  border: 1px solid #dfe5ef !important;
+  border-radius: 18px !important;
+  background: #f5f7fb !important;
+  padding: 12px !important;
+  box-shadow: 0 18px 48px rgba(40,55,85,.08) !important;
+}
+.annual-workspace .annual-toolbar .annual-back-button {
+  border-radius: 12px !important;
+  background: #356ee8 !important;
+  box-shadow: 0 8px 18px rgba(53,110,232,.22) !important;
+}
+.annual-workspace .annual-toolbar .annual-summary-card {
+  min-height: 78px !important;
+  border: 1px solid #e3e8f1 !important;
+  border-radius: 13px !important;
+  background: #fff !important;
+  box-shadow: 0 5px 14px rgba(47,61,88,.035) !important;
+}
+.annual-workspace .annual-toolbar .annual-summary-card-client {
+  border-color: #cbdcff !important;
+  background: linear-gradient(135deg,#f5f8ff,#fff) !important;
+}
+.annual-workspace .annual-summary-card-client .annual-summary-label { color: #6f7e99 !important; }
+.annual-workspace .annual-summary-card-client .annual-summary-value { color: #172033 !important; }
+.annual-workspace .annual-summary-card-client .annual-summary-meta { color: #356ee8 !important; }
+.annual-workspace .annual-summary-card-client .annual-summary-icon,
+.annual-workspace .annual-summary-icon { background: #edf3ff !important; color: #356ee8 !important; box-shadow: none !important; }
+
+.annual-workspace .annual-workspace-body { border: 1px solid #e2e7f0 !important; border-radius: 15px !important; }
+.annual-workspace .annual-stepper {
+  gap: 7px !important;
+  border-bottom: 1px solid #e7ebf2 !important;
+  background: #fff !important;
+  padding: 8px !important;
+}
+.annual-workspace .annual-step,
+.annual-workspace .annual-step:not(.annual-step-active):not(.annual-step-complete) {
+  min-height: 54px !important;
+  justify-content: center !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  padding: 7px 12px !important;
+  color: #526078 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.annual-workspace .annual-step::before,
+.annual-workspace .annual-step::after { display: none !important; content: none !important; }
+.annual-workspace .annual-step-icon {
+  width: 34px !important; height: 34px !important; flex-basis: 34px !important;
+  border-radius: 9px !important; background: #f1f3f7 !important; color: #68748a !important; box-shadow: none !important;
+}
+.annual-workspace .annual-step:hover:not(.annual-step-active) { border-color: #d8e3fb !important; background: #f7f9fe !important; color: #356ee8 !important; }
+.annual-workspace .annual-step-active {
+  border-color: #356ee8 !important;
+  background: #356ee8 !important;
+  color: #fff !important;
+  box-shadow: 0 7px 16px rgba(53,110,232,.2) !important;
+}
+.annual-workspace .annual-step-active .annual-step-icon { background: rgba(255,255,255,.18) !important; color: #fff !important; }
+.annual-workspace .annual-step-complete:not(.annual-step-active) { border-color: #d5efe4 !important; background: #f1fbf6 !important; color: #19825c !important; }
+.annual-workspace .annual-step-complete:not(.annual-step-active) .annual-step-icon { background: #dff5e9 !important; color: #19825c !important; }
+.annual-workspace .annual-step-check { position: static !important; margin-left: 2px !important; }
+
+.annual-workspace .annual-panel-head { min-height: 72px !important; padding: 15px 20px !important; }
+.annual-workspace .annual-panel-head p { color: #356ee8 !important; }
+.annual-workspace .annual-year-badge { background: #edf3ff !important; color: #356ee8 !important; }
+.annual-workspace .annual-section-content { padding: 14px !important; }
+.annual-workspace .processing-section-card { border-color: #e2e7ef !important; border-radius: 14px !important; box-shadow: 0 4px 14px rgba(38,52,79,.035) !important; }
+
+.annual-workspace .annual-section-tabs { border-color: #e2e6ee; border-radius: 10px; background: #f3f5f8; padding: 4px; }
+.annual-workspace .annual-section-tabs .processing-hint-pill { min-height: 35px; border-radius: 7px !important; padding-inline: 13px !important; }
+.annual-workspace .annual-section-tabs .processing-hint-pill-active { border-color: #d6e2fc !important; color: #285fcf !important; }
+.annual-workspace .annual-section-tabs .processing-hint-pill-active::after { right: 12px; bottom: 2px; left: 12px; background: #356ee8; }
+
+/* Data tables */
+.annual-workspace .annual-data-table-wrap,
+.annual-workspace .consent-details-table-wrap,
+.annual-workspace .annual-po-year-table-wrap {
+  overflow: auto !important;
+  border: 1px solid #e1e6ef !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  box-shadow: 0 4px 12px rgba(35,49,75,.03) !important;
+}
+.annual-workspace .annual-data-table,
+.annual-workspace .consent-details-table,
+.annual-workspace .annual-po-year-table { border-collapse: separate !important; border-spacing: 0 !important; }
+.annual-workspace .annual-data-table th,
+.annual-workspace .consent-details-table thead th,
+.annual-workspace .annual-po-year-table th {
+  border-bottom: 1px solid #dfe5ef !important;
+  background: #f1f5fc !important;
+  color: #52617b !important;
+  font-size: 10px !important;
+  letter-spacing: .075em !important;
+  text-transform: uppercase !important;
+}
+.annual-workspace .annual-data-table td,
+.annual-workspace .consent-details-table tbody td,
+.annual-workspace .annual-po-year-table td { border-bottom-color: #edf0f5 !important; color: #344057 !important; }
+.annual-workspace .annual-data-table tbody tr:nth-child(even) td,
+.annual-workspace .consent-details-table tbody tr:nth-child(even) td,
+.annual-workspace .annual-po-year-table tbody tr:nth-child(even) td { background: #fafbfe !important; }
+.annual-workspace .annual-data-table tbody tr:hover td,
+.annual-workspace .consent-details-table tbody tr:hover td,
+.annual-workspace .annual-po-year-table tbody tr:hover td { background: #f0f5ff !important; }
+.annual-workspace .annual-table-input:focus,
+.annual-workspace .processing-input:focus { border-color: #6692ef !important; box-shadow: 0 0 0 3px rgba(53,110,232,.1) !important; }
+.annual-workspace .mt-5.flex.flex-wrap.justify-end > button:first-child { background: #356ee8 !important; box-shadow: 0 8px 18px rgba(53,110,232,.2) !important; }
+
+@media (max-width: 700px) {
+  .annual-workspace .annual-step { min-height: 58px !important; padding: 6px 3px !important; }
+  .annual-workspace .annual-step-icon { width: 30px !important; height: 30px !important; flex-basis: 30px !important; }
+}
+
+/* Annual workspace tabs */
+.annual-workspace .annual-stepper { position: relative; isolation: isolate; }
+.annual-workspace .annual-step { position: relative; overflow: hidden; transition: color .2s ease, background .2s ease, transform .2s ease, box-shadow .2s ease !important; }
+.annual-workspace .annual-step:not(.annual-step-active):hover { transform: translateY(-2px); }
+.annual-workspace .annual-step-complete:not(.annual-step-active) { background: #f0fdf7 !important; color: #16815d !important; }
+.annual-workspace .annual-step-complete:not(.annual-step-active) .annual-step-icon { background: #dff8ec !important; color: #16815d !important; }
+.annual-workspace .annual-step-check { margin-left: 2px; color: currentColor !important; }
+
+/* Main four-stage navigation */
+.annual-workspace .annual-stepper {
+  gap: 10px !important;
+  padding: 10px !important;
+  background: linear-gradient(180deg,#fff,#fcfcfd) !important;
+}
+.annual-workspace .annual-step {
+  min-height: 68px !important;
+  justify-content: flex-start !important;
+  gap: 11px !important;
+  border: 1px solid transparent !important;
+  padding: 10px 14px !important;
+  text-align: left !important;
+}
+.annual-workspace .annual-step::before {
+  content: attr(data-step-number);
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: #d7dae0;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: .1em;
+}
+.annual-workspace .annual-step > span:not(.annual-step-icon) {
+  position: relative;
+  z-index: 1;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: -.01em;
+}
+.annual-workspace .annual-step-icon {
+  position: relative;
+  z-index: 1;
+  width: 38px !important;
+  height: 38px !important;
+  flex: 0 0 38px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 12px !important;
+  box-shadow: inset 0 0 0 1px rgba(100,110,125,.06) !important;
+}
+.annual-workspace .annual-step:not(.annual-step-active):not(.annual-step-complete) {
+  border-color: #eff0f3 !important;
+  background: #fff !important;
+}
+.annual-workspace .annual-step:not(.annual-step-active):not(.annual-step-complete):hover {
+  border-color: #ffc9b5 !important;
+  background: #fff8f5 !important;
+  color: var(--annual-accent) !important;
+  box-shadow: 0 8px 20px rgba(243,91,37,.07) !important;
+}
+.annual-workspace .annual-step-active {
+  border-color: #ff6a35 !important;
+  background: linear-gradient(135deg,#ff6a35 0%,#f04a14 72%,#dc3c08 100%) !important;
+  box-shadow: 0 12px 26px rgba(239,74,20,.25) !important;
+}
+.annual-workspace .annual-step-active::before { color: rgba(255,255,255,.6); }
+.annual-workspace .annual-step-active::after {
+  content: "" !important;
+  position: absolute !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  display: block !important;
+  width: 74px !important;
+  height: 74px !important;
+  border: 16px solid rgba(255,255,255,.07) !important;
+  border-radius: 999px 0 0 0 !important;
+  transform: translate(18px,18px) !important;
+}
+.annual-workspace .annual-step-active .annual-step-icon {
+  background: rgba(255,255,255,.19) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18) !important;
+}
+.annual-workspace .annual-step-complete:not(.annual-step-active) {
+  border-color: #ccefe0 !important;
+  background: linear-gradient(135deg,#f0fdf7,#fff) !important;
+}
+.annual-workspace .annual-step-complete:not(.annual-step-active)::before { color: #82c8ac; }
+.annual-workspace .annual-step-check {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  width: 15px;
+  height: 15px;
+}
+
+.annual-workspace .annual-section-tabs {
+  display: flex;
+  max-width: 100%;
+  gap: 5px;
+  overflow-x: auto;
+  border: 1px solid #e7e9ee;
+  border-radius: 14px;
+  background: #f4f5f7;
+  padding: 5px;
+  scrollbar-width: thin;
+  scrollbar-color: #d4d7dd transparent;
+}
+.annual-workspace .annual-section-tabs .processing-hint-pill {
+  position: relative;
+  min-height: 40px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  padding: 0 15px !important;
+  color: #687080 !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  white-space: nowrap;
+  box-shadow: none !important;
+  transition: color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease !important;
+}
+.annual-workspace .annual-section-tabs .processing-hint-pill:hover {
+  background: #fff !important;
+  color: #222833 !important;
+  transform: translateY(-1px);
+}
+.annual-workspace .annual-section-tabs .processing-hint-pill-active {
+  border-color: rgba(255,255,255,.7) !important;
+  background: #fff !important;
+  color: var(--annual-accent) !important;
+  box-shadow: 0 5px 14px rgba(31,35,45,.10) !important;
+}
+.annual-workspace .annual-section-tabs .processing-hint-pill-active::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  bottom: 3px;
+  left: 14px;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--annual-accent);
+}
+.annual-workspace .annual-section-tabs .processing-hint-pill-approved:not(.processing-hint-pill-active) { background: #ecfdf5 !important; color: #16815d !important; }
+.annual-workspace .annual-section-tabs .processing-hint-pill-pending:not(.processing-hint-pill-active) { background: #fff8e8 !important; color: #b7790b !important; }
+.annual-workspace .annual-section-tabs .processing-hint-pill-rejected:not(.processing-hint-pill-active) { background: #fff0f0 !important; color: #d33f49 !important; }
+.annual-workspace .annual-section-tabs .processing-hint-pill svg { flex: 0 0 auto; }
+
+@media (max-width: 700px) {
+  .annual-workspace .annual-section-tabs { width: calc(100vw - 70px); flex-wrap: nowrap; }
+  .annual-workspace .annual-section-tabs .processing-hint-pill { min-height: 38px; padding-inline: 12px !important; }
+  .annual-workspace .annual-stepper { gap: 6px !important; }
+  .annual-workspace .annual-step { min-height: 62px !important; justify-content: center !important; padding: 7px 3px !important; }
+  .annual-workspace .annual-step::before { display: none; }
+  .annual-workspace .annual-step-icon { width: 31px !important; height: 31px !important; flex-basis: 31px !important; }
+  .annual-workspace .annual-step > span:not(.annual-step-icon) { font-size: 9px; }
+}
+
+}
+
 /* Executive dashboard top polish */
 .operations-dashboard {
   gap: 20px !important;
@@ -3617,3 +4300,926 @@ body:has(.annual-review-backdrop) .client-detail-card {
   color: #26384d !important;
   box-shadow: 0 8px 18px rgba(15, 118, 110, 0.06) !important;
 }
+
+/* Annual Return workspace: premium production UI */
+.annual-workspace {
+  --annual-premium-ink: #071823;
+  --annual-premium-muted: #5b7180;
+  --annual-premium-line: #d8e8e6;
+  --annual-premium-soft: #f6fbfa;
+  --annual-premium-teal: #127672;
+  --annual-premium-teal-dark: #0b5f5d;
+  --annual-premium-green: #06966f;
+  --annual-premium-amber: #f59e0b;
+  overflow: hidden !important;
+  border: 1px solid rgba(18, 118, 114, 0.18) !important;
+  border-radius: 18px !important;
+  background:
+    linear-gradient(180deg, rgba(247, 252, 251, 0.98) 0%, rgba(255, 255, 255, 0.98) 42%, rgba(247, 252, 251, 0.94) 100%) !important;
+  padding: 14px !important;
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+.annual-workspace .annual-toolbar {
+  display: grid !important;
+  grid-template-columns: 48px minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  gap: 12px !important;
+  margin: 0 0 14px !important;
+  border: 1px solid rgba(18, 118, 114, 0.16) !important;
+  border-radius: 16px !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.97) 0%, rgba(240, 253, 250, 0.82) 62%, rgba(255, 247, 237, 0.74) 100%) !important;
+  padding: 10px !important;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.065) !important;
+}
+
+.annual-workspace .annual-toolbar .annual-back-button {
+  align-self: center !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, #0b5f5d 0%, #127672 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 24px rgba(18, 118, 114, 0.24) !important;
+}
+
+.annual-workspace .annual-toolbar .annual-summary-strip {
+  display: grid !important;
+  grid-template-columns: minmax(280px, 1.65fr) repeat(3, minmax(190px, 1fr)) !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.annual-workspace .annual-toolbar .annual-summary-card {
+  min-height: 72px !important;
+  grid-template-columns: 40px minmax(0, 1fr) !important;
+  gap: 12px !important;
+  border: 1px solid rgba(18, 118, 114, 0.15) !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  padding: 12px 14px !important;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045) !important;
+}
+
+.annual-workspace .annual-toolbar .annual-summary-card-client {
+  border-left: 4px solid var(--annual-premium-teal) !important;
+  background: linear-gradient(135deg, #ffffff 0%, #ecfdf8 100%) !important;
+}
+
+.annual-workspace .annual-summary-icon {
+  width: 36px !important;
+  height: 36px !important;
+  border: 1px solid rgba(18, 118, 114, 0.2) !important;
+  border-radius: 10px !important;
+  background: linear-gradient(180deg, #ffffff 0%, #eefaf8 100%) !important;
+  color: var(--annual-premium-teal) !important;
+}
+
+.annual-workspace .annual-summary-label {
+  color: #64798a !important;
+  font-size: 10px !important;
+  letter-spacing: 0.16em !important;
+}
+
+.annual-workspace .annual-summary-value {
+  color: var(--annual-premium-ink) !important;
+  font-size: 14px !important;
+  letter-spacing: 0 !important;
+  line-height: 1.22 !important;
+}
+
+.annual-workspace .annual-summary-meta {
+  width: fit-content !important;
+  margin-top: 5px !important;
+  border: 1px solid rgba(18, 118, 114, 0.14) !important;
+  border-radius: 999px !important;
+  background: #f2fbf8 !important;
+  padding: 3px 8px !important;
+  color: var(--annual-premium-teal-dark) !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+}
+
+.annual-workspace .annual-workspace-body {
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+.annual-workspace .annual-stepper {
+  width: 100% !important;
+  gap: 7px !important;
+  margin: 0 0 14px !important;
+  border: 1px solid rgba(18, 118, 114, 0.13) !important;
+  border-radius: 13px !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  padding: 6px !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.045) !important;
+}
+
+.annual-workspace .annual-step {
+  flex: 1 1 0 !important;
+  min-height: 44px !important;
+  justify-content: center !important;
+  border-radius: 9px !important;
+  background: rgba(255, 255, 255, 0.64) !important;
+  color: #244745 !important;
+  font-size: 11px !important;
+}
+
+.annual-workspace .annual-step-active,
+.annual-workspace .annual-step-active:hover {
+  background: linear-gradient(135deg, #127672 0%, #0b8178 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 24px rgba(18, 118, 114, 0.2) !important;
+}
+
+.annual-workspace .annual-tab-content {
+  overflow: hidden !important;
+  border: 1px solid rgba(18, 118, 114, 0.15) !important;
+  border-radius: 15px !important;
+  background: #ffffff !important;
+  padding: 0 !important;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.06) !important;
+}
+
+.annual-workspace .annual-panel-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--annual-premium-line) !important;
+  border-radius: 0 !important;
+  background: linear-gradient(180deg, #fbfefd 0%, #f4faf9 100%) !important;
+  padding: 20px 22px !important;
+}
+
+.annual-workspace .annual-panel-head p {
+  color: var(--annual-premium-teal-dark) !important;
+  letter-spacing: 0.18em !important;
+}
+
+.annual-workspace .annual-panel-head h4 {
+  color: var(--annual-premium-ink) !important;
+  font-size: 22px !important;
+  line-height: 1.12 !important;
+}
+
+.annual-workspace .annual-year-badge {
+  min-height: 34px !important;
+  border: 1px solid rgba(18, 118, 114, 0.18) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  padding: 0 12px !important;
+  color: var(--annual-premium-teal-dark) !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04) !important;
+}
+
+.annual-workspace .annual-section-content {
+  padding: 14px !important;
+}
+
+.annual-workspace .processing-section-card {
+  overflow: hidden !important;
+  border: 1px solid var(--annual-premium-line) !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.annual-workspace .processing-section-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  border-bottom: 1px solid var(--annual-premium-line) !important;
+  background: #ffffff !important;
+  padding: 16px 18px !important;
+}
+
+.annual-workspace .processing-section-eyebrow {
+  color: var(--annual-premium-amber) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.14em !important;
+}
+
+.annual-workspace .processing-section-title {
+  margin-top: 4px !important;
+  color: var(--annual-premium-ink) !important;
+  font-size: 16px !important;
+  line-height: 1.2 !important;
+}
+
+.annual-workspace .processing-section-count {
+  min-height: 30px !important;
+  border: 1px solid rgba(18, 118, 114, 0.16) !important;
+  border-radius: 999px !important;
+  background: #f6fbfa !important;
+  padding: 6px 12px !important;
+  color: #607788 !important;
+  font-size: 11px !important;
+}
+
+.annual-workspace .processing-section-actions {
+  border-bottom: 1px solid var(--annual-premium-line) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fcfb 100%) !important;
+  padding: 12px 18px !important;
+}
+
+.annual-workspace .processing-hint-pill {
+  min-height: 34px !important;
+  border: 1px solid #d7e6e3 !important;
+  border-radius: 9px !important;
+  background: #ffffff !important;
+  padding: 0 13px !important;
+  color: #1d3f3c !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+}
+
+.annual-workspace .processing-hint-pill-active,
+.annual-workspace .processing-hint-pill:hover {
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  background: #fff7ed !important;
+  color: #a65308 !important;
+  box-shadow: inset 0 -2px 0 var(--annual-premium-amber) !important;
+}
+
+.annual-workspace .annual-overview-fields {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0 !important;
+  background: #ffffff !important;
+}
+
+.annual-workspace .annual-overview-field {
+  min-height: 64px !important;
+  display: grid !important;
+  grid-template-columns: minmax(185px, 0.46fr) minmax(0, 1fr) !important;
+  gap: 14px !important;
+  border-right: 1px solid #edf4f3 !important;
+  border-bottom: 1px solid #edf4f3 !important;
+  background: #ffffff !important;
+  padding: 13px 16px !important;
+}
+
+.annual-workspace .annual-overview-field:nth-child(even) {
+  border-right: 0 !important;
+}
+
+.annual-workspace .annual-overview-field-wide {
+  grid-column: 1 / -1 !important;
+  grid-template-columns: minmax(220px, 0.23fr) minmax(0, 1fr) !important;
+  border-right: 0 !important;
+}
+
+.annual-workspace .annual-overview-index {
+  display: none !important;
+}
+
+.annual-workspace .annual-overview-name {
+  display: flex !important;
+  min-width: 0 !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.annual-workspace .annual-overview-icon {
+  width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 30px !important;
+  border: 1px solid rgba(18, 118, 114, 0.14) !important;
+  border-radius: 8px !important;
+  background: #f0faf8 !important;
+  color: var(--annual-premium-teal) !important;
+}
+
+.annual-workspace .annual-overview-label {
+  color: #14314b !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  line-height: 1.35 !important;
+}
+
+.annual-workspace .annual-data-field-meta {
+  width: fit-content !important;
+  margin-top: 5px !important;
+  border-radius: 999px !important;
+  background: #eef8f6 !important;
+  padding: 2px 7px !important;
+  color: var(--annual-premium-teal-dark) !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+}
+
+.annual-workspace .annual-overview-control .annual-table-input,
+.annual-workspace .annual-overview-control .annual-table-file-input,
+.annual-workspace .annual-overview-control .annual-table-textarea {
+  min-height: 36px !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  padding: 6px 8px !important;
+  color: #071823 !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  line-height: 1.45 !important;
+}
+
+.annual-workspace .annual-overview-control .annual-table-input:hover,
+.annual-workspace .annual-overview-control .annual-table-input:focus,
+.annual-workspace .annual-overview-control .annual-table-file-input:hover,
+.annual-workspace .annual-overview-control .annual-table-file-input:focus,
+.annual-workspace .annual-overview-control .annual-table-textarea:hover,
+.annual-workspace .annual-overview-control .annual-table-textarea:focus {
+  border-color: rgba(18, 118, 114, 0.22) !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(18, 118, 114, 0.08) !important;
+}
+
+.annual-workspace .mt-5.flex.justify-end {
+  position: sticky !important;
+  bottom: 12px !important;
+  z-index: 12 !important;
+  margin: 0 !important;
+  border-top: 1px solid var(--annual-premium-line) !important;
+  border-radius: 0 !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  padding: 12px 20px !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+.annual-workspace .mt-5.flex.justify-end .btn-lift {
+  min-height: 42px !important;
+  border-radius: 9px !important;
+  padding-inline: 18px !important;
+}
+
+.annual-workspace .mt-5.flex.justify-end .bg-emerald-600 {
+  background: linear-gradient(135deg, #06966f 0%, #047857 100%) !important;
+  box-shadow: 0 14px 24px rgba(6, 150, 111, 0.22) !important;
+}
+
+@media (max-width: 1180px) {
+  .annual-workspace .annual-toolbar .annual-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .annual-workspace {
+    padding: 10px !important;
+  }
+
+  .annual-workspace .annual-toolbar,
+  .annual-workspace .annual-toolbar .annual-summary-strip,
+  .annual-workspace .annual-panel-head,
+  .annual-workspace .processing-section-head,
+  .annual-workspace .annual-overview-fields {
+    grid-template-columns: 1fr !important;
+  }
+
+  .annual-workspace .annual-stepper {
+    overflow-x: auto !important;
+  }
+
+  .annual-workspace .annual-step {
+    flex: 0 0 138px !important;
+  }
+
+  .annual-workspace .annual-overview-field,
+  .annual-workspace .annual-overview-field-wide {
+    grid-template-columns: 1fr !important;
+    border-right: 0 !important;
+  }
+}
+
+/* Annual review drawer scroll hard reset */
+.annual-review-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: flex-end !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 24px !important;
+  background: rgba(15, 23, 42, 0.38) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.annual-review-backdrop > button[aria-label="Close review drawer"] {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 0 !important;
+}
+
+.annual-review-panel {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  z-index: 1 !important;
+  display: block !important;
+  width: min(620px, calc(100vw - 48px)) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  max-width: none !important;
+  overflow: visible !important;
+  border: 1px solid rgba(203, 213, 225, 0.92) !important;
+  border-radius: 18px !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbfb 100%) !important;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.26) !important;
+  pointer-events: auto !important;
+}
+
+.annual-review-panel > .sticky {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 3 !important;
+  border-radius: 18px 18px 0 0 !important;
+}
+
+.annual-review-panel > .space-y-5 {
+  overflow: visible !important;
+}
+
+/* Exact drawer scroll target used by AnnualReviewDrawer */
+.annual-review-backdrop {
+  overflow: hidden !important;
+}
+
+.annual-review-panel {
+  position: fixed !important;
+  top: 24px !important;
+  right: 24px !important;
+  bottom: 24px !important;
+  left: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: min(620px, calc(100vw - 48px)) !important;
+  height: calc(100dvh - 48px) !important;
+  max-height: calc(100dvh - 48px) !important;
+  overflow: hidden !important;
+}
+
+.annual-review-panel > .sticky {
+  flex: 0 0 auto !important;
+}
+
+.annual-review-panel .annual-review-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  padding: 14px 16px 24px !important;
+  scrollbar-color: #7ccfc4 #eef7f5 !important;
+  scrollbar-width: thin !important;
+  touch-action: pan-y !important;
+}
+
+.annual-review-panel .annual-review-body::-webkit-scrollbar {
+  width: 8px !important;
+}
+
+.annual-review-panel .annual-review-body::-webkit-scrollbar-track {
+  border-radius: 999px !important;
+  background: #eef7f5 !important;
+}
+
+.annual-review-panel .annual-review-body::-webkit-scrollbar-thumb {
+  border: 2px solid #eef7f5 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #8ddbd0, #2c8c85) !important;
+}
+
+@media (max-width: 640px) {
+  .annual-review-backdrop {
+    padding: 0 !important;
+  }
+
+  .annual-review-panel {
+    top: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    min-height: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .annual-review-panel > .sticky {
+    border-radius: 0 !important;
+  }
+}
+
+/* Notification detail attachment preview readability */
+.notifications-detail-file .notifications-file-preview,
+.notifications-detail-file .notifications-file-preview:hover,
+.notifications-detail-file .notifications-file-preview:focus-visible {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid #99f6e4 !important;
+  background: #ecfeff !important;
+  color: #0f172a !important;
+  text-align: left !important;
+  text-decoration: none !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+
+.notifications-detail-file .notifications-file-preview:hover,
+.notifications-detail-file .notifications-file-preview:focus-visible {
+  border-color: #14b8a6 !important;
+  background: #ccfbf1 !important;
+  color: #0f172a !important;
+}
+
+.notifications-detail-file .notifications-file-preview:disabled,
+.notifications-detail-file button:disabled {
+  cursor: not-allowed !important;
+  border-color: #cbd5e1 !important;
+  background: #f1f5f9 !important;
+  color: #64748b !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+
+.notifications-attachment-expired {
+  display: block !important;
+  margin-top: 8px !important;
+  color: #b45309 !important;
+  font-weight: 900 !important;
+}
+
+/* Annual Return top tabs only — modern teal segmented navigation */
+.annual-workspace .annual-stepper {
+  position: relative !important;
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 7px !important;
+  width: 100% !important;
+  margin: 0 0 14px !important;
+  overflow: hidden !important;
+  border: 1px solid #d7e7e5 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(247,251,250,.98)) !important;
+  padding: 7px !important;
+  box-shadow: 0 10px 28px rgba(15, 73, 69, .06), inset 0 1px 0 #fff !important;
+}
+
+.annual-workspace .annual-step {
+  position: relative !important;
+  isolation: isolate !important;
+  min-width: 0 !important;
+  min-height: 52px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  overflow: hidden !important;
+  border: 1px solid transparent !important;
+  border-radius: 11px !important;
+  background: transparent !important;
+  padding: 7px 14px !important;
+  color: #365b58 !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  box-shadow: none !important;
+  transition: background .2s ease, border-color .2s ease, color .2s ease, transform .2s ease, box-shadow .2s ease !important;
+}
+
+.annual-workspace .annual-step::before,
+.annual-workspace .annual-step::after {
+  display: none !important;
+  content: none !important;
+}
+
+.annual-workspace .annual-step-icon {
+  width: 34px !important;
+  height: 34px !important;
+  flex: 0 0 34px !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid #d8e7e5 !important;
+  border-radius: 10px !important;
+  background: #f7fbfa !important;
+  color: #177d78 !important;
+  box-shadow: 0 4px 10px rgba(15, 73, 69, .05) !important;
+  transition: inherit !important;
+}
+
+.annual-workspace .annual-step:not(.annual-step-active):hover {
+  border-color: #cce4e0 !important;
+  background: #f0faf8 !important;
+  color: #0c706a !important;
+  transform: translateY(-1px) !important;
+}
+
+.annual-workspace .annual-step:not(.annual-step-active):hover .annual-step-icon {
+  border-color: #b9dcd7 !important;
+  background: #fff !important;
+}
+
+.annual-workspace .annual-step-active,
+.annual-workspace .annual-step-active:hover {
+  border-color: #0f837c !important;
+  background: linear-gradient(135deg, #168b84 0%, #08746f 100%) !important;
+  color: #fff !important;
+  transform: none !important;
+  box-shadow: 0 9px 20px rgba(8, 116, 111, .21) !important;
+}
+
+.annual-workspace .annual-step-active .annual-step-icon {
+  border-color: rgba(255,255,255,.22) !important;
+  background: rgba(255,255,255,.16) !important;
+  color: #fff !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14) !important;
+}
+
+.annual-workspace .annual-step-complete:not(.annual-step-active) {
+  color: #08745a !important;
+}
+
+.annual-workspace .annual-step-complete:not(.annual-step-active) .annual-step-icon {
+  border-color: #bfe5d5 !important;
+  background: #eaf9f2 !important;
+  color: #08745a !important;
+}
+
+.annual-workspace .annual-step-check {
+  width: 16px !important;
+  height: 16px !important;
+  flex: 0 0 16px !important;
+  color: currentColor !important;
+}
+
+@media (max-width: 760px) {
+  .annual-workspace .annual-stepper {
+    display: flex !important;
+    gap: 6px !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+  }
+  .annual-workspace .annual-stepper::-webkit-scrollbar { display: none !important; }
+  .annual-workspace .annual-step { flex: 0 0 138px !important; min-height: 48px !important; padding-inline: 9px !important; }
+  .annual-workspace .annual-step-icon { width: 31px !important; height: 31px !important; flex-basis: 31px !important; }
+}
+
+/* Client context bar: keep after every legacy override */
+.annual-workspace .annual-toolbar{display:grid!important;grid-template-columns:52px minmax(0,1fr)!important;gap:10px!important;margin:0 0 14px!important;border:1px solid #d5e6e3!important;border-radius:18px!important;background:linear-gradient(135deg,#fff,#f4fbf9)!important;padding:10px!important;box-shadow:0 13px 34px rgba(19,71,68,.07)!important}
+.annual-workspace .annual-toolbar .annual-back-button{align-self:stretch!important;width:52px!important;min-width:52px!important;height:auto!important;border-radius:13px!important;background:linear-gradient(155deg,#178a83,#086c68)!important;color:#fff!important;box-shadow:0 10px 22px rgba(8,108,104,.21)!important}
+.annual-workspace .annual-toolbar .annual-summary-strip{display:grid!important;grid-template-columns:minmax(320px,1.65fr) repeat(3,minmax(190px,1fr))!important;gap:9px!important;width:100%!important;min-width:0!important;background:transparent!important;padding:0!important;box-shadow:none!important}
+.annual-workspace .annual-toolbar .annual-summary-card{min-width:0!important;min-height:78px!important;grid-template-columns:40px minmax(0,1fr)!important;gap:11px!important;border:1px solid #e0e9e7!important;border-radius:13px!important;background:#fff!important;padding:13px 14px!important;box-shadow:0 5px 15px rgba(23,57,55,.04)!important;transition:.2s ease!important}
+.annual-workspace .annual-toolbar .annual-summary-card:hover{transform:translateY(-2px)!important;border-color:#bfded9!important;box-shadow:0 12px 25px rgba(23,89,84,.09)!important}
+.annual-workspace .annual-toolbar .annual-summary-card-client{border-color:#bfe1dc!important;border-left:4px solid #12847e!important;background:linear-gradient(135deg,#fff,#ecfbf7)!important}
+.annual-workspace .annual-summary-icon{width:40px!important;height:40px!important;border:1px solid #cce5e1!important;border-radius:12px!important;background:linear-gradient(180deg,#fff,#eef9f7)!important;color:#087872!important;box-shadow:0 5px 12px rgba(12,101,96,.06)!important}
+.annual-workspace .annual-summary-label{color:#718398!important;font-size:9px!important;letter-spacing:.16em!important}.annual-workspace .annual-summary-value{overflow:hidden!important;margin-top:5px!important;color:#102330!important;font-size:14px!important;text-overflow:ellipsis!important;white-space:nowrap!important}.annual-workspace .annual-summary-card-client .annual-summary-value{font-size:16px!important}
+.annual-workspace .annual-summary-meta{width:fit-content!important;margin-top:5px!important;border:1px solid #cce6e1!important;border-radius:999px!important;background:#fff!important;padding:3px 8px!important;color:#08706b!important;font-size:8px!important;letter-spacing:.1em!important}
+@media(max-width:1180px){.annual-workspace .annual-toolbar .annual-summary-strip{grid-template-columns:repeat(2,minmax(0,1fr))!important}.annual-workspace .annual-toolbar .annual-summary-card-client{grid-column:1/-1!important}}
+@media(max-width:700px){.annual-workspace .annual-toolbar{grid-template-columns:44px minmax(0,1fr)!important;padding:7px!important}.annual-workspace .annual-toolbar .annual-back-button{width:44px!important;min-width:44px!important}.annual-workspace .annual-toolbar .annual-summary-strip{grid-template-columns:1fr!important}.annual-workspace .annual-toolbar .annual-summary-card-client{grid-column:auto!important}}
+
+/* Compact Annual Return back button */
+.annual-workspace .annual-toolbar { grid-template-columns: 42px minmax(0, 1fr) !important; align-items: center !important; }
+.annual-workspace .annual-toolbar .annual-back-button {
+  align-self: center !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  border-radius: 11px !important;
+}
+@media (max-width: 700px) {
+  .annual-workspace .annual-toolbar { grid-template-columns: 38px minmax(0, 1fr) !important; }
+  .annual-workspace .annual-toolbar .annual-back-button { width: 38px !important; min-width: 38px !important; height: 38px !important; min-height: 38px !important; }
+}
+
+/* Final: render all four summary items as one card */
+.annual-workspace .annual-toolbar .annual-summary-strip{gap:0!important;overflow:hidden!important;border:1px solid #cfe2df!important;border-radius:14px!important;background:linear-gradient(135deg,#fff,#f7fcfb)!important;box-shadow:0 7px 20px rgba(23,71,67,.05)!important}
+.annual-workspace .annual-toolbar .annual-summary-card,.annual-workspace .annual-toolbar .annual-summary-card-client{border:0!important;border-right:1px solid #e1ebe9!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;transform:none!important}
+.annual-workspace .annual-toolbar .annual-summary-card:last-child{border-right:0!important}.annual-workspace .annual-toolbar .annual-summary-card:hover{background:rgba(235,249,246,.65)!important;box-shadow:none!important;transform:none!important}
+@media(max-width:1180px){.annual-workspace .annual-toolbar .annual-summary-card:nth-child(2){border-right:0!important}.annual-workspace .annual-toolbar .annual-summary-card:nth-child(-n+2){border-bottom:1px solid #e1ebe9!important}}
+@media(max-width:700px){.annual-workspace .annual-toolbar .annual-summary-card,.annual-workspace .annual-toolbar .annual-summary-card-client{grid-column:auto!important;border-right:0!important;border-bottom:1px solid #e1ebe9!important}.annual-workspace .annual-toolbar .annual-summary-card:last-child{border-bottom:0!important}}
+
+/* Dividers between Annual Return workflow tabs */
+.annual-workspace .annual-stepper {
+  background:
+    linear-gradient(90deg, transparent calc(25% - .5px), #cbdedb calc(25% - .5px), #cbdedb calc(25% + .5px), transparent calc(25% + .5px)),
+    linear-gradient(90deg, transparent calc(50% - .5px), #cbdedb calc(50% - .5px), #cbdedb calc(50% + .5px), transparent calc(50% + .5px)),
+    linear-gradient(90deg, transparent calc(75% - .5px), #cbdedb calc(75% - .5px), #cbdedb calc(75% + .5px), transparent calc(75% + .5px)),
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(247,251,250,.98)) !important;
+}
+
+@media (max-width: 760px) {
+  .annual-workspace .annual-stepper {
+    background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(247,251,250,.98)) !important;
+  }
+  .annual-workspace .annual-step:not(:last-child) {
+    border-right: 1px solid #cbdedb !important;
+  }
+}
+
+/* Final drawer viewport sizing and global blur */
+.annual-review-backdrop{position:fixed!important;inset:0!important;z-index:10000!important;display:flex!important;align-items:stretch!important;justify-content:flex-end!important;overflow:hidden!important;padding:8px!important;background:rgba(15,23,42,.42)!important;backdrop-filter:blur(8px) saturate(.8)!important;-webkit-backdrop-filter:blur(8px) saturate(.8)!important}
+.annual-review-panel{position:relative!important;inset:auto!important;display:flex!important;flex-direction:column!important;width:min(620px,calc(100vw - 16px))!important;height:calc(100dvh - 16px)!important;min-height:0!important;max-height:calc(100dvh - 16px)!important;overflow:hidden!important;border-radius:18px!important;background:#fff!important;box-shadow:-22px 0 60px rgba(15,23,42,.3)!important}
+.annual-review-panel>.sticky{flex:0 0 auto!important;top:0!important}.annual-review-panel .annual-review-body{flex:1 1 auto!important;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important}
+@media(max-width:640px){.annual-review-backdrop{padding:0!important}.annual-review-panel{width:100vw!important;height:100dvh!important;max-height:100dvh!important;border-radius:0!important}}
+
+/* CPCB letter — premium split document editor */
+.annual-workspace .annual-letter-workspace{position:relative;display:grid;gap:14px;overflow:visible;border:0!important;border-radius:0!important;background:#f5f8f8!important;padding:14px!important}
+.annual-workspace .annual-letter-authority-bar{display:flex!important;align-items:center!important;gap:13px!important;min-height:68px!important;border:1px solid #cfe3df!important;border-radius:14px!important;background:linear-gradient(135deg,#fff 0%,#eefaf7 72%,#fff8ef 100%)!important;padding:12px 16px!important;box-shadow:0 8px 22px rgba(18,78,73,.06)!important}
+.annual-workspace .annual-letter-code{width:42px!important;height:42px!important;display:grid!important;place-items:center!important;border:0!important;border-radius:12px!important;background:linear-gradient(145deg,#168b84,#08716c)!important;color:#fff!important;font-size:13px!important;box-shadow:0 8px 16px rgba(8,113,108,.2)!important}
+.annual-workspace .annual-letter-authority-bar p{color:#168078!important;font-size:10px!important;letter-spacing:.16em!important}.annual-workspace .annual-letter-authority-bar strong{display:block!important;margin-top:4px!important;color:#142631!important;font-size:14px!important;line-height:1.35!important}
+.annual-workspace .annual-letter-grid{display:grid!important;grid-template-columns:minmax(0,1.08fr) minmax(430px,.92fr)!important;gap:14px!important;align-items:start!important}
+.annual-workspace .annual-letter-form{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important;border:1px solid #dce7e5!important;border-radius:14px!important;background:#fff!important;padding:16px!important;box-shadow:0 8px 22px rgba(20,47,45,.045)!important}
+.annual-workspace .annual-letter-field{display:grid!important;gap:7px!important;margin:0!important}.annual-workspace .annual-letter-field.annual-letter-wide{grid-column:1/-1!important}.annual-workspace .annual-letter-label{color:#4b6572!important;font-size:10px!important;font-weight:950!important;letter-spacing:.07em!important;text-transform:uppercase!important}
+.annual-workspace .annual-letter-field .annual-table-input,.annual-workspace .annual-letter-field .annual-table-textarea{width:100%!important;min-height:42px!important;border:1px solid #dbe5e4!important;border-radius:10px!important;background:#f9fbfb!important;padding:10px 12px!important;color:#162732!important;font-size:12px!important;font-weight:750!important;box-shadow:inset 0 1px 2px rgba(15,23,42,.025)!important;transition:.18s ease!important}
+.annual-workspace .annual-letter-field .annual-table-textarea{min-height:94px!important;line-height:1.55!important}.annual-workspace .annual-letter-note-field .annual-table-textarea{min-height:230px!important}
+.annual-workspace .annual-letter-field .annual-table-input:focus,.annual-workspace .annual-letter-field .annual-table-textarea:focus{border-color:#44a89f!important;background:#fff!important;outline:0!important;box-shadow:0 0 0 4px rgba(20,139,132,.1)!important}
+.annual-workspace .annual-letter-preview{position:sticky!important;top:14px!important;min-height:640px!important;max-height:calc(100vh - 150px)!important;overflow:auto!important;border:1px solid #d7e1df!important;border-radius:14px!important;background:#e9eeed!important;padding:18px!important;box-shadow:0 10px 26px rgba(18,43,41,.07)!important}
+.annual-workspace .annual-letter-paper{min-height:600px!important;border:1px solid #e6e0d6!important;border-radius:4px!important;background:#fffdf9!important;padding:34px 38px!important;color:#27313a!important;box-shadow:0 12px 30px rgba(31,41,55,.12)!important}
+.annual-workspace .annual-letter-paper-head{margin-bottom:28px!important;border-bottom:2px solid #16877f!important;padding-bottom:13px!important}.annual-workspace .annual-letter-paper-head span{background:#12817a!important;color:#fff!important}.annual-workspace .annual-letter-paper-head strong{color:#172a34!important;font-size:15px!important}.annual-workspace .annual-letter-paper p{margin:0 0 13px!important;font-size:11.5px!important;line-height:1.65!important}
+.annual-workspace .annual-letter-final-actions{position:sticky!important;z-index:20!important;bottom:8px!important;display:flex!important;justify-content:flex-end!important;gap:9px!important;border:1px solid #d8e5e2!important;border-radius:13px!important;background:rgba(255,255,255,.94)!important;padding:10px 12px!important;box-shadow:0 10px 28px rgba(15,56,52,.1)!important;backdrop-filter:blur(12px)!important}
+.annual-workspace .annual-letter-save-button,.annual-workspace .annual-letter-download-button{min-height:42px!important;border-radius:10px!important;padding:0 16px!important;font-weight:900!important}.annual-workspace .annual-letter-save-button{background:#07966e!important;box-shadow:0 8px 16px rgba(7,150,110,.18)!important}.annual-workspace .annual-letter-download-button{background:linear-gradient(135deg,#177d78,#086c68)!important;box-shadow:0 8px 16px rgba(8,108,104,.2)!important}
+.annual-workspace .annual-letter-download-menu{right:0!important;bottom:calc(100% + 8px)!important;top:auto!important;border:1px solid #dce7e5!important;border-radius:11px!important;background:#fff!important;padding:5px!important;box-shadow:0 14px 30px rgba(15,23,42,.16)!important}
+@media(max-width:1100px){.annual-workspace .annual-letter-grid{grid-template-columns:1fr!important}.annual-workspace .annual-letter-preview{position:relative!important;top:auto!important;max-height:none!important}}
+@media(max-width:640px){.annual-workspace .annual-letter-workspace{padding:8px!important}.annual-workspace .annual-letter-form{grid-template-columns:1fr!important;padding:12px!important}.annual-workspace .annual-letter-field.annual-letter-wide{grid-column:auto!important}.annual-workspace .annual-letter-paper{padding:24px 20px!important}.annual-workspace .annual-letter-final-actions{bottom:4px!important}}
+
+/* Premium scrollbars for FSSAI / CDSCO / CIBRC letter workspaces */
+.annual-workspace .annual-letter-workspace,
+.annual-workspace .annual-letter-form,
+.annual-workspace .annual-letter-preview,
+.annual-workspace .annual-letter-paper,
+.annual-workspace .annual-letter-field textarea,
+.annual-workspace .annual-letter-field input,
+.annual-workspace .annual-letter-download-menu,
+.annual-workspace .processing-section-card,
+.annual-workspace .processing-section-actions {
+  scrollbar-width: thin !important;
+  scrollbar-color: #3b9b94 #edf5f3 !important;
+}
+
+.annual-workspace .annual-letter-workspace::-webkit-scrollbar,
+.annual-workspace .annual-letter-form::-webkit-scrollbar,
+.annual-workspace .annual-letter-preview::-webkit-scrollbar,
+.annual-workspace .annual-letter-paper::-webkit-scrollbar,
+.annual-workspace .annual-letter-field textarea::-webkit-scrollbar,
+.annual-workspace .annual-letter-field input::-webkit-scrollbar,
+.annual-workspace .annual-letter-download-menu::-webkit-scrollbar,
+.annual-workspace .processing-section-card::-webkit-scrollbar,
+.annual-workspace .processing-section-actions::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+}
+
+.annual-workspace .annual-letter-workspace::-webkit-scrollbar-track,
+.annual-workspace .annual-letter-form::-webkit-scrollbar-track,
+.annual-workspace .annual-letter-preview::-webkit-scrollbar-track,
+.annual-workspace .annual-letter-paper::-webkit-scrollbar-track,
+.annual-workspace .annual-letter-field textarea::-webkit-scrollbar-track,
+.annual-workspace .annual-letter-field input::-webkit-scrollbar-track,
+.annual-workspace .annual-letter-download-menu::-webkit-scrollbar-track,
+.annual-workspace .processing-section-card::-webkit-scrollbar-track,
+.annual-workspace .processing-section-actions::-webkit-scrollbar-track {
+  border-radius: 999px !important;
+  background: #edf5f3 !important;
+  box-shadow: inset 0 0 0 1px rgba(18,118,114,.06) !important;
+}
+
+.annual-workspace .annual-letter-workspace::-webkit-scrollbar-thumb,
+.annual-workspace .annual-letter-form::-webkit-scrollbar-thumb,
+.annual-workspace .annual-letter-preview::-webkit-scrollbar-thumb,
+.annual-workspace .annual-letter-paper::-webkit-scrollbar-thumb,
+.annual-workspace .annual-letter-field textarea::-webkit-scrollbar-thumb,
+.annual-workspace .annual-letter-field input::-webkit-scrollbar-thumb,
+.annual-workspace .annual-letter-download-menu::-webkit-scrollbar-thumb,
+.annual-workspace .processing-section-card::-webkit-scrollbar-thumb,
+.annual-workspace .processing-section-actions::-webkit-scrollbar-thumb {
+  min-height: 38px !important;
+  border: 2px solid #edf5f3 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #62b9b1 0%, #258a83 100%) !important;
+  box-shadow: 0 2px 6px rgba(14,105,99,.18) !important;
+}
+
+.annual-workspace .annual-letter-workspace::-webkit-scrollbar-thumb:hover,
+.annual-workspace .annual-letter-form::-webkit-scrollbar-thumb:hover,
+.annual-workspace .annual-letter-preview::-webkit-scrollbar-thumb:hover,
+.annual-workspace .annual-letter-paper::-webkit-scrollbar-thumb:hover,
+.annual-workspace .annual-letter-field textarea::-webkit-scrollbar-thumb:hover,
+.annual-workspace .processing-section-card::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #359e96 0%, #08736e 100%) !important;
+}
+
+.annual-workspace .annual-letter-workspace::-webkit-scrollbar-button,
+.annual-workspace .annual-letter-form::-webkit-scrollbar-button,
+.annual-workspace .annual-letter-preview::-webkit-scrollbar-button,
+.annual-workspace .annual-letter-paper::-webkit-scrollbar-button,
+.annual-workspace .annual-letter-field textarea::-webkit-scrollbar-button,
+.annual-workspace .processing-section-card::-webkit-scrollbar-button,
+.annual-workspace .processing-section-actions::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.annual-workspace .annual-letter-workspace::-webkit-scrollbar-corner,
+.annual-workspace .annual-letter-preview::-webkit-scrollbar-corner,
+.annual-workspace .annual-letter-field textarea::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+/* Keep letter editor and preview equal-height; remove bottom dead space */
+.annual-workspace .annual-letter-grid {
+  align-items: stretch !important;
+}
+.annual-workspace .annual-letter-form {
+  height: 100% !important;
+}
+.annual-workspace .annual-letter-preview {
+  position: relative !important;
+  top: auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+.annual-workspace .annual-letter-paper {
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+@media (max-width: 1100px) {
+  .annual-workspace .annual-letter-preview,
+  .annual-workspace .annual-letter-paper {
+    height: auto !important;
+    min-height: 600px !important;
+  }
+}
+
+/* Final cascade: large follow-up user portraits */
+.operations-dashboard .dashboard-followup-flow .followup-flow-row {
+  min-height: 66px !important;
+}
+.operations-dashboard .dashboard-followup-flow .followup-flow-assignee {
+  gap: 12px !important;
+  padding-inline: 14px !important;
+}
+.operations-dashboard .dashboard-followup-flow .followup-flow-avatar {
+  width: 48px !important;
+  height: 48px !important;
+  flex: 0 0 48px !important;
+  border: 3px solid #fff !important;
+  font-size: 15px !important;
+  box-shadow: 0 0 0 1px #b8ddd8, 0 8px 18px rgba(11, 91, 84, .18) !important;
+}
+.operations-dashboard .dashboard-followup-flow .followup-flow-avatar img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: 50% 20% !important;
+  transform: scale(1.12) !important;
+}
+.operations-dashboard .dashboard-followup-flow .followup-flow-assignee em {
+  font-size: 12px !important;
+  font-weight: 950 !important;
+}
+
+/* Sales KPI distribution intelligence */
+.sales-mix-section{display:grid;gap:14px;margin-top:14px;border:1px solid #dce9e7;border-radius:20px;background:linear-gradient(145deg,#f8fcfb,#fff);padding:16px;box-shadow:0 14px 36px rgba(15,61,57,.055)}
+.sales-mix-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 3px 4px}.sales-mix-heading span,.sales-mix-card header span{color:#0f827a;font-size:9px;font-weight:950;letter-spacing:.15em;text-transform:uppercase}.sales-mix-heading h2{margin-top:4px;color:#14242e;font-size:20px;font-weight:950;letter-spacing:-.025em}.sales-mix-heading p{margin-top:4px;color:#71808f;font-size:11px;font-weight:750}.sales-mix-heading mark{border:1px solid #cde6e2;border-radius:999px;background:#effaf8;padding:8px 12px;color:#08746d;font-size:10px;font-weight:950;white-space:nowrap}
+.sales-mix-top-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.sales-mix-bottom-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:12px}
+.sales-mix-card{--mix:#129289;overflow:hidden;border:1px solid #e1e9ed;border-radius:16px;background:#fff;padding:15px;box-shadow:0 8px 22px rgba(20,35,52,.04);transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}.sales-mix-card:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--mix) 28%,#e1e9ed);box-shadow:0 14px 30px rgba(20,35,52,.08)}.sales-mix-blue{--mix:#3e7bd9}.sales-mix-violet{--mix:#9b58db}.sales-mix-green{--mix:#299d70}.sales-mix-amber{--mix:#df9918}.sales-mix-teal{--mix:#129289}
+.sales-mix-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;border-bottom:1px solid #edf1f4;padding-bottom:11px}.sales-mix-card header h3{margin-top:4px;color:#182735;font-size:14px;font-weight:950}.sales-mix-card header b{display:grid;min-width:34px;height:28px;place-items:center;border-radius:9px;background:color-mix(in srgb,var(--mix) 10%,white);color:var(--mix);font-size:11px;font-weight:950}
+.sales-mix-bars{display:grid;gap:10px;margin-top:13px}.sales-mix-row{display:grid;grid-template-columns:minmax(92px,.9fr) minmax(90px,1.5fr) 30px 34px;align-items:center;gap:8px}.sales-mix-row strong{overflow:hidden;color:#435064;font-size:10px;font-weight:850;text-overflow:ellipsis;white-space:nowrap}.sales-mix-row>div{height:7px;overflow:hidden;border-radius:999px;background:#edf1f4}.sales-mix-row i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,color-mix(in srgb,var(--mix) 78%,white),var(--mix));box-shadow:0 2px 8px color-mix(in srgb,var(--mix) 25%,transparent)}.sales-mix-row em{color:#263548;font-size:10px;font-style:normal;font-weight:950;text-align:right}.sales-mix-row small{color:#8993a2;font-size:9px;font-weight:850;text-align:right}.sales-mix-empty{padding:28px 8px;color:#9aa3af;font-size:11px;font-weight:850;text-align:center}
+@media(max-width:1200px){.sales-mix-top-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sales-mix-top-grid .sales-mix-card:last-child{grid-column:1/-1}.sales-mix-bottom-grid{grid-template-columns:1fr}}
+@media(max-width:720px){.sales-mix-section{padding:10px}.sales-mix-heading{align-items:flex-start;flex-direction:column}.sales-mix-top-grid{grid-template-columns:1fr}.sales-mix-top-grid .sales-mix-card:last-child{grid-column:auto}.sales-mix-row{grid-template-columns:minmax(82px,.9fr) minmax(70px,1.2fr) 26px}.sales-mix-row small{display:none}}
+
+/* Sales analytics final polish — direct card grid below KPIs */
+.sales-dashboard .sales-mix-section{gap:13px;margin-top:14px;border:0;border-radius:0;background:transparent;padding:0;box-shadow:none}
+.sales-dashboard .sales-mix-card{position:relative;isolation:isolate;overflow:hidden;border:1px solid #dfe7ec;border-radius:18px;background:linear-gradient(155deg,#fff 0%,#fbfcfe 100%);padding:17px;box-shadow:0 10px 26px rgba(23,37,55,.055)}
+.sales-dashboard .sales-mix-card::before{content:"";position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,var(--mix),color-mix(in srgb,var(--mix) 35%,transparent));opacity:.9}
+.sales-dashboard .sales-mix-card::after{content:"";position:absolute;z-index:-1;top:-65px;right:-60px;width:150px;height:150px;border-radius:999px;background:radial-gradient(circle,color-mix(in srgb,var(--mix) 10%,transparent),transparent 68%);pointer-events:none}
+.sales-dashboard .sales-mix-card:hover{transform:translateY(-4px);border-color:color-mix(in srgb,var(--mix) 30%,#dfe7ec);box-shadow:0 17px 36px rgba(23,37,55,.095)}
+.sales-dashboard .sales-mix-card header{padding:2px 1px 13px}.sales-dashboard .sales-mix-card header span{display:inline-flex;align-items:center;gap:6px;color:var(--mix)}.sales-dashboard .sales-mix-card header span::before{content:"";width:6px;height:6px;border-radius:999px;background:var(--mix);box-shadow:0 0 0 4px color-mix(in srgb,var(--mix) 10%,transparent)}
+.sales-dashboard .sales-mix-card header h3{margin-top:7px;font-size:15px;letter-spacing:-.018em}.sales-dashboard .sales-mix-card header b{min-width:38px;height:31px;border:1px solid color-mix(in srgb,var(--mix) 14%,transparent);border-radius:10px}
+.sales-dashboard .sales-mix-bars{gap:11px;margin-top:14px}.sales-dashboard .sales-mix-row{min-height:17px}.sales-dashboard .sales-mix-row>div{height:8px;background:#eaf0f3}.sales-dashboard .sales-mix-row i{position:relative;overflow:hidden}.sales-dashboard .sales-mix-row i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);transform:translateX(-100%);animation:salesMixShimmer 2.8s ease-in-out infinite}
+.sales-dashboard .sales-mix-row:hover strong{color:var(--mix)}.sales-dashboard .sales-mix-row:hover i{filter:saturate(1.12);box-shadow:0 3px 10px color-mix(in srgb,var(--mix) 32%,transparent)}
+@keyframes salesMixShimmer{0%,55%{transform:translateX(-100%)}85%,100%{transform:translateX(120%)}}
+@media(prefers-reduced-motion:reduce){.sales-dashboard .sales-mix-row i::after{animation:none}}
+@media(max-width:720px){.sales-dashboard .sales-mix-section{padding:0}.sales-dashboard .sales-mix-card{padding:14px}}
