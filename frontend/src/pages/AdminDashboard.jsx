@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -1353,6 +1354,7 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
     const poDetails = getCompliancePoDetails(client, clientQuotations, clientAnnualReturns)
     const operationRow = {
       id: client._id || client.id || getClientCode(client) || getClientName(client),
+      client,
       dedupeKey: getClientDedupeKey(client),
       clientKey: client._id || client.id || client.clientKey || getClientCode(client),
       atplCode: getClientCode(client),
@@ -1509,6 +1511,318 @@ function buildUserPerformanceCards(rows = [], users = [], currentUser = {}, lead
       return { ...row, done: safeDone, leadTotal: row.total, percent: completion, tone: getPerformanceTone(completion) }
     })
     .sort((a, b) => b.total - a.total || b.percent - a.percent)
+}
+
+function buildClientOwnershipAnalytics(rows = []) {
+  const buckets = new Map()
+  rows.forEach((row) => {
+    const id = getUserId(row.user) || normalizeKey(row.userName) || 'unassigned'
+    const name = row.userName || getUserName(row.user) || 'Unassigned'
+    const bucket = buckets.get(id) || { id, name, total: 0, completed: 0, pending: 0, annualDone: 0, annualTotal: 0, dataComplete: 0, dataPartial: 0, dataMissing: 0, completenessTotal: 0, companies: [] }
+    const completed = getCompletedAnnualFilingCountForRow(row) > 0
+    const profile = getClientDataCompleteness(row.client || {})
+    bucket.total += 1
+    bucket.completed += completed ? 1 : 0
+    bucket.pending += completed ? 0 : 1
+    bucket.annualDone += Number(row.annualDone || 0)
+    bucket.annualTotal += Number(row.annualTotal || 0)
+    bucket.completenessTotal += profile.percent
+    bucket.dataComplete += profile.status === 'complete' ? 1 : 0
+    bucket.dataPartial += profile.status === 'partial' ? 1 : 0
+    bucket.dataMissing += profile.status === 'missing' ? 1 : 0
+    const clientUpdatedAt = row.client?.updatedAt || row.client?.data?.updatedAt || row.client?.createdAt
+    const clientCreatedAt = row.client?.createdAt || row.client?.data?.createdAt || clientUpdatedAt
+    const daysPending = getDaysSince(clientCreatedAt)
+    const freshnessDays = getDaysSince(clientUpdatedAt)
+    const stage = completed
+      ? 'Completed'
+      : row.compliancePending
+        ? 'Compliance Review'
+        : row.annualDone > 0
+          ? 'Annual Processing'
+          : profile.percent >= 75
+            ? 'Data Review'
+            : 'Data Capture'
+    const approvalStatus = row.client?.adminControls?.approvalStatus || readClientData(row.client || {}).adminControls?.approvalStatus || 'Pending'
+    const riskReasons = []
+    if (profile.percent < 50) riskReasons.push('Data incomplete')
+    if (!row.hasQuotation) riskReasons.push('Quotation missing')
+    if (!row.hasPo) riskReasons.push('PO missing')
+    if (row.annualDone > 0 && row.annualDone < row.annualTotal && daysPending > 30) riskReasons.push('Annual return overdue')
+    if (normalizeKey(approvalStatus).includes('reject')) riskReasons.push('Approval rejected')
+    if (freshnessDays > 30) riskReasons.push('No recent activity')
+    const riskScore = Math.min(100, riskReasons.length * 18 + Math.min(30, Math.floor(daysPending / 15) * 5))
+    const risk = riskScore >= 70 ? 'Critical' : riskScore >= 45 ? 'High Risk' : riskScore >= 20 ? 'Attention Required' : 'Healthy'
+    const timeline = buildCompanyActivityTimeline(row, { clientCreatedAt, clientUpdatedAt, stage, approvalStatus })
+    bucket.companies.push({
+      id: row.id,
+      name: row.companyName,
+      category: row.category,
+      stage,
+      annualDone: row.annualDone,
+      annualTotal: row.annualTotal,
+      annualYear: row.annualYear,
+      compliancePending: row.compliancePending,
+      hasQuotation: row.hasQuotation,
+      hasPo: row.hasPo,
+      approvalStatus,
+      workflowStatus: row.client?.workflowStatus || 'draft',
+      clientCreatedAt,
+      clientUpdatedAt,
+      daysPending,
+      freshnessDays,
+      risk,
+      riskScore,
+      riskReasons,
+      timeline,
+      ...profile
+    })
+    buckets.set(id, bucket)
+  })
+  return [...buckets.values()]
+    .map((item) => ({
+      ...item,
+      completion: percent(item.completed, item.total),
+      workProgress: percent(item.annualDone, item.annualTotal)
+      , averageDataFill: item.total ? Math.round(item.completenessTotal / item.total) : 0,
+      overdue: item.companies.filter((company) => company.daysPending > 30 && company.stage !== 'Completed').length,
+      stale: item.companies.filter((company) => company.freshnessDays > 30).length,
+      highRisk: item.companies.filter((company) => ['High Risk', 'Critical'].includes(company.risk)).length,
+      performanceScore: calculateEmployeePerformanceScore(item)
+    }))
+    .sort((a, b) => b.total - a.total || b.completion - a.completion)
+}
+
+function getDaysSince(value) {
+  const date = new Date(value || '')
+  if (Number.isNaN(date.getTime())) return 0
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000))
+}
+
+function formatAnalyticsDate(value) {
+  const date = new Date(value || '')
+  return Number.isNaN(date.getTime()) ? 'Not available' : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(date)
+}
+
+function calculateEmployeePerformanceScore(item = {}) {
+  const total = item.total || 0
+  const dataScore = total ? item.completenessTotal / total : 0
+  const completionScore = percent(item.completed, total)
+  const annualScore = percent(item.annualDone, item.annualTotal)
+  const agingPenalty = total ? Math.min(100, (item.companies || []).reduce((sum, company) => sum + Math.min(company.daysPending, 60), 0) / total * 1.6) : 0
+  const riskPenalty = total ? percent((item.companies || []).filter((company) => ['High Risk', 'Critical'].includes(company.risk)).length, total) : 0
+  return Math.max(0, Math.min(100, Math.round(dataScore * .35 + completionScore * .3 + annualScore * .25 + (100 - agingPenalty) * .05 + (100 - riskPenalty) * .05)))
+}
+
+function buildCompanyActivityTimeline(row = {}, meta = {}) {
+  const events = []
+  if (meta.clientCreatedAt) events.push({ label: 'Client created', date: meta.clientCreatedAt, tone: 'blue' })
+  if (row.userName) events.push({ label: `Assigned to ${row.userName}`, date: meta.clientCreatedAt, tone: 'teal' })
+  if (meta.clientUpdatedAt && meta.clientUpdatedAt !== meta.clientCreatedAt) events.push({ label: 'Client data updated', date: meta.clientUpdatedAt, tone: 'teal' })
+  const quoteDate = row.quotations?.map((quote) => quote.updatedAt || quote.createdAt || quote.quotationDate).filter(Boolean).sort().at(-1)
+  if (quoteDate) events.push({ label: 'Quotation prepared', date: quoteDate, tone: 'violet' })
+  if (row.hasPo) events.push({ label: 'Compliance PO available', date: meta.clientUpdatedAt, tone: 'green' })
+  const annual = row.annualReturns?.slice().sort((a, b) => new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0)).at(-1)
+  if (annual) events.push({ label: `Annual return ${row.annualDone}/${row.annualTotal}`, date: annual.updatedAt || annual.createdAt, tone: 'orange' })
+  if (meta.stage === 'Compliance Review') events.push({ label: 'Submitted for compliance review', date: annual?.updatedAt, tone: 'orange' })
+  if (meta.stage === 'Completed') events.push({ label: 'Processing completed', date: annual?.updatedAt || meta.clientUpdatedAt, tone: 'green' })
+  return events.filter((event) => event.date).sort((a, b) => new Date(a.date) - new Date(b.date))
+}
+
+const CLIENT_DATA_CHECKS = [
+  { label: 'Legal name', paths: ['basic.clientLegalName', 'basic.tradeName', 'clientName', 'companyName'] },
+  { label: 'PIBO category', paths: ['basic.piboCategory', 'piboCategory'] },
+  { label: 'EPR category', paths: ['basic.eprCategory', 'eprCategory'] },
+  { label: 'GST number', paths: ['basic.gstNumber', 'validation.gstNumber', 'gstNumber'] },
+  { label: 'PAN number', paths: ['basic.panNumber', 'validation.panNumber', 'panNumber'] },
+  { label: 'Registered address', paths: ['basic.registeredAddress', 'address.registeredAddress', 'registeredAddress.addressLine1', 'addressLine1'] },
+  { label: 'State', paths: ['basic.state', 'address.state', 'registeredAddress.state', 'state'] },
+  { label: 'City', paths: ['basic.city', 'address.city', 'registeredAddress.city', 'city'] },
+  { label: 'Contact person', paths: ['contact.contactPerson', 'basic.authorisedPersonName', 'contactPerson'] },
+  { label: 'Email', paths: ['contact.email', 'contact.emails', 'basic.authorisedPersonEmail', 'email', 'emails'] },
+  { label: 'Mobile', paths: ['contact.mobileNo1', 'contact.mobile', 'basic.otpMobile', 'mobileNo1', 'mobile'] },
+  { label: 'CPCB registration', paths: ['cpcb.registrationNumber', 'basic.cpcbRegistrationNumber', 'data.registrationNumber'] }
+]
+
+function readPath(source, path) {
+  return path.split('.').reduce((value, key) => value?.[key], source)
+}
+
+function hasClientValue(value) {
+  if (Array.isArray(value)) return value.length > 0
+  if (value && typeof value === 'object') return Object.values(value).some(hasClientValue)
+  return value !== undefined && value !== null && String(value).trim() !== '' && String(value).trim() !== '-'
+}
+
+function getClientDataCompleteness(client = {}) {
+  const data = readClientData(client)
+  const checks = CLIENT_DATA_CHECKS.map((check) => ({ ...check, filled: check.paths.some((path) => hasClientValue(readPath(data, path)) || hasClientValue(readPath(client, path))) }))
+  const filled = checks.filter((item) => item.filled).length
+  const total = checks.length
+  const completeness = percent(filled, total)
+  return {
+    percent: completeness,
+    filled,
+    totalFields: total,
+    status: completeness >= 75 ? 'complete' : completeness >= 30 ? 'partial' : 'missing',
+    missingFields: checks.filter((item) => !item.filled).map((item) => item.label)
+    , filledFields: checks.filter((item) => item.filled).map((item) => item.label)
+  }
+}
+
+function getPiboTypes(value = '') {
+  const category = normalizeKey(value)
+  const types = []
+  if (category.includes('producer')) types.push('Producer')
+  if (category.includes('importer')) types.push('Importer')
+  if (category.includes('brand owner') || category.includes('brandowner')) types.push('Brand Owner')
+  return types.length ? types : ['Other / Unassigned']
+}
+
+function ClientOwnershipAnalyticsModal({ rows = [], onClose }) {
+  const [selectedId, setSelectedId] = useState('all')
+  const [selectedCompany, setSelectedCompany] = useState(null)
+  const [stageFilter, setStageFilter] = useState('all')
+  const [riskFilter, setRiskFilter] = useState('all')
+  const [ageFilter, setAgeFilter] = useState('all')
+  const [dataFilter, setDataFilter] = useState('all')
+  const [piboFilter, setPiboFilter] = useState('all')
+  const [compareA, setCompareA] = useState('')
+  const [compareB, setCompareB] = useState('')
+  const analytics = useMemo(() => buildClientOwnershipAnalytics(rows), [rows])
+  const selected = selectedId === 'all' ? null : analytics.find((item) => String(item.id) === String(selectedId))
+  const allCompanies = useMemo(() => analytics.flatMap((item) => item.companies.map((company) => ({ ...company, assignee: item.name, assigneeId: item.id }))), [analytics])
+  const filteredCompanies = useMemo(() => allCompanies.filter((company) => {
+    const selectedMatch = selectedId === 'all' || String(company.assigneeId) === String(selectedId)
+    const stageMatch = stageFilter === 'all' || company.stage === stageFilter
+    const riskMatch = riskFilter === 'all' || company.risk === riskFilter
+    const dataMatch = dataFilter === 'all' || company.status === dataFilter
+    const ageMatch = ageFilter === 'all' || (ageFilter === '0-7' && company.daysPending <= 7) || (ageFilter === '8-15' && company.daysPending >= 8 && company.daysPending <= 15) || (ageFilter === '16-30' && company.daysPending >= 16 && company.daysPending <= 30) || (ageFilter === '30+' && company.daysPending > 30)
+    const piboMatch = piboFilter === 'all' || getPiboTypes(company.category).includes(piboFilter)
+    return selectedMatch && stageMatch && riskMatch && dataMatch && ageMatch && piboMatch
+  }), [ageFilter, allCompanies, dataFilter, piboFilter, riskFilter, selectedId, stageFilter])
+  const total = selected?.total ?? analytics.reduce((sum, item) => sum + item.total, 0)
+  const completed = selected?.completed ?? analytics.reduce((sum, item) => sum + item.completed, 0)
+  const pending = selected?.pending ?? analytics.reduce((sum, item) => sum + item.pending, 0)
+  const rate = percent(completed, total)
+  const dataComplete = selected?.dataComplete ?? analytics.reduce((sum, item) => sum + item.dataComplete, 0)
+  const dataPartial = selected?.dataPartial ?? analytics.reduce((sum, item) => sum + item.dataPartial, 0)
+  const dataMissing = selected?.dataMissing ?? analytics.reduce((sum, item) => sum + item.dataMissing, 0)
+  const averageDataFill = selected?.averageDataFill ?? (total ? Math.round(analytics.reduce((sum, item) => sum + item.completenessTotal, 0) / total) : 0)
+  const donutRows = [{ name: 'Completed', value: completed, color: '#12a67d' }, { name: 'Pending', value: pending, color: '#f59e0b' }].filter((item) => item.value)
+  const chartRows = (selected ? [selected] : analytics).slice(0, 10)
+  const agingBuckets = [
+    { label: '0–7 days', value: filteredCompanies.filter((item) => item.daysPending <= 7).length, tone: 'good' },
+    { label: '8–15 days', value: filteredCompanies.filter((item) => item.daysPending >= 8 && item.daysPending <= 15).length, tone: 'blue' },
+    { label: '16–30 days', value: filteredCompanies.filter((item) => item.daysPending >= 16 && item.daysPending <= 30).length, tone: 'warn' },
+    { label: '30+ days', value: filteredCompanies.filter((item) => item.daysPending > 30).length, tone: 'risk' }
+  ]
+  const missingFieldRows = CLIENT_DATA_CHECKS.map((check) => ({ name: check.label, count: filteredCompanies.filter((company) => company.missingFields.includes(check.label)).length })).sort((a, b) => b.count - a.count).slice(0, 5)
+  const funnelRows = [
+    { label: 'Total Clients', value: filteredCompanies.length },
+    { label: 'Data Filled', value: filteredCompanies.filter((item) => item.percent >= 75).length },
+    { label: 'Quotation Ready', value: filteredCompanies.filter((item) => item.hasQuotation).length },
+    { label: 'PO Received', value: filteredCompanies.filter((item) => item.hasPo).length },
+    { label: 'Annual Started', value: filteredCompanies.filter((item) => item.annualDone > 0).length },
+    { label: 'Completed', value: filteredCompanies.filter((item) => item.stage === 'Completed').length }
+  ]
+  const comparison = [analytics.find((item) => String(item.id) === String(compareA)), analytics.find((item) => String(item.id) === String(compareB))].filter(Boolean)
+  const rankedEmployees = analytics.slice().sort((a, b) => b.performanceScore - a.performanceScore || b.completed - a.completed || b.averageDataFill - a.averageDataFill || a.name.localeCompare(b.name))
+  const piboSourceCompanies = selected ? allCompanies.filter((company) => String(company.assigneeId) === String(selected.id)) : allCompanies
+  const piboRows = ['Producer', 'Importer', 'Brand Owner', 'Other / Unassigned'].map((type) => {
+    const companies = piboSourceCompanies.filter((company) => getPiboTypes(company.category).includes(type))
+    const completedCount = companies.filter((company) => company.stage === 'Completed').length
+    return {
+      type,
+      total: companies.length,
+      completed: completedCount,
+      pending: Math.max(0, companies.length - completedCount),
+      dataFill: companies.length ? Math.round(companies.reduce((sum, company) => sum + company.percent, 0) / companies.length) : 0,
+      annualProgress: companies.length ? Math.round(companies.reduce((sum, company) => sum + percent(company.annualDone, company.annualTotal), 0) / companies.length) : 0
+    }
+  }).filter((item) => item.total || item.type !== 'Other / Unassigned')
+
+  function exportManagementReport() {
+    const rowsToExport = filteredCompanies.map((company) => ({ Assignee: company.assignee, Company: company.name, Category: company.category, Stage: company.stage, Risk: company.risk, 'Days Pending': company.daysPending, 'Data Filled %': company.percent, 'Filled Fields': company.filledFields.join(', '), 'Missing Fields': company.missingFields.join(', '), Quotation: company.hasQuotation ? 'Available' : 'Missing', 'Compliance PO': company.hasPo ? 'Available' : 'Missing', 'Annual Progress': `${company.annualDone}/${company.annualTotal}`, Approval: company.approvalStatus, 'Last Updated': formatAnalyticsDate(company.clientUpdatedAt) }))
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rowsToExport), 'Client Analytics')
+    XLSX.writeFile(workbook, `client-analytics-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  return (
+    <motion.div className="client-analytics-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <motion.section className="client-analytics-modal" initial={{ opacity: 0, y: 24, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 18, scale: .98 }} transition={{ type: 'spring', stiffness: 360, damping: 30 }}>
+        <header className="client-analytics-head">
+          <div><span>Operations intelligence</span><h2>Client Ownership Analytics</h2><p>Assignee-wise workload, completion and pending client analysis</p></div>
+          <div className="client-analytics-head-actions">
+            <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} aria-label="Filter assignee"><option value="all">All assignees</option>{analytics.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+            <button type="button" onClick={onClose} aria-label="Close analytics"><X className="h-5 w-5" /></button>
+          </div>
+        </header>
+        <div className="client-analytics-body">
+          <div className="client-analytics-toolbar"><div><select value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}><option value="all">All stages</option>{['Data Capture', 'Data Review', 'Annual Processing', 'Compliance Review', 'Completed'].map((value) => <option key={value}>{value}</option>)}</select><select value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)}><option value="all">All risks</option>{['Healthy', 'Attention Required', 'High Risk', 'Critical'].map((value) => <option key={value}>{value}</option>)}</select><select value={dataFilter} onChange={(event) => setDataFilter(event.target.value)}><option value="all">All data quality</option><option value="complete">Fully filled</option><option value="partial">Partial</option><option value="missing">Not filled</option></select><select value={piboFilter} onChange={(event) => setPiboFilter(event.target.value)}><option value="all">All PIBO types</option><option>Producer</option><option>Importer</option><option>Brand Owner</option><option>Other / Unassigned</option></select><select value={ageFilter} onChange={(event) => setAgeFilter(event.target.value)}><option value="all">All aging</option><option value="0-7">0–7 days</option><option value="8-15">8–15 days</option><option value="16-30">16–30 days</option><option value="30+">30+ days</option></select></div><div><button type="button" onClick={exportManagementReport}>Export Excel</button><button type="button" onClick={() => window.print()}>Print / PDF</button></div></div>
+          <div className="client-analytics-kpis">
+            <article><span>Total Clients</span><strong>{total}</strong><small>{selected?.name || `${analytics.length} assignees`}</small></article>
+            <article className="done"><span>Completed</span><strong>{completed}</strong><small>{rate}% completion rate</small></article>
+            <article className="pending"><span>Pending</span><strong>{pending}</strong><small>{percent(pending, total)}% needs action</small></article>
+            <article className="rate"><span>Performance</span><strong>{rate}%</strong><small>{rate >= 75 ? 'Healthy delivery' : rate >= 45 ? 'Needs attention' : 'Critical backlog'}</small></article>
+          </div>
+          <div className="client-data-quality-strip">
+            <div><span>Company data quality</span><strong>{averageDataFill}%</strong><small>Average fields filled</small></div>
+            <div className="complete"><span>Fully filled</span><strong>{dataComplete}</strong><small>75% or more data</small></div>
+            <div className="partial"><span>Partially filled</span><strong>{dataPartial}</strong><small>30–74% data</small></div>
+            <div className="missing"><span>Not filled</span><strong>{dataMissing}</strong><small>Less than 30% data</small></div>
+          </div>
+          <article className="pibo-assignee-analytics"><header><div><span>PIBO portfolio intelligence</span><h3>{selected?.name || 'Operations team'} — category-wise completion</h3></div><small>Click a category to filter companies</small></header><div className="pibo-assignee-grid">{piboRows.map((item) => <button type="button" className={`pibo-assignee-card ${normalizeKey(item.type).replace(/\s+/g, '-')} ${piboFilter === item.type ? 'selected' : ''}`} key={item.type} onClick={() => setPiboFilter(piboFilter === item.type ? 'all' : item.type)}><header><span>{item.type}</span><strong>{item.total}</strong></header><div className="pibo-counts"><p><b>{item.completed}</b><span>Completed</span></p><p><b>{item.pending}</b><span>Pending</span></p></div><div className="pibo-progress"><span>Data fill <b>{item.dataFill}%</b></span><i><em style={{ width: `${item.dataFill}%` }} /></i></div><div className="pibo-progress annual"><span>Annual progress <b>{item.annualProgress}%</b></span><i><em style={{ width: `${item.annualProgress}%` }} /></i></div></button>)}</div></article>
+          <div className="client-intelligence-grid"><article className="aging-panel"><header><div><span>Aging & SLA</span><h3>Pending company aging</h3></div><b>{filteredCompanies.filter((item) => item.daysPending > 30).length} breached</b></header><div>{agingBuckets.map((item) => <section className={item.tone} key={item.label}><strong>{item.value}</strong><span>{item.label}</span><i style={{ width: `${percent(item.value, Math.max(filteredCompanies.length, 1))}%` }} /></section>)}</div><footer>Oldest: {filteredCompanies.slice().sort((a, b) => b.daysPending - a.daysPending)[0]?.name || 'No company'} · {filteredCompanies.slice().sort((a, b) => b.daysPending - a.daysPending)[0]?.daysPending || 0} days</footer></article><article className="data-gap-panel"><header><div><span>Missing data intelligence</span><h3>Top 5 data gaps</h3></div></header><div>{missingFieldRows.map((item) => <section key={item.name}><span>{item.name}</span><div><i style={{ width: `${percent(item.count, Math.max(filteredCompanies.length, 1))}%` }} /></div><strong>{item.count}</strong><small>{percent(item.count, Math.max(filteredCompanies.length, 1))}%</small></section>)}</div></article></div>
+          <article className="client-funnel-panel"><header><div><span>Stage funnel</span><h3>Client readiness and delivery conversion</h3></div><small>Applied filters: {filteredCompanies.length} companies</small></header><div>{funnelRows.map((item, index) => <section key={item.label} style={{ '--funnel-width': `${Math.max(28, percent(item.value, Math.max(funnelRows[0].value, 1)))}%` }}><div><b>{item.value}</b><span>{item.label}</span></div>{index < funnelRows.length - 1 && <small>{percent(funnelRows[index + 1].value, Math.max(item.value, 1))}% move forward</small>}</section>)}</div></article>
+          <div className="employee-intelligence"><article><header><div><span>Employee score</span><h3>Weighted performance</h3></div><small>Data 35% · Completion 30% · Annual 25% · Risk/Aging 10%</small></header><div>{analytics.slice(0, 8).map((item) => <section key={item.id}><strong>{item.name}</strong><div><i style={{ width: `${item.performanceScore}%` }} /></div><b>{item.performanceScore}</b><small>{item.highRisk} risk · {item.overdue} overdue</small></section>)}</div></article><article><header><div><span>Workload balance</span><h3>Capacity recommendation</h3></div></header><div className="workload-cards">{analytics.slice(0, 6).map((item) => { const average = analytics.length ? analytics.reduce((sum, row) => sum + row.total, 0) / analytics.length : 0; const load = item.total > average * 1.25 ? 'Overloaded' : item.total < average * .7 ? 'Under-utilized' : 'Balanced'; return <section className={normalizeKey(load)} key={item.id}><strong>{item.name}</strong><b>{item.total} clients</b><span>{load}</span></section> })}</div></article></div>
+          <article className="employee-ranking"><header><div><span>Performance leaderboard</span><h3>Operations employee ranking</h3></div><small>Score → completed clients → data quality</small></header>{rankedEmployees.length ? <><div className="ranking-podium">{rankedEmployees.slice(0, 3).map((item, index) => <section className={`rank-${index + 1}`} key={item.id}><div className="rank-medal"><span>{index === 0 ? '★' : index + 1}</span></div><em>Rank {index + 1}</em><h4>{item.name}</h4><strong>{item.performanceScore}<small>/100</small></strong><div><span>{item.total} clients</span><span>{item.completed} completed</span><span>{item.averageDataFill}% data</span></div><i><b style={{ width: `${item.performanceScore}%` }} /></i></section>)}</div>{rankedEmployees.length > 3 && <div className="ranking-list">{rankedEmployees.slice(3).map((item, index) => <section key={item.id}><b>{index + 4}</b><div><strong>{item.name}</strong><span>{item.completed}/{item.total} completed · {item.averageDataFill}% data filled</span></div><div className="ranking-list-meter"><i style={{ width: `${item.performanceScore}%` }} /></div><em>{item.performanceScore}</em><small>{item.highRisk ? `${item.highRisk} risk` : 'Healthy'}</small></section>)}</div>}</> : <p className="comparison-empty">No employee performance data available.</p>}</article>
+          <article className="employee-comparison"><header><div><span>Comparison mode</span><h3>Compare two employees</h3></div><div><select value={compareA} onChange={(event) => setCompareA(event.target.value)}><option value="">Employee A</option>{analytics.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={compareB} onChange={(event) => setCompareB(event.target.value)}><option value="">Employee B</option>{analytics.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></header>{comparison.length ? <div>{comparison.map((item) => <section key={item.id}><h4>{item.name}</h4><p><span>Clients</span><b>{item.total}</b></p><p><span>Data filled</span><b>{item.averageDataFill}%</b></p><p><span>Completed</span><b>{item.completed}</b></p><p><span>Overdue</span><b>{item.overdue}</b></p><p><span>Score</span><b>{item.performanceScore}/100</b></p></section>)}</div> : <p className="comparison-empty">Select employees to compare performance.</p>}</article>
+          <div className="client-analytics-charts">
+            <article className="client-analytics-chart-card wide"><header><div><span>Workload comparison</span><h3>Clients by assignee</h3></div><b>Top {chartRows.length}</b></header><div className="client-analytics-bar"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartRows} margin={{ top: 12, right: 12, left: -18, bottom: 2 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7eeec" /><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#667085', fontWeight: 700 }} axisLine={false} tickLine={false} interval={0} /><YAxis tick={{ fontSize: 10, fill: '#98a2b3' }} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="completed" name="Completed" stackId="clients" fill="#12a67d" radius={[0, 0, 4, 4]} /><Bar dataKey="pending" name="Pending" stackId="clients" fill="#f4b544" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div></article>
+            <article className="client-analytics-chart-card"><header><div><span>Portfolio health</span><h3>Completion split</h3></div></header><div className="client-analytics-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={donutRows.length ? donutRows : [{ name: 'No data', value: 1, color: '#e5e7eb' }]} dataKey="value" nameKey="name" innerRadius={62} outerRadius={84} paddingAngle={4} stroke="#fff" strokeWidth={4}>{(donutRows.length ? donutRows : [{ color: '#e5e7eb' }]).map((item) => <Cell key={item.name || item.color} fill={item.color} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><div><strong>{rate}%</strong><span>complete</span></div></div><footer><span><i className="done" />Completed {completed}</span><span><i className="pending" />Pending {pending}</span></footer></article>
+          </div>
+          <article className="client-analytics-matrix"><header><div><span>Assignee performance matrix</span><h3>Who has how many companies and how much data is filled</h3></div><small>Click an assignee for company-level details</small></header><div className="client-analytics-table-wrap"><table><thead><tr><th>Assignee</th><th>Companies</th><th>Data filled</th><th>Full / Partial / Empty</th><th>Annual progress</th><th>Completion</th></tr></thead><tbody>{analytics.map((item) => <tr key={item.id} onClick={() => setSelectedId(String(item.id))}><td><b>{item.name}</b></td><td>{item.total}</td><td><div className="client-progress data"><i style={{ width: `${item.averageDataFill}%` }} /></div><small>{item.averageDataFill}%</small></td><td><span className="quality-count good">{item.dataComplete}</span><span className="quality-count warn">{item.dataPartial}</span><span className="quality-count risk">{item.dataMissing}</span></td><td><div className="client-progress"><i style={{ width: `${item.workProgress}%` }} /></div><small>{item.workProgress}%</small></td><td><strong className={item.completion >= 75 ? 'good' : item.completion >= 45 ? 'warn' : 'risk'}>{item.completion}%</strong></td></tr>)}</tbody></table></div></article>
+          {selected && <article className="company-data-drilldown"><header><div><span>Company drill-down</span><h3>{selected.name}: {filteredCompanies.length} visible companies</h3></div><button type="button" onClick={() => { setSelectedId('all'); setSelectedCompany(null) }}>View all assignees</button></header><div className="company-data-grid">{filteredCompanies.map((company) => <button type="button" className={`company-data-card ${company.status}`} key={company.id} onClick={() => setSelectedCompany(company)}><div><strong>{company.name}</strong><span>{company.category || 'Unassigned category'}</span></div><b>{company.percent}%</b><div className="company-data-meter"><i style={{ width: `${company.percent}%` }} /></div><footer><span>{company.filled}/{company.totalFields} critical fields</span><em>{company.status === 'complete' ? 'Data filled' : company.status === 'partial' ? 'Partial data' : 'Not filled'}</em></footer>{company.missingFields.length > 0 && <small>Missing: {company.missingFields.slice(0, 3).join(', ')}{company.missingFields.length > 3 ? ` +${company.missingFields.length - 3}` : ''}</small>}<mark>View full analysis →</mark></button>)}</div></article>}
+          <AnimatePresence>{selectedCompany && <CompanyDataAnalysis company={selectedCompany} onClose={() => setSelectedCompany(null)} />}</AnimatePresence>
+        </div>
+      </motion.section>
+    </motion.div>
+  )
+}
+
+function CompanyDataAnalysis({ company, onClose }) {
+  const navigate = useNavigate()
+  const stages = ['Data Capture', 'Data Review', 'Annual Processing', 'Compliance Review', 'Completed']
+  const activeIndex = Math.max(0, stages.indexOf(company.stage))
+  const nextAction = company.missingFields.length
+    ? `Fill ${company.missingFields.slice(0, 2).join(' and ')}`
+    : !company.hasQuotation
+      ? 'Create and attach quotation'
+      : !company.hasPo
+        ? 'Add compliance PO details'
+        : company.annualDone < company.annualTotal
+          ? 'Complete remaining annual return sections'
+          : company.compliancePending
+            ? 'Complete compliance review'
+            : 'No immediate action required'
+  return (
+    <motion.div className="company-analysis-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <motion.article className="company-analysis-panel" initial={{ opacity: 0, y: 18, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }}>
+        <header><div><span>Company data intelligence</span><h2>{company.name}</h2><p>{company.category} · FY {company.annualYear || 'Not selected'}</p></div><button type="button" onClick={onClose}><X className="h-5 w-5" /></button></header>
+        <div className="company-analysis-body">
+          <div className="company-analysis-summary"><div><span>Data filled</span><strong>{company.percent}%</strong><small>{company.filled}/{company.totalFields} critical fields</small></div><div><span>Current stage</span><strong className="stage">{company.stage}</strong><small>Workflow: {company.workflowStatus}</small></div><div><span>Annual progress</span><strong>{company.annualDone}/{company.annualTotal}</strong><small>{percent(company.annualDone, company.annualTotal)}% processing</small></div><div><span>Approval</span><strong className="stage">{company.approvalStatus}</strong><small>{company.compliancePending ? 'Waiting compliance review' : 'No compliance hold'}</small></div></div>
+          <section className="company-stage-flow">{stages.map((stage, index) => <div className={`${index < activeIndex ? 'done' : index === activeIndex ? 'active' : ''}`} key={stage}><i>{index < activeIndex ? '✓' : index + 1}</i><span>{stage}</span></div>)}</section>
+          <div className="company-analysis-grid"><section><header><span>Filled data</span><b>{company.filled}</b></header><div className="field-chip-grid">{company.filledFields.map((field) => <em className="filled" key={field}><CheckCircle2 className="h-3.5 w-3.5" />{field}</em>)}</div></section><section><header><span>Missing data</span><b>{company.missingFields.length}</b></header><div className="field-chip-grid">{company.missingFields.length ? company.missingFields.map((field) => <em className="missing" key={field}><ShieldAlert className="h-3.5 w-3.5" />{field}</em>) : <em className="filled"><CheckCircle2 className="h-3.5 w-3.5" />All critical fields filled</em>}</div></section></div>
+          <div className="company-readiness"><div><span>Quotation</span><strong className={company.hasQuotation ? 'yes' : 'no'}>{company.hasQuotation ? 'Available' : 'Missing'}</strong></div><div><span>Compliance PO</span><strong className={company.hasPo ? 'yes' : 'no'}>{company.hasPo ? 'Available' : 'Missing'}</strong></div><div><span>Recommended next action</span><strong>{nextAction}</strong></div></div>
+          <div className="company-freshness-row"><div><span>Created</span><strong>{formatAnalyticsDate(company.clientCreatedAt)}</strong><small>{company.daysPending} days in pipeline</small></div><div className={company.freshnessDays > 30 ? 'stale' : ''}><span>Last updated</span><strong>{formatAnalyticsDate(company.clientUpdatedAt)}</strong><small>{company.freshnessDays > 30 ? `Stale for ${company.freshnessDays} days` : `${company.freshnessDays} days ago`}</small></div><div className={`risk-${normalizeKey(company.risk).replace(/\s+/g, '-')}`}><span>Risk classification</span><strong>{company.risk}</strong><small>{company.riskReasons.join(', ') || 'No material risks'}</small></div></div>
+          <section className="company-activity"><header><span>Company activity timeline</span><b>{company.timeline.length} events</b></header><div>{company.timeline.map((event, index) => <article key={`${event.label}-${index}`}><i className={event.tone} /><div><strong>{event.label}</strong><small>{formatAnalyticsDate(event.date)}</small></div></article>)}</div></section>
+          <section className="company-action-centre"><header><span>Action centre</span><small>Continue work without leaving the analysis context</small></header><div><button type="button" onClick={() => navigate('/sales/client-master')}>Open Client Master</button><button type="button" onClick={() => navigate(`/sales/client-data-processing/${encodeURIComponent(company.id)}/${encodeURIComponent(company.annualYear || '2025-26')}`)}>Open Annual Return</button><button type="button" onClick={() => navigate('/sales/quotations?mode=add')}>Create Quotation</button><button type="button" onClick={() => navigate('/calendar')}>Open Calendar</button><button type="button" onClick={() => navigate('/calendar')}>Add Follow-up</button><button type="button" onClick={() => window.print()}>Print Summary</button></div></section>
+        </div>
+      </motion.article>
+    </motion.div>
+  )
 }
 
 function buildManagerPerformanceCards(users = [], rows = []) {
@@ -3462,6 +3776,7 @@ export default function AdminDashboard() {
   const [todayLeadsOpen, setTodayLeadsOpen] = useState(false)
   const [salesValueDrawerOpen, setSalesValueDrawerOpen] = useState(false)
   const [operationsReportModal, setOperationsReportModal] = useState(null)
+  const [clientAnalyticsOpen, setClientAnalyticsOpen] = useState(false)
   const [dashboardMode, setDashboardMode] = useState('operations')
   const navigate = useNavigate()
   const location = useLocation()
@@ -4075,6 +4390,14 @@ export default function AdminDashboard() {
                 <div className="operations-hero-actions">
                   <button
                     type="button"
+                    onClick={() => setClientAnalyticsOpen(true)}
+                    className="operations-client-analytics-button btn-lift"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    Client Analytics
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => loadDashboard({ force: true })}
                     className="btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-teal-200 bg-white px-4 font-black text-teal-700 shadow-sm transition hover:bg-teal-50"
                   >
@@ -4566,6 +4889,11 @@ export default function AdminDashboard() {
           onSelectYear={openAnnualReturnYear}
         />
       )}
+      <AnimatePresence>
+        {clientAnalyticsOpen && (
+          <ClientOwnershipAnalyticsModal rows={scopedOperationsRows} onClose={() => setClientAnalyticsOpen(false)} />
+        )}
+      </AnimatePresence>
       {modalOpen && (
         <AddUserModal
           form={form}

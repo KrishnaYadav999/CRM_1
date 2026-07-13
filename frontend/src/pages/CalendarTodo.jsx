@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { ArrowLeft, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Edit3, Eye, History, ListChecks, Plus, Search, UserPlus, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
+import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi';
@@ -180,9 +181,11 @@ function extractList(response, key) {
 }
 
 export default function CalendarTodo() {
-  const storedUser = useMemo(() => {
+  const [storedUser, setStoredUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
-  }, []);
+  });
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const today = new Date();
   const [items, setItems] = useState(() => readCalendarItems());
   const [selectedDate, setSelectedDate] = useState(today);
@@ -586,7 +589,7 @@ export default function CalendarTodo() {
   }
 
   return (
-    <DashboardShell currentUser={storedUser}>
+    <DashboardShell currentUser={storedUser} onOpenProfile={() => setProfileOpen(true)}>
       <main className="calendar-page calendar-page-premium">
         <motion.div className="calendar-pro-header calendar-command-hero" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.36 }}>
           <div>
@@ -1129,6 +1132,40 @@ export default function CalendarTodo() {
           </motion.div>
         )}
       </main>
+      {profileOpen && (
+        <ProfileModal
+          user={storedUser}
+          saving={profileSaving}
+          onClose={() => setProfileOpen(false)}
+          onLogout={() => {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('login_email');
+            window.location.assign('/');
+          }}
+          onSave={async (profile) => {
+            setProfileSaving(true);
+            try {
+              const response = await api.put(API_ENDPOINTS.auth.me, profile);
+              const user = response.data.user;
+              setStoredUser(user);
+              localStorage.setItem('user', JSON.stringify(user));
+            } finally {
+              setProfileSaving(false);
+            }
+          }}
+          onUpdatePassword={async (passwords) => {
+            setProfileSaving(true);
+            try {
+              await api.put(API_ENDPOINTS.auth.password, passwords);
+            } catch (error) {
+              throw new Error(error?.response?.data?.error || 'Unable to update password');
+            } finally {
+              setProfileSaving(false);
+            }
+          }}
+        />
+      )}
     </DashboardShell>
   );
 }

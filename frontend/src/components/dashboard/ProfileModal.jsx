@@ -11,6 +11,47 @@ function splitName(name = '') {
   }
 }
 
+const TEAM_THOUGHTS = {
+  operations: [
+    'Great operations turn every promise into a dependable result.',
+    'Clarity, ownership and consistency create operational excellence.',
+    'The best process is the one that makes quality repeatable.',
+    'Small improvements, repeated daily, build exceptional operations.'
+  ],
+  sales: [
+    'Great sales begin with trust and grow through genuine value.',
+    'Listen deeply, solve clearly and relationships will follow.',
+    'Every customer conversation is an opportunity to create value.',
+    'Consistency builds the pipeline; credibility closes the relationship.'
+  ],
+  compliance: [
+    'Strong compliance transforms responsibility into lasting trust.',
+    'Accuracy today protects the organisation tomorrow.',
+    'Good governance makes sustainable growth possible.'
+  ],
+  management: [
+    'Leadership creates clarity, enables people and owns the outcome.',
+    'Great teams grow where purpose and accountability meet.',
+    'Measure what matters, support people and improve continuously.'
+  ],
+  technology: [
+    'Build simply, secure deliberately and improve continuously.',
+    'Reliable technology turns complex work into confident action.',
+    'The best systems make the right work easier to do.'
+  ]
+}
+
+function getTeamThought(user = {}, visitNumber = 1) {
+  const teamText = `${user?.department || ''} ${user?.team?.name || user?.team || ''} ${user?.role || ''}`.toLowerCase()
+  const key = teamText.includes('sale') ? 'sales'
+    : teamText.includes('compliance') || teamText.includes('annual') ? 'compliance'
+      : teamText.includes('manager') || teamText.includes('admin') || teamText.includes('head') ? 'management'
+        : teamText.includes('tech') || teamText.includes('it') || teamText.includes('developer') ? 'technology'
+          : 'operations'
+  const thoughts = TEAM_THOUGHTS[key]
+  return { label: `${key} thought`, text: thoughts[Math.floor((visitNumber - 1) / 5) % thoughts.length] }
+}
+
 export default function ProfileModal({ user, saving, onClose, onLogout, onSave, onUpdatePassword }) {
   const name = splitName(user?.name)
   const [editing, setEditing] = useState(false)
@@ -27,6 +68,13 @@ export default function ProfileModal({ user, saving, onClose, onLogout, onSave, 
   })
   const [passwordMessage, setPasswordMessage] = useState('')
   const [passwordError, setPasswordError] = useState('')
+  const [profileVisit] = useState(() => {
+    const storageKey = `crm-profile-visits-${user?._id || user?.id || user?.email || 'current'}`
+    const nextVisit = Number(window.localStorage.getItem(storageKey) || 0) + 1
+    window.localStorage.setItem(storageKey, String(nextVisit))
+    return nextVisit
+  })
+  const teamThought = getTeamThought(user, profileVisit)
 
   function submit(event) {
     event.preventDefault()
@@ -77,6 +125,18 @@ export default function ProfileModal({ user, saving, onClose, onLogout, onSave, 
 
         <div className="profile-modal-body grid gap-8 p-6 lg:grid-cols-[280px_1fr] lg:p-10">
           <aside className="profile-identity-card rounded-2xl bg-gradient-to-br from-emerald-700 to-teal-600 p-6 text-white shadow-xl shadow-emerald-700/20">
+            <div className="profile-id-lanyard" aria-hidden="true">
+              <div className="profile-lanyard-strap"><span>ANANTTATTVA</span><i /></div>
+              <div className="profile-lanyard-ring" />
+              <div className="profile-lanyard-clip"><b /></div>
+              <div className="profile-lanyard-hook" />
+            </div>
+            <div className="profile-id-card-inner">
+            <div className="profile-id-face profile-id-front">
+            <div className="profile-id-brand" aria-label="Anant Tattva Private Limited">
+              <img src="/favicon.svg" alt="" />
+              <div><strong><b>ANANT</b> TATTVA</strong><small>PRIVATE LIMITED</small></div>
+            </div>
             <div className="profile-avatar-ring mx-auto grid h-28 w-28 place-items-center rounded-full bg-white/15 text-5xl font-black ring-8 ring-white/10">
               {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : (user?.name || user?.email || 'U').slice(0, 1).toUpperCase()}
             </div>
@@ -86,6 +146,30 @@ export default function ProfileModal({ user, saving, onClose, onLogout, onSave, 
               <span className="mt-4 inline-flex rounded-full bg-white/15 px-4 py-2 text-xs font-black uppercase tracking-[0.14em]">
                 {roleLabels[user?.role] || user?.role}
               </span>
+            </div>
+            <div className="profile-id-meta">
+              <div><i>ID</i><small>ID NO.</small><strong>{user?.employeeId || user?.ccpUserId || `ATPL/${String(user?._id || user?.id || 'CRM').slice(-6).toUpperCase()}`}</strong></div>
+              <div><i>D</i><small>DEPT.</small><strong>{user?.department || 'CRM Operations'}</strong></div>
+              <div><i>@</i><small>EMAIL</small><strong>{user?.email || '-'}</strong></div>
+            </div>
+            <div className="profile-id-signature"><span>Authorised Signatory</span></div>
+            </div>
+            <div className="profile-id-face profile-id-back">
+              <div className="profile-id-brand" aria-label="Anant Tattva Private Limited">
+                <img src="/favicon.svg" alt="" />
+                <div><strong><b>ANANT</b>TATTVA</strong><small>PRIVATE LIMITED</small></div>
+              </div>
+              <p className="profile-back-company-name">ANANTTATTVA PRIVATE LIMITED</p>
+              <div className="profile-back-contact">
+                <div className="profile-back-lines">
+                  <p className="profile-contact-phone"><i>☎</i><span><b>Phone</b>{user?.mobile || user?.mobileNumber || user?.phone || user?.contactNumber || '+91 12345 67890'}</span></p>
+                  <p><i>@</i><span><b>Email</b>{user?.email || 'info@ananttattva.com'}</span></p>
+                  <p><i>⌖</i><span><b>Office Address</b>AnantTattva Private Limited<br />1st Floor, A/25, Technocraft House<br />Road No. 3, MIDC<br />Andheri East, Mumbai – 400093</span></p>
+                </div>
+              </div>
+              <div className="profile-back-thought"><small>{teamThought.label}</small><p>“{teamThought.text}”</p><span>New thought every 5 profile visits</span></div>
+              <div className="profile-back-web">◉ {user?.companyWebsite || 'www.ananttattva.com'}</div>
+            </div>
             </div>
           </aside>
 

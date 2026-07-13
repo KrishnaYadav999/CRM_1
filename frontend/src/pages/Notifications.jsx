@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, Bell, Download, Edit3, Eye, FileText, Filter, LayoutGrid, ListChecks, Pin, PinOff, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import gsap from 'gsap';
 import DashboardShell from '../components/dashboard/DashboardShell';
+import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 
@@ -127,9 +128,11 @@ function isUsableAttachmentUrl(url = '') {
 
 export default function Notifications() {
   const pageRef = useRef(null);
-  const currentUser = useMemo(() => {
+  const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
-  }, []);
+  });
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [notifications, setNotifications] = useState(() => readNotifications());
   const [query, setQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('');
@@ -380,7 +383,7 @@ export default function Notifications() {
   }
 
   return (
-    <DashboardShell currentUser={currentUser}>
+    <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)}>
       <main ref={pageRef} className="notifications-page">
         <section className="notifications-hero">
           <div>
@@ -598,6 +601,40 @@ export default function Notifications() {
           </div>
         )}
       </main>
+      {profileOpen && (
+        <ProfileModal
+          user={currentUser}
+          saving={profileSaving}
+          onClose={() => setProfileOpen(false)}
+          onLogout={() => {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('login_email');
+            window.location.assign('/');
+          }}
+          onSave={async (profile) => {
+            setProfileSaving(true);
+            try {
+              const response = await api.put(API_ENDPOINTS.auth.me, profile);
+              const user = response.data.user;
+              setCurrentUser(user);
+              localStorage.setItem('user', JSON.stringify(user));
+            } finally {
+              setProfileSaving(false);
+            }
+          }}
+          onUpdatePassword={async (passwords) => {
+            setProfileSaving(true);
+            try {
+              await api.put(API_ENDPOINTS.auth.password, passwords);
+            } catch (error) {
+              throw new Error(error?.response?.data?.error || 'Unable to update password');
+            } finally {
+              setProfileSaving(false);
+            }
+          }}
+        />
+      )}
     </DashboardShell>
   );
 }
