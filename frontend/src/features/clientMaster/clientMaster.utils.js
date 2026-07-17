@@ -524,10 +524,16 @@ function getClientQuotationContext(client) {
   const data = readClientData(client);
   const lead = typeof client?.selectedLead === 'object' ? client.selectedLead : {};
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || '';
+  const clientId = client?._id || client?.id || '';
+  const clientUniqueId = data.importMeta?.uniqueId || data.importMeta?.ccpClientId || getClientUniqueId(client);
   return {
-    clientId: client?._id || client?.id || '',
-    leadId: typeof client?.selectedLead === 'string' ? client.selectedLead : lead?._id || lead?.id || '',
-    leadCode: lead?.leadCode || data.importMeta?.leadNumber || getClientUniqueId(client),
+    sourceType: 'client',
+    clientId,
+    clientUniqueId,
+    leadId: clientId,
+    leadCode: clientUniqueId,
+    linkedLeadId: typeof client?.selectedLead === 'string' ? client.selectedLead : lead?._id || lead?.id || '',
+    linkedLeadCode: lead?.leadCode || data.importMeta?.leadNumber || '',
     annualYear: '',
     clientName,
     contactPerson: data.otp?.personName || data.authorised?.name || '',
@@ -540,6 +546,7 @@ function getClientQuotationContext(client) {
     state: data.registeredAddress?.state || '',
     city: data.registeredAddress?.city || '',
     pinCode: data.registeredAddress?.pincode || '',
+    gstNumber: data.compliance?.gst || data.compliance?.gstNumber || data.basic?.gstNumber || '',
     piboCategory: data.basic?.piboCategory || '',
     eprCategory: data.basic?.eprCategory || '',
     returnTo: `/sales/client-master/${encodeURIComponent(client?._id || client?.id || getClientUniqueId(client))}`

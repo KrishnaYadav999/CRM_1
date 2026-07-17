@@ -3,7 +3,7 @@ import { Archive, Bell, Download, Edit3, Eye, FileText, Filter, LayoutGrid, List
 import gsap from 'gsap';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
-import api from '../services/api';
+import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 const STORAGE_KEY = 'crm.notifications.v1';
@@ -149,6 +149,20 @@ export default function Notifications() {
       .filter((tag) => tag && !tags.includes(tag));
     return [...new Set([...tags, ...customTags])];
   }, [notifications]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get(API_ENDPOINTS.auth.me)
+      .then((response) => {
+        if (cancelled || !response.data?.user) return;
+        const hydratedUser = storeSessionUser(response.data.user);
+        setCurrentUser(hydratedUser);
+      })
+      .catch(() => {
+        // Keep the stored session user when profile hydration is temporarily unavailable.
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const filteredNotifications = useMemo(() => {
     const term = query.trim().toLowerCase();

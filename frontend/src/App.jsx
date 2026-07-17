@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import ScrollToTop from './components/ScrollToTop'
 import Login from './pages/Login'
 import VerifyOtp from './pages/VerifyOtp'
+import ForgotPassword from './pages/ForgotPassword'
 import AdminDashboard from './pages/AdminDashboard'
 import LeadGeneration from './pages/LeadGeneration'
 import ClientMaster from './pages/ClientMaster'
@@ -21,6 +22,9 @@ function App(){
       <Routes>
         <Route path="/" element={<Login/>} />
         <Route path="/verify" element={<VerifyOtp/>} />
+        <Route path="/forgot-password" element={<ForgotPassword/>} />
+        <Route path="/forget-password" element={<Navigate to="/forgot-password" replace />} />
+        <Route path="/forgotpassword" element={<Navigate to="/forgot-password" replace />} />
         <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/dashboard/users" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />

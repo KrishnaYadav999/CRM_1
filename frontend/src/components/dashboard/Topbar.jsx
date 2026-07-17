@@ -92,6 +92,19 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
   const notificationAudioRef = useRef(null)
   const clickAudioRef = useRef(null)
   const initial = (currentUser?.name || currentUser?.email || 'P').slice(0, 1).toUpperCase()
+  const avatarUrl = useMemo(() => {
+    let storedUser = null
+    try { storedUser = JSON.parse(localStorage.getItem('user') || 'null') } catch { storedUser = null }
+    return currentUser?.avatarUrl
+      || currentUser?.avatar
+      || currentUser?.profileImage
+      || currentUser?.photoUrl
+      || currentUser?.imageUrl
+      || storedUser?.avatarUrl
+      || storedUser?.avatar
+      || storedUser?.profileImage
+      || ''
+  }, [currentUser])
   const notificationCount = bellData.count
   const reminderSummary = useMemo(() => {
     const overdue = bellData.reminders.filter((item) => item.reminderTone === 'overdue').length
@@ -312,7 +325,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
                 <p className="text-sm font-semibold text-slate-500">{roleLabels[currentUser?.role] || 'Consultant'}</p>
               </div>
               <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-teal-700 to-sky-600 font-black text-white shadow-lg shadow-teal-700/20 ring-4 ring-teal-50">
-                {currentUser?.avatarUrl ? <img src={currentUser.avatarUrl} alt={currentUser?.name || 'User'} className="h-full w-full object-cover" /> : initial}
+                {avatarUrl ? <img src={avatarUrl} alt={currentUser?.name || 'User'} className="h-full w-full object-cover" /> : initial}
               </div>
             </button>
 
@@ -320,7 +333,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
               <div className="absolute right-0 top-14 z-40 w-80 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl shadow-slate-900/15">
                 <div className="flex items-center gap-4 bg-gradient-to-br from-teal-50 to-white p-4">
                   <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-teal-700 to-sky-600 text-xl font-black text-white shadow-lg shadow-teal-700/20">
-                    {currentUser?.avatarUrl ? <img src={currentUser.avatarUrl} alt={currentUser?.name || 'User'} className="h-full w-full object-cover" /> : initial}
+                    {avatarUrl ? <img src={avatarUrl} alt={currentUser?.name || 'User'} className="h-full w-full object-cover" /> : initial}
                   </div>
                   <div className="min-w-0">
                     <p className="truncate font-black text-slate-950">{currentUser?.name || 'CRM User'}</p>

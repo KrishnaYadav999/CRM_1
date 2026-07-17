@@ -9,6 +9,8 @@ const API_ENDPOINTS = {
     requestOtp: '/auth/request-otp',
     verifyOtp: '/auth/verify-otp',
     resendOtp: '/auth/resend-otp',
+    forgotPassword: '/auth/forgot-password',
+    resetPassword: '/auth/reset-password',
     users: '/auth/users',
     adminUsers: '/auth/admin/users',
     createUser: '/auth/admin/create-user',
@@ -19,6 +21,8 @@ const API_ENDPOINTS = {
     create: '/leads',
     bulk: '/leads/bulk',
     detail: (id) => `/leads/${encodePathValue(id)}`
+    ,history: (id) => `/leads/${encodePathValue(id)}/history`
+    ,emailHistory: (id) => `/leads/${encodePathValue(id)}/history/email`
   },
   clients: {
     list: '/clients',
@@ -33,9 +37,13 @@ const API_ENDPOINTS = {
   quotations: {
     list: '/quotations',
     create: '/quotations',
+    serviceCategories: '/quotations/service-categories',
+    piboCategories: '/quotations/pibo-categories',
     approveAllPending: '/quotations/pending-approvals/approve-all',
+    syncCcp: '/quotations/sync-ccp',
     detail: (id) => `/quotations/${encodePathValue(id)}`,
-    approval: (id) => `/quotations/${encodePathValue(id)}/approval`
+    approval: (id) => `/quotations/${encodePathValue(id)}/approval`,
+    byLead: (leadId) => `/leads/${encodePathValue(leadId)}/quotations`
   },
   annualReturns: {
     list: '/annual-returns'
@@ -58,6 +66,12 @@ const API_ENDPOINTS = {
   ccp: {
     leads: '/ccp/leads',
     clients: '/ccp/clients',
+    createLead: '/integrations/ccp/leads',
+    updateLead: (id) => `/integrations/ccp/leads/${encodePathValue(id)}`,
+    createClient: '/integrations/ccp/clients',
+    updateClient: (id) => `/integrations/ccp/clients/${encodePathValue(id)}`,
+    leadHistory: (id) => `/ccp/leads/${encodePathValue(id)}/history`,
+    emailHistory: (id) => `/ccp/leads/${encodePathValue(id)}/history/email`,
     collection: (path) => `/ccp/${encodePathValue(path)}`
   }
 };

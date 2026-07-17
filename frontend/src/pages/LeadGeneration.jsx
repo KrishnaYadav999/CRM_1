@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, CheckCircle2, ChevronDown, Clock3, ContactRound, CreditCard, Download, Edit3, Eye, FileText, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
+import SearchableSelect from '../components/form/SearchableSelect';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
-import { fetchCcpLeads } from '../services/ccpApi';
+import { fetchCcpLeadHistory, fetchCcpLeads } from '../services/ccpApi';
 import { mergeLeadSources } from '../features/clientMaster/clientMaster.utils';
 
 const emptyLead = {
@@ -186,17 +187,14 @@ export default function LeadGeneration() {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
-      const [crmLeadsResult, ccpLeadsResult, quotationsResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.leads.list),
+      const [ccpLeadsResult, quotationsResult] = await Promise.allSettled([
         fetchCcpLeads(),
         api.get(API_ENDPOINTS.quotations.list)
       ]);
-      if (crmLeadsResult.status === 'rejected') throw crmLeadsResult.reason;
-      const crmLeads = crmLeadsResult.value.data.leads || [];
       const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
         ? (ccpLeadsResult.value.data.leads || [])
         : [];
-      setLeads(mergeLeadSources(crmLeads, ccpLeads));
+      setLeads(ccpLeads);
       setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
       try {
         const usersResponse = await api.get(API_ENDPOINTS.auth.users);
@@ -316,9 +314,9 @@ export default function LeadGeneration() {
           workflowStatus: 'draft'
         };
       });
-      const response = await api.post(API_ENDPOINTS.leads.bulk, { leads: payload });
-      const successCount = response.data.imported || 0;
-      const failures = response.data.failures || [];
+      const results = await Promise.allSettled(payload.map((item) => api.post(API_ENDPOINTS.ccp.createLead, item)));
+      const successCount = results.filter((result) => result.status === 'fulfilled').length;
+      const failures = results.map((result, row) => result.status === 'rejected' ? ({ row, error: result.reason?.response?.data?.error || 'CCP write failed' }) : null).filter(Boolean);
 
       if (successCount) {
         setNotice(`${successCount} lead${successCount === 1 ? '' : 's'} imported as drafts.`);
@@ -343,12 +341,19 @@ export default function LeadGeneration() {
   }
 
   async function saveLead(workflowStatus) {
+    if (saving) return;
+    const required = workflowStatus === 'submitted' ? ['status', 'company', 'piboCategory', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'] : [];
+    const missing = required.find((field) => !String(lead[field] ?? '').trim());
+    if (missing) { setError(`${missing.replace(/([A-Z])/g, ' $1')} is required before submit.`); return; }
+    const invalidEmail = String(lead.emails || '').split(',').map((email) => email.trim()).filter(Boolean).find((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+    if (invalidEmail) { setError(`Invalid email: ${invalidEmail}`); return; }
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      if (editingLeadId) await api.put(API_ENDPOINTS.leads.detail(editingLeadId), { ...lead, workflowStatus });
-      else await api.post(API_ENDPOINTS.leads.create, { ...lead, workflowStatus });
+      const response = editingLeadId ? await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), { ...lead, workflowStatus }) : await api.post(API_ENDPOINTS.ccp.createLead, { ...lead, workflowStatus });
+      const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
+      if (!savedLead || typeof savedLead !== 'object') throw new Error('CCP did not return the saved lead.');
       setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
       showToast(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.', 'success');
       if (workflowStatus === 'submitted') setLead(emptyLead);
@@ -385,7 +390,28 @@ export default function LeadGeneration() {
             }}
             onAddQuotation={(quotationId) => {
               if (quotationId) navigate('/sales/quotations', { state: { editQuotationId: quotationId } });
-              else navigate('/sales/quotations');
+              else navigate('/sales/quotations?mode=add', {
+                state: {
+                  quotationContext: {
+                    sourceType: 'lead',
+                    leadId: viewLead._id || viewLead.id || viewLead.sourceLeadId || '',
+                    leadCode: viewLead.leadCode || '',
+                    company: viewLead.company || '',
+                    contactPerson: viewLead.contactPerson || '',
+                    designation: viewLead.designation || '',
+                    mobileNo1: viewLead.mobileNo1 || '',
+                    mobileNo2: viewLead.mobileNo2 || '',
+                    addressLine1: viewLead.addressLine1 || '',
+                    addressLine2: viewLead.addressLine2 || '',
+                    addressLine3: viewLead.addressLine3 || '',
+                    state: viewLead.state || '',
+                    city: viewLead.city || '',
+                    pinCode: viewLead.pinCode || '',
+                    eprCategory: viewLead.eprCategory || '',
+                    piboCategory: viewLead.piboCategory || ''
+                  }
+                }
+              });
             }}
             onEdit={() => {
               setLead({ ...emptyLead, ...viewLead, assignedTo: viewLead.assignedTo?._id || viewLead.assignedTo?.id || viewLead.assignedTo || '' });
@@ -409,6 +435,7 @@ export default function LeadGeneration() {
           error={error}
           onRefresh={loadPage}
           onView={setViewLead}
+          onCreate={() => { setLead({ ...emptyLead }); setEditingLeadId(''); setActiveTab('basic'); setViewMode('form'); }}
         />
         {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
       </DashboardShell>
@@ -512,7 +539,7 @@ export default function LeadGeneration() {
                   <SelectLike required label="Status" value={lead.status} options={options.status} onChange={(value) => updateField('status', value)} />
                 </LeadSection>
                 <LeadSection title="Company Information">
-                  <Field label="Lead ID"><input className="form-input" value={lead.sourceLeadId} onChange={(event) => updateField('sourceLeadId', event.target.value)} /></Field>
+                  <Field label="Lead ID"><input className="form-input bg-slate-100" value={lead.leadCode || lead.sourceLeadId || 'Generated by CCP after save'} readOnly /></Field>
                   <Field required label="Company"><input className="form-input" value={lead.company} onChange={(event) => updateField('company', event.target.value)} /></Field>
                   <SelectLike label="Industry Type" value={lead.industryType} options={options.industryType} onChange={(value) => updateField('industryType', value)} />
                   <SelectLike label="EPR Category" value={lead.eprCategory} options={options.eprCategory} onChange={(value) => updateField('eprCategory', value)} />
@@ -531,7 +558,7 @@ export default function LeadGeneration() {
                 <SelectLike required label="State" value={lead.state} options={options.states} onChange={(value) => updateField('state', value)} />
                 <SelectLike required label="City" value={lead.city} options={cityOptions} disabled={!lead.state} placeholder={lead.state ? 'Select or type to create new' : 'Select state first'} onChange={(value) => updateField('city', value)} />
                 <Field required label="PIN Code"><input className="form-input" value={lead.pinCode} onChange={(event) => updateField('pinCode', event.target.value)} /></Field>
-                <Field label="Existing Client?"><select className="form-input" value={lead.existingClient} onChange={(event) => updateField('existingClient', event.target.value)}><option>No</option><option>Yes</option></select></Field>
+                <Field label="Existing Client?"><SearchableSelect value={lead.existingClient} options={['No', 'Yes']} onChange={(value) => updateField('existingClient', value)} placeholder="Select client status" /></Field>
                 <Field label="Website"><input className="form-input" placeholder="https://example.com" value={lead.website} onChange={(event) => updateField('website', event.target.value)} /></Field>
               </LeadSection>
             )}
@@ -613,7 +640,60 @@ function LeadSection({ title, children, columns = 'sm:grid-cols-2 xl:grid-cols-3
   );
 }
 
-function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView }) {
+function StaffFilterSelect({ value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const rootRef = useRef(null);
+  const selected = options.find((option) => String(option.value) === String(value));
+  const filtered = options.filter((option) => option.label.toLowerCase().includes(search.trim().toLowerCase()));
+
+  useEffect(() => {
+    function closeOnOutsideClick(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, []);
+
+  function choose(nextValue) {
+    onChange(nextValue);
+    setOpen(false);
+    setSearch('');
+  }
+
+  return (
+    <div ref={rootRef} className={`lead-staff-filter ${open ? 'is-open' : ''}`}>
+      <button type="button" className="lead-staff-trigger" onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
+        <span className="lead-staff-icon"><UserCheck className="h-4 w-4" /></span>
+        <span className="lead-staff-copy"><small>Staff filter</small><strong>{selected?.label || 'All Staff'}</strong></span>
+        <ChevronDown className="lead-staff-chevron h-4 w-4" />
+      </button>
+      {open && (
+        <div className="lead-staff-menu">
+          <div className="lead-staff-search">
+            <Search className="h-4 w-4" />
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search staff..." />
+            {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X className="h-4 w-4" /></button>}
+          </div>
+          <div className="lead-staff-options" role="listbox">
+            {!search && <button type="button" role="option" aria-selected={!value} className="lead-staff-option" onClick={() => choose('')}><span className="lead-staff-option-avatar"><UsersRound className="h-4 w-4" /></span><strong>All Staff</strong>{!value && <CheckCircle2 className="h-4 w-4" />}</button>}
+            {filtered.map((option) => (
+              <button key={option.value} type="button" role="option" aria-selected={String(option.value) === String(value)} className="lead-staff-option" onClick={() => choose(option.value)}>
+                <span className="lead-staff-option-avatar">{option.label.slice(0, 1).toUpperCase()}</span>
+                <strong>{option.label}</strong>
+                {String(option.value) === String(value) && <CheckCircle2 className="h-4 w-4" />}
+              </button>
+            ))}
+            {!filtered.length && search && <div className="lead-staff-empty">No staff member found</div>}
+          </div>
+          <div className="lead-staff-foot">{filtered.length} staff member{filtered.length === 1 ? '' : 's'}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, onCreate }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -761,11 +841,9 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView }) 
             <option value="">All Status</option>
             {options.status.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <select value={staffFilter} onChange={(event) => setStaffFilter(event.target.value)} className="form-input min-h-12 rounded-lg xl:max-w-none">
-            <option value="">All Staff</option>
-            {staffFilterOptions.map((user) => <option key={user.value} value={user.value}>{user.label}</option>)}
-          </select>
+          <StaffFilterSelect value={staffFilter} options={staffFilterOptions} onChange={setStaffFilter} />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:flex xl:justify-end">
+            <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Lead</button>
             <button type="button" onClick={() => { setQuery(''); setStatusFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
             <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
@@ -844,28 +922,9 @@ function Field({ label, required, children, className = '' }) {
 }
 
 function SelectLike({ label, required, value, options = [], onChange, disabled = false, placeholder = 'Select or type to create new' }) {
-  const normalized = Array.isArray(options)
-    ? options.map((option) => (typeof option === 'string' ? { value: option, label: option } : option))
-    : [];
-  const listId = `${label.replace(/\s+/g, '-')}-options`;
   return (
     <Field label={label} required={required}>
-      <div className="relative">
-        <input
-          value={value}
-          list={listId}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-          className="form-input pr-12 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-        />
-        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-        <datalist id={listId}>
-          {normalized.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </datalist>
-      </div>
+      <SearchableSelect value={value} options={options} onChange={onChange} disabled={disabled} placeholder={placeholder} />
     </Field>
   );
 }
@@ -1066,6 +1125,10 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [followUpError, setFollowUpError] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyData, setHistoryData] = useState({ events: [], summary: {} });
+  const [historyFilter, setHistoryFilter] = useState('all');
   const [followUpDraft, setFollowUpDraft] = useState({
     scheduledDate: todayDateKey(),
     scheduledTime: '',
@@ -1081,8 +1144,17 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
   const initials = companyName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'LD';
   const location = [activeLead.city, activeLead.state, activeLead.pinCode].filter(Boolean).join(', ');
   const leadQuotations = quotations.filter((quotation) => {
-    const leadId = String(activeLead._id || activeLead.id || '');
-    return String(quotation.leadId || '') === leadId || String(quotation.leadCode || '') === String(activeLead.leadCode || '');
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const crmLeadIds = [activeLead._id, activeLead.id].map(normalize).filter(Boolean);
+    const ccpLeadIds = [activeLead.sourceLeadId, activeLead.ccpLeadId, activeLead.externalLeadId, activeLead._id, activeLead.id].map(normalize).filter(Boolean);
+    const quotationLeadId = normalize(quotation.leadId?._id || quotation.leadId?.id || quotation.leadId);
+    const quotationCcpLeadId = normalize(quotation.ccpLeadId || quotation.sourceLeadId || quotation.externalLeadId);
+    const quotationLeadCode = normalize(quotation.leadCode);
+    return Boolean(
+      (quotationLeadId && crmLeadIds.includes(quotationLeadId))
+      || (quotationCcpLeadId && ccpLeadIds.includes(quotationCcpLeadId))
+      || (quotationLeadCode && quotationLeadCode === normalize(activeLead.leadCode))
+    );
   });
   const followUpRows = buildLeadFollowUpRows(activeLead);
   const todayKey = todayDateKey();
@@ -1135,12 +1207,40 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     { id: 'overview', label: 'Overview', icon: FileText },
     { id: 'assigned', label: 'Assigned Users', icon: UserCheck },
     { id: 'business', label: 'Business Card', icon: CreditCard },
-    { id: 'quotation', label: 'Quotation Preview', icon: FileText }
+    { id: 'quotation', label: 'Quotations', icon: FileText }
   ];
 
-  function sendIntroMail() {
+  async function sendIntroMail() {
     const email = String(activeLead.emails || '').split(/[,\s;]+/).find(Boolean);
+    // A mailto handoff cannot confirm delivery, so no success audit is recorded here.
     if (email) window.location.href = `mailto:${email}?subject=${encodeURIComponent(`Introduction from Anant Tattva`)}`;
+  }
+
+  async function openHistory() {
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    setHistoryFilter('all');
+    const leadId = activeLead._id || activeLead.id || activeLead.sourceLeadId;
+    const identifiers = Object.fromEntries(Object.entries({ leadCode: activeLead.leadCode, company: activeLead.company }).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== ''));
+    const fallbackEvents = [
+        { id: 'lead-created', type: 'lead_created', title: 'Lead created', description: `${activeLead.leadCode || 'Lead'} created for ${activeLead.company || 'the company'}`, actor: activeLead.importedCreatedBy || activeLead.assignedBy || 'Imported user', at: activeLead.createdAt || activeLead.importedCreatedAt || activeLead.leadDate },
+        ...leadQuotations.map((item) => ({ id: `quote-${item._id || item.id}`, type: 'quotation_created', title: 'Quotation created', description: `${item.quotationNumber || 'Quotation'} added`, actor: item.createdBy?.name || item.createdBy?.email || 'CRM User', at: item.createdAt })),
+        ...followUpRows.map((item, index) => ({ id: `follow-${index}`, type: 'follow_up', title: 'Lead follow-up', description: item.remarks || 'Follow-up updated', actor: item.updatedBy || 'CRM User', at: item.createdAt || item.updatedAt || item.scheduledDate }))
+      ].filter((item) => item.at);
+    try {
+      const [crmResult, ccpResult] = await Promise.allSettled([
+        api.get(API_ENDPOINTS.leads.history(leadId), { params: identifiers }),
+        fetchCcpLeadHistory(leadId, identifiers)
+      ]);
+      const remoteEvents = [crmResult, ccpResult].flatMap((result) => result.status === 'fulfilled' ? (result.value.data?.events || []) : []);
+      const unique = new Map();
+      [...remoteEvents, ...fallbackEvents].forEach((event) => { if (event?.id && !unique.has(String(event.id))) unique.set(String(event.id), event); });
+      const events = [...unique.values()].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+      const group = (type = '') => type.includes('quotation') || type.includes('approval') ? 'quotation' : type.includes('follow') ? 'followup' : type.includes('todo') ? 'todo' : type.includes('email') ? 'email' : 'lead';
+      setHistoryData({ lead: { leadCode: activeLead.leadCode, company: activeLead.company }, events, summary: { total: events.length, quotations: events.filter((event) => group(event.type) === 'quotation').length, followUps: events.filter((event) => group(event.type) === 'followup').length, todos: events.filter((event) => group(event.type) === 'todo').length, emails: events.filter((event) => group(event.type) === 'email').length }, sourceStatus: { crm: crmResult.status, ccp: ccpResult.status } });
+    } finally {
+      setHistoryLoading(false);
+    }
   }
 
   function openFollowUpModal() {
@@ -1193,7 +1293,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     setFollowUpSaving(true);
     setFollowUpError('');
     try {
-      const response = await api.put(API_ENDPOINTS.leads.detail(leadId), payload);
+      const response = await api.put(API_ENDPOINTS.ccp.updateLead(leadId), payload);
       const updatedLead = response.data?.lead || payload;
       setDetailLead(updatedLead);
       onLeadUpdated?.(updatedLead);
@@ -1218,9 +1318,9 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={onAddQuotation} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-500 px-5 text-sm font-black text-white shadow-lg shadow-slate-500/20"><Plus className="h-4 w-4" />Add New Quotations</button>
+          <button type="button" onClick={() => onAddQuotation()} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-500 px-5 text-sm font-black text-white shadow-lg shadow-slate-500/20"><Plus className="h-4 w-4" />Add New Quotations</button>
           <button type="button" className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>
-          <button type="button" className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-600/20"><RefreshCw className="h-4 w-4" />View History</button>
+          <button type="button" onClick={openHistory} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-600/20"><RefreshCw className="h-4 w-4" />View History</button>
           <button type="button" onClick={sendIntroMail} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Mail className="h-4 w-4" />Send Introduction Mail</button>
           <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-5 text-sm font-black text-white shadow-lg shadow-orange-500/20"><Edit3 className="h-4 w-4" />Edit</button>
         </div>
@@ -1314,7 +1414,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
                   ))}
                 </div>
               ) : (
-                <EmptyDetailState title="No quotation preview mapped yet." actionLabel="Add New Quotation" onAction={onAddQuotation} />
+                <EmptyDetailState title="No quotation preview mapped yet." actionLabel="Add New Quotation" onAction={() => onAddQuotation()} />
               )}
             </div>
           )}
@@ -1335,6 +1435,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
         </aside>
         </div>
       </div>
+      {historyOpen && <LeadHistoryDrawer data={historyData} loading={historyLoading} filter={historyFilter} onFilter={setHistoryFilter} onRefresh={openHistory} onClose={() => setHistoryOpen(false)} />}
       {followUpModalOpen && (
         <div className="fixed inset-0 z-[120] grid place-items-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm" onClick={() => !followUpSaving && setFollowUpModalOpen(false)}>
           <section className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/25" onClick={(event) => event.stopPropagation()}>
@@ -1359,6 +1460,34 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+function LeadHistoryDrawer({ data, loading, filter, onFilter, onRefresh, onClose }) {
+  const events = data.events || [];
+  const groupFor = (type = '') => type.includes('quotation') || type.includes('approval') ? 'quotation' : type.includes('follow') ? 'followup' : type.includes('todo') ? 'todo' : type.includes('email') ? 'email' : 'lead';
+  const visible = filter === 'all' ? events : events.filter((event) => groupFor(event.type) === filter);
+  const tones = { quotation: 'violet', followup: 'orange', todo: 'blue', email: 'emerald', lead: 'slate' };
+  const filters = [['all', 'All Activity'], ['lead', 'Lead'], ['quotation', 'Quotation'], ['followup', 'Follow-Ups'], ['todo', 'Todos'], ['email', 'Email']];
+
+  return (
+    <div className="lead-history-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <aside className="lead-history-drawer">
+        <header className="lead-history-head">
+          <div><p>Complete activity trail</p><h2><Clock3 className="h-5 w-5" />Lead History</h2><span>{data.lead?.leadCode || ''} {data.lead?.company ? `• ${data.lead.company}` : ''}</span></div>
+          <div><button type="button" onClick={onRefresh} title="Refresh"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button><button type="button" onClick={onClose} title="Close"><X className="h-5 w-5" /></button></div>
+        </header>
+        <section className="lead-history-stats"><div><strong>{data.summary?.total || events.length}</strong><span>Activities</span></div><div><strong>{data.summary?.quotations || 0}</strong><span>Quotations</span></div><div><strong>{data.summary?.followUps || 0}</strong><span>Follow-Ups</span></div><div><strong>{data.summary?.todos || 0}</strong><span>Todos</span></div><div><strong>{data.summary?.emails || 0}</strong><span>Emails</span></div></section>
+        <nav className="lead-history-filters">{filters.map(([id, label]) => <button type="button" key={id} className={filter === id ? 'active' : ''} onClick={() => onFilter(id)}>{label}<small>{id === 'all' ? events.length : events.filter((event) => groupFor(event.type) === id).length}</small></button>)}</nav>
+        <div className="lead-history-body">
+          {loading ? <div className="lead-history-loading"><RefreshCw className="h-6 w-6 animate-spin" /><strong>Building activity timeline...</strong></div> : data.error ? <div className="lead-history-empty"><strong>History unavailable</strong><p>{data.error}</p></div> : visible.length ? <div className="lead-history-timeline">{visible.map((event) => {
+            const group = groupFor(event.type); const date = event.at ? new Date(event.at) : null;
+            return <article key={event.id} className={`is-${tones[group]}`}><i>{group === 'quotation' ? <FileText /> : group === 'email' ? <Mail /> : group === 'followup' ? <Phone /> : group === 'todo' ? <CheckCircle2 /> : <Edit3 />}</i><div><header><span>{String(event.type || 'activity').replace(/_/g, ' ')}</span><time>{date && !Number.isNaN(date.getTime()) ? `${date.toLocaleDateString('en-GB')} • ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Date unavailable'}</time></header><h3>{event.title}</h3><p>{event.description}</p><footer><UserCheck className="h-3.5 w-3.5" />By {event.actor || 'CRM User'}</footer></div></article>;
+          })}</div> : <div className="lead-history-empty"><Clock3 className="h-8 w-8" /><strong>No activity found</strong><p>No events match this filter yet.</p></div>}
+        </div>
+        <footer className="lead-history-footer"><span>Audit timeline • newest activity first</span><button type="button" onClick={onClose}>Close History</button></footer>
+      </aside>
     </div>
   );
 }

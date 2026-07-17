@@ -1,24 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const { requireCcpSecret } = require('../middleware/ccpSecret');
 const authCtrl = require('../controllers/authController');
 const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES } = require('../constants/roles');
 
-function requireCcpSecret(req, res, next) {
-  const expectedSecret = process.env.CCP_SHARED_SECRET;
-  if (!expectedSecret) return next();
-
-  const providedSecret = req.get('x-ccp-secret') || req.query.secret;
-  if (providedSecret !== expectedSecret) {
-    return res.status(401).json({ ok: false, error: 'Invalid CCP secret' });
-  }
-
-  return next();
-}
 
 router.post('/request-otp', authCtrl.requestOtp);
 router.post('/resend-otp', authCtrl.resendOtp);
 router.post('/verify-otp', authCtrl.verifyOtp);
+router.post('/forgot-password', authCtrl.forgotPassword);
+router.post('/reset-password', authCtrl.resetPassword);
 router.get('/ccp/users', requireCcpSecret, authCtrl.listUsersForCcp);
 router.post('/ccp/users/sync', requireCcpSecret, authCtrl.syncUserFromCcp);
 router.get('/me', requireAuth, authCtrl.me);

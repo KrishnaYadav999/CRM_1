@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
@@ -22,7 +23,8 @@ const emptyLeadDetails = {
   addressLine3: '',
   state: '',
   city: '',
-  pinCode: ''
+  pinCode: '',
+  gstNumber: ''
 };
 
 const emptyItem = {
@@ -76,6 +78,7 @@ const serviceCategoryOptions = [
 ];
 
 const yearOptions = ['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30'];
+const salutationOptions = ['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.', 'Er.', 'CA', 'Adv.'];
 const eprCategoryOptions = ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'];
 const piboCategoryOptions = ['Importer', 'Producer', 'Brand Owner', 'SIMP (legacy)', 'SIMP - Producer', 'SIMP - Importer', 'SIMP - Manufacturer', 'SIMP - Seller', 'PWP', 'Refurbisher', 'Recycler', 'impo'];
 
@@ -93,12 +96,18 @@ function mapLeadToDetails(lead) {
     addressLine3: lead?.addressLine3 || '',
     state: lead?.state || '',
     city: lead?.city || '',
-    pinCode: lead?.pinCode || ''
+    pinCode: lead?.pinCode || '',
+    gstNumber: lead?.gstNumber || lead?.gstin || lead?.gst || ''
   };
 }
 
 function normalizeSearchValue(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function hasFetchedQuotationValue(value) {
+  const normalized = normalizeSearchValue(value);
+  return Boolean(normalized && !['-', 'n/a', 'na', 'null', 'undefined', 'not available'].includes(normalized));
 }
 
 function contextMatchesQuotation(row, context) {
@@ -123,23 +132,25 @@ function contextMatchesQuotation(row, context) {
 
 function buildQuotationFromContext(context) {
   if (!context) return { ...emptyQuotation, leadDetails: { ...emptyLeadDetails }, items: [], terms: [] };
+  const isClientContext = context.sourceType === 'client' || Boolean(context.clientId && context.clientName);
   return {
     ...emptyQuotation,
-    leadId: context.leadId || '',
-    leadCode: context.leadCode || '',
+    leadId: isClientContext ? (context.clientId || '') : (context.leadId || ''),
+    leadCode: isClientContext ? (context.clientUniqueId || context.leadCode || '') : (context.leadCode || ''),
     leadDetails: {
       ...emptyLeadDetails,
       contactPerson: context.contactPerson || '',
       designation: context.designation || '',
       mobileNo1: context.mobileNo1 || '',
       mobileNo2: context.mobileNo2 || '',
-      companyName: context.clientName || '',
+      companyName: context.clientName || context.company || '',
       addressLine1: context.addressLine1 || '',
       addressLine2: context.addressLine2 || '',
       addressLine3: context.addressLine3 || '',
       state: context.state || '',
       city: context.city || '',
-      pinCode: context.pinCode || ''
+      pinCode: context.pinCode || '',
+      gstNumber: context.gstNumber || ''
     },
     items: [{
       ...emptyItem,
@@ -222,6 +233,8 @@ export default function Quotations() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [leads, setLeads] = useState([]);
   const [quotations, setQuotations] = useState([]);
+  const [customServiceCategories, setCustomServiceCategories] = useState([]);
+  const [customPiboCategories, setCustomPiboCategories] = useState([]);
   const [quotation, setQuotation] = useState(emptyQuotation);
   const [editingId, setEditingId] = useState('');
   const [viewMode, setViewMode] = useState('list');
@@ -230,6 +243,7 @@ export default function Quotations() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [quotationStatusFilter, setQuotationStatusFilter] = useState('');
   const [adminApprovalFilter, setAdminApprovalFilter] = useState('');
+  const [validityFilter, setValidityFilter] = useState('');
   const [expandedId, setExpandedId] = useState('');
   const [menuId, setMenuId] = useState('');
   const [previewQuotation, setPreviewQuotation] = useState(null);
@@ -241,6 +255,7 @@ export default function Quotations() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const navigate = useNavigate();
@@ -248,10 +263,16 @@ export default function Quotations() {
   const quotationContext = location.state?.quotationContext || null;
 
   const selectedLead = useMemo(() => {
+    if (quotationContext?.sourceType === 'client' || (quotationContext?.clientId && quotationContext?.clientName)) return null;
     if (!quotation.leadId) return null;
     return leads.find((lead) => String(lead._id || lead.id) === String(quotation.leadId));
-  }, [leads, quotation.leadId]);
+  }, [leads, quotation.leadId, quotationContext]);
   const fetchedQuoteDetailsLocked = Boolean(selectedLead || quotationContext);
+  const isFetchedLeadDetailLocked = (field) => field !== 'gstNumber'
+    && fetchedQuoteDetailsLocked
+    && hasFetchedQuotationValue(quotation.leadDetails[field]);
+  const allServiceCategoryOptions = useMemo(() => [...new Set([...serviceCategoryOptions, ...customServiceCategories])].sort(), [customServiceCategories]);
+  const allPiboCategoryOptions = useMemo(() => [...new Set([...piboCategoryOptions, ...customPiboCategories])].sort((a, b) => a.localeCompare(b)), [customPiboCategories]);
 
   const userOptions = useMemo(() => {
     const names = quotations
@@ -280,9 +301,12 @@ export default function Quotations() {
       ].join(' ').toLowerCase();
       const matchesQuotationStatus = !quotationStatusFilter || readQuotationStatus(row) === quotationStatusFilter;
       const matchesAdminApproval = !adminApprovalFilter || readAdminApprovalStatus(row) === adminApprovalFilter;
-      return (!term || haystack.includes(term)) && (!userFilter || userName === userFilter) && matchesQuotationStatus && matchesAdminApproval;
+      const validDate = row.validUntil ? new Date(row.validUntil) : null;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const matchesValidity = !validityFilter || (validityFilter === 'valid' ? validDate && validDate >= today : validDate && validDate < today);
+      return (!term || haystack.includes(term)) && (!userFilter || userName === userFilter) && matchesQuotationStatus && matchesAdminApproval && matchesValidity;
     });
-  }, [adminApprovalFilter, query, quotationContext, quotationStatusFilter, quotations, userFilter]);
+  }, [adminApprovalFilter, query, quotationContext, quotationStatusFilter, quotations, userFilter, validityFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredQuotations.length / rowsPerPage));
   const visibleQuotations = filteredQuotations.slice((page - 1) * rowsPerPage, page * rowsPerPage);
@@ -324,7 +348,7 @@ export default function Quotations() {
 
   useEffect(() => {
     setPage(1);
-  }, [adminApprovalFilter, query, quotationStatusFilter, rowsPerPage, userFilter]);
+  }, [adminApprovalFilter, query, quotationStatusFilter, rowsPerPage, userFilter, validityFilter]);
 
   async function loadPage() {
     setLoading(true);
@@ -332,18 +356,39 @@ export default function Quotations() {
     try {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
-      const [crmLeadsResult, ccpLeadsResult, quotationsResponse] = await Promise.all([
+      const [crmLeadsResult, ccpLeadsResult, quotationsResponse, categoriesResponse, piboCategoriesResponse] = await Promise.all([
         api.get(API_ENDPOINTS.leads.list).catch(() => ({ data: { leads: [] } })),
         fetchCcpLeads(),
-        api.get(API_ENDPOINTS.quotations.list)
+        api.get(API_ENDPOINTS.quotations.list),
+        api.get(API_ENDPOINTS.quotations.serviceCategories).catch(() => ({ data: { categories: [] } })),
+        api.get(API_ENDPOINTS.quotations.piboCategories).catch(() => ({ data: { categories: [] } }))
       ]);
       setCurrentUser(me);
       setLeads(mergeLeadLists(crmLeadsResult.data.leads || [], ccpLeadsResult.data.leads || []));
       setQuotations(quotationsResponse.data.quotations || []);
+      setCustomServiceCategories(categoriesResponse.data.categories || []);
+      setCustomPiboCategories(piboCategoriesResponse.data.categories || []);
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to load quotations.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function syncCcpQuotations() {
+    setSyncing(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await api.post(API_ENDPOINTS.quotations.syncCcp);
+      const summary = response.data.summary || {};
+      setPage(1);
+      setNotice(`CCP sync complete: ${summary.fetched || 0} fetched, ${summary.created || 0} created, ${summary.updated || 0} updated, ${summary.unchanged || 0} unchanged, ${summary.unmatched || 0} unmatched, ${summary.failed || 0} failed.`);
+      await loadPage();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Unable to sync quotations from CCP.');
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -360,6 +405,26 @@ export default function Quotations() {
     setNotice('');
     setError('');
     setViewMode('form');
+  }
+
+  async function addServiceCategory(name) {
+    const normalized = String(name || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (!normalized) throw new Error('Enter a category name.');
+    if (allServiceCategoryOptions.some((option) => option.toUpperCase() === normalized)) throw new Error('This category already exists.');
+    const response = await api.post(API_ENDPOINTS.quotations.serviceCategories, { name: normalized });
+    const savedCategory = response.data.category || normalized;
+    setCustomServiceCategories((current) => [...new Set([...current, savedCategory])]);
+    return savedCategory;
+  }
+
+  async function addPiboCategory(name) {
+    const normalized = String(name || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (!normalized) throw new Error('Enter a PIBO Category name.');
+    if (allPiboCategoryOptions.some((option) => option.toUpperCase() === normalized)) throw new Error('This PIBO Category already exists.');
+    const response = await api.post(API_ENDPOINTS.quotations.piboCategories, { name: normalized });
+    const savedCategory = response.data.category || normalized;
+    setCustomPiboCategories((current) => [...new Set([...current, savedCategory])]);
+    return savedCategory;
   }
 
   function showQuotationList() {
@@ -473,17 +538,27 @@ export default function Quotations() {
   }
 
   async function saveQuotation(status = quotation.status) {
+    const gstNumber = String(quotation.leadDetails.gstNumber || '').trim().toUpperCase();
+    const gstPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+    if (gstNumber && gstNumber.length !== 15) {
+      setError('GST Number must contain exactly 15 characters.');
+      return;
+    }
+    if (gstNumber && !gstPattern.test(gstNumber)) {
+      setError('Please enter a valid 15-character GST Number.');
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const payload = { ...quotation, status };
+      const payload = { ...quotation, leadDetails: { ...quotation.leadDetails, gstNumber }, status };
       const response = editingId
         ? await api.put(API_ENDPOINTS.quotations.detail(editingId), payload)
         : await api.post(API_ENDPOINTS.quotations.create, payload);
       setSuccessModal({
-        title: editingId ? 'Quotation Updated Successfully!' : 'Quotation Created Successfully!',
-        message: `${response.data.quotation?.quotationNumber || 'Quotation'} has been saved and sent to Pending Approval.`
+        title: editingId ? 'Quotation updated' : 'Quotation sent to Approval',
+        message: `${response.data.quotation?.quotationNumber || 'Quotation'} was saved successfully and sent to Pending Approval.`
       });
       setQuotation({ ...emptyQuotation, leadDetails: { ...emptyLeadDetails }, items: [], terms: [] });
       setEditingId('');
@@ -514,7 +589,8 @@ export default function Quotations() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by Company Name..." className="h-11 w-64 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Quotation, company, lead or contact..." className="h-11 w-64 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100" />
+              <select value={validityFilter} onChange={(event) => setValidityFilter(event.target.value)} className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-600"><option value="">Any validity</option><option value="valid">Valid</option><option value="expired">Expired</option></select>
               <select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} className="h-11 w-60 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100">
                 <option value="">Filter by User</option>
                 {userOptions.map((user) => <option key={user} value={user}>{user}</option>)}
@@ -541,6 +617,7 @@ export default function Quotations() {
               <button type="button" onClick={loadPage} className="btn-lift inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700">
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
               </button>
+              {['admin', 'superadmin'].includes(String(currentUser?.role || '').toLowerCase()) && <button type="button" disabled={syncing} onClick={syncCcpQuotations} className="btn-lift inline-flex h-11 items-center gap-2 rounded-lg bg-[#30737B] px-4 text-sm font-black text-white disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? 'Syncing CCP…' : 'Sync from CCP'}</button>}
               <button type="button" onClick={() => startNew(quotationContext)} className="btn-lift inline-flex h-11 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-black text-white shadow-lg shadow-orange-500/20">
                 <Plus className="h-4 w-4" /> New
               </button>
@@ -562,25 +639,21 @@ export default function Quotations() {
 
           <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
             <div className="hidden-scrollbar max-h-[610px] overflow-auto">
-              <table className="w-full min-w-[1720px] table-fixed text-left text-sm">
+              <table className="w-full min-w-[1540px] table-fixed text-left text-sm">
                 <thead className="sticky top-0 z-20 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-600 shadow-sm">
                   <tr>
                     {[
-                      ['Quotation No.', 'w-[150px]'],
-                      ['User Name', 'w-[160px]'],
-                      ['Lead Generated By', 'w-[190px]'],
-                      ['Company Name', 'w-[220px]'],
+                      ['Quotation Number', 'w-[160px]'],
+                      ['Company', 'w-[210px]'],
+                      ['Lead Code', 'w-[140px]'],
                       ['Contact Person', 'w-[170px]'],
-                      ['Mobile No.1', 'w-[140px]'],
-                      ['Mobile No.2', 'w-[140px]'],
-                      ['Service Category', 'w-[210px]'],
-                      ['EPR Category', 'w-[190px]'],
-                      ['Unit', 'w-[100px]'],
-                      ['PIBO Category', 'w-[180px]'],
-                      ['Basic Amount (INR)', 'w-[170px]'],
-                      ['Admin Approval', 'w-[160px]'],
-                      ['Quotation Status', 'w-[170px]'],
-                      ['Items', 'w-[110px]'],
+                      ['Quotation Date', 'w-[145px]'],
+                      ['Valid Until', 'w-[135px]'],
+                      ['Item Count', 'w-[110px]'],
+                      ['Grand Total', 'w-[150px]'],
+                      ['Status', 'w-[120px]'],
+                      ['Source', 'w-[120px]'],
+                      ['Last Synced', 'w-[160px]'],
                       ['Actions', 'w-[110px]']
                     ].map(([header, width]) => (
                       <th key={header} className={`border-r border-slate-100 px-4 py-5 last:border-r-0 ${width}`}>{header}</th>
@@ -589,9 +662,9 @@ export default function Quotations() {
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {loading ? (
-                    <tr><td colSpan={16} className="px-5 py-14 text-center font-black text-slate-400">Loading quotations...</td></tr>
+                    <tr><td colSpan={12} className="px-5 py-14 text-center font-black text-slate-400">Loading quotations...</td></tr>
                   ) : visibleQuotations.length === 0 ? (
-                    <tr><td colSpan={16} className="px-5 py-14 text-center font-black text-slate-400">No quotations found.</td></tr>
+                    <tr><td colSpan={12} className="px-5 py-14 text-center font-black text-slate-400">No quotations found.</td></tr>
                   ) : visibleQuotations.map((row) => (
                     <React.Fragment key={row._id || row.id}>
                       <QuotationTableRow
@@ -605,7 +678,7 @@ export default function Quotations() {
                       />
                       {expandedId === (row._id || row.id) && (
                         <tr>
-                          <td colSpan={16} className="bg-slate-50 px-20 py-5">
+                          <td colSpan={12} className="bg-slate-50 px-20 py-5">
                             <QuotationItemsPanel items={row.items || []} />
                           </td>
                         </tr>
@@ -677,13 +750,24 @@ export default function Quotations() {
             <h2 className="text-lg font-black text-slate-950">Auto-Fetched Quote Details</h2>
           </div>
           <div className="mt-5">
-            <Field label="Select Lead">
-              <select value={quotation.leadId} onChange={(event) => selectLead(event.target.value)} disabled={fetchedQuoteDetailsLocked} className="form-input max-w-xl disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
-                <option value="">Select lead to auto-fetch details</option>
-                {leads.map((lead) => (
-                  <option key={lead._id || lead.id} value={lead._id || lead.id}>{lead.leadCode || 'Lead'} - {lead.company || 'Untitled company'}</option>
-                ))}
-              </select>
+            <Field label={quotationContext?.sourceType === 'client' ? 'Client Reference' : 'Select Lead'}>
+              <LeadSelect
+                value={quotation.leadId}
+                disabled={fetchedQuoteDetailsLocked}
+                onChange={selectLead}
+                options={[
+                  ...(quotationContext?.sourceType === 'client' && quotationContext.clientId ? [{
+                    value: quotationContext.clientId,
+                    code: quotationContext.clientUniqueId || quotationContext.leadCode || 'Client',
+                    company: quotationContext.clientName || 'Selected client'
+                  }] : []),
+                  ...leads.map((lead) => ({
+                    value: lead._id || lead.id,
+                    code: lead.leadCode || 'Lead',
+                    company: lead.company || 'Untitled company'
+                  }))
+                ]}
+              />
             </Field>
           </div>
           <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
@@ -700,15 +784,38 @@ export default function Quotations() {
               ['addressLine3', 'Address Line 3'],
               ['state', 'State'],
               ['city', 'City'],
-              ['pinCode', 'Pincode']
+              ['pinCode', 'Pincode'],
+              ['gstNumber', 'GST Number']
             ].map(([field, label]) => (
               <Field key={field} label={label}>
-                <input value={quotation.leadDetails[field] || ''} onChange={(event) => setLeadDetail(field, event.target.value)} className="form-input bg-slate-50 font-black uppercase text-slate-500 read-only:cursor-not-allowed read-only:bg-slate-100" placeholder={label} readOnly={fetchedQuoteDetailsLocked} />
+                {field === 'salutation' ? (
+                  <div className="quotation-salutation-control">
+                    <select value={quotation.leadDetails.salutation || ''} onChange={(event) => setLeadDetail('salutation', event.target.value)} disabled={fetchedQuoteDetailsLocked && hasFetchedQuotationValue(quotation.leadDetails.salutation)} className={`form-input quotation-salutation-select ${fetchedQuoteDetailsLocked && hasFetchedQuotationValue(quotation.leadDetails.salutation) ? 'quotation-fetched-locked' : 'quotation-missing-editable'}`}>
+                      <option value="">Select salutation</option>
+                      {salutationOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                    <ChevronDown className="quotation-salutation-chevron h-4 w-4" />
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      value={quotation.leadDetails[field] || ''}
+                      onChange={(event) => setLeadDetail(field, field === 'gstNumber' ? event.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 15) : event.target.value)}
+                      maxLength={field === 'gstNumber' ? 15 : undefined}
+                      minLength={field === 'gstNumber' ? 15 : undefined}
+                      autoComplete={field === 'gstNumber' ? 'off' : undefined}
+                      className={`form-input font-black uppercase ${isFetchedLeadDetailLocked(field) ? 'quotation-fetched-locked' : 'quotation-missing-editable'}`}
+                      placeholder={field === 'gstNumber' ? 'Enter 15-character GST number' : `Enter ${label.toLowerCase()}`}
+                      readOnly={isFetchedLeadDetailLocked(field)}
+                    />
+                    {field === 'gstNumber' && <p className={`mt-1 text-right text-xs font-black ${(quotation.leadDetails.gstNumber || '').length === 15 ? 'text-emerald-600' : 'text-slate-400'}`}>{(quotation.leadDetails.gstNumber || '').length}/15</p>}
+                  </div>
+                )}
               </Field>
             ))}
           </div>
           {selectedLead && <p className="mt-4 text-sm font-bold text-emerald-700">Lead details auto-fetched from {selectedLead.leadCode || selectedLead.company}.</p>}
-          {!selectedLead && quotationContext && <p className="mt-4 text-sm font-bold text-emerald-700">Client details auto-fetched from {quotationContext.clientName || 'selected client'}.</p>}
+          {!selectedLead && quotationContext && <p className="mt-4 text-sm font-bold text-emerald-700">Client details auto-fetched from {quotationContext.clientUniqueId || quotationContext.leadCode || 'selected client'} - {quotationContext.clientName || 'Selected client'}.</p>}
         </section>
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -749,10 +856,10 @@ export default function Quotations() {
                         <td className="px-3 py-4 text-center font-black">{index + 1}</td>
                         {editingItemIndex === index ? (
                           <>
-                            <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.serviceCategory || ''} options={serviceCategoryOptions} placeholder="CONSULTANCY FEE" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} /></td>
+                            <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.serviceCategory || ''} options={allServiceCategoryOptions} placeholder="CONSULTANCY FEE" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={addServiceCategory} /></td>
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.servicesForYear || ''} options={yearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} /></td>
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.eprCategory || ''} options={eprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} /></td>
-                            <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.piboCategory || ''} options={piboCategoryOptions} placeholder="IMPORTER" onChange={(value) => setItemDraft(index, 'piboCategory', value)} /></td>
+                            <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.piboCategory || ''} options={allPiboCategoryOptions} placeholder="IMPORTER" onChange={(value) => setItemDraft(index, 'piboCategory', value)} onAddOption={addPiboCategory} categoryLabel="PIBO Category" /></td>
                             <td className="px-3 py-4"><input value={itemDrafts[index]?.unit || ''} onChange={(event) => setItemDraft(index, 'unit', event.target.value)} className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1" /></td>
                             <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
@@ -832,58 +939,42 @@ export default function Quotations() {
 }
 
 function SuccessDialog({ title, message, onClose }) {
+  useEffect(() => {
+    const timer = window.setTimeout(onClose, 5000);
+    return () => window.clearTimeout(timer);
+  }, [onClose]);
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm animate-[fadeIn_.18s_ease-out]">
-      <div className="w-full max-w-md rounded-[26px] bg-white p-7 text-center shadow-2xl shadow-slate-950/25 animate-[app-loader-card-in_.32s_cubic-bezier(.22,1,.36,1)]">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-100 text-emerald-700">
-          <Check className="h-8 w-8" />
-        </div>
-        <h2 className="mt-5 text-xl font-black text-slate-950">{title}</h2>
-        <p className="mt-2 text-sm font-bold leading-6 text-slate-500">{message}</p>
-        <button type="button" onClick={onClose} className="btn-lift mt-6 h-12 w-full rounded-full bg-emerald-300 font-black text-slate-900 shadow-lg shadow-emerald-300/30">
-          Dismiss
-        </button>
-      </div>
+    <div className="quotation-approval-toast" role="status" aria-live="polite">
+      <div className="quotation-approval-toast-icon"><Check className="h-5 w-5" /></div>
+      <div><strong>{title}</strong><p>{message}</p><span>Approval workflow has been notified.</span></div>
+      <button type="button" onClick={onClose} aria-label="Dismiss notification"><X className="h-4 w-4" /></button>
+      <i />
     </div>
   );
 }
 
 function QuotationTableRow({ row, expanded, menuOpen, onToggleItems, onToggleMenu, onEdit, onPreview }) {
-  const item = row.items?.[0] || {};
   const itemCount = row.items?.length || 0;
-  const userName = row.createdBy?.name || row.createdBy?.email || row.leadDetails?.referredBy || '-';
-  const leadBy = row.leadDetails?.referredBy || userName;
+  const total = Number(row.grandTotal) || (row.items || []).reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
+  const source = String(row.source || 'crm').toLowerCase();
 
   return (
     <tr className="relative bg-white transition hover:bg-slate-50">
       <td className="px-4 py-5 font-black text-blue-600">{row.quotationNumber || '-'}</td>
-      <td className="px-4 py-5 font-black uppercase text-slate-600">{userName}</td>
-      <td className="px-4 py-5 font-black uppercase text-slate-600">{leadBy || '-'}</td>
-      <td className="px-4 py-5 font-black uppercase text-slate-700">{row.leadDetails?.companyName || '-'}</td>
+      <td className="px-4 py-5 font-black uppercase text-slate-700">{row.companyName || row.leadDetails?.companyName || '-'}</td>
+      <td className="px-4 py-5 font-black text-slate-600">{row.leadCode || '-'}</td>
       <td className="px-4 py-5 font-black uppercase text-slate-600">{row.leadDetails?.contactPerson || '-'}</td>
-      <td className="px-4 py-5 font-black text-slate-600">{row.leadDetails?.mobileNo1 || '-'}</td>
-      <td className="px-4 py-5 font-black text-slate-600">{row.leadDetails?.mobileNo2 || '-'}</td>
-      <td className="px-4 py-5 font-black uppercase text-slate-600">{item.serviceCategory || '-'}</td>
-      <td className="px-4 py-5 font-black uppercase text-slate-600">{item.eprCategory || '-'}</td>
-      <td className="px-4 py-5 font-black uppercase text-slate-600">{item.unit || '-'}</td>
-      <td className="px-4 py-5 font-black uppercase text-slate-600">{item.piboCategory || '-'}</td>
-      <td className="px-4 py-5 font-black text-blue-600">{formatInr(item.basicAmount)}</td>
+      <td className="px-4 py-5 font-bold text-slate-600">{formatDisplayDate(row.quotationDate || row.createdAt)}</td>
+      <td className="px-4 py-5 font-bold text-slate-600">{formatDisplayDate(row.validUntil)}</td>
       <td className="px-4 py-5">
-        <span className={`rounded-full border px-4 py-2 text-xs font-black ${readAdminApprovalStatus(row) === 'rejected' ? 'border-red-200 bg-red-50 text-red-600' : 'border-lime-300 bg-lime-50 text-lime-700'}`}>
-          {readAdminApprovalStatus(row) === 'rejected' ? 'Rejected' : 'Approved'}
-        </span>
+        <button type="button" onClick={onToggleItems} className="inline-flex items-center gap-2 text-sm font-black text-blue-600"><ChevronDown className={`h-4 w-4 transition ${expanded ? 'rotate-180' : '-rotate-90'}`} />{itemCount}</button>
       </td>
+      <td className="px-4 py-5 font-black text-blue-600">{formatInr(total)}</td>
       <td className="px-4 py-5">
-        <span className={`rounded-full border px-4 py-2 text-xs font-black ${readQuotationStatus(row) === 'closed' ? 'border-red-200 bg-red-50 text-red-600' : 'border-blue-300 bg-blue-50 text-blue-600'}`}>
-          {readQuotationStatus(row) === 'closed' ? 'Closed' : 'Open'}
-        </span>
+        <span className={`rounded-full border px-3 py-2 text-xs font-black uppercase ${row.status === 'submitted' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>{row.status || 'draft'}</span>
       </td>
-      <td className="px-4 py-5">
-        <button type="button" onClick={onToggleItems} className="inline-flex items-center gap-2 text-sm font-black text-blue-600">
-          <ChevronDown className={`h-4 w-4 transition ${expanded ? 'rotate-180' : '-rotate-90'}`} />
-          <span>{itemCount}<br />{itemCount === 1 ? 'item' : 'items'}</span>
-        </button>
-      </td>
+      <td className="px-4 py-5"><span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-700">{source === 'crm' ? 'CRM' : `CCP${row.ccpSource ? ` · ${row.ccpSource}` : ''}`}</span>{row.syncMatchStatus === 'unmatched' && <span title={row.unmatchedReason || 'CRM lead not matched'} className="mt-2 block text-[10px] font-black uppercase text-amber-600">Lead unmatched</span>}</td>
+      <td className="px-4 py-5 text-xs font-bold text-slate-600">{row.lastSyncedAt ? formatDisplayDate(row.lastSyncedAt) : '-'}</td>
       <td className="px-4 py-5">
         <div className="relative">
           <button type="button" onClick={onToggleMenu} className="grid h-9 w-9 place-items-center rounded-lg text-slate-600 hover:bg-slate-100" title="Actions">
@@ -892,7 +983,7 @@ function QuotationTableRow({ row, expanded, menuOpen, onToggleItems, onToggleMen
           {menuOpen && (
             <div className="absolute right-0 top-10 z-30 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-2 shadow-xl">
               <button type="button" onClick={onPreview} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-slate-50"><Eye className="h-4 w-4" /> Preview</button>
-              <button type="button" onClick={onEdit} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-slate-50"><Edit3 className="h-4 w-4" /> Revise</button>
+              {String(row.source || 'crm').toLowerCase() === 'crm' && <button type="button" onClick={onEdit} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-slate-50"><Edit3 className="h-4 w-4" /> Revise</button>}
               <button type="button" onClick={onPreview} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-slate-50"><Download className="h-4 w-4" /> Download</button>
             </div>
           )}
@@ -908,14 +999,14 @@ function QuotationItemsPanel({ items }) {
       <table className="w-full min-w-[920px] text-left text-sm">
         <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
           <tr>
-            {['Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Amount (INR)'].map((header) => (
+            {['Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (INR)', 'Line Total'].map((header) => (
               <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.length === 0 ? (
-            <tr><td colSpan={6} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
+            <tr><td colSpan={7} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
           ) : items.map((item, index) => (
             <tr key={index} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.serviceCategory || '-'}</td>
@@ -924,6 +1015,7 @@ function QuotationItemsPanel({ items }) {
               <td className="px-4 py-4">{item.piboCategory || '-'}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
               <td className="px-4 py-4">{formatInr(item.basicAmount)}</td>
+              <td className="px-4 py-4 text-blue-600">{formatInr((Number(item.unit) || 0) * (Number(item.basicAmount) || 0))}</td>
             </tr>
           ))}
         </tbody>
@@ -1016,7 +1108,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
   ].some((value) => String(value || '').trim() && String(value || '').trim() !== '-'));
   const latestItem = meaningfulItems[meaningfulItems.length - 1] || items[items.length - 1] || {};
   const userName = quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-';
-  const totalAmount = Number(latestItem.basicAmount) || items.reduce((sum, item) => sum + (Number(item.basicAmount) || 0), 0);
+  const totalAmount = Number(quotation.grandTotal) || items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
   const displayRevisionCount = Math.max(revisionCount, meaningfulItems.length || items.length);
 
   return (
@@ -1029,9 +1121,9 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
             <p className="mt-1 text-sm font-black text-slate-500">{quotation.quotationNumber || quotation.uniqueId || '-'}</p>
           </div>
           <div className="flex shrink-0 gap-2">
-            <button type="button" onClick={onRevise} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-600">
+            {String(quotation.source || 'crm').toLowerCase() === 'crm' && <button type="button" onClick={onRevise} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-600">
               <Edit3 className="h-4 w-4" /> Revise
-            </button>
+            </button>}
             <button type="button" onClick={onClose} className="btn-lift grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600" aria-label="Close quotation details">
               <X className="h-5 w-5" />
             </button>
@@ -1057,7 +1149,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
               <table className="w-full min-w-[980px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-black text-slate-600">
                   <tr>
-                    {['Sr.No', 'Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (INR)'].map((header) => (
+                    {['Sr.No', 'Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (INR)', 'Line Total'].map((header) => (
                       <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                     ))}
                   </tr>
@@ -1072,14 +1164,17 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.piboCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
                       <td className="border-b border-slate-100 px-4 py-4 text-right text-orange-600">{formatInr(item.basicAmount)}</td>
+                      <td className="border-b border-slate-100 px-4 py-4 text-right text-blue-600">{formatInr((Number(item.unit) || 0) * (Number(item.basicAmount) || 0))}</td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={7} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
           </DetailSection>
+          <div className="mt-4 ml-auto max-w-sm rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex justify-between text-sm font-bold text-slate-600"><span>Subtotal</span><span>{formatInr(quotation.subtotal || totalAmount)}</span></div><div className="mt-3 flex justify-between border-t border-slate-200 pt-3 text-base font-black text-slate-950"><span>Grand Total</span><span className="text-orange-600">{formatInr(totalAmount)}</span></div></div>
+          <DetailSection title="Terms & Conditions"><ol className="list-decimal space-y-2 pl-5 text-sm font-bold text-slate-700">{(quotation.terms || []).length ? quotation.terms.map((term, index) => <li key={`${term}-${index}`}>{term}</li>) : <li className="list-none text-slate-400">No terms added.</li>}</ol></DetailSection>
         </div>
       </div>
     </div>
@@ -1113,6 +1208,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
     ['City', details.city || '-'],
     ['State', details.state || '-'],
     ['Pincode', details.pinCode || '-'],
+    ['GST Number', details.gstNumber || '-'],
     ['Referred By', details.referredBy || quotation.createdBy?.name || quotation.createdBy || '-'],
     ['Quotation Number', quotation.quotationNumber || quotation.uniqueId || '-'],
     ['Service Category', firstItem.serviceCategory || '-'],
@@ -1292,6 +1388,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
               <p>State: {details.state || '-'}</p>
               <p>City: {details.city || '-'}</p>
               <p>Pincode: {details.pinCode || '-'}</p>
+              <p>GST Number: {details.gstNumber || '-'}</p>
             </div>
             <div className="mt-5 overflow-hidden border border-slate-950">
               <table className="w-full text-[11px]">
@@ -1444,6 +1541,7 @@ function buildQuotationPrintHtml(quotation) {
         <p><span class="strong">State:</span> ${escapeHtml(details.state || '-')}</p>
         <p><span class="strong">City:</span> ${escapeHtml(details.city || '-')}</p>
         <p><span class="strong">Pincode:</span> ${escapeHtml(details.pinCode || '-')}</p>
+        <p><span class="strong">GST Number:</span> ${escapeHtml(details.gstNumber || '-')}</p>
       </section>
       <table>
         <thead>
@@ -1469,14 +1567,145 @@ function buildQuotationPrintHtml(quotation) {
 </html>`;
 }
 
-function QuoteSelect({ value, options, placeholder, onChange }) {
+function QuoteSelect({ value, options, placeholder, onChange, onAddOption, categoryLabel = 'Service Category' }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const [addError, setAddError] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [menuPosition, setMenuPosition] = useState(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const filtered = options.filter((option) => option.toLowerCase().includes(search.trim().toLowerCase()));
+
+  function positionMenu() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.max(rect.width, 300);
+    const left = Math.min(rect.left, window.innerWidth - width - 12);
+    setMenuPosition({ left: Math.max(12, left), top: rect.bottom + 7, width });
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+    positionMenu();
+    function closeOnOutside(event) {
+      if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setOpen(false);
+    }
+    function reposition() { positionMenu(); }
+    document.addEventListener('mousedown', closeOnOutside);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [open]);
+
+  function choose(option) {
+    onChange(option);
+    setOpen(false);
+    setSearch('');
+  }
+
+  async function saveCategory(event) {
+    event.preventDefault();
+    setAddError('');
+    setSavingCategory(true);
+    try {
+      const saved = await onAddOption(newCategory);
+      setNewCategory('');
+      setAdding(false);
+      choose(saved);
+    } catch (err) {
+      setAddError(err?.response?.data?.error || err.message || 'Unable to add category.');
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 min-w-44 rounded-lg border border-slate-300 bg-white px-3 text-sm font-black uppercase text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100">
-      <option value="">{placeholder}</option>
-      {options.map((option) => (
-        <option key={option} value={option}>{option}</option>
-      ))}
-    </select>
+    <>
+      <button ref={triggerRef} type="button" className={`quote-category-trigger ${open ? 'is-open' : ''}`} onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
+        <span>{value || placeholder}</span><ChevronDown className="h-4 w-4" />
+      </button>
+      {open && menuPosition && createPortal(
+        <div ref={menuRef} className="quote-category-menu" style={menuPosition}>
+          <div className="quote-category-search"><Search className="h-4 w-4" /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search category..." />{search && <button type="button" onClick={() => setSearch('')}><X className="h-4 w-4" /></button>}</div>
+          <div className="quote-category-options" role="listbox">
+            {filtered.map((option) => <button key={option} type="button" role="option" aria-selected={option === value} onClick={() => choose(option)}><span>{option}</span>{option === value && <Check className="h-4 w-4" />}</button>)}
+            {!filtered.length && <div className="quote-category-empty">No matching category</div>}
+          </div>
+          {onAddOption && <button type="button" className="quote-category-add" onClick={() => { setNewCategory(search); setOpen(false); setAdding(true); setAddError(''); }}><Plus className="h-4 w-4" /><span><strong>Add New {categoryLabel}</strong><small>Save permanently for future quotations</small></span></button>}
+        </div>, document.body
+      )}
+      {adding && createPortal(
+        <div className="quote-category-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAdding(false); }}>
+          <form className="quote-category-modal" onSubmit={saveCategory}>
+            <div className="quote-category-modal-head"><div><small>Quotation settings</small><h3>Add New {categoryLabel}</h3></div><button type="button" onClick={() => setAdding(false)}><X className="h-5 w-5" /></button></div>
+            <label><span>{categoryLabel} Name</span><input autoFocus value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder={`Enter ${categoryLabel.toLowerCase()}`} maxLength={100} /></label>
+            <p className="quote-category-modal-note">This {categoryLabel.toLowerCase()} will be saved permanently and available in all future quotations.</p>
+            {addError && <p className="quote-category-modal-error">{addError}</p>}
+            <div className="quote-category-modal-actions"><button type="button" onClick={() => setAdding(false)}>Cancel</button><button type="submit" disabled={savingCategory || !newCategory.trim()}><Plus className="h-4 w-4" />{savingCategory ? 'Adding...' : 'Add Category'}</button></div>
+          </form>
+        </div>, document.body
+      )}
+    </>
+  );
+}
+
+function LeadSelect({ value, options, onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const rootRef = useRef(null);
+  const selected = options.find((option) => String(option.value) === String(value));
+  const filtered = options.filter((option) => `${option.code} ${option.company}`.toLowerCase().includes(search.trim().toLowerCase()));
+
+  useEffect(() => {
+    function closeOnOutsideClick(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, []);
+
+  function choose(nextValue) {
+    onChange(nextValue);
+    setOpen(false);
+    setSearch('');
+  }
+
+  return (
+    <div ref={rootRef} className={`quotation-lead-select ${open ? 'is-open' : ''} ${disabled ? 'is-disabled' : ''}`}>
+      <button type="button" className="quotation-lead-trigger" disabled={disabled} onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
+        <span className="quotation-lead-trigger-icon"><FileText className="h-4 w-4" /></span>
+        <span className="quotation-lead-trigger-copy">
+          <small>{selected ? selected.code : 'Choose a lead'}</small>
+          <strong>{selected ? selected.company : 'Select lead to auto-fetch details'}</strong>
+        </span>
+        <ChevronDown className="quotation-lead-trigger-chevron h-5 w-5" />
+      </button>
+      {open && !disabled && (
+        <div className="quotation-lead-menu">
+          <div className="quotation-lead-search">
+            <Search className="h-4 w-4" />
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search lead code or company..." />
+            {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X className="h-4 w-4" /></button>}
+          </div>
+          <div className="quotation-lead-options" role="listbox">
+            {filtered.length ? filtered.map((option) => (
+              <button key={option.value} type="button" role="option" aria-selected={String(option.value) === String(value)} className="quotation-lead-option" onClick={() => choose(option.value)}>
+                <span><strong>{option.code}</strong><small>{option.company}</small></span>
+                {String(option.value) === String(value) && <Check className="h-4 w-4" />}
+              </button>
+            )) : <div className="quotation-lead-empty">No matching lead found</div>}
+          </div>
+          <div className="quotation-lead-menu-foot">{filtered.length} lead{filtered.length === 1 ? '' : 's'} available</div>
+        </div>
+      )}
+    </div>
   );
 }
 

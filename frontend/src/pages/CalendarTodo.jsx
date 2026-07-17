@@ -198,6 +198,9 @@ export default function CalendarTodo() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [clients, setClients] = useState([]);
   const [leads, setLeads] = useState([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsError, setOptionsError] = useState('');
+  const [optionsReloadKey, setOptionsReloadKey] = useState(0);
   const [users, setUsers] = useState([]);
   const [drawerDate, setDrawerDate] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
@@ -266,6 +269,8 @@ export default function CalendarTodo() {
   useEffect(() => {
     let mounted = true;
     async function loadOptions() {
+      setOptionsLoading(true);
+      setOptionsError('');
       const [clientsResult, ccpClientsResult, leadsResult, ccpLeadsResult, usersResult, adminUsersResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.clients.list),
         fetchCcpClients(),
@@ -286,13 +291,23 @@ export default function CalendarTodo() {
         ...apiUsers,
         ...(storedUser ? [storedUser] : [])
       ].map((user) => [String(user?._id || user?.id || user?.email || user?.name || Math.random()), user])).values()].filter(Boolean);
-      setClients(mergeClientSources(crmClients, ccpClients));
-      setLeads(mergeLeadSources(crmLeads, ccpLeads));
+      const mergedClients = mergeClientSources(crmClients, ccpClients);
+      const mergedLeads = mergeLeadSources(crmLeads, ccpLeads);
+      setClients(mergedClients);
+      setLeads(mergedLeads);
       setUsers(mergedUsers);
+      if (!mergedClients.length && !mergedLeads.length) {
+        setOptionsError('Client and lead records could not be loaded.');
+      }
+      setOptionsLoading(false);
     }
-    loadOptions();
+    loadOptions().catch(() => {
+      if (!mounted) return;
+      setOptionsError('Unable to fetch client and lead records.');
+      setOptionsLoading(false);
+    });
     return () => { mounted = false; };
-  }, [storedUser]);
+  }, [storedUser, optionsReloadKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -1013,6 +1028,9 @@ export default function CalendarTodo() {
                     value={todoDraft.clientNumber || ''}
                     placeholder="Search and select a client"
                     options={clientOptions}
+                    loading={optionsLoading}
+                    error={optionsError}
+                    onRetry={() => setOptionsReloadKey((value) => value + 1)}
                     onChange={(value, selected) => setTodoDraft((current) => ({ ...current, clientNumber: value, clientName: selected?.company || '' }))}
                   />
                 </Field>
@@ -1021,6 +1039,9 @@ export default function CalendarTodo() {
                     value={todoDraft.leadNumber || ''}
                     placeholder="Search and select a lead"
                     options={leadOptions}
+                    loading={optionsLoading}
+                    error={optionsError}
+                    onRetry={() => setOptionsReloadKey((value) => value + 1)}
                     onChange={(value) => setTodoDraft((current) => ({ ...current, leadNumber: value }))}
                   />
                 </Field>
@@ -1042,6 +1063,9 @@ export default function CalendarTodo() {
                     value={todoDraft.assignedTo}
                     placeholder="Select user (optional)"
                     options={userOptions}
+                    loading={optionsLoading}
+                    emptyMessage="No active users found"
+                    onRetry={() => setOptionsReloadKey((value) => value + 1)}
                     onChange={(value) => setTodoDraft((current) => ({ ...current, assignedTo: value }))}
                   />
                 </Field>
@@ -1252,7 +1276,7 @@ function Field({ label, required = false, wide = false, className = '', children
   return <label className={[wide ? 'calendar-field-wide' : '', className].filter(Boolean).join(' ')}><span>{required && <i>* </i>}{label}</span>{children}</label>;
 }
 
-function SearchSelect({ value, options = [], placeholder, onChange }) {
+function SearchSelect({ value, options = [], placeholder, onChange, loading = false, error = '', emptyMessage = 'No records found', onRetry }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const selected = options.find((option) => String(option.value) === String(value));
@@ -1272,7 +1296,7 @@ function SearchSelect({ value, options = [], placeholder, onChange }) {
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} autoFocus />
           </div>
           <div className="calendar-search-select-list">
-            {filtered.length ? filtered.map((option) => (
+            {loading ? <p className="calendar-search-select-status">Loading records...</p> : filtered.length ? filtered.map((option) => (
               <button
                 type="button"
                 key={`${option.id || option.value}-${option.label}`}
@@ -1285,7 +1309,8 @@ function SearchSelect({ value, options = [], placeholder, onChange }) {
               >
                 {option.label}
               </button>
-            )) : <p>No records found</p>}
+            )) : <p className="calendar-search-select-status">{error || emptyMessage}</p>}
+            {!loading && !filtered.length && onRetry && <button type="button" className="calendar-search-select-retry" onClick={onRetry}>Retry fetch</button>}
           </div>
         </div>
       )}

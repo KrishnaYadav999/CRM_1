@@ -12,6 +12,7 @@ function generateOtp() {
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const PASSWORD_RESET_EXPIRY_MS = 10 * 60 * 1000;
 const APP_NAME = 'CRM';
 
 function shouldSkipMailInDevelopment() {
@@ -109,6 +110,100 @@ async function sendLoginOtp(user, otp, context = {}) {
     throw error;
   }
 }
+
+async function sendPasswordResetOtp(user, otp) {
+  if (shouldSkipMailInDevelopment()) {
+    console.log(`Development password reset OTP for ${user.email}: ${otp}`);
+    return { devOtp: otp };
+  }
+
+  const html = `
+    <div style="margin:0;background:#f4f7fb;padding:32px 12px;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+      <div style="max-width:560px;margin:auto;overflow:hidden;border-radius:18px;background:#fff;box-shadow:0 18px 50px rgba(15,23,42,.12)">
+        <div style="background:#0f766e;padding:26px 28px;color:#fff"><b style="font-size:26px">${APP_NAME}</b><div style="margin-top:6px">Password reset</div></div>
+        <div style="padding:32px 28px"><h1 style="margin:0;font-size:24px">Reset your password</h1>
+          <p style="color:#475569;line-height:1.7">Use this one-time code to reset your password. It expires in 10 minutes.</p>
+          <div style="margin:26px 0;padding:20px;border-radius:16px;background:#ecfeff;border:1px solid #99f6e4;text-align:center;font-size:38px;font-weight:800;letter-spacing:.18em">${otp}</div>
+          <p style="color:#64748b;line-height:1.7">If you did not request this change, ignore this email. Your password will remain unchanged.</p>
+        </div>
+      </div>
+    </div>`;
+  await sendMail(user.email, `${APP_NAME} Password Reset Code`, html);
+  return {};
+}
+
+exports.forgotPassword = async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email required' });
+
+  const user = await User.findOne({ email });
+  const genericMessage = 'If an active account exists for this email, a reset code has been sent.';
+  if (!user || !user.isActive) return res.json({ ok: true, message: genericMessage });
+
+  if (user.passwordResetRequestedAt) {
+    const remaining = OTP_RESEND_COOLDOWN_MS - (Date.now() - new Date(user.passwordResetRequestedAt).getTime());
+    if (remaining > 0) return res.status(429).json({ error: `Please wait ${Math.ceil(remaining / 1000)} seconds before requesting another code.` });
+  }
+
+  const otp = generateOtp();
+  user.passwordResetOtp = await bcrypt.hash(otp, 10);
+  user.passwordResetExpires = new Date(Date.now() + PASSWORD_RESET_EXPIRY_MS);
+  user.passwordResetRequestedAt = new Date();
+  user.passwordResetAttempts = 0;
+  await user.save();
+
+  try {
+    const result = await sendPasswordResetOtp(user, otp);
+    return res.json({ ok: true, message: genericMessage, ...(result.devOtp ? { devOtp: result.devOtp } : {}) });
+  } catch (err) {
+    user.passwordResetOtp = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+    console.error('Password reset mail error', { email, message: err.message });
+    return res.status(502).json({ error: 'Password reset email could not be sent.' });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  const otp = String(req.body.otp || '').trim();
+  const newPassword = String(req.body.newPassword || '');
+  const confirmPassword = String(req.body.confirmPassword || '');
+  if (!email || !otp || !newPassword || !confirmPassword) return res.status(400).json({ error: 'All fields are required' });
+  if (!/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'Enter a valid 6-digit reset code' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  if (newPassword !== confirmPassword) return res.status(400).json({ error: 'Password confirmation does not match' });
+
+  const user = await User.findOne({ email }).select('+passwordResetAttempts');
+  if (!user || !user.isActive || !user.passwordResetOtp || !user.passwordResetExpires) {
+    return res.status(400).json({ error: 'Reset code is invalid or expired' });
+  }
+  if (user.passwordResetExpires.getTime() < Date.now()) {
+    user.passwordResetOtp = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+    return res.status(400).json({ error: 'Reset code is invalid or expired' });
+  }
+  if ((user.passwordResetAttempts || 0) >= 5) {
+    return res.status(429).json({ error: 'Too many invalid attempts. Request a new reset code.' });
+  }
+  const validOtp = await bcrypt.compare(otp, user.passwordResetOtp);
+  if (!validOtp) {
+    user.passwordResetAttempts = (user.passwordResetAttempts || 0) + 1;
+    await user.save();
+    return res.status(400).json({ error: 'Reset code is invalid or expired' });
+  }
+
+  user.password = await bcrypt.hash(newPassword, 10);
+  user.passwordResetOtp = undefined;
+  user.passwordResetExpires = undefined;
+  user.passwordResetRequestedAt = undefined;
+  user.passwordResetAttempts = 0;
+  user.otp = undefined;
+  user.otpExpires = undefined;
+  await user.save();
+  return res.json({ ok: true, message: 'Password reset successfully. You can now sign in.' });
+};
 
 function readAvatarUrl(value) {
   if (value === undefined || value === null || value === '') return '';

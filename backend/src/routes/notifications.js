@@ -1,20 +1,10 @@
 const express = require('express');
 const notificationCtrl = require('../controllers/notificationController');
 const { requireAuth, requireRoles } = require('../middleware/auth');
+const { requireCcpSecret } = require('../middleware/ccpSecret');
 
 const router = express.Router();
 
-function requireCcpSecret(req, res, next) {
-  const expectedSecret = process.env.CCP_SHARED_SECRET;
-  if (!expectedSecret) return next();
-
-  const providedSecret = req.get('x-ccp-secret') || req.query.secret;
-  if (providedSecret !== expectedSecret) {
-    return res.status(401).json({ ok: false, error: 'Invalid CCP secret' });
-  }
-
-  return next();
-}
 
 router.get('/ccp', requireCcpSecret, notificationCtrl.listNotificationsForCcp);
 router.post('/ccp/sync', requireCcpSecret, notificationCtrl.syncNotificationFromCcp);

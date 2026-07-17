@@ -125,6 +125,16 @@ export default function ProfileModal({ user, saving, onClose, onLogout, onSave, 
 
         <div className="profile-modal-body grid gap-8 p-6 lg:grid-cols-[280px_1fr] lg:p-10">
           <aside className="profile-identity-card rounded-2xl bg-gradient-to-br from-emerald-700 to-teal-600 p-6 text-white shadow-xl shadow-emerald-700/20">
+            <div className="profile-summary-card">
+              <div className="profile-summary-avatar">
+                {user?.avatarUrl
+                  ? <img src={user.avatarUrl} alt={`${user?.name || 'User'} profile`} />
+                  : (user?.name || user?.email || 'U').slice(0, 1).toUpperCase()}
+              </div>
+              <p className="profile-summary-name">{user?.name || 'CRM User'}</p>
+              <p className="profile-summary-email">{user?.email}</p>
+              <span className="profile-summary-role">{roleLabels[user?.role] || user?.role}</span>
+            </div>
             <div className="profile-id-lanyard" aria-hidden="true">
               <div className="profile-lanyard-strap"><span>ANANTTATTVA</span><i /></div>
               <div className="profile-lanyard-ring" />
@@ -159,7 +169,6 @@ export default function ProfileModal({ user, saving, onClose, onLogout, onSave, 
                 <img src="/favicon.svg" alt="" />
                 <div><strong><b>ANANT</b>TATTVA</strong><small>PRIVATE LIMITED</small></div>
               </div>
-              <p className="profile-back-company-name">ANANTTATTVA PRIVATE LIMITED</p>
               <div className="profile-back-contact">
                 <div className="profile-back-lines">
                   <p className="profile-contact-phone"><i>☎</i><span><b>Phone</b>{user?.mobile || user?.mobileNumber || user?.phone || user?.contactNumber || '+91 12345 67890'}</span></p>

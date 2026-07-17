@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const LeadSchema = new mongoose.Schema({
   leadCode: { type: String, trim: true, unique: true, sparse: true },
   sourceLeadId: { type: String, trim: true },
+  ccpLeadId: { type: String, trim: true, index: true },
+  externalLeadId: { type: String, trim: true, index: true },
   communicationMode: { type: String, trim: true },
   status: { type: String, trim: true },
   company: { type: String, trim: true },

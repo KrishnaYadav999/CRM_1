@@ -11,9 +11,12 @@ const quotationRoutes = require('./routes/quotations');
 const annualReturnRoutes = require('./routes/annualReturns');
 const notificationRoutes = require('./routes/notifications');
 const ccpRoutes = require('./routes/ccp');
+const ccpIntegrationRoutes = require('./routes/ccpIntegrations');
 const teamRoutes = require('./routes/teams');
 const calendarItemRoutes = require('./routes/calendarItems');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
+const { requireCcpSecret } = require('./middleware/ccpSecret');
+const PendingApproval = require('./models/PendingApproval');
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception', err);
@@ -69,21 +72,30 @@ app.use('/api', async (req, res, next) => {
   return next();
 });
 
-function requireCcpSecret(req, res, next) {
-  const expectedSecret = process.env.CCP_SHARED_SECRET;
-  if (!expectedSecret) return next();
-
-  const providedSecret = req.get('x-ccp-secret') || req.query.secret;
-  if (providedSecret !== expectedSecret) {
-    return res.status(401).json({ ok: false, error: 'Invalid CCP secret' });
-  }
-
-  return next();
-}
-
 app.post('/api/crm/users/sync', requireCcpSecret, authController.syncUserFromCcp);
+app.post('/api/pending-approvals/ccp/sync', requireCcpSecret, async (req, res, next) => {
+  try {
+    const rows = Array.isArray(req.body?.approvals) ? req.body.approvals : [req.body];
+    const approvals = [];
+    for (const row of rows.filter(Boolean)) {
+      const sourceClientId = String(row.sourceClientId || row.ccpApprovalId || row.id || row._id || '').trim();
+      if (!sourceClientId) return res.status(400).json({ ok: false, error: 'Each approval requires a stable CCP id' });
+      const update = { ...row, source: 'ccp', sourceClientId };
+      delete update._id;
+      delete update.id;
+      delete update.ccpApprovalId;
+      approvals.push(await PendingApproval.findOneAndUpdate(
+        { type: update.type || 'client', source: 'ccp', sourceClientId },
+        { $set: update },
+        { new: true, upsert: true, runValidators: true }
+      ).lean());
+    }
+    return res.json({ ok: true, source: 'crm', approvals });
+  } catch (error) { return next(error); }
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/ccp', ccpRoutes);
+app.use('/api/integrations/ccp', ccpIntegrationRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/quotations', quotationRoutes);

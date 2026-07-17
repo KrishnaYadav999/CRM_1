@@ -1,4 +1,4 @@
-const DEFAULT_CCP_USER_SYNC_URL = 'https://ccp-henna.vercel.app/api/crm/users/sync';
+const DEFAULT_CCP_USER_SYNC_URL = 'https://ccp-62b2.onrender.com/api/crm/users/sync';
 const { postJsonToCcp } = require('./ccpSync');
 
 function readSyncUrl() {

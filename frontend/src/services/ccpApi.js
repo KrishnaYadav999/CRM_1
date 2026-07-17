@@ -62,6 +62,7 @@ function normalizeCcpLead(row = {}) {
     state: firstFilled(row.state, address.state),
     city: firstFilled(row.city, address.city),
     pinCode: firstFilled(row.pinCode, row.pin, row.pincode, address.pinCode, address.pin, address.pincode),
+    gstNumber: firstFilled(row.gstNumber, row.gstin, row.gst, basic.gstNumber, basic.gstin, basic.gst),
     existingClient: normalizeYesNo(firstFilled(row.existingClient, row.isExistingClient)),
     website: firstFilled(row.website, basic.website),
     contactPerson: firstFilled(row.contactPerson, row.contactName, contact.contactPerson, contact.name),
@@ -103,6 +104,16 @@ export function fetchCcpLeads() {
 
 export function fetchCcpClients() {
   return fetchCcpCollection('clients', 'clients')
+}
+
+export function fetchCcpLeadHistory(id, identifiers = {}) {
+  const params = Object.fromEntries(Object.entries({ leadCode: identifiers.leadCode, company: identifiers.company }).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '').map(([key, value]) => [key, String(value).trim()]))
+  return api.get(API_ENDPOINTS.ccp.leadHistory(id), { params })
+}
+
+export function recordCcpIntroductionEmail(id, payload = {}) {
+  const body = Object.fromEntries(Object.entries({ leadCode: payload.leadCode, company: payload.company, recipient: payload.recipient }).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '').map(([key, value]) => [key, String(value).trim()]))
+  return api.post(API_ENDPOINTS.ccp.emailHistory(id), body)
 }
 
 export default api

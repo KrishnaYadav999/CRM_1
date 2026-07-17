@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ArrowRight, Eye, EyeOff, KeyRound, Mail, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
@@ -82,6 +82,9 @@ export default function Login(){
           <div className="mt-2 flex items-center gap-2 text-xs font-extrabold text-slate-500">
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
             Secure password is protected during OTP verification.
+          </div>
+          <div className="mt-3 text-right">
+            <Link to="/forgot-password" className="text-sm font-black text-emerald-700 hover:text-emerald-900">Forgot password?</Link>
           </div>
         </label>
         {error && <ToastMessage type="error">{error}</ToastMessage>}

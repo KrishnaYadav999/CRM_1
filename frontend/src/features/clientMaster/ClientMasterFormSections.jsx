@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ChevronDown, Eye, MapPin, Plus, Trash2, Upload } from 'lucide-react';
+import SearchableSelect from '../../components/form/SearchableSelect';
 
 function AddressTab({ client, setValue, copyRegisteredAddress, selectOptions }) {
   return (
@@ -82,12 +83,7 @@ const emptyPlantConsent = {
 
 function TableInput({ value, onChange, placeholder = '', type = 'text', options }) {
   if (options) {
-    return (
-      <select value={value || ''} onChange={(event) => onChange(event.target.value)} className="form-input min-h-10 min-w-44">
-        <option value="">{placeholder || 'Select'}</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-    );
+    return <div className="min-w-44"><SearchableSelect value={value || ''} options={options} onChange={onChange} placeholder={placeholder || 'Select'} /></div>;
   }
 
   return (
@@ -171,9 +167,7 @@ function PlantQuantityTable({ title, plants, quantityKey, columns, rowTemplate, 
         <h3 className="text-2xl font-black text-slate-950">{title}</h3>
         <div className="flex flex-col gap-2 sm:flex-row">
           {plants.length > 1 && (
-            <select value={safePlantIndex} onChange={(event) => setSelectedPlantIndex(Number(event.target.value))} className="form-input min-h-11 min-w-52">
-              {plants.map((plant, index) => <option key={index} value={index}>{plant.plantName || `Plant ${index + 1}`}</option>)}
-            </select>
+            <div className="min-w-52"><SearchableSelect value={String(safePlantIndex)} onChange={(value) => setSelectedPlantIndex(Number(value))} options={plants.map((plant, index) => ({ value: String(index), label: plant.plantName || `Plant ${index + 1}` }))} placeholder="Select plant" /></div>
           )}
           <button type="button" onClick={() => onAddRow(safePlantIndex, quantityKey, rowTemplate)} className="btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 font-black text-white shadow-lg shadow-emerald-700/20">
             <Plus className="h-4 w-4" /> Add Row
@@ -522,17 +516,9 @@ function Field({ label, required, children }) {
 }
 
 function SelectLike({ label, required, value, options = [], onChange, disabled = false, placeholder = 'Select or type to create new' }) {
-  const normalized = Array.isArray(options) ? options.map((option) => (typeof option === 'string' ? { value: option, label: option } : option)) : [];
-  const listId = `client-${label.replace(/\s+/g, '-')}`;
   return (
     <Field label={label} required={required}>
-      <div className="relative">
-        <input value={value} list={listId} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="form-input pr-12 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" />
-        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-        <datalist id={listId}>
-          {normalized.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </datalist>
-      </div>
+      <SearchableSelect value={value} options={options} onChange={onChange} disabled={disabled} placeholder={placeholder} />
     </Field>
   );
 }

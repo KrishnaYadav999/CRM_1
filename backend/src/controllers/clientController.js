@@ -7,15 +7,12 @@ const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifi
 const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const { ccpApiBaseUrl, ccpHeaders } = require('../utils/ccpConfig');
 
-const DEFAULT_CCP_API_BASE_URL = 'https://ccp-henna.vercel.app/api/ccp';
-const CCP_FETCH_TIMEOUT_MS = 3500;
+const CCP_FETCH_TIMEOUT_MS = Number(process.env.CCP_FETCH_TIMEOUT_MS) || 15000;
 
 function ccpBaseUrls() {
-  return [
-    process.env.CCP_API_BASE_URL,
-    DEFAULT_CCP_API_BASE_URL
-  ]
+  return [ccpApiBaseUrl()]
     .map((url) => String(url || '').trim().replace(/\/+$/, ''))
     .filter(Boolean)
     .filter((url, index, urls) => urls.indexOf(url) === index);
@@ -206,7 +203,7 @@ async function fetchCcpClients() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(`${baseUrl}/clients`, { signal: controller.signal });
+      const response = await fetch(`${baseUrl}/ccp/clients`, { headers: ccpHeaders(), signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) continue;
       return normalizeCollection(payload, 'clients');

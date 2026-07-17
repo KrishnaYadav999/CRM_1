@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react'
-import { Crown, ShieldCheck, Users, X } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Check, ChevronDown, Crown, Search, ShieldCheck, UserRound, Users, X } from 'lucide-react'
 import ToastMessage from '../ToastMessage'
 
 export default function CreateTeamModal({ users, saving, error, onClose, onSubmit }) {
@@ -58,16 +59,10 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required className="form-input" placeholder="Enter team name" />
           </Field>
           <Field label="Select Manager">
-            <select value={form.manager} onChange={(event) => setForm({ ...form, manager: event.target.value, members: [] })} required className="form-input">
-              <option value="">Choose manager</option>
-              {managerOptions.map((user) => <UserOption key={user._id || user.id} user={user} />)}
-            </select>
+            <PeopleSelect value={form.manager} options={managerOptions} placeholder="Choose manager" onChange={(manager) => setForm({ ...form, manager, members: [] })} />
           </Field>
           <Field label="Select Operation Head (Optional)">
-            <select value={form.operationHead} onChange={(event) => setForm({ ...form, operationHead: event.target.value })} className="form-input">
-              <option value="">No operation head</option>
-              {headOptions.map((user) => <UserOption key={user._id || user.id} user={user} />)}
-            </select>
+            <PeopleSelect value={form.operationHead} options={headOptions} placeholder="No operation head" onChange={(operationHead) => setForm({ ...form, operationHead })} allowEmpty />
           </Field>
           <Field label="Description">
             <input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="form-input" placeholder="Optional" />
@@ -124,8 +119,64 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
   )
 }
 
-function UserOption({ user }) {
-  return <option value={user._id || user.id}>{user.name || user.email} ({user.role})</option>
+function PeopleSelect({ value, options, placeholder, onChange, allowEmpty = false }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [position, setPosition] = useState(null)
+  const triggerRef = useRef(null)
+  const menuRef = useRef(null)
+  const selected = options.find((user) => String(user._id || user.id) === String(value))
+  const filtered = options.filter((user) => `${user.name || ''} ${user.email || ''} ${user.role || ''}`.toLowerCase().includes(search.trim().toLowerCase()))
+
+  function positionMenu() {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const width = Math.max(rect.width, 320)
+    setPosition({ left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)), top: rect.bottom + 7, width })
+  }
+
+  useEffect(() => {
+    if (!open) return undefined
+    positionMenu()
+    function closeOutside(event) {
+      if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', closeOutside)
+    window.addEventListener('resize', positionMenu)
+    window.addEventListener('scroll', positionMenu, true)
+    return () => {
+      document.removeEventListener('mousedown', closeOutside)
+      window.removeEventListener('resize', positionMenu)
+      window.removeEventListener('scroll', positionMenu, true)
+    }
+  }, [open])
+
+  function choose(id) {
+    onChange(id)
+    setOpen(false)
+    setSearch('')
+  }
+
+  return (
+    <>
+      <button ref={triggerRef} type="button" className={`team-people-trigger ${open ? 'is-open' : ''}`} onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
+        <span className="team-people-trigger-avatar">{selected ? <Avatar user={selected} /> : <UserRound className="h-4 w-4" />}</span>
+        <span className="team-people-trigger-copy"><strong>{selected?.name || selected?.email || placeholder}</strong>{selected && <small>{selected.email || selected.role}</small>}</span>
+        <ChevronDown className="team-people-chevron h-4 w-4" />
+      </button>
+      {open && position && createPortal(
+        <div ref={menuRef} className="team-people-menu" style={position}>
+          <div className="team-people-search"><Search className="h-4 w-4" /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or email..." />{search && <button type="button" onClick={() => setSearch('')}><X className="h-4 w-4" /></button>}</div>
+          <div className="team-people-options" role="listbox">
+            {allowEmpty && !search && <button type="button" role="option" aria-selected={!value} onClick={() => choose('')}><span className="team-people-option-avatar"><UserRound className="h-4 w-4" /></span><span><strong>{placeholder}</strong><small>Leave this position unassigned</small></span>{!value && <Check className="h-4 w-4" />}</button>}
+            {filtered.map((user) => { const id = user._id || user.id; return <button key={id} type="button" role="option" aria-selected={String(id) === String(value)} onClick={() => choose(id)}><Avatar user={user} /><span><strong>{user.name || user.email}</strong><small>{user.email || user.role}</small></span>{String(id) === String(value) && <Check className="h-4 w-4" />}</button> })}
+            {!filtered.length && <div className="team-people-empty">No matching user found</div>}
+          </div>
+          <div className="team-people-foot">{filtered.length} active user{filtered.length === 1 ? '' : 's'}</div>
+        </div>, document.body
+      )}
+    </>
+  )
 }
 
 function Avatar({ user }) {

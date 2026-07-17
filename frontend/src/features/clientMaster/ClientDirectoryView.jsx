@@ -1,6 +1,6 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Building2, CheckCircle2, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, RefreshCw, Search, X } from 'lucide-react';
+import { Building2, CheckCircle2, ChevronDown, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Plus, RefreshCw, Search, UserCheck, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
 import {
   getAssignedName,
@@ -97,7 +97,7 @@ function clientMatchesSearch(item, term) {
     compactHaystack.includes(compactTerm);
 }
 
-function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView, selectOptions = {}, totalClientCount }) {
+function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView, onCreate, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -247,15 +247,17 @@ function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-12 w-full rounded-lg border border-slate-200 bg-white px-5 pr-12 text-base font-black text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100" />
             <Search className="pointer-events-none absolute right-6 top-1/2 h-6 w-6 -translate-y-1/2 text-slate-400" />
           </div>
-          <select value={visibilityFilter} onChange={(event) => setVisibilityFilter(event.target.value)} className="form-input min-h-12 rounded-lg xl:max-w-none">
-            <option value="">All Visibility Status</option>
-            {(selectOptions.visibilityStatus || []).map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-          <select value={staffFilter} onChange={(event) => setStaffFilter(event.target.value)} className="form-input min-h-12 rounded-lg xl:max-w-none">
-            <option value="">All Staff</option>
-            {staffFilterOptions.map((user) => <option key={user.value} value={user.value}>{user.label}</option>)}
-          </select>
-          <div className="grid grid-cols-3 gap-2 xl:flex xl:justify-end">
+          <ClientFilterSelect
+            value={visibilityFilter}
+            onChange={setVisibilityFilter}
+            placeholder="All Visibility Status"
+            label="Visibility status"
+            type="status"
+            options={(selectOptions.visibilityStatus || []).map((item) => ({ value: item, label: item }))}
+          />
+          <ClientFilterSelect value={staffFilter} onChange={setStaffFilter} placeholder="All Staff" label="Staff filter" type="staff" searchable options={staffFilterOptions} />
+          <div className="grid grid-cols-2 gap-2 xl:flex xl:justify-end">
+            <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Client Master</button>
             <button type="button" onClick={() => { setQuery(''); setVisibilityFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
             <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
@@ -304,6 +306,49 @@ function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ClientFilterSelect({ value, options, onChange, placeholder, label, type, searchable = false }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const rootRef = useRef(null);
+  const selected = options.find((option) => String(option.value) === String(value));
+  const filtered = options.filter((option) => option.label.toLowerCase().includes(search.trim().toLowerCase()));
+
+  useEffect(() => {
+    function closeOnOutsideClick(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, []);
+
+  function choose(nextValue) {
+    onChange(nextValue);
+    setOpen(false);
+    setSearch('');
+  }
+
+  return (
+    <div ref={rootRef} className={`client-filter-select ${open ? 'is-open' : ''}`}>
+      <button type="button" className="client-filter-trigger" onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
+        <span className={`client-filter-icon is-${type}`}>{type === 'staff' ? <UserCheck className="h-4 w-4" /> : <span className={`client-status-dot is-${String(value || 'all').toLowerCase().replace(/\s+/g, '-')}`} />}</span>
+        <span className="client-filter-copy"><small>{label}</small><strong>{selected?.label || placeholder}</strong></span>
+        <ChevronDown className="client-filter-chevron h-4 w-4" />
+      </button>
+      {open && (
+        <div className="client-filter-menu">
+          {searchable && <div className="client-filter-search"><Search className="h-4 w-4" /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search staff..." />{search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X className="h-4 w-4" /></button>}</div>}
+          <div className="client-filter-options" role="listbox">
+            {!search && <button type="button" role="option" aria-selected={!value} className="client-filter-option" onClick={() => choose('')}><span className={`client-filter-option-mark is-${type}`}>{type === 'staff' ? <UserCheck className="h-4 w-4" /> : <span className="client-status-dot is-all" />}</span><strong>{placeholder}</strong>{!value && <CheckCircle2 className="h-4 w-4" />}</button>}
+            {filtered.map((option) => <button key={option.value} type="button" role="option" aria-selected={String(option.value) === String(value)} className="client-filter-option" onClick={() => choose(option.value)}><span className={`client-filter-option-mark is-${type}`}>{type === 'staff' ? option.label.slice(0, 1).toUpperCase() : <span className={`client-status-dot is-${option.label.toLowerCase().replace(/\s+/g, '-')}`} />}</span><strong>{option.label}</strong>{String(option.value) === String(value) && <CheckCircle2 className="h-4 w-4" />}</button>)}
+            {!filtered.length && search && <div className="client-filter-empty">No staff member found</div>}
+          </div>
+          <div className="client-filter-foot">{filtered.length} option{filtered.length === 1 ? '' : 's'}</div>
+        </div>
+      )}
     </div>
   );
 }

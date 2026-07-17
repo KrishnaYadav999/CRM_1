@@ -1,4 +1,4 @@
-const DEFAULT_CCP_TEAM_SYNC_URL = 'https://ccp-henna.vercel.app/api/crm/teams/sync';
+const DEFAULT_CCP_TEAM_SYNC_URL = 'https://ccp-62b2.onrender.com/api/crm/teams/sync';
 const { postJsonToCcp } = require('./ccpSync');
 
 function readSyncUrl() {

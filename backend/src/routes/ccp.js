@@ -1,24 +1,67 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const { requireAuth } = require('../middleware/auth');
 const User = require('../models/User');
 const { ROLES } = require('../constants/roles');
 const { getVisibleUserScope } = require('../utils/visibilityScope');
+const { ccpApiBaseUrl, ccpApiUrl, ccpHeaders } = require('../utils/ccpConfig');
 
 const router = express.Router();
 
-const DEFAULT_CCP_API_BASE_URL = 'https://ccp-henna.vercel.app/api/ccp';
-const DEFAULT_CCP_DB_NAME = 'ccp';
+const CCP_FETCH_TIMEOUT_MS = Number(process.env.CCP_FETCH_TIMEOUT_MS) || 15000;
 const CCP_FULL_ACCESS_ROLES = ROLES;
 
 function ccpBaseUrls() {
-  return [
-    process.env.CCP_API_BASE_URL,
-    DEFAULT_CCP_API_BASE_URL
-  ]
+  return [ccpApiBaseUrl()]
     .map((url) => String(url || '').trim().replace(/\/+$/, ''))
     .filter(Boolean)
     .filter((url, index, urls) => urls.indexOf(url) === index);
+}
+
+function ccpHistoryBaseUrls() {
+  return [
+    ccpApiBaseUrl().replace(/\/api$/i, '')
+  ].map((url) => String(url || '').trim().replace(/\/+$/, '')).filter(Boolean).filter((url, index, urls) => urls.indexOf(url) === index);
+}
+
+function ccpApiHeaders(contentType = false, req = null) {
+  const authorization = String(req?.get?.('authorization') || '').trim();
+  return {
+    ...ccpHeaders({ json: contentType }),
+    ...(authorization ? { Authorization: authorization } : {})
+  };
+}
+
+function nonEmptyQuery(input = {}) {
+  return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value));
+}
+
+async function proxyCcpLeadHistory(req, res) {
+  const query = nonEmptyQuery({ leadCode: req.query.leadCode, company: req.query.company });
+  const suffix = new URLSearchParams(query).toString();
+  let lastError = '';
+  for (const baseUrl of ccpHistoryBaseUrls()) {
+    try {
+      const response = await fetch(`${baseUrl}/api/leads/${encodeURIComponent(req.params.id)}/history${suffix ? `?${suffix}` : ''}`, { headers: ccpApiHeaders(false, req) });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) return res.json({ ...payload, source: payload.source || 'ccp-history' });
+      lastError = payload.error || payload.message || `CCP history returned ${response.status}`;
+    } catch (err) { lastError = err.message || 'CCP history is unreachable'; }
+  }
+  return res.json({ ok: false, events: [], summary: { total: 0, quotations: 0, followUps: 0, todos: 0, emails: 0 }, error: 'CCP lead history is unavailable', detail: lastError, degraded: true });
+}
+
+async function proxyCcpEmailHistory(req, res) {
+  const body = nonEmptyQuery({ leadCode: req.body.leadCode, company: req.body.company, recipient: req.body.recipient });
+  let lastError = '';
+  for (const baseUrl of ccpHistoryBaseUrls()) {
+    try {
+      const response = await fetch(`${baseUrl}/api/leads/${encodeURIComponent(req.params.id)}/history/email`, { method: 'POST', headers: ccpApiHeaders(true, req), body: JSON.stringify(body) });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) return res.status(response.status).json(payload);
+      lastError = payload.error || payload.message || `CCP email audit returned ${response.status}`;
+    } catch (err) { lastError = err.message || 'CCP email audit is unreachable'; }
+  }
+  return res.status(502).json({ ok: false, error: 'CCP email audit is unavailable', detail: lastError });
 }
 
 function normalizeCollection(payload, key) {
@@ -30,26 +73,6 @@ function normalizeCollection(payload, key) {
   if (Array.isArray(payload?.items)) return { ...payload, ok: payload.ok !== false, [key]: payload.items };
   if (Array.isArray(payload?.rows)) return { ...payload, ok: payload.ok !== false, [key]: payload.rows };
   return { ok: payload?.ok !== false, [key]: [] };
-}
-
-function ccpDbName() {
-  return String(process.env.CCP_DB_NAME || DEFAULT_CCP_DB_NAME).trim() || DEFAULT_CCP_DB_NAME;
-}
-
-async function fetchCcpRowsFromMongo(path, key) {
-  const db = mongoose.connection.useDb(ccpDbName(), { useCache: true });
-  const rows = await db.collection(path)
-    .find({})
-    .sort({ createdAt: -1, _id: -1 })
-    .toArray();
-
-  return {
-    ok: true,
-    [key]: rows,
-    source: 'ccp-mongo',
-    sourceDb: ccpDbName(),
-    sourceCollection: path
-  };
 }
 
 function isFilled(value) {
@@ -120,6 +143,30 @@ function normalizeCcpLead(row = {}) {
 function normalizeRowsForCrm(rows, key) {
   if (key !== 'leads') return rows;
   return rows.map(normalizeCcpLead);
+}
+
+function isQuotationOnlyClientRecord(row = {}) {
+  const data = row.data || {};
+  const hasQuotation = Boolean(
+    data.quotation?.quotationNumber
+    || (Array.isArray(data.quotations) && data.quotations.length)
+  );
+  const hasClientMasterIdentity = Boolean(
+    data.importMeta?.uniqueId
+    || data.importMeta?.leadNumber
+    || data.basic?.tradeName
+    || data.registeredAddress?.state
+    || data.basic?.piboCategory
+    || data.basic?.eprCategory
+    || data.cpcb?.status
+    || data.otp?.mobile
+  );
+  return hasQuotation && !hasClientMasterIdentity;
+}
+
+function cleanCcpRowsForCrm(rows, key) {
+  if (key === 'clients') return rows.filter((row) => !isQuotationOnlyClientRecord(row));
+  return rows;
 }
 
 function publicAssignedUser(user) {
@@ -292,26 +339,11 @@ async function fetchCcp(path, key, req, res) {
   const baseUrls = ccpBaseUrls();
   let lastError = '';
 
-  try {
-    const directRows = await fetchCcpRowsFromMongo(path, key);
-    if (directRows[key].length) {
-      const usersByIdentity = await buildUsersByIdentity();
-      const scope = await getVisibleUserScope(req.user);
-      const normalizedRows = normalizeRowsForCrm(directRows[key], key);
-      const rows = normalizedRows.map((row) => attachAssignedUserByIdentity(row, usersByIdentity, key));
-      directRows[key] = filterByScope(
-        rows,
-        canReadAllCcpRows(req.user) ? null : scope
-      );
-      return res.json(directRows);
-    }
-  } catch (err) {
-    lastError = err.message || `Unable to read CCP ${path} from MongoDB`;
-  }
-
   for (const baseUrl of baseUrls) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(`${baseUrl}/${path}`);
+      const response = await fetch(`${baseUrl}/ccp/${path}`, { headers: ccpApiHeaders(), signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
@@ -322,7 +354,7 @@ async function fetchCcp(path, key, req, res) {
       const normalized = normalizeCollection(payload, key);
       const usersByIdentity = await buildUsersByIdentity();
       const scope = await getVisibleUserScope(req.user);
-      const normalizedRows = normalizeRowsForCrm(normalized[key], key);
+      const normalizedRows = normalizeRowsForCrm(cleanCcpRowsForCrm(normalized[key], key), key);
       const rows = normalizedRows.map((row) => attachAssignedUserByIdentity(row, usersByIdentity, key));
       normalized[key] = filterByScope(
         rows,
@@ -332,6 +364,8 @@ async function fetchCcp(path, key, req, res) {
       return res.json(normalized);
     } catch (err) {
       lastError = err.message || `CCP backend is not reachable at ${baseUrl}`;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -344,5 +378,32 @@ async function fetchCcp(path, key, req, res) {
 
 router.get('/leads', requireAuth, (req, res) => fetchCcp('leads', 'leads', req, res));
 router.get('/clients', requireAuth, (req, res) => fetchCcp('clients', 'clients', req, res));
+router.get('/health', requireAuth, (req, res) => proxyCcpEndpoint(req, res, 'GET', 'ccp/health'));
+router.get('/quotations', requireAuth, (req, res) => proxyCcpEndpoint(req, res, 'GET', 'ccp/quotations'));
+router.get('/pending-approvals', requireAuth, (req, res) => proxyCcpEndpoint(req, res, 'GET', 'ccp/pending-approvals'));
+router.patch('/clients/:id/approval', requireAuth, (req, res) => proxyCcpEndpoint(req, res, 'PATCH', `ccp/clients/${encodeURIComponent(req.params.id)}/approval`));
+router.get('/leads/:id/history', requireAuth, proxyCcpLeadHistory);
+router.post('/leads/:id/history/email', requireAuth, proxyCcpEmailHistory);
+
+router._test = { nonEmptyQuery, ccpHistoryBaseUrls, ccpApiHeaders, isQuotationOnlyClientRecord, cleanCcpRowsForCrm };
 
 module.exports = router;
+
+async function proxyCcpEndpoint(req, res, method, path) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(ccpApiUrl(path), {
+      method,
+      headers: ccpApiHeaders(method !== 'GET', req),
+      signal: controller.signal,
+      ...(method !== 'GET' ? { body: JSON.stringify(req.body || {}) } : {})
+    });
+    const payload = await response.json().catch(() => ({}));
+    return res.status(response.status).json(payload);
+  } catch (error) {
+    return res.status(503).json({ ok: false, error: 'CCP is waking up or temporarily unavailable. Please retry shortly.', detail: error.message });
+  } finally {
+    clearTimeout(timeout);
+  }
+}

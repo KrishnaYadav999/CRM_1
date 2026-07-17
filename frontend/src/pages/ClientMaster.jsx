@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
+import SearchableSelect from '../components/form/SearchableSelect';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
@@ -275,35 +276,57 @@ function isLeadPlaceholderRow(item = {}) {
 
 function getClientMasterRows(crmClients = [], ccpClients = []) {
   const rows = [...ccpClients, ...crmClients].filter((item) => !isLeadPlaceholderRow(item));
-  const rowsByAlias = new Map();
+  const merged = [];
+  const indexByStrongKey = new Map();
+
+  const strongKeys = (item) => {
+    const data = readClientData(item);
+    const quotationNumbers = [
+      data.quotation?.quotationNumber,
+      ...(Array.isArray(data.quotations) ? data.quotations.map((row) => row?.quotationNumber) : [])
+    ];
+    return [...new Set([
+      data.importMeta?.uniqueId && `uid:${String(data.importMeta.uniqueId).trim().toLowerCase()}`,
+      data.importMeta?.ccpClientId && `ccp:${String(data.importMeta.ccpClientId).trim().toLowerCase()}`,
+      data.importMeta?.leadNumber && `lead:${String(data.importMeta.leadNumber).trim().toLowerCase()}`,
+      (typeof item.selectedLead === 'string' || typeof item.selectedLead === 'number') && `lead-id:${String(item.selectedLead).trim().toLowerCase()}`,
+      ...quotationNumbers.filter(Boolean).map((value) => `quote:${String(value).trim().toLowerCase()}`)
+    ].filter(Boolean))];
+  };
+
+  const completeness = (item) => {
+    const data = readClientData(item);
+    return [
+      data.importMeta?.uniqueId, data.basic?.tradeName, data.registeredAddress?.state,
+      data.basic?.piboCategory, data.basic?.eprCategory, data.cpcb?.status,
+      data.otp?.mobile, data.otp?.personName
+    ].filter((value) => String(value || '').trim()).length;
+  };
 
   rows.forEach((item) => {
-    getClientAliases(item).forEach((alias) => {
-      const list = rowsByAlias.get(alias) || [];
-      list.push(item);
-      rowsByAlias.set(alias, list);
-    });
-  });
+    const keys = strongKeys(item);
+    const existingIndex = keys.map((key) => indexByStrongKey.get(key)).find((index) => index !== undefined);
+    if (existingIndex === undefined) {
+      const index = merged.length;
+      merged.push(item);
+      keys.forEach((key) => indexByStrongKey.set(key, index));
+      return;
+    }
 
-  return rows.map((item) => {
-    const relatedRows = [...new Set(getClientAliases(item).flatMap((alias) => rowsByAlias.get(alias) || []))]
-      .filter((row) => row !== item);
-    if (!relatedRows.length) return item;
-
-    const mergedData = relatedRows.reduce((currentData, relatedRow) => {
-      return mergeClientData(currentData, readClientData(relatedRow));
-    }, readClientData(item));
-    const mergedAdminControls = relatedRows.reduce((controls, relatedRow) => ({
-      ...(relatedRow.adminControls || {}),
-      ...controls
-    }), item.adminControls || {});
-
-    return {
-      ...item,
-      adminControls: mergedAdminControls,
-      data: mergedData
+    const existing = merged[existingIndex];
+    const itemIsMoreComplete = completeness(item) > completeness(existing);
+    const primary = itemIsMoreComplete ? item : existing;
+    const fallback = itemIsMoreComplete ? existing : item;
+    merged[existingIndex] = {
+      ...fallback,
+      ...primary,
+      adminControls: { ...(fallback.adminControls || {}), ...(primary.adminControls || {}) },
+      data: mergeClientData(readClientData(primary), readClientData(fallback))
     };
+    strongKeys(merged[existingIndex]).forEach((key) => indexByStrongKey.set(key, existingIndex));
   });
+
+  return merged;
 }
 
 const emptyClient = {
@@ -435,16 +458,11 @@ export default function ClientMaster() {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
-      const [crmClientsResult, ccpClientsResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.clients.list),
-        fetchCcpClients()
-      ]);
-      if (crmClientsResult.status === 'rejected') throw crmClientsResult.reason;
-      const crmClients = crmClientsResult.value.data.clients || [];
+      const [ccpClientsResult] = await Promise.allSettled([fetchCcpClients()]);
       const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
         ? (ccpClientsResult.value.data.clients || [])
         : [];
-      const visibleClients = getClientMasterRows(crmClients, ccpClients);
+      const visibleClients = getClientMasterRows([], ccpClients);
       setTotalClientCount(visibleClients.length);
       try {
         const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
@@ -455,15 +473,11 @@ export default function ClientMaster() {
         setAnnualReturnRecords([]);
         setClients(visibleClients);
       }
-      const [crmLeadsResult, ccpLeadsResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.leads.list),
-        fetchCcpLeads()
-      ]);
-      const crmLeads = crmLeadsResult.status === 'fulfilled' ? (crmLeadsResult.value.data.leads || []) : [];
+      const [ccpLeadsResult] = await Promise.allSettled([fetchCcpLeads()]);
       const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
         ? (ccpLeadsResult.value.data.leads || [])
         : [];
-      setLeads(mergeLeadSources(crmLeads, ccpLeads));
+      setLeads(ccpLeads);
       try {
         const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);
         setQuotations(quotationsResponse.data.quotations || []);
@@ -709,9 +723,9 @@ export default function ClientMaster() {
           workflowStatus: 'draft'
         };
       });
-      const response = await api.post(API_ENDPOINTS.clients.bulk, { clients: payload });
-      const successCount = response.data.imported || 0;
-      const failures = response.data.failures || [];
+      const results = await Promise.allSettled(payload.map((item) => api.post(API_ENDPOINTS.ccp.createClient, item)));
+      const successCount = results.filter((result) => result.status === 'fulfilled').length;
+      const failures = results.map((result, row) => result.status === 'rejected' ? ({ row, error: result.reason?.response?.data?.error || 'CCP write failed' }) : null).filter(Boolean);
 
       if (successCount) {
         setNotice(`${successCount} client${successCount === 1 ? '' : 's'} imported as drafts.`);
@@ -751,12 +765,20 @@ export default function ClientMaster() {
   }
 
   async function saveClient(workflowStatus) {
+    if (saving) return;
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      if (workflowStatus === 'submitted' && !String(client.basic?.clientLegalName || '').trim()) {
-        setError('Client Legal Name is required before submit.');
+      const submittedRequired = [
+        ['Choose Existing Lead', client.selectedLead], ['Client Legal Name', client.basic?.clientLegalName],
+        ['Registered Address', client.registeredAddress?.address1], ['Registered State', client.registeredAddress?.state], ['Registered City', client.registeredAddress?.city], ['Registered Pincode', client.registeredAddress?.pincode],
+        ['Communication Address', client.communicationAddress?.address1], ['Communication State', client.communicationAddress?.state], ['Communication City', client.communicationAddress?.city], ['Communication Pincode', client.communicationAddress?.pincode],
+        ['CPCB Status', client.cpcb?.status], ['OTP Mobile', client.otp?.mobile], ['Authorised Mobile', client.authorised?.mobile], ['Authorised Email', client.authorised?.email], ['Coordinating Mobile', client.coordinating?.mobile], ['Coordinating Email', client.coordinating?.email]
+      ];
+      const missing = workflowStatus === 'submitted' ? submittedRequired.find(([, value]) => !String(value || '').trim()) : null;
+      if (missing) {
+        setError(`${missing[0]} is required before submit.`);
         setActiveTab('basic');
         return;
       }
@@ -766,8 +788,9 @@ export default function ClientMaster() {
         data: client,
         workflowStatus
       };
-      if (editingClientId) await api.put(API_ENDPOINTS.clients.detail(editingClientId), payload);
-      else await api.post(API_ENDPOINTS.clients.create, payload);
+      const response = editingClientId ? await api.put(API_ENDPOINTS.ccp.updateClient(editingClientId), payload) : await api.post(API_ENDPOINTS.ccp.createClient, payload);
+      const savedClient = response.data.client || response.data.data?.client || response.data.data;
+      if (!savedClient || typeof savedClient !== 'object') throw new Error('CCP did not return the saved client.');
       setNotice(workflowStatus === 'submitted' ? 'Client submitted successfully.' : 'Client draft saved successfully.');
       await loadPage();
       if (workflowStatus === 'submitted') {
@@ -859,13 +882,7 @@ export default function ClientMaster() {
 
           <Card title="Select Lead" className="mt-6">
             <Field required label="Choose Existing Lead">
-              <div className="relative">
-                <select value={client.selectedLead} onChange={(event) => handleLeadSelect(event.target.value)} className="form-input pr-12">
-                  <option value="">Search and select a lead</option>
-                  {leadOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              </div>
+              <SearchableSelect value={client.selectedLead} options={leadOptions} onChange={handleLeadSelect} placeholder="Search and select a CCP lead" />
             </Field>
           </Card>
 
@@ -966,13 +983,7 @@ function BasicTab({ client, setValue }) {
         <SelectLike label="EPR Category" value={client.basic.eprCategory} options={selectOptions.eprCategory} onChange={(value) => setValue('basic', 'eprCategory', value)} />
         <SelectLike label="Client Onboarding Year" value={client.basic.onboardingYear} options={selectOptions.years} placeholder="Select onboarding year" onChange={(value) => setValue('basic', 'onboardingYear', value)} />
         <Field label="First Annual Return Year Applicable">
-          <div className="relative">
-            <select value={normalizeFinancialYearLabel(client.basic.firstAnnualReturnYear)} onChange={(event) => setValue('basic', 'firstAnnualReturnYear', event.target.value)} className="form-input pr-12">
-              <option value="">Select first annual return year</option>
-              {selectOptions.annualReturnYears.map((year) => <option key={year} value={year}>{year}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-          </div>
+          <SearchableSelect value={normalizeFinancialYearLabel(client.basic.firstAnnualReturnYear)} options={selectOptions.annualReturnYears} onChange={(value) => setValue('basic', 'firstAnnualReturnYear', value)} placeholder="Select first annual return year" />
         </Field>
       </div>
     </Card>
@@ -1021,7 +1032,14 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   const [activeClientTab, setActiveClientTab] = useState(initialTab || 'basic');
   const [openDetailGroups, setOpenDetailGroups] = useState({});
   const clientQuotations = useMemo(() => getClientQuotations(quotations, client), [quotations, client]);
-  const quotationContext = useMemo(() => getClientQuotationContext(client), [client]);
+  const quotationContext = useMemo(() => ({
+    ...getClientQuotationContext(client),
+    sourceType: 'client',
+    clientId: client?._id || client?.id || '',
+    clientUniqueId: getClientUniqueId(client),
+    leadId: client?._id || client?.id || '',
+    leadCode: getClientUniqueId(client)
+  }), [client]);
   const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
   const initialAnnualYearLabel = normalizeFinancialYearLabel(initialAnnualYear);
   const annualYears = useMemo(() => {

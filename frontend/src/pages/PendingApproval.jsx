@@ -166,7 +166,11 @@ export default function PendingApproval() {
     if (cached && !options.force) {
       setPendingClients(cached.pendingClients || []);
       setPendingQuotations(cached.pendingQuotations || []);
-      if (cached.currentUser) setCurrentUser(cached.currentUser);
+      if (cached.currentUser) setCurrentUser((stored) => ({
+        ...(stored || {}),
+        ...cached.currentUser,
+        avatarUrl: cached.currentUser.avatarUrl || stored?.avatarUrl || stored?.avatar || stored?.profileImage || ''
+      }));
       setLoading(false);
     } else if (!options.silent && !currentUser) {
       setLoading(true);
@@ -711,11 +715,7 @@ function ActionCell({ row, savingId, onUpdate, savingPrefix = '', canApprove = f
   const rejecting = savingId === `${savingPrefix}${id}-REJECTED`;
 
   if (!canApprove) {
-    return (
-      <td className="whitespace-nowrap px-4 py-3.5">
-        <span className="pending-admin-only">Admin only</span>
-      </td>
-    );
+    return <td aria-label="Approval actions unavailable" />;
   }
 
   return (
@@ -789,9 +789,7 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
               Reject
             </button>
           </>
-        ) : (
-          <span className="pending-admin-only">Admin only</span>
-        )}
+        ) : null}
       </div>
     </td>
   );

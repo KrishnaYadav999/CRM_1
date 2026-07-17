@@ -1,4 +1,4 @@
-const DEFAULT_CCP_NOTIFICATION_SYNC_URL = 'https://ccp-henna.vercel.app/api/crm/notifications/sync';
+const DEFAULT_CCP_NOTIFICATION_SYNC_URL = 'https://ccp-62b2.onrender.com/api/crm/notifications/sync';
 const { postJsonToCcp } = require('./ccpSync');
 
 function readSyncUrl() {

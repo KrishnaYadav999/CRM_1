@@ -1321,6 +1321,15 @@ function dedupeOperationRows(rows = []) {
 }
 
 function buildOperationsRows({ clients = [], annualReturns = [], quotations = [], users = [] }) {
+  const clientCodesByCompany = new Map()
+  clients.forEach((client) => {
+    const companyKey = normalizeBusinessKey(getClientName(client))
+    const code = getClientCode(client)
+    if (!companyKey || !code || code === '-') return
+    const codes = clientCodesByCompany.get(companyKey) || new Set()
+    codes.add(code)
+    clientCodesByCompany.set(companyKey, codes)
+  })
   const annualByClientKey = new Map()
   annualReturns.forEach((row) => {
     getAnnualReturnClientKeys(row).forEach((key) => {
@@ -1352,12 +1361,17 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
     const annualDone = displayAnnualReturn ? getAnnualTabCompletedCount(displayAnnualReturn) : 0
     const compliancePending = clientAnnualReturns.some(isAnnualCompliancePending)
     const poDetails = getCompliancePoDetails(client, clientQuotations, clientAnnualReturns)
+    const directClientCode = getClientCode(client)
+    const companyCodes = clientCodesByCompany.get(normalizeBusinessKey(getClientName(client))) || new Set()
+    const uniqueCompanyCode = companyCodes.size === 1 ? [...companyCodes][0] : ''
+    const quotationLeadCode = clientQuotations.map((quote) => quote.leadCode || quote.leadDetails?.leadCode).find(Boolean) || ''
+    const resolvedClientCode = directClientCode !== '-' ? directClientCode : (uniqueCompanyCode || quotationLeadCode || '-')
     const operationRow = {
       id: client._id || client.id || getClientCode(client) || getClientName(client),
       client,
       dedupeKey: getClientDedupeKey(client),
       clientKey: client._id || client.id || client.clientKey || getClientCode(client),
-      atplCode: getClientCode(client),
+      atplCode: resolvedClientCode,
       companyName: getClientName(client),
       category: getClientCategory(client),
       quotations: clientQuotations,
@@ -2336,6 +2350,8 @@ function DashboardFollowUpTimeline({ items = [], users = [], onView, onCalendar 
 }
 
 function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount = 0, annualReturnStats = {}, followUps = [], onViewFollowUps, onOpenCalendar }) {
+  const [hoveredLeadRow, setHoveredLeadRow] = useState(null)
+  const [hoveredPiboRow, setHoveredPiboRow] = useState(null)
   const piboTotal = piboCards.reduce((sum, row) => sum + row.value, 0)
   const barRows = piboCards.length
     ? piboCards.map((row, index) => ({
@@ -2354,6 +2370,8 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
       { label: 'Remaining Lead', value: remainingLeads, percent: percent(remainingLeads, totalLeads), color: '#facc15' }
     ]
     : [{ label: 'No Leads', value: 1, color: '#e2e8f0' }]
+  const leadLegendRows = totalLeads ? [leadPieRows[1], leadPieRows[0]] : leadPieRows
+  const activeLeadRow = hoveredLeadRow || { label: 'Total Leads', value: totalLeads, percent: 100, color: '#0f9f83' }
   return (
     <div className="operations-analytics-stack">
       <section className="operations-panel operations-pibo-chart-panel">
@@ -2374,14 +2392,28 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
                   <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={{ stroke: '#dbe7e5' }} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 900 }} />
                   <YAxis dataKey="name" type="category" width={210} tickLine={false} axisLine={false} tick={{ fill: '#26384d', fontSize: 10, fontWeight: 950 }} />
                   <Bar dataKey="value" radius={[0, 12, 12, 0]} barSize={15} animationDuration={1100} animationEasing="ease-out" label={{ position: 'right', fill: '#0f172a', fontSize: 12, fontWeight: 950 }}>
-                    {barRows.map((row) => <Cell key={row.id} fill={row.fill} />)}
+                    {barRows.map((row) => (
+                      <Cell
+                        key={row.id}
+                        fill={row.fill}
+                        className={`operations-pibo-bar-segment ${hoveredPiboRow?.id === row.id ? 'is-active' : ''} ${hoveredPiboRow && hoveredPiboRow.id !== row.id ? 'is-dim' : ''}`}
+                        onMouseEnter={() => setHoveredPiboRow(row)}
+                        onMouseLeave={() => setHoveredPiboRow(null)}
+                      />
+                    ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div className="operations-pibo-bar-legend">
               {barRows.map((row) => (
-                <span key={row.id}><i style={{ background: row.fill }} />{row.name}: {row.value}</span>
+                <span
+                  key={row.id}
+                  className={`${hoveredPiboRow?.id === row.id ? 'active' : ''} ${hoveredPiboRow && hoveredPiboRow.id !== row.id ? 'analysis-light' : ''}`}
+                  onMouseEnter={() => setHoveredPiboRow(row)}
+                  onMouseLeave={() => setHoveredPiboRow(null)}
+                  title={`${row.name}: ${row.value} clients (${row.percent}%)`}
+                ><i style={{ background: row.fill }} />{row.name}: {row.value}<small>{row.percent}%</small></span>
               ))}
             </div>
           </div>
@@ -2409,7 +2441,13 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
                       animationDuration={1100}
                       animationEasing="ease-out"
                     >
-                      {leadPieRows.map((row) => <Cell key={row.label} fill={row.color} />)}
+                      {leadPieRows.map((row) => (
+                        <Cell
+                          key={row.label}
+                          fill={row.color}
+                          className={`operations-lead-pie-segment ${hoveredLeadRow?.label === row.label ? 'is-active' : ''} ${hoveredLeadRow && hoveredLeadRow.label !== row.label ? 'is-dim' : ''}`}
+                        />
+                      ))}
                     </Pie>
                     <Tooltip
                       cursor={false}
@@ -2419,24 +2457,26 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
                   </RechartsPieChart>
                 </ResponsiveContainer>
                 <div className="operations-lead-pie-center">
-                  <strong>{totalLeads}</strong>
-                  <span>Leads</span>
+                  <small>{activeLeadRow.label}</small>
+                  <strong>{activeLeadRow.value}</strong>
+                  <span>{activeLeadRow.percent}%</span>
                 </div>
                 </div>
                 <div className="operations-lead-legend">
-                <div title={`Converted Lead: ${totalLeads} (100%)`}>
-                  <span style={{ background: '#facc15' }} />
-                  <p>Remaining Lead</p>
-                  <strong>{totalLeads}</strong>
-                  <small>100%</small>
-                </div>
-                <div className="operations-lead-legend-muted" title={`Total Lead: ${convertedLeadCount} (${percent(convertedLeadCount, totalLeads)}%)`}>
-                  <span style={{ background: '#0f9f83' }} />
-                  <p>
-Converted Lead</p>
-                  <strong>{convertedLeadCount}</strong>
-                  <small>{percent(convertedLeadCount, totalLeads)}%</small>
-                </div>
+                {leadLegendRows.map((row) => (
+                  <div
+                    key={row.label}
+                    className={`${hoveredLeadRow?.label === row.label ? 'active' : ''} ${hoveredLeadRow && hoveredLeadRow.label !== row.label ? 'analysis-light' : ''}`}
+                    title={`${row.label}: ${row.value} (${row.percent || 0}%)`}
+                    onMouseEnter={() => setHoveredLeadRow(row)}
+                    onMouseLeave={() => setHoveredLeadRow(null)}
+                  >
+                    <span style={{ background: row.color }} />
+                    <p>{row.label}</p>
+                    <strong>{row.value}</strong>
+                    <small>{row.percent || 0}%</small>
+                  </div>
+                ))}
               </div>
             </div>
           </article>
@@ -2461,7 +2501,7 @@ function OperationsAnnualReturnProgress({ annualReturnStats = {} }) {
   const annualPieRows = annualTotal
     ? annualRows.filter((row) => row.value > 0)
     : [{ label: 'No Annual Returns', value: 1, percent: 0, color: '#e2e8f0' }]
-  const activeAnnualRow = hoveredAnnualRow || { label: 'Completed', percent: annualPercent }
+  const activeAnnualRow = hoveredAnnualRow || { label: 'Completed', percent: annualPercent, color: '#0f9f83' }
 
   return (
     <article className="operations-lead-chart-card operations-annual-return-card">
@@ -2491,7 +2531,7 @@ function OperationsAnnualReturnProgress({ annualReturnStats = {} }) {
                 strokeWidth={annualTotal ? 4 : 0}
                 animationDuration={900}
               >
-                {annualPieRows.map((row) => <Cell key={row.label} fill={row.color} />)}
+                {annualPieRows.map((row) => <Cell key={row.label} fill={hoveredAnnualRow ? activeAnnualRow.color : row.color} className="operations-annual-gauge-segment" />)}
               </Pie>
             </RechartsPieChart>
           </ResponsiveContainer>
@@ -2504,6 +2544,7 @@ function OperationsAnnualReturnProgress({ annualReturnStats = {} }) {
           {annualRows.map((row) => (
             <div
               key={row.label}
+              className={hoveredAnnualRow?.label === row.label ? 'active' : ''}
               data-percent={`${row.percent}%`}
               aria-label={`${row.label}: ${row.value} (${row.percent}%)`}
               onMouseEnter={() => setHoveredAnnualRow(row)}
@@ -4085,7 +4126,8 @@ export default function AdminDashboard() {
         ? (ccpClientsResult.value.data.clients || [])
         : []
       const mergedClients = mergeClientSources(crmClients, ccpClients)
-      const nextClients = mergedClients.length ? mergedClients : (cached?.clients || [])
+      const clientRequestsSucceeded = clientsResult.status === 'fulfilled' || ccpClientsResult.status === 'fulfilled'
+      const nextClients = clientRequestsSucceeded ? mergedClients : (cached?.clients || [])
       const freshLeads = mergeLeadSources(
         leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [],
         ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false ? (ccpLeadsResult.value.data.leads || []) : []
