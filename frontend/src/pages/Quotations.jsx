@@ -1321,20 +1321,51 @@ function HistoryRow({ tone, title, by, date, status }) {
 
 function QuotationPreviewDrawer({ quotation, onClose }) {
   const details = quotation.leadDetails || {};
-  const items = quotation.items || [];
+  const items = meaningfulQuotationItems(quotation.items);
   const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+  const documentRef = useRef(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
-  function handleDownloadPdf() {
-    const printWindow = window.open('', '_blank', 'width=980,height=900');
-    if (!printWindow) return;
-
-    printWindow.document.open();
-    printWindow.document.write(buildQuotationPrintHtml(quotation));
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => {
-      printWindow.print();
-    }, 450);
+  async function handleDownloadPdf() {
+    if (downloadingPdf || !documentRef.current) return;
+    setDownloadingPdf(true);
+    setDownloadError('');
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+      const canvas = await html2canvas(documentRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: documentRef.current.scrollWidth,
+        windowHeight: documentRef.current.scrollHeight
+      });
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const margin = 8;
+      const printableWidth = pageWidth - (margin * 2);
+      const imageHeight = (canvas.height * printableWidth) / canvas.width;
+      const imageData = canvas.toDataURL('image/jpeg', 0.95);
+      let remainingHeight = imageHeight;
+      let offsetY = margin;
+      pdf.addImage(imageData, 'JPEG', margin, offsetY, printableWidth, imageHeight, undefined, 'FAST');
+      remainingHeight -= pageHeight - (margin * 2);
+      while (remainingHeight > 0) {
+        offsetY -= pageHeight - (margin * 2);
+        pdf.addPage();
+        pdf.addImage(imageData, 'JPEG', margin, offsetY, printableWidth, imageHeight, undefined, 'FAST');
+        remainingHeight -= pageHeight - (margin * 2);
+      }
+      const filename = `${String(quotation.quotationNumber || 'quotation').replace(/[^a-z0-9_-]+/gi, '-')}.pdf`;
+      pdf.save(filename);
+    } catch (error) {
+      console.error('Quotation PDF download failed', error);
+      setDownloadError('PDF download failed. Please retry.');
+    } finally {
+      setDownloadingPdf(false);
+    }
   }
 
   return (
@@ -1353,11 +1384,12 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="btn-lift min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Close</button>
-            <button type="button" onClick={handleDownloadPdf} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 font-black text-white"><Download className="h-4 w-4" />Download PDF</button>
+            <button type="button" disabled={downloadingPdf} onClick={handleDownloadPdf} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 font-black text-white disabled:cursor-wait disabled:opacity-70"><Download className={`h-4 w-4 ${downloadingPdf ? 'animate-bounce' : ''}`} />{downloadingPdf ? 'Generating PDF...' : 'Download PDF'}</button>
           </div>
         </div>
         <div className="hidden-scrollbar flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_36%,#eef2f7_100%)] p-5 sm:p-8">
-          <section className="mx-auto min-h-[900px] max-w-[760px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
+          {downloadError && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600">{downloadError}</div>}
+          <section ref={documentRef} className="mx-auto min-h-[900px] max-w-[760px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
             <div className="flex items-center justify-between pb-7">
               <img src={ANANT_LOGO_URL} alt="Anant Tattva" className="h-14 w-32 object-contain object-left" />
               <div className="text-xl font-black uppercase tracking-[0.2em] text-orange-500">Quotation</div>
@@ -1391,21 +1423,22 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
               <p>GST Number: {details.gstNumber || '-'}</p>
             </div>
             <div className="mt-5 overflow-hidden border border-slate-950">
-              <table className="w-full text-[11px]">
-                <thead className="bg-orange-500 text-left text-[10px] font-black uppercase text-white">
+              <table className="w-full table-fixed text-[10px]">
+                <colgroup><col className="w-[19%]" /><col className="w-[21%]" /><col className="w-[21%]" /><col className="w-[15%]" /><col className="w-[6%]" /><col className="w-[18%]" /></colgroup>
+                <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                   <tr>
-                    {['Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-2 py-2 last:border-r-0">{header}</th>)}
+                    {['Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item, index) => (
                     <tr key={index} className="font-black uppercase">
-                      <td className="border-r border-t border-slate-950 px-2 py-2">{item.serviceCategory || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-2 py-2">{item.servicesForYear || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-2 py-2">{item.eprCategory || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-2 py-2">{item.piboCategory || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-2 py-2 text-center">{item.unit || '-'}</td>
-                      <td className="border-t border-slate-950 px-2 py-2 text-right">{formatInr(item.basicAmount)}</td>
+                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.serviceCategory || '-'}</td>
+                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.servicesForYear || '-'}</td>
+                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || '-'}</td>
+                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.piboCategory || '-'}</td>
+                      <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{item.unit || '-'}</td>
+                      <td className="border-t border-slate-950 px-1.5 py-2 text-right">{formatInr(item.basicAmount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1440,6 +1473,12 @@ function formatInr(value) {
   });
 }
 
+function meaningfulQuotationItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item) => ['serviceCategory', 'servicesForYear', 'eprCategory', 'piboCategory', 'unit', 'unitLabel', 'basicAmount']
+    .some((field) => String(item?.[field] ?? '').trim() !== '' && Number(item?.[field]) !== 0));
+}
+
 function formatDisplayDate(value) {
   if (!value) return '-';
   const date = new Date(value);
@@ -1458,7 +1497,7 @@ function escapeHtml(value) {
 
 function buildQuotationPrintHtml(quotation) {
   const details = quotation.leadDetails || {};
-  const items = quotation.items || [];
+  const items = meaningfulQuotationItems(quotation.items);
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const rows = items.map((item) => `
     <tr>
@@ -1495,9 +1534,9 @@ function buildQuotationPrintHtml(quotation) {
       .strong { font-weight: 800; }
       .value { font-weight: 400; }
       p { margin: 0 0 4px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-      th { background: #f97316; color: white; border: 1px solid #020617; padding: 8px 7px; text-align: left; font-size: 10px; font-weight: 900; }
-      td { border: 1px solid #020617; padding: 7px; font-size: 10px; font-weight: 500; text-transform: uppercase; }
+      table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 4px; }
+      th { background: #f97316; color: white; border: 1px solid #020617; padding: 7px 6px; text-align: left; font-size: 9px; line-height: 1.15; font-weight: 900; text-transform: uppercase; }
+      td { background: #fff; border: 1px solid #020617; padding: 7px 6px; font-size: 9px; line-height: 1.2; font-weight: 700; text-transform: uppercase; }
       td.amount { font-weight: 800; }
       .center { text-align: center; }
       .terms { margin-top: 16px; line-height: 1.45; }
@@ -1544,6 +1583,7 @@ function buildQuotationPrintHtml(quotation) {
         <p><span class="strong">GST Number:</span> ${escapeHtml(details.gstNumber || '-')}</p>
       </section>
       <table>
+        <colgroup><col style="width:19%"><col style="width:21%"><col style="width:21%"><col style="width:15%"><col style="width:6%"><col style="width:18%"></colgroup>
         <thead>
           <tr><th>Service Category</th><th>Services for the Year</th><th>EPR Category</th><th>PIBO Category</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
         </thead>

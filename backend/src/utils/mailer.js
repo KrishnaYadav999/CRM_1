@@ -1,5 +1,7 @@
 const nodemailer = require('nodemailer');
 
+const DEFAULT_MAIL_LOGO_URL = 'https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg';
+
 function normalizeRecipients(to) {
   if (Array.isArray(to)) return to;
   return String(to || '')
@@ -85,6 +87,33 @@ function getMailDebugConfig() {
   };
 }
 
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[character]));
+}
+
+function buildMailBrandHeader() {
+  const logoUrl = String(process.env.MAIL_LOGO_URL || DEFAULT_MAIL_LOGO_URL).trim();
+  const brandName = String(process.env.MAIL_BRAND_NAME || 'ANANT TATTVA').trim();
+  return `
+    <table data-crm-mail-brand="true" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;background:#ffffff;">
+      <tr>
+        <td align="center" style="padding:22px 20px 18px;border-bottom:1px solid #e2e8f0;">
+          <img src="${escapeHtml(logoUrl)}" width="230" alt="${escapeHtml(brandName)}" style="display:block;width:230px;max-width:72%;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none;color:#f97316;font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;" />
+        </td>
+      </tr>
+    </table>`;
+}
+
+function buildBrandedEmail(html) {
+  const source = String(html || '');
+  if (!source || source.includes('data-crm-mail-brand="true"')) return source;
+  const header = buildMailBrandHeader();
+  if (/<body\b[^>]*>/i.test(source)) return source.replace(/(<body\b[^>]*>)/i, `$1${header}`);
+  return `<div style="margin:0;background:#f4f7fb;padding:0;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">${header}${source}</div>`;
+}
+
 async function sendMail(to, subject, html) {
   const mailUser = readMailUser();
   if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is not configured');
@@ -94,8 +123,8 @@ async function sendMail(to, subject, html) {
   const from = formatFromAddress();
   const replyTo = process.env.MAIL_REPLY_TO || mailUser || undefined;
   const transporter = createTransporter();
-  const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html });
+  const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html: buildBrandedEmail(html) });
   return { raw: info, summary: summarizeMailInfo(info) };
 }
 
-module.exports = { sendMail, getMailDebugConfig, summarizeMailInfo };
+module.exports = { sendMail, getMailDebugConfig, summarizeMailInfo, buildBrandedEmail, buildMailBrandHeader };
