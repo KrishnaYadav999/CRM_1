@@ -4,11 +4,16 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
+import PiboDependentSelect from '../components/form/PiboDependentSelect';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeads } from '../services/ccpApi';
+import { categoryLabel as formatPiboCategory, inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
 
-const ANANT_LOGO_URL = 'https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg';
+const ANANT_LOGO_SOURCE_URL = '/anant-tattva-logo-chroma.png';
+const CCP_QUOTATION_AUTO_SYNC_COOLDOWN_MS = 30000;
+let ccpQuotationAutoSyncPromise = null;
+let ccpQuotationAutoSyncAt = 0;
 
 const emptyLeadDetails = {
   referredBy: '',
@@ -31,10 +36,18 @@ const emptyItem = {
   serviceCategory: '',
   servicesForYear: '',
   eprCategory: '',
+  piboParent: '',
+  piboCategoryParent: '',
   piboCategory: '',
   unit: '',
   basicAmount: ''
 };
+
+function displayLeadCode(row = {}) {
+  const value = String(row.businessLeadCode || row.sourceLeadId || row.leadCode || '').trim();
+  const businessMatch = value.match(/^ATPL-LEAD-(\d+)$/i);
+  return businessMatch ? `ATPL-${businessMatch[1]}` : (value || '-');
+}
 
 const emptyQuotation = {
   leadId: '',
@@ -80,7 +93,6 @@ const serviceCategoryOptions = [
 const yearOptions = ['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30'];
 const salutationOptions = ['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.', 'Er.', 'CA', 'Adv.'];
 const eprCategoryOptions = ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'];
-const piboCategoryOptions = ['Importer', 'Producer', 'Brand Owner', 'SIMP (legacy)', 'SIMP - Producer', 'SIMP - Importer', 'SIMP - Manufacturer', 'SIMP - Seller', 'PWP', 'Refurbisher', 'Recycler', 'impo'];
 
 function mapLeadToDetails(lead) {
   return {
@@ -234,7 +246,8 @@ export default function Quotations() {
   const [leads, setLeads] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [customServiceCategories, setCustomServiceCategories] = useState([]);
-  const [customPiboCategories, setCustomPiboCategories] = useState([]);
+  const [piboCategories, setPiboCategories] = useState([]);
+  const [piboCategoriesLoading, setPiboCategoriesLoading] = useState(true);
   const [quotation, setQuotation] = useState(emptyQuotation);
   const [editingId, setEditingId] = useState('');
   const [viewMode, setViewMode] = useState('list');
@@ -255,7 +268,6 @@ export default function Quotations() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const navigate = useNavigate();
@@ -272,7 +284,6 @@ export default function Quotations() {
     && fetchedQuoteDetailsLocked
     && hasFetchedQuotationValue(quotation.leadDetails[field]);
   const allServiceCategoryOptions = useMemo(() => [...new Set([...serviceCategoryOptions, ...customServiceCategories])].sort(), [customServiceCategories]);
-  const allPiboCategoryOptions = useMemo(() => [...new Set([...piboCategoryOptions, ...customPiboCategories])].sort((a, b) => a.localeCompare(b)), [customPiboCategories]);
 
   const userOptions = useMemo(() => {
     const names = quotations
@@ -350,12 +361,32 @@ export default function Quotations() {
     setPage(1);
   }, [adminApprovalFilter, query, quotationStatusFilter, rowsPerPage, userFilter, validityFilter]);
 
-  async function loadPage() {
+  async function loadPage({ syncCcp = true } = {}) {
     setLoading(true);
     setError('');
     try {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
+      const canSyncCcp = ['admin', 'superadmin'].includes(String(me?.role || '').toLowerCase());
+      let autoSyncSummary = null;
+      if (syncCcp && canSyncCcp) {
+        const now = Date.now();
+        if (!ccpQuotationAutoSyncPromise && now - ccpQuotationAutoSyncAt >= CCP_QUOTATION_AUTO_SYNC_COOLDOWN_MS) {
+          ccpQuotationAutoSyncPromise = api.post(API_ENDPOINTS.quotations.syncCcp)
+            .then((response) => {
+              ccpQuotationAutoSyncAt = Date.now();
+              return response.data?.summary || null;
+            })
+            .finally(() => { ccpQuotationAutoSyncPromise = null; });
+        }
+        if (ccpQuotationAutoSyncPromise) {
+          try {
+            autoSyncSummary = await ccpQuotationAutoSyncPromise;
+          } catch (syncError) {
+            console.warn('Automatic CCP quotation sync failed; loading saved quotations.', syncError);
+          }
+        }
+      }
       const [crmLeadsResult, ccpLeadsResult, quotationsResponse, categoriesResponse, piboCategoriesResponse] = await Promise.all([
         api.get(API_ENDPOINTS.leads.list).catch(() => ({ data: { leads: [] } })),
         fetchCcpLeads(),
@@ -367,28 +398,16 @@ export default function Quotations() {
       setLeads(mergeLeadLists(crmLeadsResult.data.leads || [], ccpLeadsResult.data.leads || []));
       setQuotations(quotationsResponse.data.quotations || []);
       setCustomServiceCategories(categoriesResponse.data.categories || []);
-      setCustomPiboCategories(piboCategoriesResponse.data.categories || []);
+      setPiboCategories(piboCategoriesResponse.data.categories || []);
+      setPiboCategoriesLoading(false);
+      if (autoSyncSummary?.created || autoSyncSummary?.updated) {
+        setNotice(`CCP quotations updated automatically: ${autoSyncSummary.created || 0} new, ${autoSyncSummary.updated || 0} updated.`);
+      }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to load quotations.');
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function syncCcpQuotations() {
-    setSyncing(true);
-    setError('');
-    setNotice('');
-    try {
-      const response = await api.post(API_ENDPOINTS.quotations.syncCcp);
-      const summary = response.data.summary || {};
-      setPage(1);
-      setNotice(`CCP sync complete: ${summary.fetched || 0} fetched, ${summary.created || 0} created, ${summary.updated || 0} updated, ${summary.unchanged || 0} unchanged, ${summary.unmatched || 0} unmatched, ${summary.failed || 0} failed.`);
-      await loadPage();
-    } catch (err) {
-      setError(err?.response?.data?.error || 'Unable to sync quotations from CCP.');
-    } finally {
-      setSyncing(false);
+      setPiboCategoriesLoading(false);
     }
   }
 
@@ -417,14 +436,11 @@ export default function Quotations() {
     return savedCategory;
   }
 
-  async function addPiboCategory(name) {
-    const normalized = String(name || '').trim().replace(/\s+/g, ' ').toUpperCase();
-    if (!normalized) throw new Error('Enter a PIBO Category name.');
-    if (allPiboCategoryOptions.some((option) => option.toUpperCase() === normalized)) throw new Error('This PIBO Category already exists.');
-    const response = await api.post(API_ENDPOINTS.quotations.piboCategories, { name: normalized });
-    const savedCategory = response.data.category || normalized;
-    setCustomPiboCategories((current) => [...new Set([...current, savedCategory])]);
-    return savedCategory;
+  async function addPiboCategory(parent, name) {
+    const response = await api.post(API_ENDPOINTS.quotations.piboCategories, { parent, name });
+    const category = response.data.category;
+    setPiboCategories((current) => [...current, category]);
+    return category;
   }
 
   function showQuotationList() {
@@ -506,8 +522,34 @@ export default function Quotations() {
     }));
   }
 
+  function setPiboCategoryDraft(index, parent, child) {
+    setItemDrafts((drafts) => ({
+      ...drafts,
+      [index]: {
+        ...emptyItem,
+        ...(drafts[index] || {}),
+        piboParent: parent,
+        piboCategoryParent: '',
+        piboCategory: child
+      }
+    }));
+  }
+
   function saveItem(index) {
     const draft = { ...emptyItem, ...(itemDrafts[index] || {}) };
+    const parent = draft.piboParent || draft.piboCategoryParent || inferPiboParent(draft.piboCategory);
+    if (!parent || !draft.piboCategory) {
+      setError('Select both Applicant Type and its child category before saving the quotation item.');
+      return;
+    }
+    const validChild = normalizePiboCategories(piboCategories).some((category) => category.parent === parent && category.name.toLowerCase() === String(draft.piboCategory).toLowerCase());
+    if (!validChild) {
+      setError(`${draft.piboCategory} is not a valid ${parent} category.`);
+      return;
+    }
+    draft.piboParent = parent;
+    delete draft.piboCategoryParent;
+    setError('');
     setQuotation((current) => ({
       ...current,
       items: current.items.map((item, itemIndex) => itemIndex === index ? draft : item)
@@ -548,11 +590,33 @@ export default function Quotations() {
       setError('Please enter a valid 15-character GST Number.');
       return;
     }
+    if (!quotation.items.length) {
+      setError('Add at least one quotation item and select its Applicant Type and child category.');
+      return;
+    }
+    const availableCategories = normalizePiboCategories(piboCategories);
+    const invalidItemIndex = quotation.items.findIndex((item) => {
+      const parent = item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory);
+      return !parent || !item.piboCategory || !availableCategories.some((category) => category.parent === parent && category.name.toLowerCase() === String(item.piboCategory).toLowerCase());
+    });
+    if (invalidItemIndex >= 0) {
+      setError(`Quotation item ${invalidItemIndex + 1}: select a valid Applicant Type and child category.`);
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const payload = { ...quotation, leadDetails: { ...quotation.leadDetails, gstNumber }, status };
+      const payload = {
+        ...quotation,
+        leadDetails: { ...quotation.leadDetails, gstNumber },
+        items: quotation.items.map((item) => ({
+          ...item,
+          piboParent: item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory),
+          piboCategoryParent: undefined
+        })),
+        status
+      };
       const response = editingId
         ? await api.put(API_ENDPOINTS.quotations.detail(editingId), payload)
         : await api.post(API_ENDPOINTS.quotations.create, payload);
@@ -617,7 +681,6 @@ export default function Quotations() {
               <button type="button" onClick={loadPage} className="btn-lift inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700">
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
               </button>
-              {['admin', 'superadmin'].includes(String(currentUser?.role || '').toLowerCase()) && <button type="button" disabled={syncing} onClick={syncCcpQuotations} className="btn-lift inline-flex h-11 items-center gap-2 rounded-lg bg-[#30737B] px-4 text-sm font-black text-white disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? 'Syncing CCP…' : 'Sync from CCP'}</button>}
               <button type="button" onClick={() => startNew(quotationContext)} className="btn-lift inline-flex h-11 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-black text-white shadow-lg shadow-orange-500/20">
                 <Plus className="h-4 w-4" /> New
               </button>
@@ -639,7 +702,7 @@ export default function Quotations() {
 
           <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
             <div className="hidden-scrollbar max-h-[610px] overflow-auto">
-              <table className="w-full min-w-[1540px] table-fixed text-left text-sm">
+              <table className="w-full min-w-[1420px] table-fixed text-left text-sm">
                 <thead className="sticky top-0 z-20 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-600 shadow-sm">
                   <tr>
                     {[
@@ -652,7 +715,6 @@ export default function Quotations() {
                       ['Item Count', 'w-[110px]'],
                       ['Grand Total', 'w-[150px]'],
                       ['Status', 'w-[120px]'],
-                      ['Source', 'w-[120px]'],
                       ['Last Synced', 'w-[160px]'],
                       ['Actions', 'w-[110px]']
                     ].map(([header, width]) => (
@@ -662,9 +724,9 @@ export default function Quotations() {
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {loading ? (
-                    <tr><td colSpan={12} className="px-5 py-14 text-center font-black text-slate-400">Loading quotations...</td></tr>
+                    <tr><td colSpan={11} className="px-5 py-14 text-center font-black text-slate-400">Loading quotations...</td></tr>
                   ) : visibleQuotations.length === 0 ? (
-                    <tr><td colSpan={12} className="px-5 py-14 text-center font-black text-slate-400">No quotations found.</td></tr>
+                    <tr><td colSpan={11} className="px-5 py-14 text-center font-black text-slate-400">No quotations found.</td></tr>
                   ) : visibleQuotations.map((row) => (
                     <React.Fragment key={row._id || row.id}>
                       <QuotationTableRow
@@ -678,7 +740,7 @@ export default function Quotations() {
                       />
                       {expandedId === (row._id || row.id) && (
                         <tr>
-                          <td colSpan={12} className="bg-slate-50 px-20 py-5">
+                          <td colSpan={11} className="bg-slate-50 px-20 py-5">
                             <QuotationItemsPanel items={row.items || []} />
                           </td>
                         </tr>
@@ -859,7 +921,7 @@ export default function Quotations() {
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.serviceCategory || ''} options={allServiceCategoryOptions} placeholder="CONSULTANCY FEE" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={addServiceCategory} /></td>
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.servicesForYear || ''} options={yearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} /></td>
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.eprCategory || ''} options={eprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} /></td>
-                            <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.piboCategory || ''} options={allPiboCategoryOptions} placeholder="IMPORTER" onChange={(value) => setItemDraft(index, 'piboCategory', value)} onAddOption={addPiboCategory} categoryLabel="PIBO Category" /></td>
+                            <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={itemDrafts[index]?.piboParent || itemDrafts[index]?.piboCategoryParent || inferPiboParent(itemDrafts[index]?.piboCategory)} value={itemDrafts[index]?.piboCategory || ''} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={addPiboCategory} /></td>
                             <td className="px-3 py-4"><input value={itemDrafts[index]?.unit || ''} onChange={(event) => setItemDraft(index, 'unit', event.target.value)} className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1" /></td>
                             <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
@@ -879,7 +941,7 @@ export default function Quotations() {
                             <td className="px-3 py-4 font-black uppercase">{item.serviceCategory || '-'}</td>
                             <td className="px-3 py-4 font-black">{item.servicesForYear || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.eprCategory || '-'}</td>
-                            <td className="px-3 py-4 font-black uppercase">{item.piboCategory || '-'}</td>
+                            <td className="px-3 py-4 font-black uppercase">{formatPiboCategory(item)}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.unit || '-'}</td>
                             <td className="px-3 py-4 font-black text-orange-600">{formatInr(item.basicAmount)}</td>
                             <td className="px-3 py-4">
@@ -956,24 +1018,22 @@ function SuccessDialog({ title, message, onClose }) {
 function QuotationTableRow({ row, expanded, menuOpen, onToggleItems, onToggleMenu, onEdit, onPreview }) {
   const itemCount = row.items?.length || 0;
   const total = Number(row.grandTotal) || (row.items || []).reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
-  const source = String(row.source || 'crm').toLowerCase();
 
   return (
     <tr className="relative bg-white transition hover:bg-slate-50">
-      <td className="px-4 py-5 font-black text-blue-600">{row.quotationNumber || '-'}</td>
+      <td className="px-4 py-5 font-black text-orange-600">{row.quotationNumber || '-'}</td>
       <td className="px-4 py-5 font-black uppercase text-slate-700">{row.companyName || row.leadDetails?.companyName || '-'}</td>
-      <td className="px-4 py-5 font-black text-slate-600">{row.leadCode || '-'}</td>
+      <td className="px-4 py-5 font-black text-slate-600">{displayLeadCode(row)}</td>
       <td className="px-4 py-5 font-black uppercase text-slate-600">{row.leadDetails?.contactPerson || '-'}</td>
       <td className="px-4 py-5 font-bold text-slate-600">{formatDisplayDate(row.quotationDate || row.createdAt)}</td>
       <td className="px-4 py-5 font-bold text-slate-600">{formatDisplayDate(row.validUntil)}</td>
       <td className="px-4 py-5">
-        <button type="button" onClick={onToggleItems} className="inline-flex items-center gap-2 text-sm font-black text-blue-600"><ChevronDown className={`h-4 w-4 transition ${expanded ? 'rotate-180' : '-rotate-90'}`} />{itemCount}</button>
+        <button type="button" onClick={onToggleItems} className="inline-flex items-center gap-2 text-sm font-black text-orange-600"><ChevronDown className={`h-4 w-4 transition ${expanded ? 'rotate-180' : '-rotate-90'}`} />{itemCount}</button>
       </td>
-      <td className="px-4 py-5 font-black text-blue-600">{formatInr(total)}</td>
+      <td className="px-4 py-5 font-black text-orange-600">{formatInr(total)}</td>
       <td className="px-4 py-5">
         <span className={`rounded-full border px-3 py-2 text-xs font-black uppercase ${row.status === 'submitted' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>{row.status || 'draft'}</span>
       </td>
-      <td className="px-4 py-5"><span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-700">{source === 'crm' ? 'CRM' : `CCP${row.ccpSource ? ` · ${row.ccpSource}` : ''}`}</span>{row.syncMatchStatus === 'unmatched' && <span title={row.unmatchedReason || 'CRM lead not matched'} className="mt-2 block text-[10px] font-black uppercase text-amber-600">Lead unmatched</span>}</td>
       <td className="px-4 py-5 text-xs font-bold text-slate-600">{row.lastSyncedAt ? formatDisplayDate(row.lastSyncedAt) : '-'}</td>
       <td className="px-4 py-5">
         <div className="relative">
@@ -1012,10 +1072,10 @@ function QuotationItemsPanel({ items }) {
               <td className="px-4 py-4">{item.serviceCategory || '-'}</td>
               <td className="px-4 py-4">{item.servicesForYear || '-'}</td>
               <td className="px-4 py-4">{item.eprCategory || '-'}</td>
-              <td className="px-4 py-4">{item.piboCategory || '-'}</td>
+              <td className="px-4 py-4">{formatPiboCategory(item)}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
               <td className="px-4 py-4">{formatInr(item.basicAmount)}</td>
-              <td className="px-4 py-4 text-blue-600">{formatInr((Number(item.unit) || 0) * (Number(item.basicAmount) || 0))}</td>
+              <td className="px-4 py-4 font-black text-orange-600">{formatInr((Number(item.unit) || 0) * (Number(item.basicAmount) || 0))}</td>
             </tr>
           ))}
         </tbody>
@@ -1135,7 +1195,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
             <QuoteModalStat label="Company Name" value={details.companyName || '-'} />
             <QuoteModalStat label="User Name" value={userName} />
             <QuoteModalStat label="Basic Amount (INR)" value={formatInr(totalAmount)} tone="amount" />
-            <QuoteModalStat label="PIBO Category" value={latestItem.piboCategory || '-'} />
+            <QuoteModalStat label="PIBO Category" value={formatPiboCategory(latestItem)} />
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -1161,10 +1221,10 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.servicesForYear || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
-                      <td className="border-b border-r border-slate-100 px-4 py-4">{item.piboCategory || '-'}</td>
+                      <td className="border-b border-r border-slate-100 px-4 py-4">{formatPiboCategory(item)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
                       <td className="border-b border-slate-100 px-4 py-4 text-right text-orange-600">{formatInr(item.basicAmount)}</td>
-                      <td className="border-b border-slate-100 px-4 py-4 text-right text-blue-600">{formatInr((Number(item.unit) || 0) * (Number(item.basicAmount) || 0))}</td>
+                      <td className="border-b border-slate-100 px-4 py-4 text-right font-black text-orange-600">{formatInr((Number(item.unit) || 0) * (Number(item.basicAmount) || 0))}</td>
                     </tr>
                   )) : (
                     <tr><td colSpan={8} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
@@ -1213,7 +1273,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
     ['Quotation Number', quotation.quotationNumber || quotation.uniqueId || '-'],
     ['Service Category', firstItem.serviceCategory || '-'],
     ['EPR Category', firstItem.eprCategory || '-'],
-    ['PIBO Category', firstItem.piboCategory || '-'],
+    ['PIBO Category', formatPiboCategory(firstItem)],
     ['Quantity/Unit', firstItem.unit || '-'],
     ['Basic Amount (INR)', formatInr(firstItem.basicAmount)],
     ['Quotation Valid Until', quotation.validUntil || '-'],
@@ -1263,7 +1323,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.servicesForYear || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
-                  <td className="border-b border-r border-slate-100 px-4 py-4">{item.piboCategory || '-'}</td>
+                  <td className="border-b border-r border-slate-100 px-4 py-4">{formatPiboCategory(item)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
                   <td className="border-b border-slate-100 px-4 py-4 text-right text-orange-600">{formatInr(item.basicAmount)}</td>
                 </tr>
@@ -1326,38 +1386,130 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
   const documentRef = useRef(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadError, setDownloadError] = useState('');
+  const [quotationLogoUrl, setQuotationLogoUrl] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const source = new Image();
+    source.onload = () => {
+      const width = Math.min(900, source.naturalWidth);
+      const height = Math.round((source.naturalHeight * width) / source.naturalWidth);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(source, 0, 0, width, height);
+      const imageData = context.getImageData(0, 0, width, height);
+      const pixels = imageData.data;
+      for (let index = 0; index < pixels.length; index += 4) {
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        const dominance = green - Math.max(red, blue);
+        if (green > 75 && dominance > 14) {
+          const opacity = dominance >= 75 ? 0 : Math.max(0, 1 - ((dominance - 14) / 61));
+          pixels[index + 3] = Math.round(pixels[index + 3] * opacity);
+          pixels[index + 1] = Math.min(green, Math.max(red, blue));
+        }
+      }
+      context.putImageData(imageData, 0, 0);
+      if (!cancelled) setQuotationLogoUrl(canvas.toDataURL('image/png'));
+    };
+    source.onerror = () => { if (!cancelled) setDownloadError('Company logo could not be loaded.'); };
+    source.src = ANANT_LOGO_SOURCE_URL;
+    return () => { cancelled = true; };
+  }, []);
+
+  async function paintLogoOnCanvas(canvas) {
+    const logoElement = documentRef.current?.querySelector('[data-pdf-logo]');
+    if (!logoElement) return;
+    const documentRect = documentRef.current.getBoundingClientRect();
+    const logoRect = logoElement.getBoundingClientRect();
+    const scaleX = canvas.width / documentRef.current.offsetWidth;
+    const scaleY = scaleX;
+    const x = (logoRect.left - documentRect.left) * scaleX;
+    const y = (logoRect.top - documentRect.top) * scaleY;
+    const width = logoRect.width * scaleX;
+    const height = logoRect.height * scaleY;
+    const context = canvas.getContext('2d');
+
+    try {
+      if (!logoElement.complete || !logoElement.naturalWidth) throw new Error('Processed logo is not ready');
+      context.clearRect(x, y, width, height);
+      context.drawImage(logoElement, x, y, width, height);
+      return;
+    } catch (error) {
+      console.warn('PDF logo rasterization fallback used', error);
+    }
+
+    context.clearRect(x, y, width, height);
+    context.fillStyle = '#f97316';
+    context.font = `700 ${Math.max(18, height * 0.38)}px Arial`;
+    context.textBaseline = 'top';
+    context.fillText('ANANT', x, y + (height * 0.05));
+    context.fillStyle = '#111827';
+    context.font = `600 ${Math.max(11, height * 0.22)}px Arial`;
+    context.fillText('TATTVA', x + (width * 0.13), y + (height * 0.52));
+  }
 
   async function handleDownloadPdf() {
-    if (downloadingPdf || !documentRef.current) return;
+    if (downloadingPdf || !documentRef.current || !quotationLogoUrl) {
+      if (!quotationLogoUrl) setDownloadError('Company logo is loading. Please retry in a moment.');
+      return;
+    }
     setDownloadingPdf(true);
     setDownloadError('');
     try {
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const canvas = await html2canvas(documentRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        windowWidth: documentRef.current.scrollWidth,
-        windowHeight: documentRef.current.scrollHeight
-      });
+      const images = [...documentRef.current.querySelectorAll('img')];
+      await Promise.all(images.map((image) => image.complete && image.naturalWidth
+        ? Promise.resolve()
+        : new Promise((resolve) => {
+          const finish = () => resolve();
+          image.addEventListener('load', finish, { once: true });
+          image.addEventListener('error', finish, { once: true });
+          window.setTimeout(finish, 5000);
+        })));
+      const previousStyles = {
+        boxShadow: documentRef.current.style.boxShadow,
+        border: documentRef.current.style.border,
+        minHeight: documentRef.current.style.minHeight
+      };
+      documentRef.current.style.boxShadow = 'none';
+      documentRef.current.style.border = 'none';
+      documentRef.current.style.minHeight = '0';
+      let canvas;
+      try {
+        canvas = await html2canvas(documentRef.current, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          // Keep desktop breakpoints active in the cloned canvas document. Using the
+          // element width here stacked the two-column header and made the PDF too tall/narrow.
+          windowWidth: Math.max(window.innerWidth, 1200),
+          windowHeight: documentRef.current.scrollHeight
+        });
+      } finally {
+        documentRef.current.style.boxShadow = previousStyles.boxShadow;
+        documentRef.current.style.border = previousStyles.border;
+        documentRef.current.style.minHeight = previousStyles.minHeight;
+      }
+      await paintLogoOnCanvas(canvas);
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       const pageWidth = 210;
       const pageHeight = 297;
-      const margin = 8;
+      const margin = 5;
       const printableWidth = pageWidth - (margin * 2);
-      const imageHeight = (canvas.height * printableWidth) / canvas.width;
+      const printableHeight = pageHeight - (margin * 2);
+      const widthScale = printableWidth / canvas.width;
+      const heightScale = printableHeight / canvas.height;
+      const fitScale = Math.min(widthScale, heightScale);
+      const imageWidth = canvas.width * fitScale;
+      const imageHeight = canvas.height * fitScale;
+      const imageX = (pageWidth - imageWidth) / 2;
       const imageData = canvas.toDataURL('image/jpeg', 0.95);
-      let remainingHeight = imageHeight;
-      let offsetY = margin;
-      pdf.addImage(imageData, 'JPEG', margin, offsetY, printableWidth, imageHeight, undefined, 'FAST');
-      remainingHeight -= pageHeight - (margin * 2);
-      while (remainingHeight > 0) {
-        offsetY -= pageHeight - (margin * 2);
-        pdf.addPage();
-        pdf.addImage(imageData, 'JPEG', margin, offsetY, printableWidth, imageHeight, undefined, 'FAST');
-        remainingHeight -= pageHeight - (margin * 2);
-      }
+      pdf.addImage(imageData, 'JPEG', imageX, margin, imageWidth, imageHeight, undefined, 'FAST');
       const filename = `${String(quotation.quotationNumber || 'quotation').replace(/[^a-z0-9_-]+/gi, '-')}.pdf`;
       pdf.save(filename);
     } catch (error) {
@@ -1390,8 +1542,8 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
         <div className="hidden-scrollbar flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_36%,#eef2f7_100%)] p-5 sm:p-8">
           {downloadError && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600">{downloadError}</div>}
           <section ref={documentRef} className="mx-auto min-h-[900px] max-w-[760px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
-            <div className="flex items-center justify-between pb-7">
-              <img src={ANANT_LOGO_URL} alt="Anant Tattva" className="h-14 w-32 object-contain object-left" />
+            <div className="flex items-center justify-between pb-2">
+              <img data-pdf-logo src={quotationLogoUrl} alt="Anant Tattva" className="h-14 w-32 object-contain object-left" />
               <div className="text-xl font-black uppercase tracking-[0.2em] text-orange-500">Quotation</div>
             </div>
             <div className="border-t border-slate-950 pt-5">
@@ -1436,7 +1588,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                       <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.serviceCategory || '-'}</td>
                       <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.servicesForYear || '-'}</td>
                       <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.piboCategory || '-'}</td>
+                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{formatPiboCategory(item)}</td>
                       <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{item.unit || '-'}</td>
                       <td className="border-t border-slate-950 px-1.5 py-2 text-right">{formatInr(item.basicAmount)}</td>
                     </tr>
@@ -1504,7 +1656,7 @@ function buildQuotationPrintHtml(quotation) {
       <td>${escapeHtml(item.serviceCategory || '-')}</td>
       <td>${escapeHtml(item.servicesForYear || '-')}</td>
       <td>${escapeHtml(item.eprCategory || '-')}</td>
-      <td>${escapeHtml(item.piboCategory || '-')}</td>
+      <td>${escapeHtml(formatPiboCategory(item))}</td>
       <td class="center">${escapeHtml(item.unit || '-')}</td>
       <td class="amount">${escapeHtml(formatInr(item.basicAmount))}</td>
     </tr>
@@ -1523,7 +1675,7 @@ function buildQuotationPrintHtml(quotation) {
       * { box-sizing: border-box; }
       body { margin: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 10px; font-weight: 400; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .page { width: 100%; min-height: 100vh; padding: 0; }
-      .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 24px; border-bottom: 1px solid #020617; }
+      .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 8px; border-bottom: 1px solid #020617; }
       .logo { width: 105px; height: 42px; object-fit: contain; object-position: left center; }
       .title { color: #f97316; font-size: 18px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; }
       .top { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 16px 0 16px; border-bottom: 1px solid #d1d5db; line-height: 1.5; }
@@ -1553,7 +1705,7 @@ function buildQuotationPrintHtml(quotation) {
   <body>
     <main class="page">
       <section class="header">
-        <img class="logo" src="${ANANT_LOGO_URL}" alt="Anant Tattva">
+        <img class="logo" src="${ANANT_LOGO_SOURCE_URL}" alt="Anant Tattva">
         <div class="title">Quotation</div>
       </section>
       <section class="top">

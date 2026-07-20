@@ -2157,6 +2157,46 @@ body:has(.annual-review-backdrop) .client-detail-card {
   color: #ea580c !important;
 }
 
+/* Keep quotation actions compact and aligned instead of stacking four tall rows. */
+.pending-table-wrap th:last-child,
+.pending-quotation-actions-cell {
+  min-width: 220px !important;
+  width: 220px !important;
+}
+
+.pending-quotation-actions-cell {
+  vertical-align: middle !important;
+}
+
+.pending-quotation-actions {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(94px, 1fr));
+  gap: 7px !important;
+  width: 100%;
+  max-width: 204px;
+}
+
+.pending-quotation-actions .pending-action {
+  width: 100%;
+  min-width: 0 !important;
+  min-height: 32px !important;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .pending-table-wrap th:last-child,
+  .pending-quotation-actions-cell {
+    min-width: 190px !important;
+    width: 190px !important;
+  }
+
+  .pending-quotation-actions {
+    grid-template-columns: repeat(2, minmax(82px, 1fr));
+    max-width: 174px;
+  }
+}
+
 .pending-pager {
   justify-content: space-between !important;
   padding: 10px 12px !important;

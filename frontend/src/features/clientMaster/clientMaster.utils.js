@@ -278,6 +278,14 @@ function getClientAliases(item) {
   return [...new Set(aliases)];
 }
 
+function getClientStrongAliases(item) {
+  return getClientAliases(item).filter((alias) => /^(uid|ccp|lead):/.test(alias));
+}
+
+function getClientWeakAliases(item) {
+  return getClientAliases(item).filter((alias) => /^(email|mobile|client):/.test(alias));
+}
+
 function getClientSourceKey(item) {
   return getClientAliases(item)[0] || String(item?._id || item?.id || '').trim().toLowerCase();
 }
@@ -340,20 +348,30 @@ function mergeClientItems(existing, incoming) {
 
 function mergeClientSources(crmClients, ccpClients) {
   const merged = [];
-  const keyIndex = new Map();
+  const strongKeyIndex = new Map();
+  const weakKeyIndex = new Map();
 
   [...ccpClients, ...crmClients].forEach((item) => {
-    const aliases = getClientAliases(item);
-    const existingIndex = aliases.map((alias) => keyIndex.get(alias)).find((index) => index !== undefined);
+    const strongAliases = getClientStrongAliases(item);
+    const weakAliases = getClientWeakAliases(item);
+    // Stable ATPL/Lead/CCP identities are authoritative. Never merge two
+    // different stable IDs merely because company, email or assignee matches.
+    const existingIndex = strongAliases.length
+      ? strongAliases.map((alias) => strongKeyIndex.get(alias)).find((index) => index !== undefined)
+      : weakAliases.map((alias) => weakKeyIndex.get(alias)).find((index) => index !== undefined);
 
     if (existingIndex !== undefined) {
       merged[existingIndex] = mergeClientItems(merged[existingIndex], item);
-      getClientAliases(merged[existingIndex]).forEach((alias) => keyIndex.set(alias, existingIndex));
+      getClientStrongAliases(merged[existingIndex]).forEach((alias) => strongKeyIndex.set(alias, existingIndex));
+      if (!getClientStrongAliases(merged[existingIndex]).length) {
+        getClientWeakAliases(merged[existingIndex]).forEach((alias) => weakKeyIndex.set(alias, existingIndex));
+      }
       return;
     }
 
     const nextIndex = merged.length;
-    aliases.forEach((alias) => keyIndex.set(alias, nextIndex));
+    strongAliases.forEach((alias) => strongKeyIndex.set(alias, nextIndex));
+    if (!strongAliases.length) weakAliases.forEach((alias) => weakKeyIndex.set(alias, nextIndex));
     merged.push(item);
   });
 

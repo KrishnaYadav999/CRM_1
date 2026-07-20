@@ -10,6 +10,8 @@ const LeadSchema = new mongoose.Schema({
   company: { type: String, trim: true },
   industryType: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
+  piboParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
+  piboCategoryParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
   piboCategory: { type: String, trim: true },
   servicesOffered: { type: String, trim: true },
   addressLine1: { type: String, trim: true },

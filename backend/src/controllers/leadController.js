@@ -5,6 +5,7 @@ const Quotation = require('../models/Quotation');
 const PendingApproval = require('../models/PendingApproval');
 const CalendarItem = require('../models/CalendarItem');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
 
 const REQUIRED_FIELDS = ['status', 'company', 'piboCategory', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
@@ -18,6 +19,8 @@ function cleanBody(body) {
     'company',
     'industryType',
     'eprCategory',
+    'piboParent',
+    'piboCategoryParent',
     'piboCategory',
     'servicesOffered',
     'addressLine1',
@@ -61,6 +64,8 @@ function cleanBody(body) {
       if (key === 'followUpHistory') data[key] = Array.isArray(value) ? value : [];
     }
   });
+  data.piboParent = normalizeParent(data.piboParent || data.piboCategoryParent) || inferPiboParent(data.piboCategory) || undefined;
+  delete data.piboCategoryParent;
   return data;
 }
 
@@ -82,6 +87,12 @@ async function getNextLeadCode() {
 async function createLeadRecord(rawBody, userId) {
   const data = cleanBody(rawBody);
   data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : 'draft';
+
+  if (data.workflowStatus === 'submitted' || data.piboParent || data.piboCategory) {
+    const selection = await validatePiboSelection({ parent: data.piboParent, child: data.piboCategory, required: true });
+    data.piboParent = selection.piboParent;
+    data.piboCategory = selection.piboCategory;
+  }
 
   if (data.workflowStatus === 'submitted') {
     const error = validateSubmittedLead(data);
@@ -126,6 +137,17 @@ exports.updateLead = async (req, res) => {
     if (data.workflowStatus === 'submitted') {
       const error = validateSubmittedLead({ ...lead.toObject(), ...data });
       if (error) return res.status(400).json({ error });
+    }
+
+    if (data.workflowStatus === 'submitted' || data.piboParent || data.piboCategory) {
+      const current = lead.toObject();
+      const selection = await validatePiboSelection({
+        parent: data.piboParent || current.piboParent || current.piboCategoryParent,
+        child: data.piboCategory || current.piboCategory,
+        required: true
+      });
+      data.piboParent = selection.piboParent;
+      data.piboCategory = selection.piboCategory;
     }
 
     Object.assign(lead, data);

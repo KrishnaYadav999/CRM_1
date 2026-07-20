@@ -274,8 +274,23 @@ function isLeadPlaceholderRow(item = {}) {
   return /^ATPL-LEA/i.test(uniqueId) || /^ATPL-LEAD/i.test(uniqueId);
 }
 
+function isMeaningfulClientMasterRow(item = {}) {
+  const data = readClientData(item);
+  return [
+    getClientUniqueId(item).replace(/^-$/, ''),
+    data.basic?.clientLegalName,
+    data.basic?.tradeName,
+    data.importMeta?.leadNumber,
+    data.importMeta?.uniqueId,
+    data.importMeta?.ccpClientId,
+    item?.selectedLead?._id,
+    item?.selectedLead?.leadCode,
+    typeof item?.selectedLead === 'string' ? item.selectedLead : ''
+  ].some((value) => String(value || '').trim());
+}
+
 function getClientMasterRows(crmClients = [], ccpClients = []) {
-  const rows = [...ccpClients, ...crmClients].filter((item) => !isLeadPlaceholderRow(item));
+  const rows = [...ccpClients, ...crmClients].filter((item) => isMeaningfulClientMasterRow(item) && !isLeadPlaceholderRow(item));
   const merged = [];
   const indexByStrongKey = new Map();
 
@@ -723,21 +738,21 @@ export default function ClientMaster() {
           workflowStatus: 'draft'
         };
       });
-      const results = await Promise.allSettled(payload.map((item) => api.post(API_ENDPOINTS.ccp.createClient, item)));
-      const successCount = results.filter((result) => result.status === 'fulfilled').length;
-      const failures = results.map((result, row) => result.status === 'rejected' ? ({ row, error: result.reason?.response?.data?.error || 'CCP write failed' }) : null).filter(Boolean);
+      const response = await api.post(API_ENDPOINTS.ccp.bulkCreateClients, { clients: payload });
+      const successCount = Number(response.data?.imported || response.data?.clients?.length || 0);
+      const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
 
       if (successCount) {
         setNotice(`${successCount} client${successCount === 1 ? '' : 's'} imported as drafts.`);
         await loadPage();
       }
       if (failures.length) {
-        setError(`${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row + 1} (${failures[0].error})`);
+        setError(`${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row} (${failures[0].error})`);
       }
     } catch (err) {
       const failures = err?.response?.data?.failures || [];
       setError(failures.length
-        ? `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row + 1} (${failures[0].error})`
+        ? `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row} (${failures[0].error})`
         : err?.response?.data?.error || 'Unable to import clients');
     } finally {
       setImporting(false);
@@ -974,16 +989,17 @@ export default function ClientMaster() {
 }
 
 function BasicTab({ client, setValue }) {
+  const basic = client?.basic || {};
   return (
     <Card title="Client Basic Info">
       <div className="grid gap-5 md:grid-cols-2">
-        <Field required label="Client Legal Name"><input className="form-input" value={client.basic.clientLegalName} onChange={(event) => setValue('basic', 'clientLegalName', event.target.value)} /></Field>
-        <Field label="Trade Name"><input className="form-input" value={client.basic.tradeName} onChange={(event) => setValue('basic', 'tradeName', event.target.value)} /></Field>
-        <SelectLike label="PIBO Category" value={client.basic.piboCategory} options={selectOptions.piboCategory} onChange={(value) => setValue('basic', 'piboCategory', value)} />
-        <SelectLike label="EPR Category" value={client.basic.eprCategory} options={selectOptions.eprCategory} onChange={(value) => setValue('basic', 'eprCategory', value)} />
-        <SelectLike label="Client Onboarding Year" value={client.basic.onboardingYear} options={selectOptions.years} placeholder="Select onboarding year" onChange={(value) => setValue('basic', 'onboardingYear', value)} />
+        <Field required label="Client Legal Name"><input className="form-input" value={basic.clientLegalName ?? ''} onChange={(event) => setValue('basic', 'clientLegalName', event.target.value)} /></Field>
+        <Field label="Trade Name"><input className="form-input" value={basic.tradeName ?? ''} onChange={(event) => setValue('basic', 'tradeName', event.target.value)} /></Field>
+        <SelectLike label="PIBO Category" value={basic.piboCategory ?? ''} options={selectOptions.piboCategory} onChange={(value) => setValue('basic', 'piboCategory', value)} />
+        <SelectLike label="EPR Category" value={basic.eprCategory ?? ''} options={selectOptions.eprCategory} onChange={(value) => setValue('basic', 'eprCategory', value)} />
+        <SelectLike label="Client Onboarding Year" value={basic.onboardingYear ?? ''} options={selectOptions.years} placeholder="Select onboarding year" onChange={(value) => setValue('basic', 'onboardingYear', value)} />
         <Field label="First Annual Return Year Applicable">
-          <SearchableSelect value={normalizeFinancialYearLabel(client.basic.firstAnnualReturnYear)} options={selectOptions.annualReturnYears} onChange={(value) => setValue('basic', 'firstAnnualReturnYear', value)} placeholder="Select first annual return year" />
+          <SearchableSelect value={normalizeFinancialYearLabel(basic.firstAnnualReturnYear) || ''} options={selectOptions.annualReturnYears} onChange={(value) => setValue('basic', 'firstAnnualReturnYear', value)} placeholder="Select first annual return year" />
         </Field>
       </div>
     </Card>
@@ -1083,6 +1099,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   const [interactionTab, setInteractionTab] = useState('follow-up');
   const [calendarItems, setCalendarItems] = useState(() => readCalendarTodoItems());
   const [interactionModalType, setInteractionModalType] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const clientCalendarItems = useMemo(() => calendarItems.filter((item) => String(item.clientKey || '') === calendarClientKey), [calendarClientKey, calendarItems]);
   const clientFollowUps = clientCalendarItems.filter((item) => item.type === 'follow-up');
   const clientTodos = clientCalendarItems.filter((item) => item.type !== 'follow-up');
@@ -1191,9 +1208,9 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><ShieldCheck className="h-4 w-4" />CPCB Login</button>
+              <a href="https://eprplastic.cpcb.gov.in/#/plastic/home" target="_blank" rel="noreferrer" className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><ShieldCheck className="h-4 w-4" />CPCB Login</a>
               <button type="button" onClick={() => navigate('/sales/quotations?mode=add', { state: { quotationContext } })} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><Plus className="h-4 w-4" />Quotation</button>
-              <button type="button" className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-teal-700 px-3.5 text-sm font-black text-white"><FileText className="h-4 w-4" />History</button>
+              <button type="button" onClick={() => setHistoryOpen(true)} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-teal-700 px-3.5 text-sm font-black text-white"><FileText className="h-4 w-4" />History</button>
               <button type="button" onClick={() => openCcpClientEdit(client)} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-black text-white"><Edit3 className="h-4 w-4" />Edit in CCP</button>
             </div>
           </div>
@@ -1331,6 +1348,58 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
             onSave={saveClientInteractionItem}
           />
         )}
+        {historyOpen && (
+          <ClientCompleteHistoryModal
+            clientName={clientName}
+            quotations={clientQuotations}
+            followUps={clientFollowUps}
+            todos={clientTodos}
+            onClose={() => setHistoryOpen(false)}
+          />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function historyValue(value) {
+  if (value === undefined || value === null || value === '') return '-';
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`;
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function ClientCompleteHistoryModal({ clientName, quotations = [], followUps = [], todos = [], onClose }) {
+  const quotationEvents = quotations.flatMap((quotation) => {
+    const revisions = Array.isArray(quotation.revisionHistory) ? quotation.revisionHistory : [];
+    return [
+      { id: `created-${quotation._id || quotation.id}`, kind: 'Quotation Created', at: quotation.createdAt || quotation.quotationDate, actor: quotation.createdBy?.name || quotation.createdBy?.email || 'CRM / CCP User', title: quotation.quotationNumber || 'Quotation', details: [`${(quotation.items || []).length} item(s)`, `Grand Total: ${formatInrValue(quotation.grandTotal || quotation.subtotal || 0)}`] },
+      ...revisions.map((revision, index) => ({ id: `revision-${quotation._id || quotation.id}-${index}`, kind: 'Quotation Updated', at: revision.at, actor: revision.userName || revision.userEmail || 'CRM User', title: `${quotation.quotationNumber || 'Quotation'} updated`, details: (revision.changes || []).map((change) => `${change.label || change.field}: ${historyValue(change.before)} → ${historyValue(change.after)}`) }))
+    ];
+  });
+  const interactionEvents = [...followUps, ...todos].flatMap((item) => {
+    const base = [{ id: `interaction-${item._id || item.id}`, kind: item.type === 'follow-up' ? 'Follow-Up Created' : 'To-Do Created', at: item.createdAt, actor: item.createdBy || 'CRM User', title: item.title, details: [item.description, `Scheduled: ${item.scheduledDate || '-'} ${item.scheduledTime || ''}`, `Assigned: ${item.assignedToName || item.assignedTo || '-'}`, `Priority: ${item.priority || 'Medium'}`, `Status: ${item.status || 'open'}`].filter(Boolean) }];
+    const updates = [...(item.history || []), ...(item.assignmentHistory || []), ...(item.completionHistory || [])];
+    return [...base, ...updates.map((entry, index) => ({ id: `interaction-update-${item._id || item.id}-${index}`, kind: item.type === 'follow-up' ? 'Follow-Up Updated' : 'To-Do Updated', at: entry.at || entry.updatedAt || item.updatedAt, actor: entry.by || entry.userName || item.assignedToName || 'CRM User', title: item.title, details: [entry.remarks || entry.description || entry.action || 'Interaction updated'] }))];
+  });
+  const events = [...quotationEvents, ...interactionEvents].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+  const updateCount = quotationEvents.filter((event) => event.kind === 'Quotation Updated').length;
+
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-gradient-to-r from-teal-50 to-orange-50 p-5">
+          <div><p className="text-xs font-black uppercase tracking-[.16em] text-teal-700">Complete Activity History</p><h2 className="mt-1 text-2xl font-black text-slate-950">{clientName}</h2><p className="mt-1 text-sm font-bold text-slate-500">{quotations.length} quotation(s) • {updateCount} update(s) • {followUps.length} follow-up(s) • {todos.length} to-do(s)</p></div>
+          <button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white"><X className="h-5 w-5" /></button>
+        </header>
+        <div className="max-h-[72vh] space-y-3 overflow-y-auto p-5">
+          {events.length ? events.map((event) => (
+            <article key={event.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3"><div><span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black uppercase text-orange-700">{event.kind}</span><h3 className="mt-2 font-black text-slate-900">{event.title}</h3></div><div className="text-right text-xs font-bold text-slate-500"><p>{event.at ? new Date(event.at).toLocaleString('en-IN') : '-'}</p><p className="mt-1 text-teal-700">By {event.actor}</p></div></div>
+              {event.details?.length ? <ul className="mt-3 space-y-1 rounded-lg bg-slate-50 p-3 text-sm font-bold text-slate-600">{event.details.map((detail, index) => <li key={index}>• {detail}</li>)}</ul> : null}
+            </article>
+          )) : <div className="py-14 text-center font-black text-slate-400">No history available for this client.</div>}
+        </div>
       </section>
     </div>
   );

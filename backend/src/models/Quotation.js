@@ -22,6 +22,8 @@ const QuoteItemSchema = new mongoose.Schema({
   serviceCategory: { type: String, trim: true },
   servicesForYear: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
+  piboParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
+  piboCategoryParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
   piboCategory: { type: String, trim: true },
   unit: { type: String, trim: true },
   unitLabel: { type: String, trim: true },
@@ -34,6 +36,7 @@ const QuotationSchema = new mongoose.Schema({
   ccpQuotationId: { type: String, trim: true, unique: true, sparse: true },
   ccpLeadId: { type: String, trim: true, index: true },
   leadCode: { type: String, trim: true },
+  businessLeadCode: { type: String, trim: true, index: true },
   companyName: { type: String, trim: true },
   leadDetails: { type: QuoteLeadDetailsSchema, default: {} },
   quotationDate: { type: Date },
@@ -50,6 +53,10 @@ const QuotationSchema = new mongoose.Schema({
   lastSyncedAt: { type: Date },
   syncMatchStatus: { type: String, enum: ['matched', 'unmatched'], default: 'matched', index: true },
   unmatchedReason: { type: String, trim: true },
+  createdByName: { type: String, trim: true },
+  leadGeneratedBy: { type: String, trim: true },
+  assignedUserName: { type: String, trim: true },
+  revisionHistory: { type: Array, default: [] },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 

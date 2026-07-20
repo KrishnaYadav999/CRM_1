@@ -333,9 +333,32 @@ function getClientName(client = {}) {
   return data.basic?.clientLegalName || data.basic?.tradeName || client.clientName || client.companyName || 'Untitled client'
 }
 
+function formatAtplCode(value) {
+  const code = String(value || '').trim()
+  const businessMatch = code.match(/^ATPL-LEAD-(\d+)$/i)
+  return businessMatch ? `ATPL-${businessMatch[1]}` : code
+}
+
+function isGeneratedLeadCode(value) {
+  const code = String(value || '').trim()
+  return /^ATPL-LEAD-[A-F\d]{10,}$/i.test(code) || /^ATPL-\d{8,}$/i.test(code)
+}
+
+function formatPiboCategory(value) {
+  const category = String(value || '').trim()
+  if (!category) return 'Unassigned'
+  const normalized = normalizeKey(category).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const labels = {
+    producer: 'Producer', importer: 'Importer', recycler: 'Recycler',
+    'brand owner': 'Brand Owner', refurbisher: 'Refurbisher', simp: 'SIMP', pwp: 'PWP'
+  }
+  return labels[normalized] || category.replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
 function getClientCategory(client = {}) {
   const data = readClientData(client)
-  return data.basic?.piboCategory || client.piboCategory || 'Unassigned'
+  const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
+  return formatPiboCategory(data.basic?.piboCategory || client.piboCategory || lead.piboCategory)
 }
 
 function isOperationsUser(user = {}) {
@@ -886,7 +909,9 @@ function getUserMatchKeys(user = {}) {
 
 function getClientCode(client = {}) {
   const data = readClientData(client)
-  return data.importMeta?.uniqueId || data.importMeta?.leadNumber || data.importMeta?.ccpClientId || client.clientCode || client.leadCode || client.code || '-'
+  const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
+  const code = data.importMeta?.uniqueId || client.clientCode || client.code || lead.sourceLeadId || data.importMeta?.leadNumber || client.leadCode || lead.leadCode || data.importMeta?.ccpClientId
+  return formatAtplCode(code) || '-'
 }
 
 function getClientFirstAnnualYear(client = {}) {
@@ -921,12 +946,13 @@ function getClientMatchKeys(client = {}) {
 
 function getClientDedupeKey(client = {}) {
   const data = readClientData(client)
+  const strongCode = normalizeKey(data.importMeta?.uniqueId || data.importMeta?.leadNumber || data.importMeta?.ccpClientId || client.clientCode || client.code || '')
+  if (strongCode) return `client:${strongCode}`
   const company = normalizeKey(getClientName(client))
   const category = normalizeKey(getClientCategory(client))
   const assigned = getAssignedUserKeysFromClient(client).join('|')
-  const strongCode = normalizeKey(data.importMeta?.uniqueId || data.importMeta?.leadNumber || data.importMeta?.ccpClientId || '')
   if (company && company !== 'untitled client') return [company, category, assigned].filter(Boolean).join('::')
-  return strongCode || normalizeKey(client._id || client.id || getClientCode(client))
+  return normalizeKey(client._id || client.id || getClientCode(client))
 }
 
 function getAssignedUserKeysFromClient(client = {}) {
@@ -1287,7 +1313,7 @@ function mergeOperationRow(existing = {}, incoming = {}) {
   const displayAnnualReturn = getLatestOperationAnnualReturn(annualReturns)
   const annualYear = displayAnnualReturn?.annualYear || displayAnnualReturn?.year || existing.annualYear || incoming.annualYear || getLatestAvailableAnnualYear(existing.firstAnnualReturnYear || incoming.firstAnnualReturnYear)
   const annualDone = displayAnnualReturn ? getAnnualTabCompletedCount(displayAnnualReturn) : Math.max(existing.annualDone || 0, incoming.annualDone || 0)
-  const annualTotal = 4
+  const annualTotal = annualReturns.length
   const poDetails = existing.hasPo ? existing.poDetails : incoming.poDetails
   return {
     ...existing,
@@ -1320,7 +1346,11 @@ function dedupeOperationRows(rows = []) {
   return [...byKey.values()]
 }
 
-function buildOperationsRows({ clients = [], annualReturns = [], quotations = [], users = [] }) {
+function buildOperationsRows({ clients = [], annualReturns = [], quotations = [], pendingClients = [], users = [] }) {
+  const userByMatchKey = new Map()
+  users.forEach((user) => getUserMatchKeys(user).forEach((key) => {
+    if (!userByMatchKey.has(key)) userByMatchKey.set(key, user)
+  }))
   const clientCodesByCompany = new Map()
   clients.forEach((client) => {
     const companyKey = normalizeBusinessKey(getClientName(client))
@@ -1329,6 +1359,12 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
     const codes = clientCodesByCompany.get(companyKey) || new Set()
     codes.add(code)
     clientCodesByCompany.set(companyKey, codes)
+  })
+  const pendingClientById = new Map()
+  pendingClients.forEach((client) => {
+    ;[client.id, client.sourceClientId, client.ccpClientId, client.payload?.id]
+      .map(normalizeKey).filter(Boolean)
+      .forEach((key) => pendingClientById.set(key, client))
   })
   const annualByClientKey = new Map()
   annualReturns.forEach((row) => {
@@ -1347,33 +1383,67 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
     })
   })
 
+  const quotationsByContactKey = new Map()
+  const addQuotationContactKey = (key, quote) => {
+    if (!key) return
+    const rows = quotationsByContactKey.get(key) || []
+    rows.push(quote)
+    quotationsByContactKey.set(key, rows)
+  }
+  quotations.forEach((quote) => {
+    const details = quote.leadDetails || {}
+    ;[quote.companyName, quote.clientName, details.companyName, quote.leadName]
+      .map(normalizeBusinessKey).filter(Boolean)
+      .forEach((value) => addQuotationContactKey(`company:${value}`, quote))
+    ;[quote.email, quote.emailId, details.email, details.emailId]
+      .map(normalizeEmail).filter(Boolean)
+      .forEach((value) => addQuotationContactKey(`email:${value}`, quote))
+    ;[quote.mobileNo1, quote.mobileNo2, quote.mobile, quote.phone, details.mobileNo1, details.mobileNo2, details.mobile, details.phone]
+      .map(normalizeDigits).filter((value) => value.length >= 8)
+      .forEach((value) => addQuotationContactKey(`phone:${value.slice(-10)}`, quote))
+  })
+
   const rows = clients.map((client) => {
+    const data = readClientData(client)
     const keys = getClientMatchKeys(client)
     const clientAnnualReturns = [...new Map(keys.flatMap((key) => annualByClientKey.get(key) || []).map((row) => [row._id || `${row.clientKey}-${row.annualYear}`, row])).values()]
     const keyedQuotations = keys.flatMap((key) => quotationsByClientKey.get(key) || [])
-    const looseQuotations = quotations.filter((quote) => quotationMatchesClientLoose(quote, client))
+    const contactKeys = [
+      ...[getClientName(client), data.basic?.clientLegalName, data.basic?.tradeName].map(normalizeBusinessKey).filter(Boolean).map((value) => `company:${value}`),
+      ...[data.otp?.email, data.authorised?.email, data.coordinating?.email, client.email, client.emailId].map(normalizeEmail).filter(Boolean).map((value) => `email:${value}`),
+      ...[data.otp?.mobile, data.otp?.mobileNo, data.authorised?.mobile, data.authorised?.mobileNo, data.coordinating?.mobile, data.coordinating?.mobileNo, client.mobileNo1, client.mobileNo2, client.mobile, client.phone]
+        .map(normalizeDigits).filter((value) => value.length >= 8).map((value) => `phone:${value.slice(-10)}`)
+    ]
+    const looseQuotations = contactKeys.flatMap((key) => quotationsByContactKey.get(key) || [])
     const clientQuotations = [...new Map([...keyedQuotations, ...looseQuotations].map((row) => [row._id || row.id || row.quotationNumber || row.quotationNo || JSON.stringify(row), row])).values()]
-    const user = resolveAssignedUser(client, users) || null
-    const annualTotal = 4
+    const user = getAssignedUserKeysFromClient(client).map((key) => userByMatchKey.get(key)).find(Boolean) || null
+    const annualTotal = clientAnnualReturns.length
     const firstAnnualReturnYear = getClientFirstAnnualYear(client)
     const displayAnnualReturn = getLatestOperationAnnualReturn(clientAnnualReturns)
     const annualYear = displayAnnualReturn?.annualYear || displayAnnualReturn?.year || getLatestAvailableAnnualYear(firstAnnualReturnYear)
     const annualDone = displayAnnualReturn ? getAnnualTabCompletedCount(displayAnnualReturn) : 0
     const compliancePending = clientAnnualReturns.some(isAnnualCompliancePending)
     const poDetails = getCompliancePoDetails(client, clientQuotations, clientAnnualReturns)
+    const pendingClient = [client._id, client.id, data.importMeta?.ccpClientId]
+      .map(normalizeKey).filter(Boolean)
+      .map((key) => pendingClientById.get(key)).find(Boolean) || {}
     const directClientCode = getClientCode(client)
     const companyCodes = clientCodesByCompany.get(normalizeBusinessKey(getClientName(client))) || new Set()
     const uniqueCompanyCode = companyCodes.size === 1 ? [...companyCodes][0] : ''
-    const quotationLeadCode = clientQuotations.map((quote) => quote.leadCode || quote.leadDetails?.leadCode).find(Boolean) || ''
-    const resolvedClientCode = directClientCode !== '-' ? directClientCode : (uniqueCompanyCode || quotationLeadCode || '-')
+    const quotationLeadCode = clientQuotations.map((quote) => quote.businessLeadCode || quote.sourceLeadId || quote.leadCode || quote.leadDetails?.leadCode).find(Boolean) || ''
+    const pendingClientCode = formatAtplCode(pendingClient.uniqueId || pendingClient.clientCode || '')
+    const validDirectCode = directClientCode !== '-' && !isGeneratedLeadCode(directClientCode) ? directClientCode : ''
+    const validQuotationCode = quotationLeadCode && !isGeneratedLeadCode(quotationLeadCode) && !/^QUOTATION-/i.test(quotationLeadCode) ? quotationLeadCode : ''
+    const validUniqueCompanyCode = uniqueCompanyCode && !isGeneratedLeadCode(uniqueCompanyCode) ? uniqueCompanyCode : ''
+    const resolvedClientCode = pendingClientCode || validDirectCode || validUniqueCompanyCode || validQuotationCode || '-'
     const operationRow = {
       id: client._id || client.id || getClientCode(client) || getClientName(client),
       client,
       dedupeKey: getClientDedupeKey(client),
       clientKey: client._id || client.id || client.clientKey || getClientCode(client),
-      atplCode: resolvedClientCode,
+      atplCode: formatAtplCode(resolvedClientCode) || '-',
       companyName: getClientName(client),
-      category: getClientCategory(client),
+      category: getClientCategory(client) !== 'Unassigned' ? getClientCategory(client) : formatPiboCategory(pendingClient.piboCategory),
       quotations: clientQuotations,
       quoteCount: clientQuotations.length,
       hasQuotation: clientQuotations.length > 0,
@@ -1390,33 +1460,9 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
       userName: user ? getUserName(user) : (getAssignedUserKeysFromClient(client)[0] || 'Unassigned'),
       assignedKeys: getAssignedUserKeysFromClient(client)
     }
-    console.debug('[OperationsTable:row-match]', {
-      atplCode: operationRow.atplCode,
-      companyName: operationRow.companyName,
-      clientKeys: keys,
-      quotationCount: operationRow.quoteCount,
-      quotations: clientQuotations.map((quote) => ({
-        id: quote._id || quote.id,
-        quotationNumber: quote.quotationNumber || quote.quotationNo,
-        companyName: quote.companyName || quote.leadDetails?.companyName,
-        leadCode: quote.leadCode || quote.leadDetails?.leadCode
-      })),
-      hasPo: operationRow.hasPo,
-      poDetails: operationRow.poDetails
-    })
     return operationRow
   })
-  const dedupedRows = dedupeOperationRows(rows)
-  console.debug('[OperationsTable:quotation-summary]', {
-    totalClients: clients.length,
-    totalQuotations: quotations.length,
-    matchedRows: dedupedRows.filter((row) => row.hasQuotation).length,
-    unmatchedRows: dedupedRows.filter((row) => !row.hasQuotation).map((row) => ({
-      atplCode: row.atplCode,
-      companyName: row.companyName
-    }))
-  })
-  return dedupedRows
+  return dedupeOperationRows(rows)
 }
 
 function userBelongsToManager(user = {}, manager = {}) {
@@ -2831,69 +2877,79 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
   const navigate = useNavigate()
   const [reportModal, setReportModal] = useState(null)
   const [salesValueModalOpen, setSalesValueModalOpen] = useState(false)
-  const [leadSourcePeriod, setLeadSourcePeriod] = useState('q1')
-  const [quotationPeriod, setQuotationPeriod] = useState('q1')
+  const [leadSourcePeriod, setLeadSourcePeriod] = useState(() => `months:m${new Date().getMonth()}`)
+  const [quotationPeriod, setQuotationPeriod] = useState(() => `months:m${new Date().getMonth()}`)
   const scopedLeads = useMemo(() => getSalesVisibleRecords(leads, (lead) => leadBelongsToSalesUser(lead, currentUser)), [currentUser, leads])
   const scopedQuotations = useMemo(() => getSalesVisibleRecords(quotations, (quote) => quotationBelongsToSalesUser(quote, currentUser)), [currentUser, quotations])
   const periodLeads = useMemo(() => scopedLeads.filter((lead) => isDateInSalesPeriod(getLeadCreatedDate(lead), leadSourcePeriod)), [leadSourcePeriod, scopedLeads])
   const periodQuotations = useMemo(() => scopedQuotations.filter((quote) => isDateInSalesPeriod(getQuotationDate(quote), quotationPeriod)), [quotationPeriod, scopedQuotations])
   const todayLeads = useMemo(() => scopedLeads.filter((lead) => isTodayDate(getLeadCreatedDate(lead))), [scopedLeads])
-  const convertedLeads = useMemo(() => scopedLeads.filter((lead) => leadConvertedToClientMaster(lead, clients)), [clients, scopedLeads])
-  const quotationSent = scopedQuotations.filter((quote) => ['Sent', 'Opened', 'Replied', 'Approved'].includes(getQuotationStatusBucket(quote)))
-  const quotationApproved = scopedQuotations.filter((quote) => normalizeKey(quote.approvalStatus || quote.adminApproval || quote.status).includes('approve'))
-  const salesValue = scopedQuotations.reduce((sum, quote) => sum + getQuotationValue(quote), 0)
-  const pipelineStages = ['New', 'Contacted', 'Qualified', 'Quotation', 'Negotiation', 'Won', 'Lost']
-  const pipelineRows = pipelineStages.map((stage) => {
-    const stageLeads = scopedLeads.filter((lead) => getLeadPipelineStage(lead) === stage)
-    return {
+  const salesComputed = useMemo(() => {
+    const clientCompanyKeys = new Set(clients.map((client) => normalizeBusinessKey(getClientName(client))).filter(Boolean))
+    const quotationValueByCompany = new Map()
+    const quotationStatusCounts = new Map()
+    let totalSalesValue = 0
+    scopedQuotations.forEach((quote) => {
+      const value = getQuotationValue(quote)
+      const companyKey = normalizeBusinessKey(quote.leadDetails?.companyName || quote.companyName || '')
+      if (companyKey) quotationValueByCompany.set(companyKey, (quotationValueByCompany.get(companyKey) || 0) + value)
+      const status = getQuotationStatusBucket(quote)
+      quotationStatusCounts.set(status, (quotationStatusCounts.get(status) || 0) + value)
+      totalSalesValue += value
+    })
+    const leadValue = (lead) => quotationValueByCompany.get(normalizeBusinessKey(lead.company || lead.companyName || '')) || 0
+    const stageBuckets = new Map(['New', 'Contacted', 'Qualified', 'Quotation', 'Negotiation', 'Won', 'Lost'].map((stage) => [stage, []]))
+    scopedLeads.forEach((lead) => stageBuckets.get(getLeadPipelineStage(lead))?.push(lead))
+    const pipeline = [...stageBuckets].map(([stage, stageLeads]) => ({
       stage,
       leads: stageLeads,
-      value: stageLeads.reduce((sum, lead) => sum + getLeadSalesValue(lead, scopedQuotations), 0)
+      value: stageLeads.reduce((sum, lead) => sum + leadValue(lead), 0)
+    }))
+    const activities = [
+      ...scopedLeads.map((lead) => ({
+        type: 'New Lead Created',
+        lead: lead.company || lead.companyName || '-',
+        owner: getLeadOwnerName(lead),
+        stage: getLeadPipelineStage(lead),
+        amount: leadValue(lead),
+        date: getLeadCreatedDate(lead),
+        nextStep: 'Call / qualify lead'
+      })),
+      ...scopedQuotations.map((quote) => ({
+        type: 'Quotation Sent',
+        lead: quote.leadDetails?.companyName || quote.companyName || '-',
+        owner: getQuotationOwnerName(quote),
+        stage: getQuotationStatusBucket(quote),
+        amount: getQuotationValue(quote),
+        date: getQuotationDate(quote),
+        nextStep: getQuotationStatusBucket(quote) === 'Approved' ? 'Handover to operations' : 'Follow up'
+      }))
+    ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+    return {
+      convertedLeads: scopedLeads.filter((lead) => clientCompanyKeys.has(normalizeBusinessKey(lead.company || lead.companyName || ''))),
+      quotationSent: scopedQuotations.filter((quote) => ['Sent', 'Opened', 'Replied', 'Approved'].includes(getQuotationStatusBucket(quote))),
+      quotationApproved: scopedQuotations.filter((quote) => normalizeKey(quote.approvalStatus || quote.adminApproval || quote.status).includes('approve')),
+      salesValue: totalSalesValue,
+      pipelineRows: pipeline,
+      revenueRows: ['Approved', 'Sent', 'Opened', 'Replied', 'Draft', 'Expired'].map((stage) => ({ stage, value: quotationStatusCounts.get(stage) || 0 })),
+      recentQuotes: [...scopedQuotations].sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0)).slice(0, 5),
+      allActivities: activities,
+      recentActivities: activities.slice(0, 6)
     }
-  })
-  const revenueRows = ['Approved', 'Sent', 'Opened', 'Replied', 'Draft', 'Expired'].map((stage) => ({
-    stage,
-    value: scopedQuotations
-      .filter((quote) => getQuotationStatusBucket(quote) === stage)
-      .reduce((sum, quote) => sum + getQuotationValue(quote), 0)
-  }))
-  const leadSourceRows = buildDistributionRows(
+  }, [clients, scopedLeads, scopedQuotations])
+  const { convertedLeads, quotationSent, quotationApproved, salesValue, pipelineRows, revenueRows, recentQuotes, allActivities, recentActivities } = salesComputed
+  const leadSourceRows = useMemo(() => buildDistributionRows(
     periodLeads,
     (lead) => lead.source || lead.leadSource || 'Others',
     ['#0f9f83', '#45b8ad', '#8b5cf6', '#f59e0b', '#ef4444', '#9ca3af']
-  )
-  const quotationRows = buildDistributionRows(
+  ), [periodLeads])
+  const quotationRows = useMemo(() => buildDistributionRows(
     periodQuotations,
     getQuotationStatusBucket,
     ['#0f9f83', '#2563eb', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
-  )
-  const recentQuotes = [...scopedQuotations]
-    .sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0))
-    .slice(0, 5)
+  ), [periodQuotations])
   const calendarFollowUps = useMemo(() => getCalendarFollowUpsForUser(currentUser, buildLeadFollowUpItems(leads)), [currentUser, leads])
   const followUps = calendarFollowUps.slice(0, 5)
-  const allActivities = [
-    ...scopedLeads.map((lead) => ({
-      type: 'New Lead Created',
-      lead: lead.company || lead.companyName || '-',
-      owner: getLeadOwnerName(lead),
-      stage: getLeadPipelineStage(lead),
-      amount: getLeadSalesValue(lead, scopedQuotations),
-      date: getLeadCreatedDate(lead),
-      nextStep: 'Call / qualify lead'
-    })),
-    ...scopedQuotations.map((quote) => ({
-      type: 'Quotation Sent',
-      lead: quote.leadDetails?.companyName || quote.companyName || '-',
-      owner: getQuotationOwnerName(quote),
-      stage: getQuotationStatusBucket(quote),
-      amount: getQuotationValue(quote),
-      date: getQuotationDate(quote),
-      nextStep: getQuotationStatusBucket(quote) === 'Approved' ? 'Handover to operations' : 'Follow up'
-    }))
-  ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-  const recentActivities = allActivities.slice(0, 6)
-
   const metrics = [
     { label: 'Total Lead', value: scopedLeads.length, note: 'Assigned sales leads', icon: Users, tone: 'teal' },
     { label: 'Quotation Sent', value: quotationSent.length, note: 'Sent / opened / replied', icon: FileText, tone: 'blue' },
@@ -3825,6 +3881,9 @@ export default function AdminDashboard() {
 
   const routeRole = normalizeKey(currentUser?.role)
   const canManageUsers = adminRoles.includes(currentUser?.role) || routeRole === 'manager' || routeRole.includes('operation head')
+  const currentRole = normalizeKey(currentUser?.role)
+  const showDashboardSwitcher = !isUserManagementView && canSwitchDashboard(currentUser)
+  const isSalesDashboardView = !isUserManagementView && (isSalesDashboardUser(currentUser) || (showDashboardSwitcher && dashboardMode === 'sales'))
 
   useEffect(() => {
     if (!sidebarOpen) return undefined
@@ -3850,7 +3909,7 @@ export default function AdminDashboard() {
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage))
   const visibleUsers = filteredUsers.slice((page - 1) * rowsPerPage, page * rowsPerPage)
-  const operationUsers = users.filter((user) => isOperationsUser(user))
+  const operationUsers = useMemo(() => users.filter((user) => isOperationsUser(user)), [users])
   const activeUsers = operationUsers.filter((user) => user.isActive).length
   const inactiveUsers = operationUsers.filter((user) => !user.isActive).length
   const userById = useMemo(() => new Map(users.map((user) => [String(user._id || user.id), user])), [users])
@@ -3910,12 +3969,13 @@ export default function AdminDashboard() {
     activeUsers
   }), [activeUsers, clients, operationAnalytics, pendingClients, pendingQuotations, quotations])
   const allOperationsRows = useMemo(() => buildOperationsRows({
-    clients,
-    annualReturns,
-    quotations,
-    users,
+    clients: isSalesDashboardView ? [] : clients,
+    annualReturns: isSalesDashboardView ? [] : annualReturns,
+    quotations: isSalesDashboardView ? [] : quotations,
+    pendingClients: isSalesDashboardView ? [] : pendingClients,
+    users: isSalesDashboardView ? [] : users,
     currentUser
-  }), [annualReturns, clients, currentUser, quotations, users])
+  }), [annualReturns, clients, currentUser, isSalesDashboardView, pendingClients, quotations, users])
   const scopedOperationsRows = useMemo(
     () => getScopedOperationsRows(allOperationsRows, users, currentUser),
     [allOperationsRows, currentUser, users]
@@ -3951,16 +4011,44 @@ export default function AdminDashboard() {
     [clients, operationsLeadAnalytics.leads]
   )
   const operationsAnnualReturnStats = useMemo(() => {
-    const total = scopedOperationsRows.reduce((sum, row) => sum + (row.annualTotal || 0), 0)
-    const completed = scopedOperationsRows.reduce((sum, row) => sum + (row.annualDone || 0), 0)
-    const rejected = scopedOperationsRows.filter((row) => row.compliancePending).length
+    const actualFilings = adminRoles.includes(currentUser?.role)
+      ? annualReturns
+      : scopedOperationsRows.flatMap((row) => row.annualReturns || [])
+    const filingMap = new Map(actualFilings.map((filing) => [
+      filing._id || filing.annualReturnId || `${filing.clientKey || filing.client || filing.clientName || 'client'}:${filing.annualYear || filing.year || 'year'}`,
+      filing
+    ]))
+    const clientsWithActualFilings = new Set(actualFilings.flatMap((filing) => getAnnualReturnClientKeys(filing)))
+    scopedOperationsRows.forEach((row) => {
+      if (!row.firstAnnualReturnYear || (row.annualReturns || []).length) return
+      const rowKeys = getClientMatchKeys(row.client || {})
+      if (rowKeys.some((key) => clientsWithActualFilings.has(key))) return
+      const key = `mapped:${row.clientKey || row.id}:${row.annualYear || row.firstAnnualReturnYear}`
+      filingMap.set(key, {
+        _id: key,
+        clientKey: row.clientKey || row.id,
+        clientName: row.companyName,
+        annualYear: row.annualYear || row.firstAnnualReturnYear,
+        status: 'pending',
+        source: 'client-year-mapping'
+      })
+    })
+    const filings = [...filingMap.values()]
+    const normalizedStatus = (filing) => String(
+      filing.status || filing.approvalWorkflow?.status || filing.approvalStatus || 'pending'
+    ).trim().toLowerCase()
+    const completedStatuses = new Set(['filed', 'submitted', 'closed', 'approved', 'completed', 'compliance_approved'])
+    const rejectedStatuses = new Set(['rejected', 'compliance_rejected', 'manager_rejected'])
+    const completed = filings.filter((filing) => completedStatuses.has(normalizedStatus(filing))).length
+    const rejected = filings.filter((filing) => rejectedStatuses.has(normalizedStatus(filing))).length
+    const total = filings.length
     return {
       total,
       completed,
       rejected,
       pending: Math.max(0, total - completed - rejected)
     }
-  }, [scopedOperationsRows])
+  }, [annualReturns, currentUser?.role, scopedOperationsRows])
   const userPerformanceCards = useMemo(
     () => buildUserPerformanceCards(scopedOperationsRows, users, currentUser, operationsLeadAnalytics.leads),
     [currentUser, operationsLeadAnalytics.leads, scopedOperationsRows, users]
@@ -4010,9 +4098,6 @@ export default function AdminDashboard() {
       : normalizeKey(currentUser?.role) === 'manager'
         ? 'Manager team'
         : 'My assigned clients'
-  const currentRole = normalizeKey(currentUser?.role)
-  const showDashboardSwitcher = !isUserManagementView && canSwitchDashboard(currentUser)
-  const isSalesDashboardView = !isUserManagementView && (isSalesDashboardUser(currentUser) || (showDashboardSwitcher && dashboardMode === 'sales'))
   const salesScopedLeads = useMemo(() => getSalesVisibleRecords(leads, (lead) => leadBelongsToSalesUser(lead, currentUser)), [currentUser, leads])
   const salesTodayLeads = useMemo(() => salesScopedLeads.filter((lead) => isTodayDate(getLeadCreatedDate(lead))), [salesScopedLeads])
   const salesScopedQuotations = useMemo(() => getSalesVisibleRecords(quotations, (quote) => quotationBelongsToSalesUser(quote, currentUser)), [currentUser, quotations])
@@ -4020,6 +4105,23 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadDashboard()
+  }, [location.pathname])
+
+  useEffect(() => {
+    let refreshing = false
+    const refreshLiveData = async () => {
+      if (refreshing || document.visibilityState === 'hidden') return
+      refreshing = true
+      try { await loadDashboard({ force: true, silent: true }) } finally { refreshing = false }
+    }
+    const intervalId = window.setInterval(refreshLiveData, 30000)
+    window.addEventListener('focus', refreshLiveData)
+    document.addEventListener('visibilitychange', refreshLiveData)
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshLiveData)
+      document.removeEventListener('visibilitychange', refreshLiveData)
+    }
   }, [location.pathname])
 
   useEffect(() => {
