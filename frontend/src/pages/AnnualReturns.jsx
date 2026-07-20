@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, BarChart3, CalendarDays, CheckCircle2, ChevronDown, Clock3, Eye, FileText, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, BarChart3, CalendarDays, CheckCircle2, ChevronDown, Clock3, Eye, FileText, RefreshCw, Search, Upload } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -23,6 +24,8 @@ export default function AnnualReturns() {
   const [expandedId, setExpandedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importNotice, setImportNotice] = useState('');
   const navigate = useNavigate();
 
   const filteredRows = useMemo(() => {
@@ -89,6 +92,38 @@ export default function AnnualReturns() {
     navigate(`/sales/client-data-processing/${encodeURIComponent(clientKey)}/${encodeURIComponent(row.annualYear)}`);
   }
 
+  async function importClientYears(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || importing) return;
+    setImporting(true);
+    setError('');
+    setImportNotice('');
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames?.[0]];
+      if (!sheet) throw new Error('Excel file has no sheet');
+      const excelRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      const rows = excelRows.map((row, index) => ({
+        row: index + 2,
+        companyUniqueId: row['Company Unique ID'] || row['Unique ID'] || row['Lead Number'] || '',
+        onboardingYear: row['Client Onboarding Year'] || row['Onboarding Year'] || '',
+        firstAnnualReturnYear: row['First Annual Return Year Applicable'] || row['First Annual Return Year'] || ''
+      })).filter((row) => String(row.companyUniqueId).trim());
+      if (!rows.length) throw new Error('No usable Annual Return year rows found');
+      const response = await api.post(API_ENDPOINTS.ccp.bulkUpdateClientYears, { rows });
+      const failures = response.data?.failures || [];
+      const skipped = Number(response.data?.skipped || 0);
+      setImportNotice(`${response.data?.updated || 0} client year records updated${skipped ? `; ${skipped} placeholder-only rows safely skipped` : ''}${failures.length ? `; ${failures.length} failed. First: row ${failures[0].row} (${failures[0].error})` : '.'}`);
+      await loadPage();
+    } catch (err) {
+      const failures = err?.response?.data?.failures || [];
+      setError(failures.length ? `${failures.length} rows failed. First: row ${failures[0].row} (${failures[0].error})` : err?.response?.data?.error || err.message || 'Unable to import Annual Return years.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
       <div className="annual-list-page px-4 py-5 sm:px-6 lg:px-8">
@@ -104,6 +139,10 @@ export default function AnnualReturns() {
             </div>
           </div>
           <div className="annual-list-actions">
+            <label className="btn-lift annual-list-refresh cursor-pointer">
+              <Upload className="h-4 w-4" /> {importing ? 'Importing...' : 'Import Client Years'}
+              <input type="file" accept=".xlsx,.xls" className="hidden" disabled={importing} onChange={importClientYears} />
+            </label>
             <label className="annual-list-search">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-teal-700" />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search annual returns..." />
@@ -122,6 +161,7 @@ export default function AnnualReturns() {
         </section>
 
         {error && <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 font-bold text-red-700">{error}</div>}
+        {importNotice && <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 font-bold text-emerald-800">{importNotice}</div>}
 
         <section className="annual-list-table-card mt-5">
           <div className="hidden-scrollbar max-h-[650px] overflow-auto">

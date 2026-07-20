@@ -4,6 +4,15 @@ const QuotationServiceCategory = require('../models/QuotationServiceCategory');
 const QuotationPiboCategory = require('../models/QuotationPiboCategory');
 const QuotationSyncIssue = require('../models/QuotationSyncIssue');
 const Lead = require('../models/Lead');
+const {
+  PIBO_PARENTS,
+  BUILT_IN_PIBO_CATEGORIES,
+  cleanCategoryName,
+  normalizeParent,
+  normalizedCategoryName,
+  inferPiboParent,
+  validatePiboSelection
+} = require('../utils/piboCategories');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -48,6 +57,11 @@ function validateGstNumber(value) {
   return '';
 }
 
+function roundMoney(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
+}
+
 function cleanItems(items) {
   if (!Array.isArray(items)) return [];
   return items
@@ -56,10 +70,11 @@ function cleanItems(items) {
       serviceCategory: cleanString(item.serviceCategory),
       servicesForYear: cleanString(item.servicesForYear),
       eprCategory: cleanString(item.eprCategory),
+      piboParent: normalizeParent(item.piboParent || item.piboCategoryParent) || inferPiboParent(item.piboCategory) || undefined,
       piboCategory: cleanString(item.piboCategory),
       unit: cleanString(item.unit),
       unitLabel: cleanString(item.unitLabel),
-      basicAmount: Number(item.basicAmount) || 0
+      basicAmount: roundMoney(item.basicAmount)
     }))
     .filter((item) => Object.values(item).some((value) => String(value || '').trim() !== '' && value !== 0));
 }
@@ -69,9 +84,27 @@ function cleanTerms(terms) {
   return terms.map(cleanString).filter(Boolean);
 }
 
+async function validateQuotationPiboItems(items = []) {
+  for (let index = 0; index < items.length; index += 1) {
+    try {
+      const selection = await validatePiboSelection({
+        parent: items[index].piboParent || items[index].piboCategoryParent,
+        child: items[index].piboCategory,
+        required: true
+      });
+      items[index].piboParent = selection.piboParent;
+      items[index].piboCategory = selection.piboCategory;
+      delete items[index].piboCategoryParent;
+    } catch (error) {
+      error.message = `Quotation item ${index + 1}: ${error.message}`;
+      throw error;
+    }
+  }
+}
+
 function cleanBody(body) {
   const items = cleanItems(body.items);
-  const calculatedTotal = items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
+  const calculatedTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
   return {
     leadId: cleanString(body.leadId),
     leadCode: cleanString(body.leadCode),
@@ -81,8 +114,8 @@ function cleanBody(body) {
     quotationDate: body.quotationDate || undefined,
     items,
     terms: cleanTerms(body.terms),
-    subtotal: Number(body.subtotal) || calculatedTotal,
-    grandTotal: Number(body.grandTotal) || calculatedTotal,
+    subtotal: roundMoney(body.subtotal || calculatedTotal),
+    grandTotal: roundMoney(body.grandTotal || calculatedTotal),
     status: ['draft', 'submitted', 'sent', 'approved', 'rejected'].includes(body.status) ? body.status : 'draft'
   };
 }
@@ -140,6 +173,18 @@ async function fetchCcpQuotations() {
       error.status = 502;
       throw error;
     }
+    const hasUnresolvedCreator = quotations.some((row) =>
+      (row?.createdBy && typeof row.createdBy !== 'object') ||
+      (row?.selectedLead && typeof row.selectedLead !== 'object')
+    );
+    if (hasUnresolvedCreator) {
+      try {
+        console.info('[CCP quotation sync] creator identity is not populated; enriching from CCP Mongo');
+        return await fetchCcpQuotationsFromMongo();
+      } catch (mongoError) {
+        console.warn('[CCP quotation sync] creator enrichment unavailable; continuing with API response', { error: mongoError.message });
+      }
+    }
     return { quotations, total: Number(payload.total) || quotations.length, url, status: response.status };
   } catch (err) {
     if (err.name === 'AbortError') {
@@ -163,14 +208,32 @@ async function fetchCcpQuotationsFromMongo() {
   }).filter(Boolean))];
   const objectIds = leadIds.filter((id) => require('mongoose').Types.ObjectId.isValid(id)).map((id) => new (require('mongoose').Types.ObjectId)(id));
   const leads = objectIds.length
-    ? await db.collection('leads').find({ _id: { $in: objectIds } }).project({ leadCode: 1, company: 1, contactPerson: 1, designation: 1, mobileNo1: 1, mobileNo2: 1, emails: 1 }).toArray()
+    ? await db.collection('leads').find({ _id: { $in: objectIds } }).project({ leadCode: 1, sourceLeadId: 1, company: 1, contactPerson: 1, designation: 1, mobileNo1: 1, mobileNo2: 1, emails: 1, importedCreatedBy: 1, createdByEmail: 1, createdBy: 1, assignedToText: 1 }).toArray()
     : [];
+  const creatorIds = [...new Set([
+    ...quotations.map((row) => cleanString(row.createdBy)),
+    ...leads.map((lead) => cleanString(lead.createdBy))
+  ].filter((id) => require('mongoose').Types.ObjectId.isValid(id)))]
+    .map((id) => new (require('mongoose').Types.ObjectId)(id));
+  const users = creatorIds.length
+    ? await db.collection('users').find({ _id: { $in: creatorIds } }).project({ name: 1, email: 1 }).toArray()
+    : [];
+  const usersById = new Map(users.map((user) => [String(user._id), { _id: String(user._id), name: user.name || '', email: user.email || '' }]));
   const leadsById = new Map(leads.map((lead) => [String(lead._id), lead]));
   const populated = quotations.map((row) => {
     const storedLead = row?.selectedLead && typeof row.selectedLead === 'object' ? row.selectedLead : null;
     const leadId = cleanString(storedLead?._id || row.selectedLead);
     const lead = leadsById.get(leadId);
-    return { ...row, selectedLead: lead ? { ...lead, _id: String(lead._id) } : (storedLead || row.selectedLead) };
+    const populatedLead = lead ? {
+      ...lead,
+      _id: String(lead._id),
+      createdBy: usersById.get(cleanString(lead.createdBy)) || lead.createdBy
+    } : (storedLead || row.selectedLead);
+    return {
+      ...row,
+      createdBy: usersById.get(cleanString(row.createdBy)) || row.createdBy,
+      selectedLead: populatedLead
+    };
   });
   console.info('[CCP quotation sync] Mongo fallback response', { sourceDb: dbName, received: populated.length });
   return { quotations: populated, total: populated.length, url: `mongodb:${dbName}.quotations`, status: 200 };
@@ -216,13 +279,21 @@ async function matchCrmLead(row) {
 
 function mapCcpQuotation(row, lead) {
   const selectedLead = quotationLeadSnapshot(row);
+  const quotationCreator = cleanString(row.createdBy?.name || row.createdByName || row.createdBy?.email || row.createdByEmail);
+  const leadCreator = cleanString(
+    selectedLead.importedCreatedBy || selectedLead.createdBy?.name || selectedLead.createdBy?.email ||
+    selectedLead.createdByEmail || lead?.importedCreatedBy || lead?.createdBy?.name || lead?.createdBy?.email ||
+    lead?.createdByEmail || selectedLead.assignedToText || lead?.assignedToText
+  );
+  const assignedUserName = cleanString(selectedLead.assignedTo?.name || selectedLead.assignedToText || selectedLead.assignedToEmail || lead?.assignedTo?.name || lead?.assignedToText || lead?.assignedToEmail);
   const items = cleanItems(row.items);
-  const calculatedTotal = items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
+  const calculatedTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
   return {
     ccpQuotationId: cleanString(row._id || row.id),
     leadId: lead?._id ? String(lead._id) : undefined,
     ccpLeadId: cleanString(selectedLead._id || row.selectedLead || row.ccpLeadId),
     leadCode: cleanString(lead?.leadCode || selectedLead.leadCode || row.leadCode),
+    businessLeadCode: cleanString(selectedLead.sourceLeadId || lead?.sourceLeadId || row.businessLeadCode || row.sourceLeadId),
     companyName: cleanString(row.companyName || selectedLead.company || lead?.company),
     quotationNumber: cleanString(row.quotationNumber),
     quotationDate: row.quotationDate || row.createdAt || undefined,
@@ -237,10 +308,13 @@ function mapCcpQuotation(row, lead) {
     }),
     items,
     terms: cleanTerms(row.terms),
-    subtotal: Number(row.subtotal) || calculatedTotal,
-    grandTotal: Number(row.grandTotal) || Number(row.subtotal) || calculatedTotal,
+    subtotal: roundMoney(row.subtotal || calculatedTotal),
+    grandTotal: roundMoney(row.grandTotal || row.subtotal || calculatedTotal),
     status: ['draft', 'submitted'].includes(row.status) ? row.status : 'draft',
     source: 'CCP',
+    createdByName: quotationCreator || leadCreator,
+    leadGeneratedBy: leadCreator || quotationCreator,
+    assignedUserName,
     ccpSource: ['manual', 'bulk'].includes(cleanString(row.source).toLowerCase()) ? cleanString(row.source).toLowerCase() : cleanString(row.source),
     ccpCreatedAt: row.createdAt || undefined,
     ccpUpdatedAt: row.updatedAt || row.createdAt || undefined,
@@ -252,12 +326,13 @@ function mapCcpQuotation(row, lead) {
 
 function comparableCcpFields(record) {
   return JSON.stringify({
-    leadId: record.leadId || '', ccpLeadId: record.ccpLeadId, leadCode: record.leadCode,
+    leadId: record.leadId || '', ccpLeadId: record.ccpLeadId, leadCode: record.leadCode, businessLeadCode: record.businessLeadCode || '',
     companyName: record.companyName, quotationNumber: record.quotationNumber,
     quotationDate: record.quotationDate ? new Date(record.quotationDate).toISOString() : '',
     validUntil: record.validUntil, items: record.items, terms: record.terms,
     subtotal: record.subtotal, grandTotal: record.grandTotal, status: record.status,
     source: record.source, ccpSource: record.ccpSource,
+    createdByName: record.createdByName || '', leadGeneratedBy: record.leadGeneratedBy || '', assignedUserName: record.assignedUserName || '',
     ccpUpdatedAt: record.ccpUpdatedAt ? new Date(record.ccpUpdatedAt).toISOString() : '',
     syncMatchStatus: record.syncMatchStatus, unmatchedReason: record.unmatchedReason || ''
   });
@@ -276,21 +351,32 @@ function approvalDateParts(value) {
 }
 
 function readCreatedBy(quotation) {
-  return quotation.createdBy?.name || quotation.createdBy?.email || 'CRM User';
+  return quotation.createdBy?.name || quotation.createdByName || quotation.createdBy?.email || (String(quotation.source || '').toLowerCase() === 'ccp' ? 'CCP User' : 'CRM User');
+}
+
+function quotationApprovalSource(quotation) {
+  return String(quotation.source || '').trim().toLowerCase() === 'ccp' || quotation.ccpQuotationId ? 'ccp' : 'crm';
 }
 
 function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
   const parts = approvalDateParts(quotation.createdAt || new Date());
   const details = quotation.leadDetails || {};
   const firstItem = Array.isArray(quotation.items) ? quotation.items[0] || {} : {};
-  const totalBasicAmount = (quotation.items || []).reduce((sum, item) => sum + (Number(item.basicAmount) || 0), 0);
+  const totalBasicAmount = roundMoney((quotation.items || []).reduce((sum, item) => sum + (Number(item.basicAmount) || 0), 0));
+  const isBulkCcp = quotationApprovalSource(quotation) === 'ccp' && String(quotation.ccpSource || '').toLowerCase() === 'bulk';
+  const leadCreator = quotation.leadGeneratedBy || readCreatedBy(quotation);
+  const displayUser = isBulkCcp ? (quotation.assignedUserName || leadCreator) : readCreatedBy(quotation);
+  const displayCreator = isBulkCcp ? leadCreator : readCreatedBy(quotation);
 
   return {
     id: quotation._id,
     quotationId: quotation._id,
     quotationNumber: quotation.quotationNumber || '',
     leadId: quotation.leadId || '',
+    ccpLeadId: quotation.ccpLeadId || '',
     leadCode: quotation.leadCode || '',
+    businessLeadCode: quotation.businessLeadCode || '',
+    ccpSource: quotation.ccpSource || '',
     leadDetails: details,
     validUntil: quotation.validUntil || '',
     items: Array.isArray(quotation.items) ? quotation.items : [],
@@ -298,10 +384,10 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     status: quotation.status || 'draft',
     createdAt: quotation.createdAt,
     updatedAt: quotation.updatedAt,
-    source: 'crm',
+    source: quotationApprovalSource(quotation),
     uniqueId: quotation.quotationNumber || quotation.leadCode || '',
-    userName: readCreatedBy(quotation),
-    leadGeneratedBy: readCreatedBy(quotation),
+    userName: displayUser,
+    leadGeneratedBy: leadCreator,
     companyName: details.companyName || 'Untitled quotation',
     contactPerson: details.contactPerson || '-',
     mobileNo1: details.mobileNo1 || '-',
@@ -312,7 +398,7 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     basicAmount: totalBasicAmount || firstItem.basicAmount || '-',
     approvalStatus: quotation.status === 'approved' ? 'APPROVED' : quotation.status === 'rejected' ? 'REJECTED' : 'PENDING',
     approvalType,
-    createdBy: readCreatedBy(quotation),
+    createdBy: displayCreator,
     requestDate: parts.date,
     requestTime: parts.time
   };
@@ -320,14 +406,15 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
 
 async function upsertQuotationPendingApproval(quotation, approvalType = 'CREATE') {
   const row = mapQuotationPendingApprovalRow(quotation, approvalType);
+  const source = row.source || 'crm';
   const status = normalizeApprovalStatus(row.approvalStatus) || 'PENDING';
   const isFreshPendingRequest = status === 'PENDING';
   const record = await PendingApproval.findOneAndUpdate(
-    { type: 'quotation', source: 'crm', sourceClientId: String(quotation._id) },
+    { type: 'quotation', source, sourceClientId: String(quotation._id) },
     {
       $setOnInsert: {
         type: 'quotation',
-        source: 'crm',
+        source,
         sourceClientId: String(quotation._id),
         uniqueId: row.uniqueId
       },
@@ -349,6 +436,54 @@ async function upsertQuotationPendingApproval(quotation, approvalType = 'CREATE'
   );
 
   return record;
+}
+
+async function hydrateCcpQuotationCreators(quotations = []) {
+  const unresolved = quotations.filter((quotation) =>
+    quotationApprovalSource(quotation) === 'ccp' &&
+    (!cleanString(quotation.createdByName) || !cleanString(quotation.leadGeneratedBy)) &&
+    cleanString(quotation.ccpQuotationId)
+  );
+  if (!unresolved.length) return quotations;
+
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.useDb(cleanString(process.env.CCP_DB_NAME) || 'ccp', { useCache: true });
+    const ccpIds = unresolved
+      .map((quotation) => cleanString(quotation.ccpQuotationId))
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+    const ccpRows = await db.collection('quotations').find({ _id: { $in: ccpIds } }).toArray();
+    const leadIds = ccpRows.map((row) => row.selectedLead).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
+    const leads = leadIds.length ? await db.collection('leads').find({ _id: { $in: leadIds } }).toArray() : [];
+    const leadsById = new Map(leads.map((lead) => [String(lead._id), lead]));
+    const userIds = [...new Set([
+      ...ccpRows.map((row) => cleanString(row.createdBy)),
+      ...leads.map((lead) => cleanString(lead.createdBy))
+    ].filter((id) => mongoose.Types.ObjectId.isValid(id)))]
+      .map((id) => new mongoose.Types.ObjectId(id));
+    const users = userIds.length ? await db.collection('users').find({ _id: { $in: userIds } }).project({ name: 1, email: 1 }).toArray() : [];
+    const usersById = new Map(users.map((user) => [String(user._id), cleanString(user.name || user.email)]));
+    const ccpById = new Map(ccpRows.map((row) => [String(row._id), row]));
+
+    for (const quotation of unresolved) {
+      const ccpRow = ccpById.get(cleanString(quotation.ccpQuotationId));
+      if (!ccpRow) continue;
+      const lead = leadsById.get(String(ccpRow.selectedLead)) || {};
+      const quotationCreator = usersById.get(cleanString(ccpRow.createdBy)) || cleanString(ccpRow.createdByName || ccpRow.createdByEmail);
+      const leadCreator = cleanString(lead.importedCreatedBy) || usersById.get(cleanString(lead.createdBy)) || cleanString(lead.createdByEmail) || quotationCreator;
+      const createdByName = cleanString(quotation.createdByName) || quotationCreator || leadCreator;
+      const leadGeneratedBy = cleanString(quotation.leadGeneratedBy) || leadCreator || quotationCreator;
+      if (!createdByName && !leadGeneratedBy) continue;
+      quotation.createdByName = createdByName;
+      quotation.leadGeneratedBy = leadGeneratedBy;
+      await Quotation.updateOne({ _id: quotation._id }, { $set: { createdByName, leadGeneratedBy } });
+    }
+  } catch (error) {
+    console.warn('[CCP quotation creator hydration] skipped', { error: error.message });
+  }
+
+  return quotations;
 }
 
 async function nextQuotationNumber() {
@@ -375,7 +510,7 @@ exports.listQuotations = async (req, res) => {
     const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'i');
     filter.$or = [
-      { quotationNumber: regex }, { companyName: regex }, { leadCode: regex },
+      { quotationNumber: regex }, { companyName: regex }, { leadCode: regex }, { businessLeadCode: regex },
       { 'leadDetails.companyName': regex }, { 'leadDetails.contactPerson': regex }
     ];
   }
@@ -402,7 +537,7 @@ exports.listLeadQuotations = async (req, res) => {
 };
 
 exports.syncCcpQuotations = async (req, res) => {
-  const summary = { fetched: 0, created: 0, updated: 0, unchanged: 0, unmatched: 0, failed: 0 };
+  const summary = { fetched: 0, created: 0, updated: 0, unchanged: 0, pendingSynced: 0, unmatched: 0, failed: 0 };
   const unmatched = [];
   const failures = [];
   let rows;
@@ -441,16 +576,24 @@ exports.syncCcpQuotations = async (req, res) => {
           unmatchedReason: issue.reason
         };
         const existingUnmatched = await Quotation.findOne({ ccpQuotationId }).lean();
+        let savedQuotation;
+        let changed = false;
         if (!existingUnmatched) {
-          await Quotation.create(unmatchedQuotation);
+          savedQuotation = await Quotation.create(unmatchedQuotation);
           summary.created += 1;
         } else {
-          const changed = comparableCcpFields(existingUnmatched) !== comparableCcpFields(unmatchedQuotation);
-          await Quotation.updateOne(
+          changed = comparableCcpFields(existingUnmatched) !== comparableCcpFields(unmatchedQuotation);
+          savedQuotation = await Quotation.findOneAndUpdate(
             { _id: existingUnmatched._id },
-            { $set: changed ? unmatchedQuotation : { lastSyncedAt: unmatchedQuotation.lastSyncedAt, unmatchedReason: issue.reason, syncMatchStatus: 'unmatched' } }
+            { $set: changed ? unmatchedQuotation : { lastSyncedAt: unmatchedQuotation.lastSyncedAt, unmatchedReason: issue.reason, syncMatchStatus: 'unmatched' } },
+            { new: true }
           );
           summary[changed ? 'updated' : 'unchanged'] += 1;
+        }
+        const hasPendingRecord = await PendingApproval.exists({ type: 'quotation', source: 'ccp', sourceClientId: String(savedQuotation._id) });
+        if (!existingUnmatched || changed || !hasPendingRecord) {
+          await upsertQuotationPendingApproval(savedQuotation, existingUnmatched ? 'UPDATE' : 'CREATE');
+          summary.pendingSynced += 1;
         }
         unmatched.push(issue);
         summary.unmatched += 1;
@@ -466,13 +609,24 @@ exports.syncCcpQuotations = async (req, res) => {
         ]
       }).lean();
 
+      let savedQuotation;
+      let changed = false;
       if (!existing) {
-        await Quotation.create(mapped);
+        savedQuotation = await Quotation.create(mapped);
         summary.created += 1;
       } else {
-        const changed = comparableCcpFields(existing) !== comparableCcpFields(mapped);
-        await Quotation.updateOne({ _id: existing._id }, { $set: changed ? mapped : { lastSyncedAt: mapped.lastSyncedAt, ccpQuotationId } });
+        changed = comparableCcpFields(existing) !== comparableCcpFields(mapped);
+        savedQuotation = await Quotation.findOneAndUpdate(
+          { _id: existing._id },
+          { $set: changed ? mapped : { lastSyncedAt: mapped.lastSyncedAt, ccpQuotationId } },
+          { new: true }
+        );
         summary[changed ? 'updated' : 'unchanged'] += 1;
+      }
+      const hasPendingRecord = await PendingApproval.exists({ type: 'quotation', source: 'ccp', sourceClientId: String(savedQuotation._id) });
+      if (!existing || changed || !hasPendingRecord) {
+        await upsertQuotationPendingApproval(savedQuotation, existing ? 'UPDATE' : 'CREATE');
+        summary.pendingSynced += 1;
       }
       await QuotationSyncIssue.findOneAndUpdate(
         { ccpQuotationId: issueIdentity },
@@ -502,6 +656,11 @@ exports.createQuotation = async (req, res) => {
   const gstError = validateGstNumber(req.body.leadDetails?.gstNumber);
   if (gstError) return res.status(400).json({ error: gstError });
   const data = cleanBody(req.body);
+  try {
+    await validateQuotationPiboItems(data.items);
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ error: error.message });
+  }
   const quotation = await Quotation.create({
     ...data,
     status: 'draft',
@@ -521,8 +680,38 @@ exports.updateQuotation = async (req, res) => {
 
   // Every revision, including a one-field edit, starts a completely new approval cycle.
   // Client-supplied status is deliberately ignored.
-  Object.assign(quotation, cleanBody(req.body));
+  const data = cleanBody(req.body);
+  try {
+    await validateQuotationPiboItems(data.items);
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ error: error.message });
+  }
+  const previous = quotation.toObject();
+  const labels = {
+    leadId: 'Lead', leadCode: 'Lead Code', companyName: 'Company', leadDetails: 'Lead Details',
+    quotationDate: 'Quotation Date', validUntil: 'Valid Until', items: 'Quotation Items', terms: 'Terms',
+    subtotal: 'Subtotal', grandTotal: 'Grand Total'
+  };
+  const changes = Object.keys(labels).filter((field) => JSON.stringify(previous[field] ?? null) !== JSON.stringify(data[field] ?? null)).map((field) => ({
+    field,
+    label: labels[field],
+    before: previous[field] ?? null,
+    after: data[field] ?? null
+  }));
+  Object.assign(quotation, data);
   quotation.status = 'draft';
+  quotation.revisionHistory = [
+    ...(Array.isArray(quotation.revisionHistory) ? quotation.revisionHistory : []),
+    {
+      at: new Date(),
+      userId: String(req.user?._id || ''),
+      userName: req.user?.name || req.user?.email || 'CRM User',
+      userEmail: req.user?.email || '',
+      changedFields: changes.map((change) => change.field),
+      changes
+    }
+  ];
+  quotation.markModified('revisionHistory');
   await quotation.save();
   await quotation.populate('createdBy', 'name email');
   await upsertQuotationPendingApproval(quotation, 'UPDATE');
@@ -605,6 +794,7 @@ exports.approveAllPendingQuotations = async (req, res) => {
 
 exports.mapQuotationPendingApprovalRow = mapQuotationPendingApprovalRow;
 exports.upsertQuotationPendingApproval = upsertQuotationPendingApproval;
+exports.hydrateCcpQuotationCreators = hydrateCcpQuotationCreators;
 
 exports.listServiceCategories = async (req, res) => {
   const categories = await QuotationServiceCategory.find().sort({ name: 1 }).lean();
@@ -626,21 +816,30 @@ exports.createServiceCategory = async (req, res) => {
 };
 
 exports.listPiboCategories = async (req, res) => {
-  const categories = await QuotationPiboCategory.find().sort({ name: 1 }).lean();
-  return res.json({ categories: categories.map((category) => category.name) });
+  const custom = await QuotationPiboCategory.find({ parent: { $in: PIBO_PARENTS } }).sort({ parent: 1, name: 1 }).lean();
+  const builtIn = Object.entries(BUILT_IN_PIBO_CATEGORIES)
+    .flatMap(([parent, names]) => names.map((name) => ({ parent, name, custom: false })));
+  return res.json({
+    categories: [...builtIn, ...custom.map((category) => ({ parent: category.parent, name: category.name, custom: true }))]
+  });
 };
 
 exports.createPiboCategory = async (req, res) => {
-  const name = String(req.body.name || '').trim().replace(/\s+/g, ' ').toUpperCase();
-  if (!name) return res.status(400).json({ error: 'PIBO Category name is required' });
-  if (name.length > 100) return res.status(400).json({ error: 'PIBO Category must be under 100 characters' });
-  if (!/^[A-Z0-9][A-Z0-9 &()\/.,+_-]*$/.test(name)) return res.status(400).json({ error: 'PIBO Category contains unsupported characters' });
+  const parent = normalizeParent(req.body.parent);
+  const name = cleanCategoryName(req.body.name);
+  if (!parent) return res.status(400).json({ error: 'Parent is required and must be PIBO, SIMP, or PWP.' });
+  if (!name) return res.status(400).json({ error: `${parent} Category name is required.` });
+  if (name.length > 60) return res.status(400).json({ error: 'Category name must be 60 characters or fewer.' });
+
+  const normalizedName = normalizedCategoryName(parent, name);
+  const builtInDuplicate = BUILT_IN_PIBO_CATEGORIES[parent].some((item) => item.toLowerCase() === name.toLowerCase());
+  if (builtInDuplicate) return res.status(409).json({ error: `This category already exists under ${parent}.` });
 
   try {
-    const category = await QuotationPiboCategory.create({ name, createdBy: req.user?._id });
-    return res.status(201).json({ category: category.name });
+    const category = await QuotationPiboCategory.create({ parent, name, normalizedName, createdBy: req.user?._id });
+    return res.status(201).json({ category: { parent: category.parent, name: category.name } });
   } catch (err) {
-    if (err?.code === 11000) return res.status(409).json({ error: 'This PIBO Category already exists' });
+    if (err?.code === 11000) return res.status(409).json({ error: `This category already exists under ${parent}.` });
     throw err;
   }
 };

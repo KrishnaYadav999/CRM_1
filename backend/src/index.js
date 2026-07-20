@@ -12,6 +12,7 @@ const annualReturnRoutes = require('./routes/annualReturns');
 const notificationRoutes = require('./routes/notifications');
 const ccpRoutes = require('./routes/ccp');
 const ccpIntegrationRoutes = require('./routes/ccpIntegrations');
+const assetRoutes = require('./routes/assets');
 const teamRoutes = require('./routes/teams');
 const calendarItemRoutes = require('./routes/calendarItems');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
@@ -93,7 +94,8 @@ app.post('/api/pending-approvals/ccp/sync', requireCcpSecret, async (req, res, n
     return res.json({ ok: true, source: 'crm', approvals });
   } catch (error) { return next(error); }
 });
-app.use('/api/auth', authRoutes);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/assets', assetRoutes);
 app.use('/api/ccp', ccpRoutes);
 app.use('/api/integrations/ccp', ccpIntegrationRoutes);
 app.use('/api/leads', leadRoutes);

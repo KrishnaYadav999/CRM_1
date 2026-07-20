@@ -6,10 +6,12 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
 import SearchableSelect from '../components/form/SearchableSelect';
+import PiboDependentSelect from '../components/form/PiboDependentSelect';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeadHistory, fetchCcpLeads } from '../services/ccpApi';
 import { mergeLeadSources } from '../features/clientMaster/clientMaster.utils';
+import { inferPiboParent, normalizeLegacyPiboCategory } from '../constants/piboCategories';
 
 const emptyLead = {
   sourceLeadId: '',
@@ -18,6 +20,8 @@ const emptyLead = {
   company: '',
   industryType: '',
   eprCategory: '',
+  piboParent: '',
+  piboCategoryParent: '',
   piboCategory: '',
   servicesOffered: '',
   addressLine1: '',
@@ -64,7 +68,6 @@ const options = {
   status: ['Potential - Interested', 'Potential - Not Interested', 'Need Assistance', 'Lost', 'Existing Client'],
   industryType: ["Automotive", "Chemicals", "Construction", "Consumer Goods", "E-commerce" , "Electronics" , "Energy" , "FMCG","Financial Services" , "Healthcare" , "Hospitality", "IT & Software" , "Logistics" , "Manufacturing","Pharmaceuticals", "Renewables", "Retail", "Telecom", "Waste Management", "Other" , "Food Manufacturing" , "Mechinical Industry" ,"Petrochemical", "Packaging Manufacture" , "Plastic Recycling" , "E-Waste Recycler" , "E-Waste Recycling"],
   eprCategory:  ["EPR - Plastic Waste", "EPR - E-Waste", "EPR - Battery Waste", "EPR - Paper Waste", "EPR - Water Waste", "EPR - C&D Waste", "EPR - Tyre Waste" , "EPR - Used Oil Waste" , "EPR - End of Life Vehicles" , "EPR - Non Ferrous"],
-  piboCategory: ["Producer", "Importer", "Brand Owner", "Recycler" , "SIMP (legacy)","SIMP – Producer (Small & Micro)","SIMP – Importer of Raw Material", "SIMP – Manufacturer of Raw Material","SIMP – Seller","PWP","Refurbisher","IMPO"],
   servicesOffered:["EPR - Plastic Compliance", "Monthly Patraka", "ISO Certification", "N/A" , "CTE-CTO/CCA" , "EPR - E-Waste Compliance", "EPR - Battery Waste Compliance" , "C & D WASTE CONSULTANCY" , "EPR DIGITAL CREDIT" , "EPR - Used Oil Compliance" , "EPR - Waster Waste Compliance" , "EPR ETP Portal handling" , "Registration for Compositable Plastic"],
   states: [
   "Andhra Pradesh",
@@ -141,12 +144,20 @@ function openCcpLeadEdit(item = {}) {
   window.open(buildCcpLeadEditUrl(item), '_blank', 'noopener,noreferrer');
 }
 
+function displayLeadId(item = {}) {
+  const value = String(item.sourceLeadId || item.leadCode || '').trim();
+  const businessMatch = value.match(/^ATPL-LEAD-(\d+)$/i);
+  return businessMatch ? `ATPL-${businessMatch[1]}` : (value || '-');
+}
+
 export default function LeadGeneration() {
   const [currentUser, setCurrentUser] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [staff, setStaff] = useState([]);
   const [leads, setLeads] = useState([]);
   const [quotations, setQuotations] = useState([]);
+  const [piboCategories, setPiboCategories] = useState([]);
+  const [piboCategoriesLoading, setPiboCategoriesLoading] = useState(true);
   const [lead, setLead] = useState(emptyLead);
   const [editingLeadId, setEditingLeadId] = useState('');
   const [viewLead, setViewLead] = useState(null);
@@ -162,7 +173,8 @@ export default function LeadGeneration() {
   const [toast, setToast] = useState(null);
   const navigate = useNavigate();
 
-  const isFirstStepReady = Boolean(lead.status && lead.company && lead.piboCategory && lead.servicesOffered);
+  const resolvedPiboParent = lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory);
+  const isFirstStepReady = Boolean(lead.status && lead.company && resolvedPiboParent && lead.piboCategory && lead.servicesOffered);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
 
   const staffOptions = useMemo(() => staff.map((user) => ({
@@ -187,15 +199,18 @@ export default function LeadGeneration() {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
-      const [ccpLeadsResult, quotationsResult] = await Promise.allSettled([
+      const [ccpLeadsResult, quotationsResult, piboCategoriesResult] = await Promise.allSettled([
         fetchCcpLeads(),
-        api.get(API_ENDPOINTS.quotations.list)
+        api.get(API_ENDPOINTS.quotations.list),
+        api.get(API_ENDPOINTS.quotations.piboCategories)
       ]);
       const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
         ? (ccpLeadsResult.value.data.leads || [])
         : [];
       setLeads(ccpLeads);
       setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
+      setPiboCategories(piboCategoriesResult.status === 'fulfilled' ? (piboCategoriesResult.value.data.categories || []) : []);
+      setPiboCategoriesLoading(false);
       try {
         const usersResponse = await api.get(API_ENDPOINTS.auth.users);
         setStaff(usersResponse.data.users || []);
@@ -208,7 +223,15 @@ export default function LeadGeneration() {
       setQuotations([]);
     } finally {
       setLoading(false);
+      setPiboCategoriesLoading(false);
     }
+  }
+
+  async function addPiboCategory(parent, name) {
+    const response = await api.post(API_ENDPOINTS.quotations.piboCategories, { parent, name });
+    const category = response.data.category;
+    setPiboCategories((current) => [...current, category]);
+    return category;
   }
 
   function updateField(field, value) {
@@ -308,15 +331,17 @@ export default function LeadGeneration() {
         const assignedToText = row.assignedToText || row.assignedTo || '';
         return {
           ...row,
-          assignedToText,
+          assignedToText: String(assignedToText || '').trim(),
+          assignedBy: String(row.assignedBy || '').trim(),
+          importedCreatedBy: String(row.importedCreatedBy || '').trim(),
           existingClient: normalizeExistingClient(row.existingClient),
           assignedTo: resolveUserId(row.assignedTo || assignedToText) || '',
           workflowStatus: 'draft'
         };
       });
-      const results = await Promise.allSettled(payload.map((item) => api.post(API_ENDPOINTS.ccp.createLead, item)));
-      const successCount = results.filter((result) => result.status === 'fulfilled').length;
-      const failures = results.map((result, row) => result.status === 'rejected' ? ({ row, error: result.reason?.response?.data?.error || 'CCP write failed' }) : null).filter(Boolean);
+      const response = await api.post(API_ENDPOINTS.ccp.bulkCreateLeads, { leads: payload });
+      const successCount = Number(response.data?.imported || response.data?.leads?.length || 0);
+      const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
 
       if (successCount) {
         setNotice(`${successCount} lead${successCount === 1 ? '' : 's'} imported as drafts.`);
@@ -324,14 +349,14 @@ export default function LeadGeneration() {
         await loadPage();
       }
       if (failures.length) {
-        const message = `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row + 1} (${failures[0].error})`;
+        const message = `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row} (${failures[0].error})`;
         setError(message);
         showToast(message, 'error');
       }
     } catch (err) {
       const failures = err?.response?.data?.failures || [];
       const message = failures.length
-        ? `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row + 1} (${failures[0].error})`
+        ? `${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row} (${failures[0].error})`
         : err?.response?.data?.error || 'Unable to import leads';
       setError(message);
       showToast(message, 'error');
@@ -345,13 +370,19 @@ export default function LeadGeneration() {
     const required = workflowStatus === 'submitted' ? ['status', 'company', 'piboCategory', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'] : [];
     const missing = required.find((field) => !String(lead[field] ?? '').trim());
     if (missing) { setError(`${missing.replace(/([A-Z])/g, ' $1')} is required before submit.`); return; }
+    if (workflowStatus === 'submitted' && !resolvedPiboParent) { setError('Applicant Type is required before submit.'); return; }
     const invalidEmail = String(lead.emails || '').split(',').map((email) => email.trim()).filter(Boolean).find((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
     if (invalidEmail) { setError(`Invalid email: ${invalidEmail}`); return; }
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const response = editingLeadId ? await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), { ...lead, workflowStatus }) : await api.post(API_ENDPOINTS.ccp.createLead, { ...lead, workflowStatus });
+      const leadPayload = {
+        ...lead,
+        piboParent: lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory),
+        workflowStatus
+      };
+      const response = editingLeadId ? await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), leadPayload) : await api.post(API_ENDPOINTS.ccp.createLead, leadPayload);
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('CCP did not return the saved lead.');
       setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
@@ -471,7 +502,7 @@ export default function LeadGeneration() {
             <div className="min-w-0">
               <p className="text-sm font-black text-slate-950">Excel upload (Lead Import)</p>
               <p className="mt-1 text-xs font-bold text-slate-500">
-                Upload .xlsx with your headers: Company, Status, PIBO Category, Services Offered, Address, City, PIN, State, Contact Person.
+                Upload .xlsx with headers: Company, Status, Applicant Type, PIBO Subcategory, Services Offered, Address, City, PIN, State, Contact Person. Old “PIBO Category” files remain supported.
               </p>
               {excelFileName && (
                 <p className="mt-2 text-xs font-black text-slate-700">
@@ -539,11 +570,21 @@ export default function LeadGeneration() {
                   <SelectLike required label="Status" value={lead.status} options={options.status} onChange={(value) => updateField('status', value)} />
                 </LeadSection>
                 <LeadSection title="Company Information">
-                  <Field label="Lead ID"><input className="form-input bg-slate-100" value={lead.leadCode || lead.sourceLeadId || 'Generated by CCP after save'} readOnly /></Field>
+                  <Field label="Lead ID"><input className="form-input bg-slate-100" value={displayLeadId(lead) === '-' ? 'Generated by CCP after save' : displayLeadId(lead)} readOnly /></Field>
                   <Field required label="Company"><input className="form-input" value={lead.company} onChange={(event) => updateField('company', event.target.value)} /></Field>
                   <SelectLike label="Industry Type" value={lead.industryType} options={options.industryType} onChange={(value) => updateField('industryType', value)} />
                   <SelectLike label="EPR Category" value={lead.eprCategory} options={options.eprCategory} onChange={(value) => updateField('eprCategory', value)} />
-                  <SelectLike required label="PIBO Category" value={lead.piboCategory} options={options.piboCategory} onChange={(value) => updateField('piboCategory', value)} />
+                  <div className="lg:col-span-2">
+                    <PiboDependentSelect
+                      required
+                      parent={lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory)}
+                      value={lead.piboCategory}
+                      categories={piboCategories}
+                      loading={piboCategoriesLoading}
+                      onChange={(parent, child) => setLead((current) => ({ ...current, piboParent: parent, piboCategoryParent: '', piboCategory: child }))}
+                      onAddCategory={addPiboCategory}
+                    />
+                  </div>
                   <SelectLike required label="Services Offered" value={lead.servicesOffered} options={options.servicesOffered} onChange={(value) => updateField('servicesOffered', value)} />
                 </LeadSection>
               </div>
@@ -771,12 +812,13 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
 
   function exportExcel() {
     const rows = filteredLeads.map((item) => ({
-      'Lead ID': item.leadCode || '',
+      'Lead ID': displayLeadId(item),
       'Excel Lead ID': item.sourceLeadId || '',
       Company: item.company || '',
       Industry: item.industryType || '',
       Status: item.status || '',
-      'PIBO Category': item.piboCategory || '',
+      'Applicant Type': item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory),
+      'PIBO Subcategory': item.piboCategory || '',
       'EPR Category': item.eprCategory || '',
       'Services Offered': item.servicesOffered || '',
       Address: item.addressLine1 || '',
@@ -853,7 +895,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="lead-directory-scroll max-h-[520px] overflow-auto">
-            <table className="crm-data-table w-full min-w-[1680px] table-fixed text-left text-sm">
+            <table className="crm-data-table w-full min-w-[2070px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
                   {[
@@ -868,6 +910,9 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     ['Contact Person', 'w-[170px]'],
                     ['Mobile 1', 'w-[130px]'],
                     ['Email', 'w-[210px]'],
+                    ['Assigned To', 'w-[150px]'],
+                    ['Assigned By', 'w-[150px]'],
+                    ['Created By', 'w-[150px]'],
                     ['Status', 'w-[140px]'],
                     ['Actions', 'w-[110px]']
                   ].map(([header, width]) => <th key={header} className={`px-5 py-4 ${width}`}>{header}</th>)}
@@ -875,10 +920,10 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {visibleLeads.length === 0 ? (
-                  <tr><td colSpan={13} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading CCP leads...' : 'No leads found.'}</td></tr>
+                  <tr><td colSpan={16} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading CCP leads...' : 'No leads found.'}</td></tr>
                 ) : visibleLeads.map((item) => (
                   <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
-                    <td className="px-5 py-4 font-black text-slate-900"><span className="cell-clip">{item.leadCode || '-'}</span></td>
+                    <td className="px-5 py-4 font-black text-slate-900"><span className="cell-clip">{displayLeadId(item)}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.company || '-'}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.addressLine1 || '-'}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{item.city || '-'}</span></td>
@@ -889,6 +934,9 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.contactPerson || '-'}</span></td>
                     <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{item.mobileNo1 || '-'}</span></td>
                     <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip normal-case">{item.emails || '-'}</span></td>
+                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || '-'}</span></td>
+                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.assignedBy || '-'}</span></td>
+                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.importedCreatedBy || '-'}</span></td>
                     <td className="px-5 py-4"><span className="rounded-lg bg-lime-50 px-3 py-1 text-xs font-black text-lime-700 ring-1 ring-lime-200">{item.status || 'Draft'}</span></td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
@@ -1062,7 +1110,7 @@ function MetricOutputCard({ stat, leads, onClose, onExport }) {
               <tr><td colSpan={7} className="px-4 py-8 text-center font-black text-slate-400">No records found.</td></tr>
             ) : preview.map((item) => (
               <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
-                <td className="px-4 py-3 font-black text-slate-900"><span className="cell-clip">{item.leadCode || '-'}</span></td>
+                <td className="px-4 py-3 font-black text-slate-900"><span className="cell-clip">{displayLeadId(item)}</span></td>
                 <td className="px-4 py-3 font-black uppercase text-slate-600"><span className="cell-clamp">{item.company || '-'}</span></td>
                 <td className="px-4 py-3 font-black uppercase text-slate-500"><span className="cell-clip">{item.city || '-'}</span></td>
                 <td className="px-4 py-3 font-black uppercase text-slate-500"><span className="cell-clip">{item.state || '-'}</span></td>
@@ -1165,7 +1213,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     .filter((item) => !item.scheduledDate || item.scheduledDate < todayKey)
     .sort((a, b) => `${b.scheduledDate} ${b.scheduledTime}`.localeCompare(`${a.scheduledDate} ${a.scheduledTime}`));
   const basicInfoRows = [
-    ['Lead ID', activeLead.leadCode, FileText],
+    ['Lead ID', displayLeadId(activeLead), FileText],
     ['Company', activeLead.company, Building2],
     ['Industry', activeLead.industryType, Building2],
     ['Status', activeLead.status, CheckCircle2, 'pill'],
@@ -1345,7 +1393,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
               </div>
               <div className="rounded-2xl border border-white/80 bg-white/80 p-4 shadow-sm shadow-teal-900/5 backdrop-blur xl:min-w-[640px]">
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <LeadInlineMeta label="Lead ID" value={activeLead.leadCode} icon={FileText} />
+                  <LeadInlineMeta label="Lead ID" value={displayLeadId(activeLead)} icon={FileText} />
                   <LeadInlineMeta label="Contact" value={activeLead.contactPerson} icon={ContactRound} />
                   <LeadInlineMeta label="Mobile" value={activeLead.mobileNo1} icon={Phone} />
                   <LeadInlineMeta label="Quotations" value={leadQuotations.length} icon={FileText} />
@@ -1768,6 +1816,11 @@ function mapExcelRowToLead(row, staff) {
     industry: 'industryType',
     industrytype: 'industryType',
     eprcategory: 'eprCategory',
+    applicanttype: 'piboParent',
+    pibocategorytype: 'piboParent',
+    pibosubcategory: 'piboCategory',
+    pibocategoryparent: 'piboParent',
+    piboparent: 'piboParent',
     pibocategory: 'piboCategory',
     servicesoffered: 'servicesOffered',
     address: 'addressLine1',
@@ -1831,6 +1884,12 @@ function mapExcelRowToLead(row, staff) {
     const raw = normalizePersonName(data.assignedToText);
     const match = staff.find((user) => normalizePersonName(user.name) === raw);
     if (match) data.assignedTo = match._id || match.id;
+  }
+
+  if (data.piboCategory) {
+    const normalizedPibo = normalizeLegacyPiboCategory(data.piboCategory);
+    data.piboParent = data.piboParent || normalizedPibo.parent;
+    data.piboCategory = normalizedPibo.child;
   }
 
   return data;

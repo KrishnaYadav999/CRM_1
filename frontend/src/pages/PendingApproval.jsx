@@ -10,7 +10,7 @@ import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 const rowsPerPage = 5;
-const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v2';
+const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v3';
 const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
 const PENDING_APPROVAL_AUTH_TIMEOUT_MS = 4500;
 const PENDING_APPROVAL_DATA_TIMEOUT_MS = 20000;
@@ -54,6 +54,63 @@ function formatApprovalValue(value) {
     return value.name || value.fullName || value.email || value.username || value.companyName || value.clientName || value.id || value._id || '-';
   }
   return String(value);
+}
+
+function formatAmount(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return value || '-';
+  return amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function applyBulkLeadCreators(clients = [], leads = []) {
+  const byKey = new Map();
+  leads.forEach((lead) => {
+    [lead._id, lead.id, lead.sourceLeadId, lead.leadCode].forEach((value) => {
+      const key = String(value || '').trim().toLowerCase();
+      if (key) byKey.set(key, lead);
+    });
+  });
+
+  return clients.map((row) => {
+    const client = row.payload || {};
+    const selectedLead = client.selectedLead || {};
+    const selectedLeadId = typeof selectedLead === 'object' ? (selectedLead._id || selectedLead.id) : selectedLead;
+    const leadNumber = client.data?.importMeta?.leadNumber || row.leadNumber || '';
+    const lead = [selectedLeadId, leadNumber]
+      .map((value) => byKey.get(String(value || '').trim().toLowerCase()))
+      .find(Boolean);
+    const isBulkLead = Boolean(String(lead?.sourceLeadId || leadNumber || '').trim());
+    const originalCreator = String(lead?.importedCreatedBy || '').trim();
+    const assignedName = String(lead?.assignedTo?.name || lead?.assignedToText || lead?.assignedToEmail || '').trim();
+    const leadCreator = /^demo(?:\s+demo)?$/i.test(originalCreator) && assignedName ? assignedName : originalCreator;
+    return isBulkLead && leadCreator ? { ...row, createdBy: leadCreator, leadCreatedBy: leadCreator } : row;
+  });
+}
+
+function applyBulkQuotationOwners(quotations = [], leads = []) {
+  const byKey = new Map();
+  leads.forEach((lead) => {
+    [lead._id, lead.id, lead.sourceLeadId, lead.leadCode].forEach((value) => {
+      const key = String(value || '').trim().toLowerCase();
+      if (key) byKey.set(key, lead);
+    });
+  });
+  return quotations.map((row) => {
+    if (String(row.source || '').toLowerCase() !== 'ccp') return row;
+    const lead = [row.ccpLeadId, row.businessLeadCode, row.leadCode]
+      .map((value) => byKey.get(String(value || '').trim().toLowerCase()))
+      .find(Boolean);
+    if (!lead?.sourceLeadId) return row;
+    const originalCreator = String(lead.importedCreatedBy || '').trim();
+    const assignedName = String(lead.assignedTo?.name || lead.assignedToText || lead.assignedToEmail || '').trim();
+    const creator = /^demo(?:\s+demo)?$/i.test(originalCreator) && assignedName ? assignedName : originalCreator;
+    return {
+      ...row,
+      userName: assignedName || creator || row.userName,
+      leadGeneratedBy: creator || row.leadGeneratedBy,
+      createdBy: creator || row.createdBy
+    };
+  });
 }
 
 function getApprovalStatus(row) {
@@ -178,13 +235,15 @@ export default function PendingApproval() {
     setError('');
 
     try {
-      const [meResult, approvalsResult] = await Promise.allSettled([
+      const [meResult, approvalsResult, leadsResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.auth.me, authRequestConfig),
-        api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig)
+        api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig),
+        api.get(API_ENDPOINTS.ccp.leads, dataRequestConfig)
       ]);
 
       const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
       const approvalsResponse = approvalsResult.status === 'fulfilled' ? approvalsResult.value : null;
+      const ccpLeads = leadsResult.status === 'fulfilled' ? (leadsResult.value.data?.leads || []) : [];
 
       if (meResponse?.data?.user) {
         setCurrentUser(meResponse.data.user);
@@ -197,8 +256,8 @@ export default function PendingApproval() {
 
       const snapshot = {
         currentUser: meResponse?.data?.user || currentUser || cached?.currentUser || cachedApprovalData?.currentUser || null,
-        pendingClients: approvalsResponse.data.pendingClients || [],
-        pendingQuotations: approvalsResponse.data.pendingQuotations || [],
+        pendingClients: applyBulkLeadCreators(approvalsResponse.data.pendingClients || [], ccpLeads),
+        pendingQuotations: applyBulkQuotationOwners(approvalsResponse.data.pendingQuotations || [], ccpLeads),
         debug: approvalsResponse.data.debug || null
       };
       setPendingClients(snapshot.pendingClients);
@@ -562,7 +621,7 @@ export default function PendingApproval() {
                     <Cell>{quote.service}</Cell>
                     <Cell>{quote.category}</Cell>
                     <Cell>{quote.piboCategory}</Cell>
-                    <Cell strong>{quote.basicAmount}</Cell>
+                    <Cell strong>{formatAmount(quote.basicAmount)}</Cell>
                     <Cell>{statusBadge(quote.approvalStatus)}</Cell>
                     <Cell>{quote.approvalType}</Cell>
                     <Cell>{quote.createdBy}</Cell>
@@ -750,8 +809,8 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
   const rejecting = savingId === `quote-${id}-REJECTED`;
 
   return (
-    <td>
-      <div className="pending-row-actions pending-row-actions-wrap">
+    <td className="pending-quotation-actions-cell">
+      <div className="pending-row-actions pending-quotation-actions">
         <button
           type="button"
           onClick={() => onView(row)}

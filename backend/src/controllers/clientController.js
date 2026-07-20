@@ -5,7 +5,7 @@ const AnnualReturn = require('../models/AnnualReturn');
 const PendingApproval = require('../models/PendingApproval');
 const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
 const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
-const { mapQuotationPendingApprovalRow } = require('./quotationController');
+const { mapQuotationPendingApprovalRow, hydrateCcpQuotationCreators } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { ccpApiBaseUrl, ccpHeaders } = require('../utils/ccpConfig');
 
@@ -289,6 +289,20 @@ function mapCcpPendingClient(client) {
     || 'PENDING'
   ) || 'PENDING';
 
+  const rawImportCreator = String(importMeta.createdBy || '').trim();
+  const importCreatorIsId = /^[a-f\d]{24}$/i.test(rawImportCreator);
+  const createdBy = client.leadCreatedBy
+    || selectedLead.importedCreatedBy
+    || selectedLead.createdBy?.name
+    || selectedLead.createdBy?.email
+    || client.createdByName
+    || client.createdBy?.name
+    || client.createdBy?.email
+    || importMeta.createdByName
+    || (!importCreatorIsId ? rawImportCreator : '')
+    || client.createdByEmail
+    || 'CCP User';
+
   return {
     id: client._id || client.id || importMeta.uniqueId || pickLookup(lookup, ['Unique ID', 'Client ID']),
     source: 'ccp',
@@ -297,11 +311,47 @@ function mapCcpPendingClient(client) {
     approvalStatus,
     piboCategory: basic.piboCategory || selectedLead.piboCategory || pickLookup(lookup, ['PIBO Category', 'PIBO']) || '-',
     eprCategory: basic.eprCategory || selectedLead.eprCategory || pickLookup(lookup, ['EPR Category', 'EPR']) || '-',
-    createdBy: importMeta.createdBy || selectedLead.importedCreatedBy || pickLookup(lookup, ['Created By']) || 'CCP User',
+    createdBy,
     requestDate: parts.date,
     requestTime: parts.time,
     payload: client
   };
+}
+
+function isDemoCreator(value) {
+  return /^demo(?:\s+demo)?$/i.test(String(value || '').trim());
+}
+
+async function hydrateCcpClientLeadCreators(clients = []) {
+  if (!clients.length) return clients;
+  try {
+    const db = mongoose.connection.useDb(String(process.env.CCP_DB_NAME || 'ccp').trim(), { useCache: true });
+    const ids = clients.map((client) => String(client._id || client.id || '')).filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
+    const storedClients = ids.length ? await db.collection('clients').find({ _id: { $in: ids } }).toArray() : [];
+    const storedById = new Map(storedClients.map((client) => [String(client._id), client]));
+    const leadIds = storedClients.map((client) => client.selectedLead).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
+    const leadNumbers = storedClients.map((client) => String(client.data?.importMeta?.leadNumber || '').trim()).filter(Boolean);
+    const leadQuery = [];
+    if (leadIds.length) leadQuery.push({ _id: { $in: leadIds } });
+    if (leadNumbers.length) leadQuery.push({ sourceLeadId: { $in: leadNumbers } });
+    const leads = leadQuery.length ? await db.collection('leads').find({ $or: leadQuery }).toArray() : [];
+    const leadsById = new Map(leads.map((lead) => [String(lead._id), lead]));
+    const leadsByNumber = new Map(leads.map((lead) => [String(lead.sourceLeadId || '').trim(), lead]));
+    const userIds = leads.map((lead) => lead.createdBy).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
+    const users = userIds.length ? await db.collection('users').find({ _id: { $in: userIds } }).project({ name: 1, email: 1 }).toArray() : [];
+    const usersById = new Map(users.map((user) => [String(user._id), String(user.name || user.email || '').trim()]));
+
+    clients.forEach((client) => {
+      const stored = storedById.get(String(client._id || client.id || '')) || {};
+      const lead = leadsById.get(String(stored.selectedLead || '')) || leadsByNumber.get(String(stored.data?.importMeta?.leadNumber || '').trim()) || {};
+      const originalCreator = String(lead.importedCreatedBy || usersById.get(String(lead.createdBy || '')) || lead.createdByEmail || '').trim();
+      const assignedName = String(lead.assignedTo?.name || lead.assignedToText || lead.assignedToEmail || '').trim();
+      client.leadCreatedBy = isDemoCreator(originalCreator) && assignedName ? assignedName : originalCreator;
+    });
+  } catch (error) {
+    console.warn('[CCP client lead creator hydration] skipped', { error: error.message });
+  }
+  return clients;
 }
 
 function isPlainObject(value) {
@@ -811,14 +861,16 @@ exports.listPendingApprovals = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean(),
     fetchCcpClients(),
-    Quotation.find({ status: { $in: ['draft', 'sent'] } })
+    Quotation.find({ status: { $in: ['draft', 'submitted', 'sent'] } })
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 })
       .lean()
   ]);
   const allClients = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
   const ccpClients = ccpClientsResult.status === 'fulfilled' ? ccpClientsResult.value : [];
+  await hydrateCcpClientLeadCreators(ccpClients);
   const quotations = quotationsResult.status === 'fulfilled' ? quotationsResult.value : [];
+  await hydrateCcpQuotationCreators(quotations);
   const clients = allClients.filter((client) => {
     const status = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
     return status === 'PENDING' && client.data?.importMeta?.approvalOverride !== true;
