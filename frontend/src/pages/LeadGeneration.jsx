@@ -6,6 +6,7 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
 import SearchableSelect from '../components/form/SearchableSelect';
+import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import PiboDependentSelect from '../components/form/PiboDependentSelect';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
@@ -49,6 +50,10 @@ const emptyLead = {
   assignedToText: '',
   assignedBy: '',
   importedCreatedBy: '',
+  updatedBy: '',
+  closedBy: '',
+  closedByText: '',
+  closedByEmail: '',
   leadDate: '',
   nextFollowUpDate: '',
   nextFollowUpTime: '',
@@ -445,7 +450,12 @@ export default function LeadGeneration() {
               });
             }}
             onEdit={() => {
-              setLead({ ...emptyLead, ...viewLead, assignedTo: viewLead.assignedTo?._id || viewLead.assignedTo?.id || viewLead.assignedTo || '' });
+              setLead({
+                ...emptyLead,
+                ...viewLead,
+                assignedTo: viewLead.assignedTo?._id || viewLead.assignedTo?.id || viewLead.assignedTo || '',
+                closedBy: viewLead.closedBy?._id || viewLead.closedBy?.id || viewLead.closedBy || ''
+              });
               setEditingLeadId(viewLead._id || viewLead.id || '');
               setViewLead(null);
               setActiveTab('basic');
@@ -634,9 +644,9 @@ export default function LeadGeneration() {
                   <SelectLike label="Referred By" value={lead.referredBy} options={staffOptions.map((item) => item.label)} onChange={(value) => updateField('referredBy', value)} />
                   <SelectLike label="Source" value={lead.source} options={options.source} onChange={(value) => updateField('source', value)} />
                   <Field label="Emails Sent Count"><input className="form-input" value={lead.emailsSentCount} onChange={(event) => updateField('emailsSentCount', event.target.value)} /></Field>
-                  <Field label="Last Email Sent"><input className="form-input" value={lead.lastEmailSent} onChange={(event) => updateField('lastEmailSent', event.target.value)} /></Field>
-                  <Field label="Lead Date"><input className="form-input" value={lead.leadDate} onChange={(event) => updateField('leadDate', event.target.value)} /></Field>
-                  <Field label="Next Follow-Up Date"><input className="form-input" value={lead.nextFollowUpDate} onChange={(event) => updateField('nextFollowUpDate', event.target.value)} /></Field>
+                  <Field label="Last Email Sent"><PremiumDatePicker value={lead.lastEmailSent} onChange={(event) => updateField('lastEmailSent', event.target.value)} /></Field>
+                  <Field label="Lead Date"><PremiumDatePicker value={lead.leadDate} onChange={(event) => updateField('leadDate', event.target.value)} /></Field>
+                  <Field label="Next Follow-Up Date"><PremiumDatePicker value={lead.nextFollowUpDate} onChange={(event) => updateField('nextFollowUpDate', event.target.value)} /></Field>
                   <Field label="Next Follow-Up Time"><input className="form-input" value={lead.nextFollowUpTime} onChange={(event) => updateField('nextFollowUpTime', event.target.value)} /></Field>
                   <Field label="Follow-Up Remarks"><input className="form-input" value={lead.followUpRemarks} onChange={(event) => updateField('followUpRemarks', event.target.value)} /></Field>
                   <Field label="Notes" className="lg:col-span-2"><textarea className="form-input min-h-[120px] resize-y py-3" value={lead.notes} onChange={(event) => updateField('notes', event.target.value)} /></Field>
@@ -646,12 +656,14 @@ export default function LeadGeneration() {
 
             {activeTab === 'assign' && (
               <LeadSection title="Assign Lead" columns="grid-cols-1">
-                <SelectLike label="Assign To Staff" value={lead.assignedTo} options={staffOptions} onChange={(value) => updateField('assignedTo', value)} />
-                <Field label="Assigned To Text"><input className="form-input" value={lead.assignedToText} onChange={(event) => updateField('assignedToText', event.target.value)} /></Field>
-                <Field label="Assigned By"><input className="form-input" value={lead.assignedBy} onChange={(event) => updateField('assignedBy', event.target.value)} /></Field>
-                <Field label="Created By"><input className="form-input" value={lead.importedCreatedBy} onChange={(event) => updateField('importedCreatedBy', event.target.value)} /></Field>
-                <Field label="Created At"><input className="form-input" value={lead.importedCreatedAt} onChange={(event) => updateField('importedCreatedAt', event.target.value)} /></Field>
-                <Field label="Updated At"><input className="form-input" value={lead.importedUpdatedAt} onChange={(event) => updateField('importedUpdatedAt', event.target.value)} /></Field>
+                <SelectLike label="Assign To Staff" value={lead.assignedTo} options={staffOptions} placeholder="Select staff member" onChange={(value) => {
+                  const user = staff.find((item) => String(item._id || item.id) === String(value));
+                  setLead((current) => ({ ...current, assignedTo: value, assignedToCrmUserId: value, assignedToEmail: user?.email || '', assignedToText: user?.name || user?.email || '', assignedBy: currentUser?.name || currentUser?.email || '' }));
+                }} />
+                <SelectLike label="Lead Closed By" value={lead.closedBy} options={staffOptions} placeholder="Select user who closed the lead" onChange={(value) => {
+                  const user = staff.find((item) => String(item._id || item.id) === String(value));
+                  setLead((current) => ({ ...current, closedBy: value, closedByCrmUserId: value, closedByText: user?.name || user?.email || '', closedByEmail: user?.email || '' }));
+                }} />
               </LeadSection>
             )}
 
@@ -895,11 +907,11 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="lead-directory-scroll max-h-[520px] overflow-auto">
-            <table className="crm-data-table w-full min-w-[2070px] table-fixed text-left text-sm">
+            <table className="crm-data-table w-full min-w-[2150px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
                   {[
-                    ['Lead ID', 'w-[110px]'],
+                    ['Lead ID', 'w-[190px]'],
                     ['Company', 'w-[170px]'],
                     ['Address', 'w-[250px]'],
                     ['City', 'w-[130px]'],
@@ -923,7 +935,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                   <tr><td colSpan={16} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading CCP leads...' : 'No leads found.'}</td></tr>
                 ) : visibleLeads.map((item) => (
                   <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
-                    <td className="px-5 py-4 font-black text-slate-900"><span className="cell-clip">{displayLeadId(item)}</span></td>
+                    <td className="lead-directory-id-cell px-5 py-4 font-black text-slate-900"><span title={displayLeadId(item)}>{displayLeadId(item)}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.company || '-'}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.addressLine1 || '-'}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{item.city || '-'}</span></td>
@@ -1246,6 +1258,8 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     ['Assigned To', activeLead.assignedTo?.name || activeLead.assignedToText],
     ['Assigned Email', activeLead.assignedTo?.email],
     ['Assigned By', activeLead.assignedBy],
+    ['Lead Closed By', activeLead.closedBy?.name || activeLead.closedByText],
+    ['Closed By Email', activeLead.closedBy?.email || activeLead.closedByEmail],
     ['Lead Date', activeLead.leadDate],
     ['Next Follow-Up Date', activeLead.nextFollowUpDate],
     ['Next Follow-Up Time', activeLead.nextFollowUpTime],
@@ -1495,7 +1509,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
               <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-50 text-slate-600 hover:bg-slate-100"><X className="h-5 w-5" /></button>
             </div>
             <div className="grid gap-4 px-6 py-5 sm:grid-cols-2">
-              <Field label="Scheduled Date" required><input type="date" className="form-input" value={followUpDraft.scheduledDate} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
+              <Field label="Scheduled Date" required><PremiumDatePicker value={followUpDraft.scheduledDate} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
               <Field label="Scheduled Time"><input type="time" className="form-input" value={followUpDraft.scheduledTime} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
               <Field label="Follow-Up Remarks" required className="sm:col-span-2"><textarea className="form-input min-h-28 resize-y" value={followUpDraft.remarks} onChange={(event) => setFollowUpDraft((current) => ({ ...current, remarks: event.target.value }))} placeholder="Enter follow-up note or outcome" /></Field>
               <Field label="Update Reason" className="sm:col-span-2"><textarea className="form-input min-h-20 resize-y" value={followUpDraft.reason} onChange={(event) => setFollowUpDraft((current) => ({ ...current, reason: event.target.value }))} placeholder="Why is this follow-up being added?" /></Field>

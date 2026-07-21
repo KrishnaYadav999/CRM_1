@@ -48,6 +48,11 @@ function cleanBody(body) {
     'assignedToText',
     'assignedBy',
     'importedCreatedBy',
+    'updatedBy',
+    'closedBy',
+    'closedByText',
+    'closedByEmail',
+    'closedAt',
     'leadDate',
     'nextFollowUpDate',
     'nextFollowUpTime',
@@ -59,7 +64,7 @@ function cleanBody(body) {
   ].forEach((key) => {
     if (body[key] !== undefined) {
       const value = typeof body[key] === 'string' ? body[key].trim() : body[key];
-      if (key === 'assignedTo' && !value) return;
+      if (['assignedTo', 'closedBy'].includes(key) && !value) return;
       data[key] = key === 'emailsSentCount' ? Number(value) || 0 : value;
       if (key === 'followUpHistory') data[key] = Array.isArray(value) ? value : [];
     }
@@ -112,6 +117,7 @@ exports.listLeads = async (req, res) => {
     'assignedToText'
   ]))
     .populate('assignedTo', 'name email avatarUrl role')
+    .populate('closedBy', 'name email avatarUrl role')
     .sort({ leadCode: 1, createdAt: 1 });
   res.json({ ok: true, leads });
 };
@@ -151,6 +157,8 @@ exports.updateLead = async (req, res) => {
     }
 
     Object.assign(lead, data);
+    lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
+    if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
     await lead.save();
     const changedFields = Object.keys(data).filter((key) => key !== 'followUpHistory');
     await LeadActivity.create({ lead: lead._id, type: 'lead_updated', title: 'Lead updated', description: changedFields.length ? `Updated ${changedFields.join(', ')}` : 'Lead details updated', actor: req.user?._id, metadata: { changedFields } });

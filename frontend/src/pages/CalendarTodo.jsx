@@ -4,6 +4,7 @@ import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'rechar
 import { ArrowLeft, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Edit3, Eye, History, ListChecks, Plus, Search, UserPlus, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
+import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi';
@@ -103,11 +104,21 @@ function getClientData(client = {}) {
   return readClientData(client);
 }
 
-function getClientOption(client = {}) {
+function displayBusinessLeadCode(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^ATPL-LEAD-(\d+)$/i);
+  return match ? `ATPL-${match[1]}` : raw;
+}
+
+function getClientOption(client = {}, linkedLead = {}) {
   const data = getClientData(client);
-  const clientNumber = [
-    getClientUniqueId(client),
+  const selectedLead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {};
+  const clientNumberRaw = [
     data.importMeta?.uniqueId,
+    linkedLead.sourceLeadId,
+    selectedLead.sourceLeadId,
+    data.importMeta?.leadNumber,
+    getClientUniqueId(client),
     data.importMeta?.ccpClientId,
     client.uniqueId,
     client.clientCode,
@@ -115,6 +126,7 @@ function getClientOption(client = {}) {
     client._id,
     client.id
   ].find((value) => value && String(value).trim() && String(value).trim() !== '-') || 'CLIENT';
+  const clientNumber = displayBusinessLeadCode(clientNumberRaw);
   const company = data.basic?.clientLegalName || data.basic?.tradeName || client.clientName || client.companyName || 'Untitled Client';
   const category = data.basic?.piboCategory || data.basic?.eprCategory || '';
   return {
@@ -126,7 +138,7 @@ function getClientOption(client = {}) {
 }
 
 function getLeadOption(lead = {}) {
-  const code = lead.leadCode || lead.leadNumber || lead['Lead Number'] || lead.code || lead._id || lead.id || 'LEAD';
+  const code = displayBusinessLeadCode(lead.sourceLeadId || lead.leadNumber || lead['Lead Number'] || lead.leadCode || lead.code || lead._id || lead.id || 'LEAD');
   const company = lead.company || lead.companyName || lead.clientName || lead['Company Name'] || lead.Company || 'Untitled Lead';
   const category = lead.piboCategory || lead['PIBO Category'] || lead.eprCategory || lead['EPR Category'] || lead.status || '';
   return {
@@ -251,9 +263,19 @@ export default function CalendarTodo() {
     : calendarView === 'week'
       ? `${formatHumanDate(selectedWeekStart)} - ${formatHumanDate(selectedWeekEnd)}`
       : `${months[month]} ${year}`;
-  const clientOptions = useMemo(() => clients
-    .map(getClientOption)
-    .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' })), [clients]);
+  const clientOptions = useMemo(() => {
+    const leadsById = new Map(leads.flatMap((lead) => [lead._id, lead.id]
+      .filter(Boolean)
+      .map((id) => [String(id), lead])));
+    return clients
+      .map((client) => {
+        const selectedLead = client.selectedLead && typeof client.selectedLead === 'object'
+          ? (client.selectedLead._id || client.selectedLead.id)
+          : client.selectedLead;
+        return getClientOption(client, leadsById.get(String(selectedLead || '')) || {});
+      })
+      .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [clients, leads]);
   const leadOptions = useMemo(() => leads.map(getLeadOption), [leads]);
   const userOptions = useMemo(() => users.map((user) => ({
     value: user.name || user.email || user._id || user.id,
@@ -1056,7 +1078,7 @@ export default function CalendarTodo() {
                   />
                   <em className="calendar-field-count">{todoDraft.updateReason.length} / 500</em>
                 </Field>
-                <Field label="Scheduled Date" required className="calendar-field-compact calendar-scheduled-date-field"><input type="date" value={todoDraft.scheduledDate} onChange={(event) => setTodoDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
+                <Field label="Scheduled Date" required className="calendar-field-compact calendar-scheduled-date-field"><PremiumDatePicker value={todoDraft.scheduledDate} onChange={(event) => setTodoDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
                 <Field label="Reminder Time"><input type="time" value={todoDraft.scheduledTime} onChange={(event) => setTodoDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
                 <Field label="Assign To User" wide>
                   <SearchSelect
@@ -1138,7 +1160,7 @@ export default function CalendarTodo() {
               <div className="calendar-revise-box">
                 <label>
                   <span>Revise Date</span>
-                  <input type="date" disabled={currentDetailItem.status === 'completed'} value={reviseDraft || currentDetailItem.scheduledDate || ''} onChange={(event) => setReviseDraft(event.target.value)} />
+                    <PremiumDatePicker disabled={currentDetailItem.status === 'completed'} value={reviseDraft || currentDetailItem.scheduledDate || ''} onChange={(event) => setReviseDraft(event.target.value)} />
                 </label>
                 <button type="button" disabled={currentDetailItem.status === 'completed'} onClick={() => reviseItem(currentDetailItem.id, reviseDraft)}><Edit3 className="h-4 w-4" /> Save Revision</button>
                 <button type="button" disabled={currentDetailItem.status === 'completed'} onClick={() => requestCompletion(currentDetailItem)}><CheckCircle2 className="h-4 w-4" /> {currentDetailItem.status === 'completed' ? 'Completed Locked' : 'Mark Complete'}</button>

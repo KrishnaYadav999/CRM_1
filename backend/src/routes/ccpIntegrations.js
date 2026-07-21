@@ -13,6 +13,8 @@ const LEAD_FIELDS = [
   'designation', 'emails', 'emailsSentCount', 'lastEmailSent', 'mobileNo1', 'mobileNo2',
   'businessCardUrl', 'referredBy', 'source', 'notes', 'assignedTo', 'assignedToText',
   'assignedToEmail', 'assignedToCrmUserId', 'assignedBy', 'importedCreatedBy', 'leadDate',
+  'updatedBy', 'updatedByEmail', 'updatedByCrmUserId', 'closedBy', 'closedByText',
+  'closedByEmail', 'closedByCrmUserId', 'closedAt',
   'nextFollowUpDate', 'nextFollowUpTime', 'followUpRemarks', 'importedCreatedAt',
   'importedUpdatedAt', 'workflowStatus'
 ];
@@ -43,20 +45,28 @@ function creatorIdentity(user) {
   };
 }
 
-function sanitizeLead(body, user) {
+function sanitizeLead(body, user, { isUpdate = false } = {}) {
   const payload = pick(body, LEAD_FIELDS);
   const identity = creatorIdentity(user);
-  payload.createdByCrmUserId = identity.createdByCrmUserId;
-  payload.createdByEmail = identity.createdByEmail;
-  payload.importedCreatedBy = identity.importedCreatedBy;
+  if (isUpdate) {
+    delete payload.importedCreatedBy;
+    payload.updatedByCrmUserId = identity.createdByCrmUserId;
+    payload.updatedByEmail = identity.createdByEmail;
+    payload.updatedBy = identity.importedCreatedBy;
+  } else {
+    payload.createdByCrmUserId = identity.createdByCrmUserId;
+    payload.createdByEmail = identity.createdByEmail;
+    payload.importedCreatedBy = identity.importedCreatedBy;
+  }
   if (payload.assignedTo && !/^[a-f\d]{24}$/i.test(String(payload.assignedTo))) delete payload.assignedTo;
+  if (payload.closedBy && !/^[a-f\d]{24}$/i.test(String(payload.closedBy))) delete payload.closedBy;
   payload.piboParent = normalizeParent(payload.piboParent || payload.piboCategoryParent) || inferPiboParent(payload.piboCategory) || '';
   delete payload.piboCategoryParent;
   return payload;
 }
 
-async function validatedLeadPayload(body, user) {
-  const payload = sanitizeLead(body, user);
+async function validatedLeadPayload(body, user, options) {
+  const payload = sanitizeLead(body, user, options);
   if (payload.workflowStatus === 'submitted' || payload.piboParent || payload.piboCategory) {
     const selection = await validatePiboSelection({ parent: payload.piboParent, child: payload.piboCategory, required: true });
     payload.piboParent = selection.piboParent;
@@ -161,7 +171,7 @@ router.post('/leads/bulk', requireAuth, async (req, res) => {
   });
 });
 router.put('/leads/:id', requireAuth, async (req, res) => {
-  try { return forward(req, res, 'PUT', `leads/${encodeURIComponent(req.params.id)}`, await validatedLeadPayload(req.body, req.user)); }
+  try { return forward(req, res, 'PUT', `leads/${encodeURIComponent(req.params.id)}`, await validatedLeadPayload(req.body, req.user, { isUpdate: true })); }
   catch (error) { return res.status(error.statusCode || 400).json({ error: error.message }); }
 });
 router.get('/clients', requireAuth, (req, res) => forward(req, res, 'GET', 'clients'));

@@ -6,6 +6,7 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
 import SearchableSelect from '../components/form/SearchableSelect';
+import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
@@ -43,6 +44,7 @@ import {
   mapExcelRowToClient,
   mergeClientData,
   mergeLeadSources,
+  normalizeHeaderKey,
   normalizePersonName,
   normalizeFinancialYearLabel,
   openCcpClientEdit,
@@ -188,6 +190,25 @@ function debugAnnualFlow(label, payload = {}) {
 
 function getLeadSelectValue(lead = {}) {
   return String(lead._id || lead.id || lead.sourceLeadId || lead.leadCode || lead.uniqueId || lead.company || '').trim();
+}
+
+const CCP_LEAD_SEQUENCE_START = 353;
+
+function getLeadDisplayCode(lead = {}, index = -1) {
+  const value = String(
+    lead.businessLeadCode
+    || lead.leadNumber
+    || lead['Lead Number']
+    || lead.data?.importMeta?.leadNumber
+    || lead.importMeta?.leadNumber
+    || lead.leadCode
+    || lead.sourceLeadId
+    || ''
+  ).trim();
+  const generatedCode = /^ATPL(?:-LEAD)?-[A-F\d]{10,}$/i.test(value);
+  if (generatedCode && index >= 0) return `ATPL-${String(CCP_LEAD_SEQUENCE_START + index).padStart(4, '0')}`;
+  const numericMatch = value.match(/^ATPL(?:-LEAD)?-(\d+)$/i);
+  return numericMatch ? `ATPL-${numericMatch[1].padStart(4, '0')}` : (value || '-');
 }
 
 function getLeadIdentityValues(lead = {}) {
@@ -397,6 +418,7 @@ export default function ClientMaster() {
   const [importing, setImporting] = useState(false);
   const [excelFileName, setExcelFileName] = useState('');
   const [excelRows, setExcelRows] = useState([]);
+  const [excelImportMode, setExcelImportMode] = useState('clients');
   const navigate = useNavigate();
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
@@ -404,9 +426,9 @@ export default function ClientMaster() {
   const canSeeAdminControls = adminRoles.includes(currentUser?.role);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const isFirstStepReady = Boolean(String(client.basic?.clientLegalName || client.basic?.tradeName || '').trim());
-  const leadOptions = useMemo(() => leads.map((lead) => ({
+  const leadOptions = useMemo(() => leads.map((lead, index) => ({
     value: getLeadSelectValue(lead),
-    label: `${lead.leadCode || 'ATPL-LEAD-0001'} - ${lead.company || 'Untitled lead'} - ${lead.piboCategory || lead.status || 'Draft'}`
+    label: `${getLeadDisplayCode(lead, index)} - ${lead.company || 'Untitled lead'} - ${lead.piboCategory || lead.status || 'Draft'}`
   })), [leads]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
 
@@ -684,6 +706,7 @@ export default function ClientMaster() {
     setNotice('');
     setExcelFileName(file.name);
     setExcelRows([]);
+    setExcelImportMode('clients');
 
     try {
       const buffer = await file.arrayBuffer();
@@ -694,6 +717,24 @@ export default function ClientMaster() {
         return;
       }
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+      const headers = rows[0] ? Object.keys(rows[0]).map(normalizeHeaderKey) : [];
+      const isAnnualYearUpload = headers.includes('companyuniqueid') && headers.includes('firstannualreturnyearapplicable');
+      if (isAnnualYearUpload) {
+        const yearRows = rows.map((row, index) => ({
+          row: index + 2,
+          companyUniqueId: row['Company Unique ID'] || row['Unique ID'] || '',
+          onboardingYear: row['Client Onboarding Year'] || row['Onboarding Year'] || '',
+          firstAnnualReturnYear: row['First Annual Return Year Applicable'] || row['First Annual Return Year'] || ''
+        })).filter((row) => String(row.companyUniqueId).trim() && (String(row.onboardingYear).trim() || String(row.firstAnnualReturnYear).trim()));
+        if (!yearRows.length) {
+          setError('Excel has no usable annual return year rows.');
+          return;
+        }
+        setExcelImportMode('annual-years');
+        setExcelRows(yearRows);
+        setNotice(`${yearRows.length} annual return year row${yearRows.length === 1 ? '' : 's'} loaded. Click Import Drafts to update matched clients.`);
+        return;
+      }
       const parsed = rows
         .map((row) => mapExcelRowToClient(row, staff, leads))
         .filter((row) => Object.values(row.data || {}).some((value) => JSON.stringify(value || '').replace(/["{}[\],:]/g, '').trim() !== ''));
@@ -725,6 +766,15 @@ export default function ClientMaster() {
     setNotice('');
 
     try {
+      if (excelImportMode === 'annual-years') {
+        const response = await api.post(API_ENDPOINTS.ccp.bulkUpdateClientYears, { rows: excelRows });
+        const updated = Number(response.data?.updated || 0);
+        const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
+        setNotice(`${updated} client${updated === 1 ? '' : 's'} updated with annual return years.`);
+        if (failures.length) setError(`${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row} (${failures[0].error})`);
+        await loadPage();
+        return;
+      }
       const payload = excelRows.map((row) => {
         const assignedText = row.data?.importMeta?.assignedTo || '';
         const leadText = row.data?.importMeta?.leadNumber || row.data?.importMeta?.uniqueId || '';
@@ -1488,7 +1538,7 @@ function ClientInteractionModal({ type, clientName, clientNumber = '', leadNumbe
           </label>
           <label>
             <span>{isFollowUp ? 'Follow-Up Date' : 'Scheduled Date'}</span>
-            <input type="date" value={draft.scheduledDate} onChange={(event) => update('scheduledDate', event.target.value)} />
+            <PremiumDatePicker value={draft.scheduledDate} onChange={(event) => update('scheduledDate', event.target.value)} />
           </label>
           <label>
             <span>{isFollowUp ? 'Follow-Up Time' : 'Scheduled Time'}</span>

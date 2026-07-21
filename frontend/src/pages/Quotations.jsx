@@ -5,6 +5,7 @@ import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileText, Filter, 
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import PiboDependentSelect from '../components/form/PiboDependentSelect';
+import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeads } from '../services/ccpApi';
@@ -43,10 +44,23 @@ const emptyItem = {
   basicAmount: ''
 };
 
-function displayLeadCode(row = {}) {
-  const value = String(row.businessLeadCode || row.sourceLeadId || row.leadCode || '').trim();
-  const businessMatch = value.match(/^ATPL-LEAD-(\d+)$/i);
-  return businessMatch ? `ATPL-${businessMatch[1]}` : (value || '-');
+const CCP_LEAD_SEQUENCE_START = 353;
+
+function displayLeadCode(row = {}, index = -1) {
+  const value = String(
+    row.businessLeadCode
+    || row.leadNumber
+    || row['Lead Number']
+    || row.data?.importMeta?.leadNumber
+    || row.importMeta?.leadNumber
+    || row.leadCode
+    || row.sourceLeadId
+    || ''
+  ).trim();
+  const generatedCode = /^ATPL(?:-LEAD)?-[A-F\d]{10,}$/i.test(value);
+  if (generatedCode && index >= 0) return `ATPL-${String(CCP_LEAD_SEQUENCE_START + index).padStart(4, '0')}`;
+  const businessMatch = value.match(/^ATPL(?:-LEAD)?-(\d+)$/i);
+  return businessMatch ? `ATPL-${businessMatch[1].padStart(4, '0')}` : (value || '-');
 }
 
 const emptyQuotation = {
@@ -217,6 +231,17 @@ function readAdminApprovalStatus(row = {}) {
   return 'approved';
 }
 
+function quotationUserNames(row = {}) {
+  return [...new Set([
+    row.assignedUserName,
+    row.createdBy?.name,
+    row.createdBy?.email,
+    row.createdByName,
+    row.leadGeneratedBy,
+    row.leadDetails?.referredBy
+  ].map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
 function getLeadMergeKey(lead = {}) {
   return String(lead._id || lead.id || lead.sourceLeadId || lead.leadCode || lead.company || '')
     .toLowerCase()
@@ -286,18 +311,15 @@ export default function Quotations() {
   const allServiceCategoryOptions = useMemo(() => [...new Set([...serviceCategoryOptions, ...customServiceCategories])].sort(), [customServiceCategories]);
 
   const userOptions = useMemo(() => {
-    const names = quotations
-      .map((row) => row.createdBy?.name || row.createdBy?.email || row.leadDetails?.referredBy || '')
-      .map((value) => String(value || '').trim())
-      .filter(Boolean);
-    return [...new Set(names)].sort();
+    return [...new Set(quotations.flatMap(quotationUserNames))]
+      .sort((left, right) => left.localeCompare(right));
   }, [quotations]);
 
   const filteredQuotations = useMemo(() => {
     const term = query.trim().toLowerCase();
     return quotations.filter((row) => {
       if (!contextMatchesQuotation(row, quotationContext)) return false;
-      const userName = row.createdBy?.name || row.createdBy?.email || row.leadDetails?.referredBy || '';
+      const rowUsers = quotationUserNames(row);
       const firstItem = row.items?.[0] || {};
       const haystack = [
         row.quotationNumber,
@@ -308,14 +330,15 @@ export default function Quotations() {
         firstItem.serviceCategory,
         firstItem.eprCategory,
         firstItem.piboCategory,
-        userName
+        ...rowUsers
       ].join(' ').toLowerCase();
       const matchesQuotationStatus = !quotationStatusFilter || readQuotationStatus(row) === quotationStatusFilter;
       const matchesAdminApproval = !adminApprovalFilter || readAdminApprovalStatus(row) === adminApprovalFilter;
       const validDate = row.validUntil ? new Date(row.validUntil) : null;
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const matchesValidity = !validityFilter || (validityFilter === 'valid' ? validDate && validDate >= today : validDate && validDate < today);
-      return (!term || haystack.includes(term)) && (!userFilter || userName === userFilter) && matchesQuotationStatus && matchesAdminApproval && matchesValidity;
+      const matchesUser = !userFilter || rowUsers.some((name) => normalizeSearchValue(name) === normalizeSearchValue(userFilter));
+      return (!term || haystack.includes(term)) && matchesUser && matchesQuotationStatus && matchesAdminApproval && matchesValidity;
     });
   }, [adminApprovalFilter, query, quotationContext, quotationStatusFilter, quotations, userFilter, validityFilter]);
 
@@ -472,11 +495,13 @@ export default function Quotations() {
   }
 
   function selectLead(leadId) {
-    const lead = leads.find((item) => String(item._id || item.id) === String(leadId));
+    const leadIndex = leads.findIndex((item) => String(item._id || item.id) === String(leadId));
+    const lead = leadIndex >= 0 ? leads[leadIndex] : null;
+    const businessLeadCode = displayLeadCode(lead, leadIndex);
     setQuotation((current) => ({
       ...current,
       leadId,
-      leadCode: lead?.leadCode || '',
+      leadCode: businessLeadCode === '-' ? '' : businessLeadCode,
       leadDetails: mapLeadToDetails(lead)
     }));
   }
@@ -823,9 +848,9 @@ export default function Quotations() {
                     code: quotationContext.clientUniqueId || quotationContext.leadCode || 'Client',
                     company: quotationContext.clientName || 'Selected client'
                   }] : []),
-                  ...leads.map((lead) => ({
+                  ...leads.map((lead, index) => ({
                     value: lead._id || lead.id,
-                    code: lead.leadCode || 'Lead',
+                    code: displayLeadCode(lead, index),
                     company: lead.company || 'Untitled company'
                   }))
                 ]}
@@ -889,7 +914,7 @@ export default function Quotations() {
           </div>
           <div className="mt-5 max-w-sm">
             <Field label="Quotation Valid Until" required>
-              <input type="date" value={quotation.validUntil} onChange={(event) => setQuotation((current) => ({ ...current, validUntil: event.target.value }))} className="form-input" />
+              <PremiumDatePicker value={quotation.validUntil} onChange={(event) => setQuotation((current) => ({ ...current, validUntil: event.target.value }))} />
             </Field>
           </div>
 

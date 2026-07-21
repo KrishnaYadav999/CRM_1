@@ -136,7 +136,15 @@ function getLeadFollowUpCompany(lead = {}) {
 }
 
 function getLeadFollowUpOwner(lead = {}) {
-  return displayValue(lead.assignedToName || lead.assignedTo || lead.ownerName || lead.createdByName || lead.createdBy || lead.leadGeneratedBy, 'Unassigned')
+  const assigned = lead.assignedTo && typeof lead.assignedTo === 'object' ? lead.assignedTo : {}
+  const creator = lead.createdBy && typeof lead.createdBy === 'object' ? lead.createdBy : {}
+  return displayValue(
+    lead.assignedToName || assigned.name || assigned.email || lead.assignedToText || lead.assignedToEmail ||
+    (typeof lead.assignedTo === 'string' ? lead.assignedTo : '') || lead.ownerName || lead.importedCreatedBy ||
+    lead.createdByName || creator.name || creator.email || (typeof lead.createdBy === 'string' ? lead.createdBy : '') ||
+    lead.assignedBy || lead.leadGeneratedBy,
+    'Unassigned'
+  )
 }
 
 function buildLeadFollowUpItems(leads = []) {
@@ -187,7 +195,15 @@ function getCalendarFollowUpCompany(item = {}) {
 }
 
 function getCalendarFollowUpOwner(item = {}) {
-  return displayValue(item.assignedToName || item.assignedTo || item.createdBy, 'SM')
+  const assigned = item.assignedTo && typeof item.assignedTo === 'object' ? item.assignedTo : {}
+  const creator = item.createdBy && typeof item.createdBy === 'object' ? item.createdBy : {}
+  return displayValue(
+    item.assignedToName || assigned.name || assigned.email || item.assignedToText || item.assignedToEmail ||
+    (typeof item.assignedTo === 'string' ? item.assignedTo : '') || item.ownerName || item.importedCreatedBy ||
+    item.createdByName || creator.name || creator.email || (typeof item.createdBy === 'string' ? item.createdBy : '') ||
+    item.assignedBy || item.leadGeneratedBy,
+    'Unassigned'
+  )
 }
 
 function formatDateTime(value) {
@@ -514,7 +530,14 @@ function getQuotationValue(quote = {}) {
 }
 
 function getQuotationOwnerName(quote = {}) {
-  return quote.createdBy?.name || quote.createdBy?.email || quote.leadDetails?.referredBy || 'Unassigned'
+  const assignedName = String(quote.assignedUserName || '').trim()
+  const creatorName = String(quote.createdBy?.name || quote.createdBy?.email || quote.createdByName || '').trim()
+  const leadCreator = String(quote.leadGeneratedBy || '').trim()
+  const referredBy = String(quote.leadDetails?.referredBy || '').trim()
+  if (assignedName) return assignedName
+  if (creatorName) return creatorName
+  if (leadCreator && !/^demo(?:\s+demo)?$/i.test(leadCreator)) return leadCreator
+  return referredBy || 'Unassigned'
 }
 
 function getQuotationDate(quote = {}) {
@@ -2016,6 +2039,56 @@ function PanelHeader({ icon: Icon, title, note }) {
   )
 }
 
+function OperationsCommandOverview({ rows = [], followUps = [], onCalendar }) {
+  const today = dateKey()
+  const isOpen = (item) => !['completed', 'done', 'closed'].includes(normalizeKey(item.status))
+  const activeTasks = followUps.filter(isOpen).length
+  const dueToday = followUps.filter((item) => isOpen(item) && item.scheduledDate === today).length
+  const overdueTasks = followUps.filter((item) => isOpen(item) && item.scheduledDate && item.scheduledDate < today).length
+  const pipeline = [
+    ['Onboarding', rows.length, 'mint'],
+    ['Documentation', rows.filter((row) => row.hasQuotation).length, 'blue'],
+    ['Compliance Review', rows.filter((row) => row.hasPo).length, 'violet'],
+    ['Filing', rows.filter((row) => row.annualTotal > 0).length, 'orange'],
+    ['Completed', rows.filter((row) => row.annualTotal > 0 && row.annualDone >= row.annualTotal).length, 'green']
+  ]
+  const onTrack = rows.filter((row) => !row.compliancePending && row.hasPo).length
+  const breached = rows.filter((row) => row.compliancePending).length
+  const risk = Math.max(0, rows.length - onTrack - breached)
+  const slaPercent = percent(onTrack, rows.length)
+  const teamMap = new Map()
+  rows.forEach((row) => {
+    const name = row.userName || 'Unassigned'
+    const item = teamMap.get(name) || { name, total: 0, done: 0, due: 0, overdue: 0 }
+    item.total += 1
+    item.done += row.annualTotal > 0 && row.annualDone >= row.annualTotal ? 1 : 0
+    item.due += !row.hasPo ? 1 : 0
+    item.overdue += row.compliancePending ? 1 : 0
+    teamMap.set(name, item)
+  })
+  const teams = [...teamMap.values()].sort((a, b) => b.total - a.total).slice(0, 5)
+  const maxTeam = Math.max(1, ...teams.map((team) => team.total))
+  const queue = followUps.filter(isOpen).sort((a, b) => `${a.scheduledDate || '9999'} ${a.scheduledTime || ''}`.localeCompare(`${b.scheduledDate || '9999'} ${b.scheduledTime || ''}`)).slice(0, 5)
+  const kpis = [
+    ['Active Clients', rows.length, 'Live operational portfolio', Users, 'green'],
+    ['Open Tasks', activeTasks, `${followUps.length} total follow-ups`, ClipboardCheck, 'blue'],
+    ['Due Today', dueToday, `${queue.length} in priority queue`, CalendarDays, 'orange'],
+    ['At Risk', rows.filter((row) => row.compliancePending || !row.hasPo).length + overdueTasks, `${overdueTasks} overdue tasks`, ShieldAlert, 'red']
+  ]
+  return <div className="ops-command">
+    <div className="ops-command-kpis">{kpis.map(([label, value, note, Icon, tone], index) => <article key={label} className={`ops-command-kpi is-${tone}`}><span className="ops-command-kpi-icon"><Icon /></span><div><small>{label}</small><strong>{value.toLocaleString('en-IN')}</strong><em>{note}</em></div><svg viewBox="0 0 90 36"><polyline points={index % 2 ? '2,15 12,25 22,9 33,29 44,17 55,22 66,7 77,18 88,10' : '2,29 12,20 22,24 33,8 44,18 55,13 66,22 77,7 88,4'} /></svg></article>)}</div>
+    <div className="ops-command-primary">
+      <section className="ops-command-card ops-pipeline-card"><header><div><strong>Operations Pipeline</strong><span>Live client movement across delivery stages</span></div><b>{percent(pipeline[4][1], pipeline[0][1])}% conversion</b></header><div className="ops-pipeline">{pipeline.map(([label, value, tone]) => <div key={label} className={`ops-pipeline-stage is-${tone}`}><span>{label}</span><strong>{value}</strong><small>{percent(value, rows.length)}%</small></div>)}</div><div className="ops-pipeline-progress"><i style={{ width: `${percent(pipeline[4][1], pipeline[0][1])}%` }} /></div></section>
+      <section className="ops-command-card ops-sla-card"><header><div><strong>SLA Health</strong><span>Compliance and PO readiness</span></div></header><div className="ops-sla-body"><div className="ops-sla-ring" style={{ '--sla': `${slaPercent * 3.6}deg` }}><strong>{slaPercent}%</strong><span>On Track</span></div><div className="ops-sla-legend"><p><i className="green" />On Track <b>{onTrack}</b></p><p><i className="orange" />At Risk <b>{risk}</b></p><p><i className="red" />Breached <b>{breached}</b></p></div></div></section>
+    </div>
+    <div className="ops-command-secondary">
+      <section className="ops-command-card ops-workload-card"><header><div><strong>Workload by Team</strong><span>Client distribution and risk</span></div></header><div className="ops-workload-list">{teams.length ? teams.map((team) => <div key={team.name}><label><span>{team.name}</span><b>{team.total}</b></label><div><i className="done" style={{ width: `${team.done/maxTeam*100}%` }} /><i className="active" style={{ width: `${Math.max(0,team.total-team.done-team.due-team.overdue)/maxTeam*100}%` }} /><i className="due" style={{ width: `${team.due/maxTeam*100}%` }} /><i className="late" style={{ width: `${team.overdue/maxTeam*100}%` }} /></div></div>) : <EmptyOperationState label="No team workload found" />}</div></section>
+      <section className="ops-command-card ops-queue-card"><header><div><strong>Priority Queue</strong><span>Next operational actions</span></div><button type="button" onClick={onCalendar}>View all</button></header><div className="ops-queue-list">{queue.length ? queue.map((item,index) => <div key={item.id||index}><span><strong>{getCalendarFollowUpCompany(item)}</strong><small>{displayValue(item.title,'Follow-up')}</small></span><em>{getCalendarFollowUpOwner(item)}</em><time>{formatShortDate(item.scheduledDate)}</time><b className={item.scheduledDate<today?'high':item.scheduledDate===today?'medium':'low'}>{item.scheduledDate<today?'High':item.scheduledDate===today?'Due':'Open'}</b></div>) : <EmptyOperationState label="Priority queue is clear" />}</div></section>
+      <section className="ops-command-card ops-deadline-card"><header><div><strong>Upcoming Deadlines</strong><span>Calendar-linked schedule</span></div><button type="button" onClick={onCalendar}>Calendar</button></header><div className="ops-deadline-list">{queue.length ? queue.map((item,index) => <div key={item.id||index}><i className={item.scheduledDate<today?'red':index<2?'orange':'blue'} /><time>{formatShortDate(item.scheduledDate)}</time><span><strong>{displayValue(item.title,'Client follow-up')}</strong><small>{getCalendarFollowUpCompany(item)}</small></span></div>) : <EmptyOperationState label="No upcoming deadlines" />}</div></section>
+    </div>
+  </div>
+}
+
 function AdminDashboardSkeleton() {
   return (
     <main className="min-h-screen bg-[#eef7f5] pt-16 text-slate-900">
@@ -2397,7 +2470,6 @@ function DashboardFollowUpTimeline({ items = [], users = [], onView, onCalendar 
 
 function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount = 0, annualReturnStats = {}, followUps = [], onViewFollowUps, onOpenCalendar }) {
   const [hoveredLeadRow, setHoveredLeadRow] = useState(null)
-  const [hoveredPiboRow, setHoveredPiboRow] = useState(null)
   const piboTotal = piboCards.reduce((sum, row) => sum + row.value, 0)
   const barRows = piboCards.length
     ? piboCards.map((row, index) => ({
@@ -2432,19 +2504,17 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
               <span>{piboTotal} clients</span>
             </div>
             <div className="operations-pibo-modern-chart">
-              <ResponsiveContainer width="100%" height={Math.max(270, barRows.length * 32)}>
-                <BarChart data={barRows} layout="vertical" margin={{ top: 6, right: 44, left: 18, bottom: 8 }}>
+              <ResponsiveContainer width="100%" height={Math.max(300, barRows.length * 23)}>
+                <BarChart data={barRows} layout="vertical" margin={{ top: 6, right: 44, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="4 6" horizontal={false} stroke="#d8ebe7" />
                   <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={{ stroke: '#dbe7e5' }} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 900 }} />
-                  <YAxis dataKey="name" type="category" width={210} tickLine={false} axisLine={false} tick={{ fill: '#26384d', fontSize: 10, fontWeight: 950 }} />
+                  <YAxis dataKey="name" type="category" width={190} tickLine={false} axisLine={false} tick={{ fill: '#26384d', fontSize: 9, fontWeight: 900 }} />
                   <Bar dataKey="value" radius={[0, 12, 12, 0]} barSize={15} animationDuration={1100} animationEasing="ease-out" label={{ position: 'right', fill: '#0f172a', fontSize: 12, fontWeight: 950 }}>
                     {barRows.map((row) => (
                       <Cell
                         key={row.id}
                         fill={row.fill}
-                        className={`operations-pibo-bar-segment ${hoveredPiboRow?.id === row.id ? 'is-active' : ''} ${hoveredPiboRow && hoveredPiboRow.id !== row.id ? 'is-dim' : ''}`}
-                        onMouseEnter={() => setHoveredPiboRow(row)}
-                        onMouseLeave={() => setHoveredPiboRow(null)}
+                        className="operations-pibo-bar-segment"
                       />
                     ))}
                   </Bar>
@@ -2455,9 +2525,6 @@ function OperationsLeadAnalytics({ analytics, piboCards = [], convertedLeadCount
               {barRows.map((row) => (
                 <span
                   key={row.id}
-                  className={`${hoveredPiboRow?.id === row.id ? 'active' : ''} ${hoveredPiboRow && hoveredPiboRow.id !== row.id ? 'analysis-light' : ''}`}
-                  onMouseEnter={() => setHoveredPiboRow(row)}
-                  onMouseLeave={() => setHoveredPiboRow(null)}
                   title={`${row.name}: ${row.value} clients (${row.percent}%)`}
                 ><i style={{ background: row.fill }} />{row.name}: {row.value}<small>{row.percent}%</small></span>
               ))}
@@ -2674,7 +2741,8 @@ function QuotationDetailsModal({ row, onClose }) {
   const meaningfulItems = getMeaningfulQuotationItems(items)
   const totalAmount = Number(latestItem.basicAmount) || getQuotationTotal(quotation)
   const revisionCount = Math.max(quotations.length, meaningfulItems.length || items.length)
-  const userName = quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || row?.userName || '-'
+  const resolvedOwner = getQuotationOwnerName(quotation)
+  const userName = resolvedOwner !== 'Unassigned' ? resolvedOwner : (row?.userName || '-')
 
   return (
     <PremiumQuotationModal
@@ -3547,6 +3615,12 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
 function SalesReportModal({ report = {}, onClose }) {
   const rows = Array.isArray(report.rows) ? report.rows : []
   const columns = Array.isArray(report.columns) ? report.columns : []
+  const rowsPerPage = 10
+  const [page, setPage] = useState(1)
+  const totalPages = Math.max(1, Math.ceil(rows.length / rowsPerPage))
+  const visibleRows = rows.slice((page - 1) * rowsPerPage, page * rowsPerPage)
+
+  useEffect(() => { setPage(1) }, [report.title, rows.length])
   return (
     <motion.div className="operations-modal-backdrop" role="presentation" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <motion.div
@@ -3582,14 +3656,27 @@ function SalesReportModal({ report = {}, onClose }) {
               <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
             </thead>
             <tbody>
-              {rows.length ? rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`}>{cell}</td>)}
+              {visibleRows.length ? visibleRows.map((row, rowIndex) => {
+                const absoluteIndex = (page - 1) * rowsPerPage + rowIndex
+                return (
+                <tr key={absoluteIndex}>
+                  {row.map((cell, cellIndex) => <td key={`${absoluteIndex}-${cellIndex}`}>{cell}</td>)}
                 </tr>
-              )) : <tr><td colSpan={columns.length || 1}><EmptyOperationState label="No records found" /></td></tr>}
+                )
+              }) : <tr><td colSpan={columns.length || 1}><EmptyOperationState label="No records found" /></td></tr>}
             </tbody>
           </table>
         </div>
+        {rows.length > rowsPerPage && (
+          <div className="sales-report-pagination">
+            <div><strong>{(page - 1) * rowsPerPage + 1}-{Math.min(page * rowsPerPage, rows.length)}</strong><span>of {rows.length} records</span></div>
+            <span>Page {page} of {totalPages}</span>
+            <div className="sales-report-pagination-actions">
+              <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+              <button type="button" disabled={page === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+            </div>
+          </div>
+        )}
       </motion.div>
     </motion.div>
   )
@@ -4554,6 +4641,7 @@ export default function AdminDashboard() {
               {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
               {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
 
+              <div className="operations-legacy-layout">
               <section className="operations-panel operations-snapshot-panel">
                 <PanelHeader icon={PieChart} title="Operations Snapshot" note="Lead, conversion and annual return overview" />
                 <div className="operations-snapshot-grid">
@@ -4714,6 +4802,7 @@ export default function AdminDashboard() {
                   </div>
                 </section>
               )}
+              </div>
 
               <section className="operations-panel">
                 <div className="operations-table-head">

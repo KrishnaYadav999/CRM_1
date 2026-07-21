@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
+import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { adminRoles } from '../../constants/dashboard';
@@ -2881,11 +2882,7 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                     />
                   </td>
                   <td>
-                    <input
-                      type="date"
-                      value={row.compliancePoDate || ''}
-                      onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)}
-                    />
+                    <PremiumDatePicker value={row.compliancePoDate || ''} onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)} />
                   </td>
                   <td>
                     <label className="annual-po-upload-cell">
@@ -3618,12 +3615,7 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
               return (
                 <tr key={index}>
                   <td>
-                      <input
-                        type="date"
-                        value={formatDateInputValue(normalized.date)}
-                        aria-label="Client interaction date"
-                        onChange={(event) => updateRow(index, 'date', event.target.value)}
-                      />
+                      <PremiumDatePicker value={formatDateInputValue(normalized.date)} aria-label="Client interaction date" onChange={(event) => updateRow(index, 'date', event.target.value)} />
                   </td>
                   <td>
                       <input
@@ -3663,7 +3655,7 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
             <div className="mom-modal-grid">
               <label>
                 <span>Date</span>
-                <input type="date" value={formatDateInputValue(form.date)} readOnly={momReadOnly} disabled={momReadOnly} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
+                <PremiumDatePicker value={formatDateInputValue(form.date)} readOnly={momReadOnly} disabled={momReadOnly} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
               </label>
               <label>
                 <span>Subject</span>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, Eye, MapPin, Plus, Trash2, Upload } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
+import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 
 function AddressTab({ client, setValue, copyRegisteredAddress, selectOptions }) {
   return (
@@ -38,7 +39,7 @@ function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complia
           {complianceRows.map(([key, numberLabel, dateLabel, fileLabel]) => (
             <div key={key} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 lg:grid-cols-[1fr_1fr_180px]">
               <Field label={numberLabel}><input className="form-input" value={client.compliance[`${key}Number`] || ''} onChange={(event) => setValue('compliance', `${key}Number`, event.target.value)} /></Field>
-              <Field label={dateLabel}><input type="date" className="form-input" value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
+      <Field label={dateLabel}><PremiumDatePicker value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
               <Field label={fileLabel}><UploadButton value={client.compliance[`${key}File`]} onChange={(value) => setValue('compliance', `${key}File`, value)} /></Field>
             </div>
           ))}
@@ -357,8 +358,8 @@ function CpcbTab({ client, setValue, selectOptions }) {
         <Field label="Remark"><textarea className="form-input min-h-[92px] resize-y py-3" value={client.cpcb.remark || ''} onChange={(event) => setValue('cpcb', 'remark', event.target.value)} /></Field>
         <Field label="CPCB Home page"><UploadButton value={client.cpcb.homePageFile} onChange={(value) => setValue('cpcb', 'homePageFile', value)} /></Field>
         <Field label="CPCB Registration Number"><input className="form-input" value={client.cpcb.registrationNumber || ''} onChange={(event) => setValue('cpcb', 'registrationNumber', event.target.value)} /></Field>
-        <Field label="Date of Application"><input type="date" className="form-input" value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
-        <Field label="Date of Application Approval"><input type="date" className="form-input" value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
+          <Field label="Date of Application"><PremiumDatePicker value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
+          <Field label="Date of Application Approval"><PremiumDatePicker value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
         <Field label="Application Number"><input className="form-input" value={client.cpcb.applicationNumber || ''} onChange={(event) => setValue('cpcb', 'applicationNumber', event.target.value)} /></Field>
         <Field label="CEPR User ID"><input className="form-input" value={client.cpcb.ceprUserId || ''} onChange={(event) => setValue('cpcb', 'ceprUserId', event.target.value)} /></Field>
         <Field label="CEPR Password"><input type="password" className="form-input" value={client.cpcb.ceprPassword || ''} onChange={(event) => setValue('cpcb', 'ceprPassword', event.target.value)} /></Field>
@@ -374,10 +375,10 @@ function ValidationTab({ client, setValue }) {
     <Card title="Validation Documents">
       <div className="grid gap-5 md:grid-cols-2">
         <Field label="Quotation Number"><input className="form-input" value={client.validation.quotationNumber || ''} onChange={(event) => setValue('validation', 'quotationNumber', event.target.value)} /></Field>
-        <Field label="Quotation Date"><input type="date" className="form-input" value={client.validation.quotationDate || ''} onChange={(event) => setValue('validation', 'quotationDate', event.target.value)} /></Field>
+          <Field label="Quotation Date"><PremiumDatePicker value={client.validation.quotationDate || ''} onChange={(event) => setValue('validation', 'quotationDate', event.target.value)} /></Field>
         <Field label="Quotation Document"><UploadButton value={client.validation.quotationDocument} onChange={(value) => setValue('validation', 'quotationDocument', value)} /></Field>
         <Field label="Initial Purchase Order Number"><input className="form-input" value={client.validation.poNumber || ''} onChange={(event) => setValue('validation', 'poNumber', event.target.value)} /></Field>
-        <Field label="Initial Purchase Order Date"><input type="date" className="form-input" value={client.validation.poDate || ''} onChange={(event) => setValue('validation', 'poDate', event.target.value)} /></Field>
+          <Field label="Initial Purchase Order Date"><PremiumDatePicker value={client.validation.poDate || ''} onChange={(event) => setValue('validation', 'poDate', event.target.value)} /></Field>
         <Field label="Initial Purchase Order Document"><UploadButton value={client.validation.poDocument} onChange={(value) => setValue('validation', 'poDocument', value)} /></Field>
       </div>
     </Card>
