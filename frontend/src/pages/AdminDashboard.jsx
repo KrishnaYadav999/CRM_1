@@ -2926,16 +2926,54 @@ function SalesAnalyticsBars({ title, subtitle, rows = [], tone = 'teal', delay =
 }
 
 function SalesMixAnalytics({ analytics, total }) {
+  const [applicantTypeView, setApplicantTypeView] = useState('pibo')
+  const applicantTypeConfig = applicantTypeView === 'services'
+    ? { title: 'Services Offered', subtitle: 'Solution portfolio', rows: analytics.services, tone: 'teal' }
+    : { title: 'PIBO Category', subtitle: 'Compliance segments', rows: analytics.pibo, tone: 'violet' }
+
   return (
     <section className="sales-mix-section">
       <div className="sales-mix-top-grid">
         <SalesAnalyticsBars title="Top Industries" subtitle="Market concentration" rows={analytics.industries} tone="blue" delay={.06} />
-        <SalesAnalyticsBars title="PIBO Category" subtitle="Compliance segments" rows={analytics.pibo} tone="violet" delay={.11} />
+        <div className="sales-applicant-type-panel">
+          <div className="sales-applicant-type-head">
+            <div>
+              <span>Applicant Type</span>
+              <h3>Applicant Type</h3>
+            </div>
+            <div className="sales-applicant-type-tabs" role="tablist" aria-label="Applicant type analytics">
+              <button
+                type="button"
+                className={applicantTypeView === 'pibo' ? 'active' : ''}
+                onClick={() => setApplicantTypeView('pibo')}
+                role="tab"
+                aria-selected={applicantTypeView === 'pibo'}
+              >
+                PIBO Category
+              </button>
+              <button
+                type="button"
+                className={applicantTypeView === 'services' ? 'active' : ''}
+                onClick={() => setApplicantTypeView('services')}
+                role="tab"
+                aria-selected={applicantTypeView === 'services'}
+              >
+                Services Offered
+              </button>
+            </div>
+          </div>
+          <SalesAnalyticsBars
+            title={applicantTypeConfig.title}
+            subtitle={applicantTypeConfig.subtitle}
+            rows={applicantTypeConfig.rows}
+            tone={applicantTypeConfig.tone}
+            delay={.11}
+          />
+        </div>
         <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={analytics.states} tone="green" delay={.16} />
       </div>
       <div className="sales-mix-bottom-grid">
         <SalesAnalyticsBars title="Team Workload · Leads Assigned" subtitle="Ownership balance" rows={analytics.workload} tone="amber" delay={.2} />
-        <SalesAnalyticsBars title="Services Offered" subtitle="Solution portfolio" rows={analytics.services} tone="teal" delay={.25} />
       </div>
     </section>
   )
@@ -2944,7 +2982,6 @@ function SalesMixAnalytics({ analytics, total }) {
 function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
   const navigate = useNavigate()
   const [reportModal, setReportModal] = useState(null)
-  const [salesValueModalOpen, setSalesValueModalOpen] = useState(false)
   const [leadSourcePeriod, setLeadSourcePeriod] = useState(() => `months:m${new Date().getMonth()}`)
   const [quotationPeriod, setQuotationPeriod] = useState(() => `months:m${new Date().getMonth()}`)
   const scopedLeads = useMemo(() => getSalesVisibleRecords(leads, (lead) => leadBelongsToSalesUser(lead, currentUser)), [currentUser, leads])
@@ -3005,7 +3042,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
       recentActivities: activities.slice(0, 6)
     }
   }, [clients, scopedLeads, scopedQuotations])
-  const { convertedLeads, quotationSent, quotationApproved, salesValue, pipelineRows, revenueRows, recentQuotes, allActivities, recentActivities } = salesComputed
+  const { convertedLeads, quotationSent, quotationApproved, pipelineRows, revenueRows, recentQuotes, allActivities, recentActivities } = salesComputed
   const leadSourceRows = useMemo(() => buildDistributionRows(
     periodLeads,
     (lead) => lead.source || lead.leadSource || 'Others',
@@ -3022,15 +3059,6 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
     { label: 'Total Lead', value: scopedLeads.length, note: 'Assigned sales leads', icon: Users, tone: 'teal' },
     { label: 'Quotation Sent', value: quotationSent.length, note: 'Sent / opened / replied', icon: FileText, tone: 'blue' },
     { label: 'Converted Lead', value: convertedLeads.length, note: 'Lead converted in Client Master', icon: TrendingUp, tone: 'orange' },
-    {
-      label: 'Sales Value',
-      value: salesValue,
-      note: 'Quotation value',
-      icon: CircleDollarSign,
-      tone: 'indigo',
-      formatter: formatDashboardInr,
-      onClick: () => setSalesValueModalOpen(true)
-    },
     { label: 'Today Lead', value: todayLeads.length, note: 'Generated today', icon: CalendarDays, tone: 'pink', onClick: onOpenTodayLeads }
   ]
 
@@ -3174,9 +3202,6 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
 
       <AnimatePresence>
         {reportModal && <SalesReportModal report={reportModal} onClose={() => setReportModal(null)} />}
-      </AnimatePresence>
-      <AnimatePresence>
-        {salesValueModalOpen && <SalesValueModal quotations={scopedQuotations} onClose={() => setSalesValueModalOpen(false)} />}
       </AnimatePresence>
     </motion.div>
   )
