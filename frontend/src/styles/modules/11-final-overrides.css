@@ -6421,3 +6421,80 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 .sales-report-pagination{position:sticky;bottom:0;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;border-top:1px solid #dce8e6;background:rgba(255,255,255,.98);padding:13px 20px;box-shadow:0 -8px 24px rgba(15,23,42,.05);backdrop-filter:blur(12px)}.sales-report-pagination>div:first-child{display:flex;align-items:baseline;gap:5px}.sales-report-pagination strong{font-size:12px;color:#0f766e}.sales-report-pagination span{font-size:11px;font-weight:850;color:#64748b}.sales-report-pagination>span{border-radius:999px;background:#edf8f5;padding:6px 10px;color:#0f766e}.sales-report-pagination-actions{display:flex;justify-content:flex-end;gap:8px}.sales-report-pagination-actions button{min-width:82px;height:34px;border:1px solid #bcded7;border-radius:9px;background:#fff;color:#0f766e;font-size:11px;font-weight:900;transition:.18s}.sales-report-pagination-actions button:hover:not(:disabled){border-color:#0f766e;background:#ecfdf5}.sales-report-pagination-actions button:disabled{cursor:not-allowed;opacity:.42}@media(max-width:640px){.sales-report-pagination{grid-template-columns:1fr auto}.sales-report-pagination>span{display:none}.sales-report-pagination-actions button{min-width:66px}}
 
 .sales-dashboard .sales-metric-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}@media(max-width:1100px){.sales-dashboard .sales-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}@media(max-width:620px){.sales-dashboard .sales-metric-grid{grid-template-columns:1fr!important}}
+
+/* Sales dashboard analytics layout: remove dead space and tighten the tabbed card. */
+.sales-dashboard .sales-mix-section{
+  gap:14px!important;
+  margin-top:10px!important;
+}
+.sales-dashboard .sales-mix-top-grid{
+  align-items:stretch!important;
+  gap:14px!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+}
+.sales-dashboard .sales-mix-bottom-grid{
+  display:grid!important;
+  gap:14px!important;
+  grid-template-columns:1fr!important;
+}
+.sales-dashboard .sales-mix-card,
+.sales-dashboard .sales-applicant-type-panel{
+  min-height:306px!important;
+}
+.sales-dashboard .sales-mix-bottom-grid>.sales-mix-card{
+  min-height:260px!important;
+}
+.sales-dashboard .sales-mix-bottom-grid .sales-mix-row{
+  grid-template-columns:minmax(170px,.42fr) minmax(240px,1fr) 44px 38px!important;
+}
+.sales-dashboard .sales-applicant-type-panel{
+  border-color:#d9e2ea!important;
+  background:linear-gradient(160deg,#fff 0%,#fbfcff 62%,#f7f2ff 100%)!important;
+}
+.sales-dashboard .sales-applicant-type-head{
+  padding:12px 14px 10px!important;
+}
+.sales-dashboard .sales-applicant-type-head span{
+  color:#7e52d9!important;
+}
+.sales-dashboard .sales-applicant-type-head h3{
+  font-size:16px!important;
+}
+.sales-dashboard .sales-applicant-type-tabs{
+  border-color:#d8dde8!important;
+  background:#eef3f7!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9)!important;
+}
+.sales-dashboard .sales-applicant-type-tabs button{
+  min-height:32px!important;
+  padding:0 13px!important;
+}
+.sales-dashboard .sales-applicant-type-tabs button.active{
+  background:linear-gradient(135deg,#9d66ee,#7149d6)!important;
+  box-shadow:0 8px 18px rgba(117,73,214,.24)!important;
+}
+.sales-dashboard .sales-applicant-type-panel>.sales-mix-card{
+  min-height:0!important;
+  padding:13px 15px 15px!important;
+}
+@media(max-width:1180px){
+  .sales-dashboard .sales-mix-top-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  .sales-dashboard .sales-mix-top-grid>.sales-mix-card:last-child{
+    grid-column:1/-1!important;
+  }
+}
+@media(max-width:720px){
+  .sales-dashboard .sales-mix-top-grid{
+    grid-template-columns:1fr!important;
+  }
+  .sales-dashboard .sales-mix-card,
+  .sales-dashboard .sales-applicant-type-panel,
+  .sales-dashboard .sales-mix-bottom-grid>.sales-mix-card{
+    min-height:0!important;
+  }
+  .sales-dashboard .sales-mix-bottom-grid .sales-mix-row{
+    grid-template-columns:minmax(82px,.9fr) minmax(70px,1.2fr) 26px!important;
+  }
+}
