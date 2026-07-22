@@ -20,6 +20,25 @@ function welcomeMessage(name) {
   return { id: 'welcome', role: 'assistant', text: `Hello ${firstName}! I’m your Anant Tattva CRM Assistant. Ask naturally—even short phrases or small spelling mistakes are okay.`, suggestions: starters }
 }
 
+function AnimatedAnswer({ message }) {
+  const [visible, setVisible] = useState(message.animate ? '' : message.text)
+  const [complete, setComplete] = useState(!message.animate)
+
+  useEffect(() => {
+    if (!message.animate) return undefined
+    let index = 0
+    const step = Math.max(2, Math.ceil(message.text.length / 180))
+    const timer = window.setInterval(() => {
+      index = Math.min(message.text.length, index + step)
+      setVisible(message.text.slice(0, index))
+      if (index >= message.text.length) { window.clearInterval(timer); setComplete(true) }
+    }, 16)
+    return () => window.clearInterval(timer)
+  }, [message.id, message.text, message.animate])
+
+  return <><p className="whitespace-pre-line text-[15px] font-semibold leading-7">{visible}{!complete && <span className="ml-0.5 inline-block h-5 w-0.5 animate-pulse bg-emerald-500 align-middle" />}</p>{complete && message.source && <motion.small initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 block font-bold text-emerald-600">{message.source}</motion.small>}{complete && message.suggestions?.length > 0 && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex flex-wrap gap-2">{message.suggestions.map((suggestion) => <button key={suggestion.prompt} onClick={() => message.onSuggestion(suggestion.prompt)} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:-translate-y-0.5 hover:bg-emerald-100">{suggestion.label}<ChevronRight className="h-3 w-3" /></button>)}</motion.div>}</>
+}
+
 export default function AssistantPage() {
   const user = useMemo(readUser, [])
   const userName = user.name || user.fullName || 'Krishna Yadav'
@@ -54,7 +73,7 @@ export default function AssistantPage() {
     window.setTimeout(() => {
       setThreads((items) => items.map((thread) => thread.id === activeId ? {
         ...thread,
-        messages: [...thread.messages, { id: `a-${Date.now()}`, role: 'assistant', ...answer }]
+        messages: [...thread.messages, { id: `a-${Date.now()}`, role: 'assistant', ...answer, animate: true }]
       } : thread))
       setTyping(false)
     }, 380)
@@ -88,7 +107,7 @@ export default function AssistantPage() {
               <div className="mx-auto max-w-4xl space-y-7">
                 {active.messages.map((message) => <motion.div key={message.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {message.role === 'assistant' && <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white shadow-lg shadow-emerald-700/20"><Sparkles className="h-5 w-5" /></span>}
-                  <div className={`max-w-[82%] ${message.role === 'user' ? 'rounded-[22px_22px_6px_22px] bg-[#0f6655] text-white' : 'rounded-[22px_22px_22px_6px] border border-slate-200 bg-white text-slate-700 shadow-sm'} px-5 py-4`}><p className="whitespace-pre-line text-[15px] font-semibold leading-7">{message.text}</p>{message.source && <small className="mt-3 block font-bold text-emerald-600">{message.source}</small>}{message.suggestions?.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{message.suggestions.map((suggestion) => <button key={suggestion.prompt} onClick={() => send(suggestion.prompt)} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:-translate-y-0.5 hover:bg-emerald-100">{suggestion.label}<ChevronRight className="h-3 w-3" /></button>)}</div>}</div>
+                  <div className={`max-w-[82%] ${message.role === 'user' ? 'rounded-[22px_22px_6px_22px] bg-[#0f6655] text-white' : 'rounded-[22px_22px_22px_6px] border border-slate-200 bg-white text-slate-700 shadow-sm'} px-5 py-4`}>{message.role === 'assistant' ? <AnimatedAnswer message={{ ...message, onSuggestion: send }} /> : <p className="whitespace-pre-line text-[15px] font-semibold leading-7">{message.text}</p>}</div>
                 </motion.div>)}
                 {typing && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-600 text-white"><Bot className="h-5 w-5" /></span><span className="flex gap-1 rounded-2xl border bg-white px-5 py-4">{[0,1,2].map((i) => <i key={i} style={{ animationDelay: `${i * 120}ms` }} className="h-2 w-2 animate-bounce rounded-full bg-emerald-500" />)}</span></motion.div>}
                 <div ref={endRef} />

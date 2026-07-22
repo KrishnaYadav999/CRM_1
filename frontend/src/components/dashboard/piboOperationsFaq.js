@@ -90,24 +90,45 @@ function tokens(value) {
   return normalizePiboQuestion(value).split(' ').filter((token) => token.length > 1 && !stopWords.has(token))
 }
 
+function editDistance(left = '', right = '') {
+  const a = String(left); const b = String(right)
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = row[0]; row[0] = i
+    for (let j = 1; j <= b.length; j += 1) {
+      const above = row[j]; const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, diagonal + cost)
+      diagonal = above
+    }
+  }
+  return row[b.length]
+}
+
+function tokenMatches(questionToken, aliasToken) {
+  if (questionToken === aliasToken) return true
+  if (Math.min(questionToken.length, aliasToken.length) >= 4 && (questionToken.startsWith(aliasToken) || aliasToken.startsWith(questionToken))) return true
+  return Math.min(questionToken.length, aliasToken.length) >= 5 && editDistance(questionToken, aliasToken) <= 1
+}
+
 export function findPiboOperationsAnswer(question) {
   const normalized = normalizePiboQuestion(question)
   if (!normalized) return null
-  const questionTokens = new Set(tokens(normalized))
+  const questionTokens = tokens(normalized)
   let best = null
   let bestScore = 0
   entries.forEach((entry) => {
     entry.questions.forEach((alias) => {
       const normalizedAlias = normalizePiboQuestion(alias)
       const aliasTokens = tokens(normalizedAlias)
-      const overlap = aliasTokens.filter((token) => questionTokens.has(token)).length
+      const overlap = aliasTokens.filter((aliasToken) => questionTokens.some((questionToken) => tokenMatches(questionToken, aliasToken))).length
       const coverage = aliasTokens.length ? overlap / aliasTokens.length : 0
+      const queryCoverage = questionTokens.length ? overlap / questionTokens.length : 0
       const phraseBonus = normalized.includes(normalizedAlias) || normalizedAlias.includes(normalized) ? 6 : 0
-      const score = phraseBonus + overlap + coverage * 4
+      const score = phraseBonus + overlap + coverage * 4 + queryCoverage * 3
       if (score > bestScore) { best = entry; bestScore = score }
     })
   })
-  return bestScore >= 5.4 ? { ...best, score: bestScore } : null
+  return bestScore >= 5 ? { ...best, score: bestScore } : null
 }
 
 export const piboOperationsFaq = entries
