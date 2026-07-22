@@ -618,7 +618,8 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   const [poDraft, setPoDraft] = useState(() => {
     try { return JSON.parse(localStorage.getItem(annualPoStorageKey) || 'null') || storedPoWorkflow; } catch { return storedPoWorkflow; }
   });
-  const [poModalOpen, setPoModalOpen] = useState(!selectedYear);
+  const [poModalOpen, setPoModalOpen] = useState(false);
+  const [poApprovalPreviewOpen, setPoApprovalPreviewOpen] = useState(false);
   const [poValidationError, setPoValidationError] = useState('');
   const assignedName = getAssignedName(client);
   const rawPreviousSpoc = String(data.importMeta?.previousSpoc || '').trim();
@@ -758,11 +759,11 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   }, [annualToast]);
 
   useEffect(() => {
-    if (!poModalOpen) return undefined;
+    if (!poModalOpen && !poApprovalPreviewOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previousOverflow; };
-  }, [poModalOpen]);
+  }, [poModalOpen, poApprovalPreviewOpen]);
 
   useEffect(() => {
     if (selected) return;
@@ -819,8 +820,9 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
     const clientId = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId;
     const targetYears = mode === 'yes' ? [...new Set(rows.map((row) => row.fyYear))] : years.map((year) => year.label);
     try {
-      await Promise.all(targetYears.map((annualYear) => api.put(API_ENDPOINTS.clients.annualReturn(clientId), {
+      await Promise.all(targetYears.map((annualYear, index) => api.put(API_ENDPOINTS.clients.annualReturn(clientId), {
         annualYear,
+        notifyPoApproval: mode === 'no' && index === 0,
         activeTab: 'basic',
         activeSection: 'Purchase Order Confirmation',
         status: 'draft',
@@ -1902,7 +1904,12 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
             <button type="button" onClick={() => navigate('/sales/client-master')} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-[#30737B] hover:bg-teal-50"><ArrowLeft className="h-5 w-5" /></button>
             <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Annual Return</p><h2 className="text-xl font-black text-slate-950">{clientName}</h2></div>
           </div>
-          <button type="button" onClick={() => { setPoDraft(poWorkflow); setPoModalOpen(true); }} className="btn-lift rounded-xl bg-[#30737B] px-5 py-3 text-sm font-black text-white">Purchase Order Confirmation</button>
+          <div className="flex flex-wrap items-center gap-2">
+            {poWorkflow.confirmed && poWorkflow.mode === 'no' && (
+              <button type="button" onClick={() => setPoApprovalPreviewOpen(true)} className="btn-lift inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-black text-[#24675f] hover:bg-emerald-100"><Eye className="h-4 w-4" /> View Approval Email</button>
+            )}
+            <button type="button" onClick={() => { setPoDraft(poWorkflow.confirmed ? poWorkflow : {}); setPoValidationError(''); setPoModalOpen(true); }} className="btn-lift inline-flex items-center gap-2 rounded-xl bg-[#30737B] px-5 py-3 text-sm font-black text-white"><Plus className="h-4 w-4" /> {poWorkflow.confirmed ? 'Edit PO' : 'Add PO'}</button>
+          </div>
         </div>
       )}
       {annualToast && (
@@ -1952,6 +1959,39 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           />
         )}
       </section>}
+
+      {poApprovalPreviewOpen && !selected && createPortal((
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-700/70 p-3 backdrop-blur-md sm:p-6">
+          <section className="flex max-h-[calc(100vh-24px)] w-full max-w-[1320px] flex-col overflow-hidden rounded-[30px] border border-emerald-100 bg-[#fbfdfd] shadow-[0_35px_100px_rgba(15,23,42,0.35)] sm:max-h-[calc(100vh-48px)]">
+            <header className="flex shrink-0 items-start justify-between gap-5 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-orange-50 px-5 py-5 sm:px-7">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700">Preview</span><span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold text-slate-500">Approval email / proof</span></div>
+                <h2 className="mt-3 truncate text-xl font-black text-slate-900 sm:text-2xl">PO Special Approval</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">{clientName} · {uniqueId}</p>
+              </div>
+              <button type="button" onClick={() => setPoApprovalPreviewOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-red-200 hover:text-red-500"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
+              <section className="rounded-[24px] border border-emerald-100 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Mail summary</p><h3 className="mt-2 text-lg font-black text-slate-900">Purchase Order special approval for review</h3><p className="mt-1 text-sm font-semibold text-slate-500">{(poWorkflow.approvalFiles || []).length} attachment(s) included</p></div>
+                  <span className="rounded-full bg-teal-50 px-4 py-2 text-xs font-black text-[#30737B]">Saved {formatDisplayDate(poWorkflow.savedAt)}</span>
+                </div>
+                <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_1.35fr]">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Subject</p><p className="mt-2 font-bold leading-6 text-slate-700">PO approval · {clientName}</p></div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Date</p><p className="mt-2 font-bold text-slate-700">{formatDisplayDate(poWorkflow.savedAt)}</p></div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Attachments</p><div className="mt-2 flex flex-wrap gap-2">{(poWorkflow.approvalFiles || []).map((file, index) => { const href = file.secureUrl || file.url || file.fileUrl; return <a key={`${file.name}-${index}`} href={href} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-2 rounded-xl border border-emerald-100 bg-white px-3 py-2 text-xs font-bold text-[#30737B] shadow-sm hover:bg-emerald-50"><FileText className="h-4 w-4 shrink-0" /><span className="truncate">{file.name || `Proof ${index + 1}`}</span></a>; })}</div></div>
+                </div>
+              </section>
+              <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Approval message</p></div>
+                <div className="min-h-44 whitespace-pre-wrap p-5 text-sm font-medium leading-7 text-slate-700 sm:p-7">{poWorkflow.approvalNote || 'No written approval note was provided. Review the uploaded proof above.'}</div>
+              </section>
+              <div className="flex justify-end"><button type="button" onClick={() => setPoApprovalPreviewOpen(false)} className="rounded-xl bg-[#30737B] px-6 py-3 text-sm font-black text-white shadow-sm">Close Preview</button></div>
+            </div>
+          </section>
+        </div>
+      ), document.body)}
 
       {poModalOpen && !selected && createPortal((
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-md sm:p-6">
