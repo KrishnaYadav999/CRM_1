@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
 import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 import api from '../../services/api';
@@ -548,6 +548,41 @@ function formatCompletedTabsMessage(completedTabs = {}) {
   if (!labels.length) return '';
   if (labels.length === 1) return `${labels[0]} done.`;
   return `${labels.join(', ')} done.`;
+}
+
+function PoServiceMultiSelect({ value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = Array.isArray(value) ? value : String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+  const filtered = options.filter((option) => option.toLowerCase().includes(query.trim().toLowerCase()));
+
+  function toggle(option) {
+    onChange(selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option]);
+  }
+
+  return (
+    <div className="min-w-[360px] rounded-2xl border border-slate-200 bg-white p-2 shadow-sm transition focus-within:border-teal-300 focus-within:ring-4 focus-within:ring-teal-50">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+          {selected.length ? selected.slice(0, 2).map((service) => <span key={service} className="max-w-40 truncate rounded-lg bg-teal-50 px-2.5 py-1.5 text-xs font-black text-[#30737B]">{service}</span>) : <span className="px-1 text-sm font-bold text-slate-400">Select one or more services</span>}
+          {selected.length > 2 && <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-black text-slate-600">+{selected.length - 2} more</span>}
+        </div>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-[#30737B] transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+          <div className="flex items-center gap-2 border-b border-slate-100 p-2.5"><Search className="h-4 w-4 text-slate-400" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-sm font-bold outline-none" placeholder="Search services..." />{selected.length > 0 && <button type="button" onClick={() => onChange([])} className="text-xs font-black text-red-500">Clear</button>}</div>
+          <div className="max-h-56 overflow-y-auto p-2">
+            {filtered.map((option) => {
+              const checked = selected.includes(option);
+              return <button type="button" key={option} onClick={() => toggle(option)} className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-black transition last:mb-0 ${checked ? 'bg-teal-50 text-[#205e65]' : 'text-slate-600 hover:bg-slate-50'}`}><span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${checked ? 'border-[#30737B] bg-[#30737B] text-white' : 'border-slate-300 bg-white'}`}>{checked && <Check className="h-3.5 w-3.5" />}</span><span>{option}</span></button>;
+            })}
+            {!filtered.length && <p className="p-5 text-center text-sm font-bold text-slate-400">No matching service found.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function AnnualReturnHistory({ client, quotations = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
@@ -1925,7 +1960,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
 
       {poModalOpen && !selected && createPortal((
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-md sm:p-6">
-          <section className="flex max-h-[calc(100vh-24px)] w-full max-w-[1180px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.38)] sm:max-h-[calc(100vh-48px)]">
+          <section className="flex max-h-[calc(100vh-24px)] w-full max-w-[1480px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.38)] sm:max-h-[calc(100vh-48px)]">
             <header className="flex shrink-0 items-start justify-between border-b border-emerald-100 bg-[linear-gradient(120deg,#f0fdf4_0%,#ffffff_48%,#fff7ed_100%)] px-5 py-5 sm:px-7 sm:py-6">
               <div><p className="text-xs font-black uppercase tracking-[0.22em] text-[#527566]">PO Workflow</p><h2 className="mt-2 text-2xl font-black text-slate-950">Purchase Order Confirmation</h2><p className="mt-1 text-sm font-semibold text-slate-500">{clientName} · {uniqueId}</p></div>
               <button type="button" onClick={() => setPoModalOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:-translate-y-0.5 hover:text-red-500 hover:shadow-md"><X className="h-5 w-5" /></button>
@@ -1956,7 +1991,20 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
               ) : poDraft.mode === 'yes' ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received For No Of Year</p><strong className="mt-2 block text-2xl text-slate-900">{(poDraft.rows || []).length}</strong></div><div className="flex gap-2"><button type="button" onClick={addPoYear} disabled={(poDraft.rows || []).length >= years.length} className="rounded-xl bg-[#416c5a] px-4 py-3 text-sm font-black text-white disabled:opacity-50">+ Add Next Year</button><button type="button" onClick={() => updatePoRows((poDraft.rows || []).slice(0, -1))} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600">Remove Last Year</button></div></div>
-                  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full min-w-[950px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-widest text-slate-500"><tr><th className="p-4">Sr. No</th><th className="p-4">FY Year</th><th className="p-4">PO Number</th><th className="p-4">PO Upload</th><th className="p-4">Service</th></tr></thead><tbody>{(poDraft.rows || []).length ? (poDraft.rows || []).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="p-4 font-black">{index + 1}</td><td className="p-4"><select className="form-input" value={row.fyYear || ''} onChange={(event) => updatePoRow(index, 'fyYear', event.target.value)}><option value="">Select FY Year</option>{years.map((year) => <option key={year.label} value={year.label}>{year.label}</option>)}</select></td><td className="p-4"><input className="form-input" value={row.poNumber || ''} onChange={(event) => updatePoRow(index, 'poNumber', event.target.value)} placeholder="Enter PO Number" /></td><td className="p-4"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 font-black text-[#416c5a]"><Upload className="h-4 w-4" />{row.file?.name || 'Choose File'}<input type="file" className="sr-only" onChange={(event) => uploadPoFile(index, event.target.files?.[0])} /></label></td><td className="p-4"><select className="form-input" value={row.service || ''} onChange={(event) => updatePoRow(index, 'service', event.target.value)}><option value="">Select Service</option>{annualPoServiceCategoryOptions.map((service) => <option key={service} value={service}>{service}</option>)}</select></td></tr>) : <tr><td colSpan="5" className="p-10 text-center font-bold text-slate-400">Click “Add Next Year” to add PO details.</td></tr>}</tbody></table></div>
+                  <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <table className="w-full min-w-[1180px] text-left text-sm">
+                      <thead className="bg-slate-900 text-xs uppercase tracking-widest text-white"><tr><th className="w-24 p-5">Sr. No</th><th className="w-48 p-5">FY Year</th><th className="w-64 p-5">PO Number</th><th className="w-60 p-5">PO Upload</th><th className="min-w-[420px] p-5">Services</th></tr></thead>
+                      <tbody>{(poDraft.rows || []).length ? (poDraft.rows || []).map((row, index) => (
+                        <tr key={index} className="border-t border-slate-100 align-top transition hover:bg-teal-50/30">
+                          <td className="p-5"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 font-black text-slate-700">{index + 1}</span></td>
+                          <td className="p-5"><select className="form-input min-w-40" value={row.fyYear || ''} onChange={(event) => updatePoRow(index, 'fyYear', event.target.value)}><option value="">Select FY Year</option>{years.map((year) => <option key={year.label} value={year.label}>{year.label}</option>)}</select></td>
+                          <td className="p-5"><input className="form-input min-w-52" value={row.poNumber || ''} onChange={(event) => updatePoRow(index, 'poNumber', event.target.value)} placeholder="Enter PO Number" /></td>
+                          <td className="p-5"><label className="inline-flex min-h-12 max-w-52 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 font-black text-[#416c5a] transition hover:bg-emerald-100"><Upload className="h-4 w-4 shrink-0" /><span className="truncate">{row.file?.name || 'Choose File'}</span><input type="file" className="sr-only" onChange={(event) => uploadPoFile(index, event.target.files?.[0])} /></label></td>
+                          <td className="p-5"><PoServiceMultiSelect value={row.service} options={annualPoServiceCategoryOptions} onChange={(services) => updatePoRow(index, 'service', services)} /></td>
+                        </tr>
+                      )) : <tr><td colSpan="5" className="p-14 text-center"><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-teal-50 text-[#30737B]"><Plus className="h-7 w-7" /></div><p className="mt-4 font-black text-slate-700">No purchase order year added</p><p className="mt-1 text-sm font-semibold text-slate-400">Click Add Next Year to start adding PO and services.</p></td></tr>}</tbody>
+                    </table>
+                  </div>
                 </div>
               ) : (
                 <div className="rounded-2xl border border-slate-200 p-5"><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Please Provide Special Approval</p><p className="mt-2 text-sm font-semibold text-slate-500">Upload supporting images or email approval proof.</p><div className="mt-5 grid gap-5 md:grid-cols-2"><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Upload Images / Email</span><span className="mt-2 flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 font-black text-[#416c5a]"><Upload className="h-5 w-5" />{(poDraft.approvalFiles || []).length ? `${poDraft.approvalFiles.length} file(s) selected` : 'Choose Files'}<input type="file" multiple accept="image/*,.pdf,.eml,.msg" className="sr-only" onChange={(event) => uploadApprovalFiles(event.target.files)} /></span></label><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Email / Approval Note</span><textarea className="form-input mt-2 min-h-28 py-3" value={poDraft.approvalNote || ''} onChange={(event) => setPoDraft((current) => ({ ...current, approvalNote: event.target.value }))} placeholder="Enter approval email details or notes here" /></label></div></div>
