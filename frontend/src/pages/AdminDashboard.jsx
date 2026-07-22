@@ -3187,14 +3187,13 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
         onView={() => setReportModal({
           title: 'Recent Sales Activity',
           subtitle: `${allActivities.length} activity records`,
-          columns: ['Date & Time', 'Activity', 'Lead / Account', 'Owner', 'Stage', 'Amount', 'Next Step'],
+          columns: ['Date & Time', 'Activity', 'Lead / Account', 'Owner', 'Stage', 'Next Step'],
           rows: allActivities.map((row) => [
             formatDateTime(row.date),
             row.type,
             row.lead,
             row.owner,
             row.stage,
-            formatDashboardInr(row.amount),
             row.nextStep
           ])
         })}
@@ -3448,7 +3447,7 @@ function SalesRecentActivity({ rows = [], onView }) {
       <div className="sales-activity-table">
         <table>
           <thead>
-            <tr><th>Date & Time</th><th>Activity</th><th>Lead / Account</th><th>Owner</th><th>Stage</th><th>Amount</th><th>Next Step</th></tr>
+            <tr><th>Date & Time</th><th>Activity</th><th>Lead / Account</th><th>Owner</th><th>Stage</th><th>Next Step</th></tr>
           </thead>
           <tbody>
             {rows.length ? rows.map((row, index) => (
@@ -3458,10 +3457,9 @@ function SalesRecentActivity({ rows = [], onView }) {
                 <td>{row.lead}</td>
                 <td>{row.owner}</td>
                 <td><span>{row.stage}</span></td>
-                <td>{formatDashboardInr(row.amount)}</td>
                 <td>{row.nextStep}</td>
               </tr>
-            )) : <tr><td colSpan={7}><EmptyOperationState label="No recent sales activity" /></td></tr>}
+            )) : <tr><td colSpan={6}><EmptyOperationState label="No recent sales activity" /></td></tr>}
           </tbody>
         </table>
       </div>
@@ -4119,8 +4117,8 @@ export default function AdminDashboard() {
     [currentUser, leadFollowUpItems]
   )
   const convertedOperationsLeadCount = useMemo(
-    () => operationsLeadAnalytics.leads.filter((lead) => leadConvertedToClientMaster(lead, clients)).length,
-    [clients, operationsLeadAnalytics.leads]
+    () => clients.length,
+    [clients]
   )
   const operationsAnnualReturnStats = useMemo(() => {
     const actualFilings = adminRoles.includes(currentUser?.role)
@@ -4339,7 +4337,11 @@ export default function AdminDashboard() {
       const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
         ? (ccpClientsResult.value.data.clients || [])
         : []
-      const mergedClients = mergeClientSources(crmClients, ccpClients)
+      // Client Master uses CCP as its canonical converted-client universe. Mixing
+      // legacy CRM rows back into this list inflated dashboard conversion totals.
+      const mergedClients = ccpClients.length
+        ? mergeClientSources([], ccpClients)
+        : mergeClientSources(crmClients, [])
       const clientRequestsSucceeded = clientsResult.status === 'fulfilled' || ccpClientsResult.status === 'fulfilled'
       const nextClients = clientRequestsSucceeded ? mergedClients : (cached?.clients || [])
       const freshLeads = mergeLeadSources(

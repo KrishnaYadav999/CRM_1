@@ -459,8 +459,8 @@ function latestAnnualWorkflow(data) {
   return filingRows[filingRows.length - 1]
 }
 
-function buildCompanyAudit(query) {
-  const clients = getCachedClients()
+function buildCompanyAudit(query, liveClients = []) {
+  const clients = Array.isArray(liveClients) && liveClients.length ? liveClients : getCachedClients()
   const matchedClient = clients.find((client) => matchCompanyName(client, query))
   if (!matchedClient) return null
 
@@ -588,6 +588,10 @@ function buildCompanyAudit(query) {
     owner: getAssignedName(matchedClient) || '-',
     visibility: getVisibilityStatus(matchedClient) || '-',
     overallPercent,
+    filledFields: rows.reduce((sum, row) => sum + row.filled, 0),
+    remainingFields: rows.reduce((sum, row) => sum + row.missingCount, 0),
+    totalFields: rows.reduce((sum, row) => sum + row.filled + row.missingCount, 0),
+    alertCount: criticalMissing.length + calendarItems.filter((item) => item.status !== 'completed').length,
     rows,
     criticalMissing,
     activeProcess
@@ -615,7 +619,7 @@ export function buildAnswer(question, context = {}) {
       ]
     }
   }
-  const companyAudit = cleanQuestion.length >= 3 ? buildCompanyAudit(question) : null
+  const companyAudit = cleanQuestion.length >= 3 ? buildCompanyAudit(question, context.clients) : null
   if (companyAudit) {
     return {
       text: `Company audit for ${companyAudit.companyName}. Overall data completion is ${companyAudit.overallPercent}%.`,

@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bot, ChevronRight, Menu, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, WandSparkles } from 'lucide-react'
+import { AlertTriangle, Bot, CheckCircle2, ChevronRight, LayoutDashboard, Menu, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, WandSparkles } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import { buildAnswer } from '../components/dashboard/SidebarChatbot'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
+import { fetchCcpClients } from '../services/ccpApi'
+import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
+import { useNavigate } from 'react-router-dom'
 
 const starters = [
   { label: 'My name', prompt: 'What is my name?' },
@@ -22,7 +25,7 @@ function welcomeMessage(name) {
   return { id: 'welcome', role: 'assistant', text: `Hello ${firstName}! I’m your Anant Tattva CRM Assistant. Ask naturally—even short phrases or small spelling mistakes are okay.`, suggestions: starters }
 }
 
-function AnimatedAnswer({ message }) {
+function AnimatedAnswer({ message, onNavigate }) {
   const [visible, setVisible] = useState(message.animate ? '' : message.text)
   const [complete, setComplete] = useState(!message.animate)
 
@@ -38,10 +41,12 @@ function AnimatedAnswer({ message }) {
     return () => window.clearInterval(timer)
   }, [message.id, message.text, message.animate])
 
-  return <><p className="whitespace-pre-line text-[15px] font-semibold leading-7">{visible}{!complete && <span className="ml-0.5 inline-block h-5 w-0.5 animate-pulse bg-emerald-500 align-middle" />}</p>{complete && message.source && <motion.small initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 block font-bold text-emerald-600">{message.source}</motion.small>}{complete && message.suggestions?.length > 0 && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex flex-wrap gap-2">{message.suggestions.map((suggestion) => <button key={suggestion.prompt} onClick={() => message.onSuggestion(suggestion.prompt)} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:-translate-y-0.5 hover:bg-emerald-100">{suggestion.label}<ChevronRight className="h-3 w-3" /></button>)}</motion.div>}</>
+  const report = message.report
+  return <><p className="whitespace-pre-line text-[15px] font-semibold leading-7">{visible}{!complete && <span className="ml-0.5 inline-block h-5 w-0.5 animate-pulse bg-emerald-500 align-middle" />}</p>{complete && report && <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mt-4 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white"><div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4">{[['Assigned to', report.owner], ['Filled', `${report.filledFields}/${report.totalFields}`], ['Remaining', report.remainingFields], ['Alerts', report.alertCount]].map(([label, value]) => <div key={label} className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><small className="block text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</small><strong className="mt-1 block truncate text-sm text-slate-800">{value}</strong></div>)}</div><div className="space-y-2 border-t border-emerald-100 p-3">{report.rows.map((row, index) => <motion.div key={row.section} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .05 }}><div className="mb-1 flex justify-between text-xs font-bold text-slate-600"><span>{row.section}</span><span>{row.filled}/{row.filled + row.missingCount} · {row.percent}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><motion.i initial={{ width: 0 }} animate={{ width: `${row.percent}%` }} transition={{ duration: .45, delay: index * .05 }} className="block h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-600" /></div></motion.div>)}</div>{report.criticalMissing?.length > 0 && <div className="border-t border-amber-100 bg-amber-50 p-3 text-xs font-bold text-amber-800"><AlertTriangle className="mr-1 inline h-4 w-4" /> Missing: {report.criticalMissing.slice(0, 4).join(', ')}</div>}<div className="flex flex-wrap gap-2 border-t border-emerald-100 p-3"><button onClick={() => onNavigate('/sales/client-master')} className="inline-flex items-center gap-2 rounded-xl bg-[#0f6655] px-3 py-2 text-xs font-black text-white"><CheckCircle2 className="h-4 w-4" /> Open Client Master</button><button onClick={() => onNavigate('/dashboard')} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-700"><LayoutDashboard className="h-4 w-4" /> Open Dashboard</button></div></motion.div>}{complete && message.source && <motion.small initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 block font-bold text-emerald-600">{message.source}</motion.small>}{complete && message.suggestions?.length > 0 && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex flex-wrap gap-2">{message.suggestions.map((suggestion) => <button key={suggestion.prompt} onClick={() => message.onSuggestion(suggestion.prompt)} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:-translate-y-0.5 hover:bg-emerald-100">{suggestion.label}<ChevronRight className="h-3 w-3" /></button>)}</motion.div>}</>
 }
 
 export default function AssistantPage() {
+  const navigate = useNavigate()
   const storedUser = useMemo(readUser, [])
   const [user, setUser] = useState(storedUser)
   const userName = user.name || user.fullName || 'Krishna Yadav'
@@ -49,6 +54,7 @@ export default function AssistantPage() {
   const [activeId, setActiveId] = useState(() => threads[0].id)
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
+  const [clients, setClients] = useState([])
   const [railOpen, setRailOpen] = useState(false)
   const endRef = useRef(null)
   const active = threads.find((thread) => thread.id === activeId) || threads[0]
@@ -60,6 +66,13 @@ export default function AssistantPage() {
       localStorage.setItem('user', JSON.stringify(freshUser))
     }).catch(() => {})
   }, [storedUser])
+
+  useEffect(() => {
+    fetchCcpClients().then((response) => {
+      const rows = response.data?.ok === false ? [] : (response.data?.clients || [])
+      setClients(mergeClientSources([], rows))
+    }).catch(() => setClients([]))
+  }, [])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [active?.messages, typing])
 
@@ -73,7 +86,7 @@ export default function AssistantPage() {
   function send(text = input) {
     const question = String(text || '').trim()
     if (!question || typing) return
-    const answer = buildAnswer(question, { userName })
+    const answer = buildAnswer(question, { userName, clients })
     setInput('')
     setTyping(true)
     setThreads((items) => items.map((thread) => thread.id === activeId ? {
@@ -118,7 +131,7 @@ export default function AssistantPage() {
               <div className="mx-auto max-w-4xl space-y-7">
                 {active.messages.map((message) => <motion.div key={message.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {message.role === 'assistant' && <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white shadow-lg shadow-emerald-700/20"><Sparkles className="h-5 w-5" /></span>}
-                  <div className={`max-w-[82%] ${message.role === 'user' ? 'rounded-[22px_22px_6px_22px] bg-[#0f6655] text-white' : 'rounded-[22px_22px_22px_6px] border border-slate-200 bg-white text-slate-700 shadow-sm'} px-5 py-4`}>{message.role === 'assistant' ? <AnimatedAnswer message={{ ...message, onSuggestion: send }} /> : <p className="whitespace-pre-line text-[15px] font-semibold leading-7">{message.text}</p>}</div>
+                  <div className={`max-w-[92%] ${message.role === 'user' ? 'rounded-[22px_22px_6px_22px] bg-[#0f6655] text-white' : 'rounded-[22px_22px_22px_6px] border border-slate-200 bg-white text-slate-700 shadow-sm'} px-5 py-4`}>{message.role === 'assistant' ? <AnimatedAnswer message={{ ...message, onSuggestion: send }} onNavigate={navigate} /> : <p className="whitespace-pre-line text-[15px] font-semibold leading-7">{message.text}</p>}</div>
                 </motion.div>)}
                 {typing && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-600 text-white"><Bot className="h-5 w-5" /></span><span className="flex gap-1 rounded-2xl border bg-white px-5 py-4">{[0,1,2].map((i) => <i key={i} style={{ animationDelay: `${i * 120}ms` }} className="h-2 w-2 animate-bounce rounded-full bg-emerald-500" />)}</span></motion.div>}
                 <div ref={endRef} />
