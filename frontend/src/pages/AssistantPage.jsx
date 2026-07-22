@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Bot, ChevronRight, Menu, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, WandSparkles } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import { buildAnswer } from '../components/dashboard/SidebarChatbot'
+import api from '../services/api'
+import { API_ENDPOINTS } from '../services/apiEndpoints'
 
 const starters = [
   { label: 'My name', prompt: 'What is my name?' },
@@ -40,7 +42,8 @@ function AnimatedAnswer({ message }) {
 }
 
 export default function AssistantPage() {
-  const user = useMemo(readUser, [])
+  const storedUser = useMemo(readUser, [])
+  const [user, setUser] = useState(storedUser)
   const userName = user.name || user.fullName || 'Krishna Yadav'
   const [threads, setThreads] = useState(() => [{ id: Date.now(), title: 'New conversation', messages: [welcomeMessage(userName)] }])
   const [activeId, setActiveId] = useState(() => threads[0].id)
@@ -49,6 +52,14 @@ export default function AssistantPage() {
   const [railOpen, setRailOpen] = useState(false)
   const endRef = useRef(null)
   const active = threads.find((thread) => thread.id === activeId) || threads[0]
+
+  useEffect(() => {
+    api.get(API_ENDPOINTS.auth.me).then((response) => {
+      const freshUser = response.data?.user || storedUser
+      setUser(freshUser)
+      localStorage.setItem('user', JSON.stringify(freshUser))
+    }).catch(() => {})
+  }, [storedUser])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [active?.messages, typing])
 
@@ -96,7 +107,7 @@ export default function AssistantPage() {
               <button onClick={newChat} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#f45b0b] font-black shadow-lg shadow-orange-950/20 transition hover:-translate-y-0.5 hover:bg-orange-500"><MessageSquarePlus className="h-5 w-5" /> New chat</button>
               <p className="mb-2 mt-7 px-2 text-[11px] font-black uppercase tracking-[.2em] text-emerald-300">Recent conversations</p>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">{threads.map((thread) => <button key={thread.id} onClick={() => { setActiveId(thread.id); setRailOpen(false) }} className={`group flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-bold transition ${activeId === thread.id ? 'bg-white/14 text-white' : 'text-emerald-100 hover:bg-white/8'}`}><span className="min-w-0 flex-1 truncate">{thread.title}</span><Trash2 onClick={(event) => { event.stopPropagation(); deleteThread(thread.id) }} className="h-4 w-4 opacity-0 transition group-hover:opacity-70" /></button>)}</div>
-              <div className="mt-3 rounded-2xl border border-white/10 bg-white/8 p-3"><div className="flex items-center gap-2"><UserRound className="h-5 w-5 text-emerald-300" /><div className="min-w-0"><strong className="block truncate text-sm">{userName}</strong><small className="text-emerald-200">{user.role || 'CRM User'}</small></div></div></div>
+              <div className="mt-3 rounded-2xl border border-white/10 bg-white/8 p-3"><div className="flex items-center gap-3">{user.avatarUrl ? <img src={user.avatarUrl} alt={userName} className="h-11 w-11 shrink-0 rounded-full border-2 border-emerald-300 object-cover shadow-lg" /> : <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-emerald-400/20 text-emerald-200"><UserRound className="h-5 w-5" /></span>}<div className="min-w-0"><strong className="block truncate text-sm">{userName}</strong><small className="text-emerald-200">{user.role || 'CRM User'}</small></div></div></div>
             </motion.aside>}
           </AnimatePresence>
 

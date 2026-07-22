@@ -4,6 +4,7 @@ const { ADMIN_ROLES } = require('../constants/roles');
 const { ccpApiUrl, ccpHeaders } = require('../utils/ccpConfig');
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
 const liveClientSyncController = require('../controllers/liveClientSyncController');
+const { trackManualClientSave } = require('../services/clientOnboardingReminders');
 
 const router = express.Router();
 const TIMEOUT_MS = Number(process.env.CCP_FETCH_TIMEOUT_MS) || 15000;
@@ -183,7 +184,12 @@ router.get('/clients', requireAuth, (req, res) => forward(req, res, 'GET', 'clie
 router.get('/clients/sync-live/preview', requireAuth, requireRoles(ADMIN_ROLES), liveClientSyncController.preview);
 router.post('/clients/sync-live/batch', requireAuth, requireRoles(ADMIN_ROLES), liveClientSyncController.batch);
 router.post('/clients/sync-live/reconciliation', requireAuth, requireRoles(ADMIN_ROLES), liveClientSyncController.reconcile);
-router.post('/clients', requireAuth, (req, res) => forward(req, res, 'POST', 'clients', sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role))));
+router.post('/clients', requireAuth, async (req, res) => {
+  const body = sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role));
+  const result = await requestCcp('POST', 'clients', body);
+  if (result.status >= 200 && result.status < 300) await trackManualClientSave({ payload: body, ccpPayload: result.payload, user: req.user }).catch(() => null);
+  return res.status(result.status).json(result.payload);
+});
 router.post('/clients/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
   const rows = Array.isArray(req.body?.clients) ? req.body.clients : [];
   if (!rows.length) return res.status(400).json({ error: 'No clients provided' });
@@ -213,7 +219,12 @@ router.post('/clients/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), async
     firstAnnualReturnYear: String(row.firstAnnualReturnYear || '').trim()
   })) });
 });
-router.put('/clients/:id', requireAuth, (req, res) => forward(req, res, 'PUT', `clients/${encodeURIComponent(req.params.id)}`, sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role))));
+router.put('/clients/:id', requireAuth, async (req, res) => {
+  const body = sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role));
+  const result = await requestCcp('PUT', `clients/${encodeURIComponent(req.params.id)}`, body);
+  if (result.status >= 200 && result.status < 300) await trackManualClientSave({ payload: body, ccpPayload: { ...result.payload, id: req.params.id }, user: req.user }).catch(() => null);
+  return res.status(result.status).json(result.payload);
+});
 
 router._test = { LEAD_FIELDS, CLIENT_SECTIONS, pick, creatorIdentity, sanitizeLead, sanitizeClient, validatedLeadPayload };
 module.exports = router;

@@ -16,6 +16,7 @@ const assetRoutes = require('./routes/assets');
 const teamRoutes = require('./routes/teams');
 const calendarItemRoutes = require('./routes/calendarItems');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
+const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
 const { requireCcpSecret } = require('./middleware/ccpSecret');
 const PendingApproval = require('./models/PendingApproval');
 
@@ -48,6 +49,7 @@ function connectAndStartServices() {
   dbReady = connectDB().then(() => {
     if (!schedulerStarted) {
       startPendingApprovalReminderScheduler();
+      startClientOnboardingReminderScheduler();
       schedulerStarted = true;
     }
   });
@@ -74,6 +76,14 @@ app.use('/api', async (req, res, next) => {
 });
 
 app.post('/api/crm/users/sync', requireCcpSecret, authController.syncUserFromCcp);
+app.get('/api/internal/client-onboarding-reminders', async (req, res) => {
+  const cronSecret = String(process.env.CRON_SECRET || '').trim();
+  const authorization = String(req.get('authorization') || '').trim();
+  if (!cronSecret) return res.status(503).json({ ok: false, error: 'CRON_SECRET is not configured' });
+  if (authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized cron request' });
+  try { return res.json({ ok: true, ...(await runClientOnboardingReminders()) }); }
+  catch (error) { return res.status(500).json({ ok: false, error: error.message || 'Reminder run failed' }); }
+});
 app.post('/api/pending-approvals/ccp/sync', requireCcpSecret, async (req, res, next) => {
   try {
     const rows = Array.isArray(req.body?.approvals) ? req.body.approvals : [req.body];
