@@ -9,6 +9,7 @@ import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { adminRoles } from '../../constants/dashboard';
 import { quotationServiceCategoryOptions, selectOptions } from './clientMaster.constants';
 import { UploadButton } from './ClientMasterFormSections';
+import { uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
 import {
   annualDraftLegacyKeys,
   buildAnnualReturnYears,
@@ -787,20 +788,14 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
     updatePoRows(rows.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row));
   }
 
-  function uploadPoFile(index, file) {
+  async function uploadPoFile(index, file) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => updatePoRow(index, 'file', { name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    updatePoRow(index, 'file', await uploadMedia(file, 'crm/annual-return/purchase-orders'));
   }
 
-  function uploadApprovalFiles(fileList) {
-    const files = Array.from(fileList || []);
-    Promise.all(files.map((file) => new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({ name: file.name, dataUrl: reader.result });
-      reader.readAsDataURL(file);
-    }))).then((approvalFiles) => setPoDraft((current) => ({ ...current, approvalFiles })));
+  async function uploadApprovalFiles(fileList) {
+    const approvalFiles = await uploadMediaBatch(fileList, 'crm/annual-return/special-approvals');
+    setPoDraft((current) => ({ ...current, approvalFiles }));
   }
 
   async function savePoWorkflow() {
@@ -3494,12 +3489,10 @@ function AnnualFieldControl({ field, value, displayValue, isAutoLocked, onChange
   const fileUrl = getProcessingFileUrl(value);
   const isUrl = fileUrl && (fileUrl.startsWith('http') || fileUrl.startsWith('data:') || fileUrl.includes('/'));
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/documents'));
   }
 
   if (field.type === 'select') {
@@ -3550,12 +3543,10 @@ function LegacyDataField({ field, value, source, onChange }) {
   const isFilled = Boolean(getProcessingDisplayValue(value).trim());
   const isAutoLocked = source !== 'Manual' && isFilled && field.type !== 'file';
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/documents'));
   }
 
   return (
@@ -3751,12 +3742,10 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
     onChange(nextRows.length ? nextRows : [createClientInteractionRow()]);
   }
 
-  function handleMailUpload(index, event) {
+  async function handleMailUpload(index, event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => updateRow(index, 'attachedMail', { name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    updateRow(index, 'attachedMail', await uploadMedia(file, 'crm/annual-return/client-interactions'));
   }
 
   function openMom(index, readOnly = false) {
@@ -3909,12 +3898,10 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
 function RawDataUploadCard({ label, value, onChange }) {
   const displayValue = getProcessingDisplayValue(value);
 
-  function handleFile(event) {
+  async function handleFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/raw-data'));
   }
 
   function viewFile() {
@@ -4059,12 +4046,10 @@ function ProcessingPill({ label, value, icon: Icon, type = 'text', tone = 'white
   const inputClass = 'processing-input';
   const isAutoLocked = source !== 'Manual' && Boolean(getProcessingDisplayValue(value).trim()) && type !== 'file';
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/documents'));
   }
 
   return (

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { ImagePlus, Trash2, X } from 'lucide-react'
 import ToastMessage from '../ToastMessage'
 import { defaultTeams, roles, roleLabels } from '../../constants/dashboard'
+import { uploadMedia } from '../../services/mediaUpload'
 
 export default function AddUserModal({ form, saving, error, teams: savedTeams = [], onChange, onClose, onSubmit }) {
   const [creatingTeam, setCreatingTeam] = useState(false)
@@ -26,7 +27,7 @@ export default function AddUserModal({ form, saving, error, teams: savedTeams = 
     setCreatingTeam(false)
   }
 
-  function handleAvatarChange(event) {
+  async function handleAvatarChange(event) {
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -37,11 +38,8 @@ export default function AddUserModal({ form, saving, error, teams: savedTeams = 
     }
     setAvatarError('')
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      onChange({ ...form, avatarUrl: reader.result })
-    }
-    reader.readAsDataURL(file)
+    const uploaded = await uploadMedia(file, 'crm/users/avatars')
+    onChange({ ...form, avatarUrl: uploaded.secureUrl })
   }
 
   return (

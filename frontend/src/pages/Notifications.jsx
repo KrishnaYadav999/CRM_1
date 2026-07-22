@@ -5,6 +5,7 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
+import { uploadMedia } from '../services/mediaUpload';
 
 const STORAGE_KEY = 'crm.notifications.v1';
 const tags = ['Training Material', 'Compliance SOPs', 'Company Profile', 'Policy Update', 'Internal Memo'];
@@ -382,18 +383,11 @@ export default function Notifications() {
     window.open(href, '_blank', 'noopener,noreferrer');
   }
 
-  function handleAttachment(event) {
+  async function handleAttachment(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setDraft((current) => ({
-        ...current,
-        attachmentName: file.name,
-        attachmentUrl: String(reader.result || '')
-      }));
-    };
-    reader.readAsDataURL(file);
+    const uploaded = await uploadMedia(file, 'crm/notifications/attachments');
+    setDraft((current) => ({ ...current, attachmentName: uploaded.name, attachmentUrl: uploaded.secureUrl }));
   }
 
   return (

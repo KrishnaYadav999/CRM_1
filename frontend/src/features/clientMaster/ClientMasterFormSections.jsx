@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChevronDown, Eye, FileCheck2, MapPin, Plus, Trash2, Upload } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
 import PremiumDatePicker from '../../components/form/PremiumDatePicker';
+import { mediaUrl, uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
 
 function AddressTab({ client, setValue, copyRegisteredAddress, selectOptions }) {
   return (
@@ -377,18 +378,17 @@ function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
     setRoot('cpcbScreenshots', nextItems);
   }
 
-  function addFiles(fileList) {
+  async function addFiles(fileList) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
-    const pending = files.map((file) => new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({ id: `${Date.now()}-${file.name}-${Math.random()}`, name: '', file: { name: file.name, type: file.type, dataUrl: reader.result } });
-      reader.readAsDataURL(file);
-    }));
-    Promise.all(pending).then((uploaded) => {
+    try {
+      const cloudFiles = await uploadMediaBatch(files, 'crm/client-master/cpcb');
+      const uploaded = cloudFiles.map((file) => ({ id: file.publicId, name: '', file }));
       updateItems([...items, ...uploaded]);
       onValidationError?.(`Add a name for ${uploaded.length === 1 ? 'the uploaded file' : `all ${uploaded.length} uploaded files`} before saving.`);
-    });
+    } catch (error) {
+      onValidationError?.(error.message || 'Unable to upload files to Cloudinary.');
+    }
   }
 
   function updateItem(index, field, value) {
@@ -511,16 +511,14 @@ function DynamicTable({ title, rows, columns, uploadColumn, onAdd, onUpdate, onR
 }
 
 function UploadButton({ value, onChange }) {
-  function handleFile(event) {
+  async function handleFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/client-master/documents'));
   }
 
   function viewFile() {
-    const url = value?.dataUrl || value?.url || (typeof value === 'string' ? value : '');
+    const url = mediaUrl(value);
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
   }

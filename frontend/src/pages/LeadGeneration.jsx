@@ -14,6 +14,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeadHistory, fetchCcpLeads } from '../services/ccpApi';
 import { mergeLeadSources } from '../features/clientMaster/clientMaster.utils';
 import { inferPiboParent, normalizeLegacyPiboCategory } from '../constants/piboCategories';
+import { uploadMedia } from '../services/mediaUpload';
 
 const emptyLead = {
   sourceLeadId: '',
@@ -274,12 +275,11 @@ export default function LeadGeneration() {
     showToast(`${next.label} step unlocked.`, 'success');
   }
 
-  function handleBusinessCard(event) {
+  async function handleBusinessCard(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => updateField('businessCardUrl', reader.result);
-    reader.readAsDataURL(file);
+    const uploaded = await uploadMedia(file, 'crm/leads/business-cards');
+    updateField('businessCardUrl', uploaded.secureUrl);
   }
 
   function resolveUserId(value) {
