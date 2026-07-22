@@ -29,6 +29,7 @@ import {
   annualDraftLegacyKeys,
   buildAnnualReturnYears,
   buildCcpClientEditUrl,
+  enrichClientsFromLeads,
   findClientByRouteKey,
   formatDateInputValue,
   getAnnualDraftAliasValue,
@@ -495,11 +496,14 @@ export default function ClientMaster() {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
-      const [ccpClientsResult] = await Promise.allSettled([fetchCcpClients()]);
+      const [ccpClientsResult, ccpLeadsResult] = await Promise.allSettled([fetchCcpClients(), fetchCcpLeads()]);
       const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
         ? (ccpClientsResult.value.data.clients || [])
         : [];
-      const visibleClients = getClientMasterRows([], ccpClients);
+      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
+        ? (ccpLeadsResult.value.data.leads || [])
+        : [];
+      const visibleClients = enrichClientsFromLeads(getClientMasterRows([], ccpClients), ccpLeads);
       setTotalClientCount(visibleClients.length);
       try {
         const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
@@ -510,10 +514,6 @@ export default function ClientMaster() {
         setAnnualReturnRecords([]);
         setClients(visibleClients);
       }
-      const [ccpLeadsResult] = await Promise.allSettled([fetchCcpLeads()]);
-      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
-        ? (ccpLeadsResult.value.data.leads || [])
-        : [];
       setLeads(ccpLeads);
       try {
         const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);

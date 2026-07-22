@@ -521,6 +521,56 @@ function getOtpName(data = {}) {
   return data.otp?.personName || data.authorised?.name || data.coordinating?.name || 'Not provided';
 }
 
+function enrichClientsFromLeads(clients = [], leads = []) {
+  const normalizedLeads = mergeLeadSources([], leads);
+  const byStableId = new Map();
+  const byCompany = new Map();
+
+  normalizedLeads.forEach((lead) => {
+    [lead.leadNumber, lead.leadCode, lead.businessLeadCode, lead.sourceLeadId, lead._id, lead.id]
+      .map((value) => normalizeClientIdentity(value))
+      .filter(Boolean)
+      .forEach((key) => byStableId.set(key, lead));
+    const companyKey = normalizeClientIdentity(lead.company || lead.companyName);
+    if (companyKey && !byCompany.has(companyKey)) byCompany.set(companyKey, lead);
+  });
+
+  return clients.map((client) => {
+    const data = readClientData(client);
+    const selectedLead = client?.selectedLead;
+    const stableCandidates = [
+      data.importMeta?.leadNumber,
+      typeof selectedLead === 'object' ? selectedLead?.leadNumber || selectedLead?.leadCode || selectedLead?._id || selectedLead?.id : selectedLead
+    ].map((value) => normalizeClientIdentity(value)).filter(Boolean);
+    const companyCandidates = [data.basic?.clientLegalName, data.basic?.tradeName]
+      .map((value) => normalizeClientIdentity(value)).filter(Boolean);
+    const lead = stableCandidates.map((key) => byStableId.get(key)).find(Boolean)
+      || companyCandidates.map((key) => byCompany.get(key)).find(Boolean);
+    if (!lead) return client;
+
+    const assigned = lead.assignedToText
+      || lead.assignedTo?.name
+      || (typeof lead.assignedTo === 'string' ? lead.assignedTo : '')
+      || lead.assignedBy
+      || lead.importedCreatedBy;
+    const enrichedData = mergeClientData({
+      otp: {
+        ...(data.otp || {}),
+        mobile: data.otp?.mobile || lead.mobileNo1 || lead.mobile || lead.phone || '',
+        personName: data.otp?.personName || lead.contactPerson || lead.contactName || ''
+      },
+      authorised: {
+        ...(data.authorised || {}),
+        mobile: data.authorised?.mobile || lead.mobileNo1 || lead.mobile || lead.phone || '',
+        name: data.authorised?.name || lead.contactPerson || lead.contactName || '',
+        email: data.authorised?.email || lead.emails || lead.email || ''
+      },
+      importMeta: { ...(data.importMeta || {}), assignedTo: data.importMeta?.assignedTo || assigned || '' }
+    }, data);
+    return { ...client, data: enrichedData };
+  });
+}
+
 function getAssignedId(item) {
   const assigned = item?.adminControls?.assignedTo;
   return assigned?._id || assigned?.id || (typeof assigned === 'string' ? assigned : '');
@@ -983,6 +1033,7 @@ export {
   getCpcbStatus,
   getOtpMobile,
   getOtpName,
+  enrichClientsFromLeads,
   getAssignedId,
   getMsmeRows,
   getMsmeSummary,
