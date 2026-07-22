@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Bot, BrainCircuit, CalendarDays, Maximize2, MessageCircle, Minimize2, Send, Sparkles, X, Zap } from 'lucide-react'
 import { getAssignedName, getClientUniqueId, getVisibilityStatus, isFilled, normalizeClientIdentity, readClientData } from '../../features/clientMaster/clientMaster.utils'
 import { findPiboOperationsAnswer } from './piboOperationsFaq'
@@ -594,8 +594,27 @@ function buildCompanyAudit(query) {
   }
 }
 
-function buildAnswer(question) {
+export function buildAnswer(question, context = {}) {
   const cleanQuestion = normalize(question)
+  const userName = String(context.userName || 'Krishna Yadav').trim()
+  const firstName = userName.split(/\s+/)[0] || 'Krishna'
+  const asksName = /^(my )?name( is)?( krishna)?$/.test(cleanQuestion)
+    || cleanQuestion === 'krishna'
+    || cleanQuestion.includes('what is my name')
+    || cleanQuestion.includes('who am i')
+  if (asksName) {
+    return {
+      text: `Your name is ${userName}. Nice to have you here, ${firstName}! I can also help with your CRM profile, assigned work, leads, clients and compliance workflows.`,
+      source: 'Signed-in CRM profile',
+      confidence: 'Personalized',
+      suggestions: [
+        { label: 'My profile', prompt: 'What details are in my CRM profile?' },
+        { label: 'My work', prompt: 'Show me what CRM work I should check today' },
+        { label: 'Client Master', prompt: 'Explain Client Master full flow' },
+        { label: 'PIBO help', prompt: 'How is the PIBO Operations module accessed?' }
+      ]
+    }
+  }
   const companyAudit = cleanQuestion.length >= 3 ? buildCompanyAudit(question) : null
   if (companyAudit) {
     return {
@@ -712,6 +731,7 @@ function buildAnswer(question) {
 
 export default function SidebarChatbot({ collapsed = false }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [messages, setMessages] = useState(starterMessages)
@@ -805,13 +825,7 @@ export default function SidebarChatbot({ collapsed = false }) {
       <button
         type="button"
         className="sidebar-chatbot-trigger"
-        onClick={() => {
-          if (open) {
-            closeAssistant()
-            return
-          }
-          openAssistant()
-        }}
+        onClick={() => navigate('/assistant')}
         title="CRM Assistant"
         aria-label="Open CRM Assistant"
       >

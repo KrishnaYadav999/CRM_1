@@ -14,6 +14,7 @@ import CalendarTodo from './pages/CalendarTodo'
 import Notifications from './pages/Notifications'
 import PendingApproval from './pages/PendingApproval'
 import NotFound from './pages/NotFound'
+import AssistantPage from './pages/AssistantPage'
 
 function App(){
   return (
@@ -30,6 +31,7 @@ function App(){
         <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications/></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarTodo/></ProtectedRoute>} />
+        <Route path="/assistant" element={<ProtectedRoute><AssistantPage/></ProtectedRoute>} />
         <Route path="/sales/lead-generation" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/sales/client-master" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />
         <Route path="/sales/client-annual-returns/:clientKey" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />

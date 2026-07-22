@@ -1,0 +1,104 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Bot, ChevronRight, Menu, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, WandSparkles } from 'lucide-react'
+import DashboardShell from '../components/dashboard/DashboardShell'
+import { buildAnswer } from '../components/dashboard/SidebarChatbot'
+
+const starters = [
+  { label: 'My name', prompt: 'What is my name?' },
+  { label: 'Client Master', prompt: 'Explain Client Master full flow' },
+  { label: 'PIBO Operations', prompt: 'How is the PIBO Operations module accessed?' },
+  { label: 'Bulk Upload', prompt: 'How do I complete a procurement bulk upload?' }
+]
+
+function readUser() {
+  try { return JSON.parse(localStorage.getItem('user') || '{}') } catch { return {} }
+}
+
+function welcomeMessage(name) {
+  const firstName = String(name || 'there').trim().split(/\s+/)[0]
+  return { id: 'welcome', role: 'assistant', text: `Hello ${firstName}! I’m your Anant Tattva CRM Assistant. Ask naturally—even short phrases or small spelling mistakes are okay.`, suggestions: starters }
+}
+
+export default function AssistantPage() {
+  const user = useMemo(readUser, [])
+  const userName = user.name || user.fullName || 'Krishna Yadav'
+  const [threads, setThreads] = useState(() => [{ id: Date.now(), title: 'New conversation', messages: [welcomeMessage(userName)] }])
+  const [activeId, setActiveId] = useState(() => threads[0].id)
+  const [input, setInput] = useState('')
+  const [typing, setTyping] = useState(false)
+  const [railOpen, setRailOpen] = useState(false)
+  const endRef = useRef(null)
+  const active = threads.find((thread) => thread.id === activeId) || threads[0]
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [active?.messages, typing])
+
+  function newChat() {
+    const thread = { id: Date.now(), title: 'New conversation', messages: [welcomeMessage(userName)] }
+    setThreads((items) => [thread, ...items])
+    setActiveId(thread.id)
+    setRailOpen(false)
+  }
+
+  function send(text = input) {
+    const question = String(text || '').trim()
+    if (!question || typing) return
+    const answer = buildAnswer(question, { userName })
+    setInput('')
+    setTyping(true)
+    setThreads((items) => items.map((thread) => thread.id === activeId ? {
+      ...thread,
+      title: thread.title === 'New conversation' ? question.slice(0, 42) : thread.title,
+      messages: [...thread.messages, { id: `u-${Date.now()}`, role: 'user', text: question }]
+    } : thread))
+    window.setTimeout(() => {
+      setThreads((items) => items.map((thread) => thread.id === activeId ? {
+        ...thread,
+        messages: [...thread.messages, { id: `a-${Date.now()}`, role: 'assistant', ...answer }]
+      } : thread))
+      setTyping(false)
+    }, 380)
+  }
+
+  function deleteThread(id) {
+    const remaining = threads.filter((thread) => thread.id !== id)
+    if (!remaining.length) { newChat(); return }
+    setThreads(remaining)
+    if (activeId === id) setActiveId(remaining[0].id)
+  }
+
+  return (
+    <DashboardShell currentUser={user}>
+      <div className="min-h-[calc(100vh-4rem)] bg-[radial-gradient(circle_at_50%_0%,rgba(16,185,129,.12),transparent_38%),linear-gradient(135deg,#f4fbf9,#fffaf5)] p-3 sm:p-5">
+        <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mx-auto flex h-[calc(100vh-6.5rem)] max-w-[1500px] overflow-hidden rounded-[28px] border border-emerald-100 bg-white/90 shadow-[0_28px_80px_rgba(15,93,70,.15)] backdrop-blur-xl">
+          <AnimatePresence>
+            {(railOpen || true) && <motion.aside initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className={`${railOpen ? 'flex' : 'hidden'} absolute inset-y-0 left-0 z-30 w-[290px] flex-col border-r border-emerald-100 bg-[#073f35] p-4 text-white lg:static lg:flex`}>
+              <div className="flex items-center gap-3 px-2 py-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-emerald-300 to-teal-500 text-[#073f35]"><Bot /></span><div><strong className="block text-lg">CRM Assistant</strong><small className="text-emerald-200">Anant Tattva intelligence</small></div></div>
+              <button onClick={newChat} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#f45b0b] font-black shadow-lg shadow-orange-950/20 transition hover:-translate-y-0.5 hover:bg-orange-500"><MessageSquarePlus className="h-5 w-5" /> New chat</button>
+              <p className="mb-2 mt-7 px-2 text-[11px] font-black uppercase tracking-[.2em] text-emerald-300">Recent conversations</p>
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">{threads.map((thread) => <button key={thread.id} onClick={() => { setActiveId(thread.id); setRailOpen(false) }} className={`group flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-bold transition ${activeId === thread.id ? 'bg-white/14 text-white' : 'text-emerald-100 hover:bg-white/8'}`}><span className="min-w-0 flex-1 truncate">{thread.title}</span><Trash2 onClick={(event) => { event.stopPropagation(); deleteThread(thread.id) }} className="h-4 w-4 opacity-0 transition group-hover:opacity-70" /></button>)}</div>
+              <div className="mt-3 rounded-2xl border border-white/10 bg-white/8 p-3"><div className="flex items-center gap-2"><UserRound className="h-5 w-5 text-emerald-300" /><div className="min-w-0"><strong className="block truncate text-sm">{userName}</strong><small className="text-emerald-200">{user.role || 'CRM User'}</small></div></div></div>
+            </motion.aside>}
+          </AnimatePresence>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+            <header className="flex h-16 items-center justify-between border-b border-slate-100 px-4 sm:px-7"><div className="flex items-center gap-3"><button onClick={() => setRailOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 lg:hidden"><Menu /></button><div><strong className="block text-slate-900">Intelligent CRM workspace</strong><small className="text-slate-500">Context-aware answers and guided next steps</small></div></div><span className="hidden items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 sm:flex"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Ready</span></header>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8 lg:px-16">
+              <div className="mx-auto max-w-4xl space-y-7">
+                {active.messages.map((message) => <motion.div key={message.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {message.role === 'assistant' && <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white shadow-lg shadow-emerald-700/20"><Sparkles className="h-5 w-5" /></span>}
+                  <div className={`max-w-[82%] ${message.role === 'user' ? 'rounded-[22px_22px_6px_22px] bg-[#0f6655] text-white' : 'rounded-[22px_22px_22px_6px] border border-slate-200 bg-white text-slate-700 shadow-sm'} px-5 py-4`}><p className="whitespace-pre-line text-[15px] font-semibold leading-7">{message.text}</p>{message.source && <small className="mt-3 block font-bold text-emerald-600">{message.source}</small>}{message.suggestions?.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{message.suggestions.map((suggestion) => <button key={suggestion.prompt} onClick={() => send(suggestion.prompt)} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:-translate-y-0.5 hover:bg-emerald-100">{suggestion.label}<ChevronRight className="h-3 w-3" /></button>)}</div>}</div>
+                </motion.div>)}
+                {typing && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-600 text-white"><Bot className="h-5 w-5" /></span><span className="flex gap-1 rounded-2xl border bg-white px-5 py-4">{[0,1,2].map((i) => <i key={i} style={{ animationDelay: `${i * 120}ms` }} className="h-2 w-2 animate-bounce rounded-full bg-emerald-500" />)}</span></motion.div>}
+                <div ref={endRef} />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-100 bg-white/85 p-4 sm:px-8 sm:py-5"><form onSubmit={(event) => { event.preventDefault(); send() }} className="mx-auto flex max-w-4xl items-end gap-3 rounded-[24px] border border-emerald-200 bg-white p-2 shadow-[0_14px_38px_rgba(15,93,70,.13)] transition focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-100"><span className="mb-1 grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-orange-50 text-[#f45b0b]"><WandSparkles className="h-5 w-5" /></span><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send() } }} rows={1} placeholder="Ask anything about CRM, your profile or PIBO operations…" className="max-h-32 min-h-11 flex-1 resize-none border-0 bg-transparent px-1 py-3 font-semibold text-slate-800 outline-none placeholder:text-slate-400" /><button disabled={!input.trim() || typing} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#0f6655] text-white shadow-lg transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"><Send className="h-5 w-5" /></button></form><p className="mt-2 text-center text-[11px] font-semibold text-slate-400">CRM Assistant may need source records to answer live-data questions. Verify critical compliance decisions.</p></div>
+          </div>
+        </motion.section>
+      </div>
+    </DashboardShell>
+  )
+}
