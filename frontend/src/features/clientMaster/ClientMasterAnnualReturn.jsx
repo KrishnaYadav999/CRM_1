@@ -572,6 +572,18 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   const selected = years.find((year) => year.label === selectedYear);
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Selected Client';
   const uniqueId = getClientUniqueId(client);
+  const annualPoStorageKey = `annual-return-po:${client?._id || client?.id || uniqueId}`;
+  const storedPoWorkflow = Object.values(data.annualReturn?.filings || {})
+    .map((filing) => filing?.draft?.purchaseOrderConfirmation)
+    .find((value) => value?.confirmed) || {};
+  const [poWorkflow, setPoWorkflow] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(annualPoStorageKey) || 'null') || storedPoWorkflow; } catch { return storedPoWorkflow; }
+  });
+  const [poDraft, setPoDraft] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(annualPoStorageKey) || 'null') || storedPoWorkflow; } catch { return storedPoWorkflow; }
+  });
+  const [poModalOpen, setPoModalOpen] = useState(!selectedYear);
+  const [poValidationError, setPoValidationError] = useState('');
   const assignedName = getAssignedName(client);
   const rawPreviousSpoc = String(data.importMeta?.previousSpoc || '').trim();
   const previousSpocName = rawPreviousSpoc && rawPreviousSpoc.toUpperCase() !== 'N/A' ? rawPreviousSpoc : assignedName;
@@ -588,6 +600,11 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
       .filter(Boolean);
     return [...new Set([...quotationServiceCategoryOptions, ...fromQuotations])].sort((left, right) => left.localeCompare(right));
   }, [quotations]);
+  const previousQuotationService = useMemo(() => quotations
+    .flatMap((quotation) => Array.isArray(quotation.items) ? quotation.items : [])
+    .map((item) => String(item.serviceCategory || item.service || '').trim())
+    .filter(Boolean)
+    .at(-1) || '', [quotations]);
   const latestQuotationNo = useMemo(() => {
     const normalizeName = (value = '') => String(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     const clientNames = [
@@ -703,6 +720,91 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
     const timer = window.setTimeout(() => setAnnualToast(null), 3600);
     return () => window.clearTimeout(timer);
   }, [annualToast]);
+
+  useEffect(() => {
+    if (selected) return;
+    const missingYears = years.filter((year) => poWorkflow.mode === 'yes' && !(poWorkflow.rows || []).some((row) => row.fyYear === year.label));
+    if (poWorkflow.confirmed && missingYears.length) {
+      setAnnualToast({ type: 'error', message: `You didn't fill Annual Return ${missingYears.map((year) => year.label).join(', ')}. Complete PO details to unlock these years.` });
+    }
+  }, [poWorkflow, selectedYear, years.map((year) => year.label).join('|')]);
+
+  function updatePoRows(nextRows) {
+    setPoDraft((current) => ({ ...current, mode: current.mode || 'yes', rows: nextRows }));
+  }
+
+  function addPoYear() {
+    const rows = Array.isArray(poDraft.rows) ? poDraft.rows : [];
+    const nextAvailableYear = years.find((year) => !rows.some((row) => row.fyYear === year.label))?.label || '';
+    const inheritedService = rows.at(-1)?.service || previousQuotationService || '';
+    updatePoRows([...rows, { fyYear: nextAvailableYear, poNumber: '', file: null, service: inheritedService }]);
+  }
+
+  function updatePoRow(index, field, value) {
+    const rows = Array.isArray(poDraft.rows) ? poDraft.rows : [];
+    updatePoRows(rows.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row));
+  }
+
+  function uploadPoFile(index, file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => updatePoRow(index, 'file', { name: file.name, dataUrl: reader.result });
+    reader.readAsDataURL(file);
+  }
+
+  function uploadApprovalFiles(fileList) {
+    const files = Array.from(fileList || []);
+    Promise.all(files.map((file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, dataUrl: reader.result });
+      reader.readAsDataURL(file);
+    }))).then((approvalFiles) => setPoDraft((current) => ({ ...current, approvalFiles })));
+  }
+
+  async function savePoWorkflow() {
+    const mode = poDraft.mode || 'yes';
+    const rows = Array.isArray(poDraft.rows) ? poDraft.rows : [];
+    if (mode === 'yes') {
+      const invalid = !rows.length || rows.some((row) => !row.fyYear || !String(row.poNumber || '').trim() || !row.file || !String(row.service || '').trim());
+      if (invalid) {
+        setPoValidationError('FY Year, PO Number, PO Upload and Service are required for every row.');
+        return;
+      }
+    } else if (!(poDraft.approvalFiles || []).length && !String(poDraft.approvalNote || '').trim()) {
+      setPoValidationError('Upload special approval proof or enter the approval email/note.');
+      return;
+    }
+    const saved = { ...poDraft, mode, confirmed: true, savedAt: new Date().toISOString() };
+    const clientId = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId;
+    const targetYears = mode === 'yes' ? [...new Set(rows.map((row) => row.fyYear))] : years.map((year) => year.label);
+    try {
+      await Promise.all(targetYears.map((annualYear) => api.put(API_ENDPOINTS.clients.annualReturn(clientId), {
+        annualYear,
+        activeTab: 'basic',
+        activeSection: 'Purchase Order Confirmation',
+        status: 'draft',
+        draft: {
+          ...getStoredAnnualReturnDraft(data, annualYear),
+          purchaseOrderConfirmation: saved
+        }
+      })));
+    } catch (error) {
+      setPoValidationError(error?.response?.data?.error || 'Unable to save PO confirmation. Please try again.');
+      return;
+    }
+    localStorage.setItem(annualPoStorageKey, JSON.stringify(saved));
+    setPoWorkflow(saved);
+    setPoDraft(saved);
+    setPoValidationError('');
+    setPoModalOpen(false);
+    setAnnualToast({ type: 'success', message: 'Purchase Order confirmation saved successfully.' });
+  }
+
+  function isAnnualYearLocked(yearLabel) {
+    if (!poWorkflow.confirmed) return true;
+    if (poWorkflow.mode === 'no') return !(poWorkflow.approvalFiles || []).length && !String(poWorkflow.approvalNote || '').trim();
+    return !(poWorkflow.rows || []).some((row) => row.fyYear === yearLabel);
+  }
 
   useEffect(() => {
     if (!reviewDrawerOpen) return undefined;
@@ -1733,6 +1835,12 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   function openAnnualYear(year) {
     const clientKey = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || getClientUniqueId(client);
     const nextYear = year?.label || '';
+    if (isAnnualYearLocked(nextYear)) {
+      setAnnualToast({ type: 'error', message: `You didn't fill Annual Return ${nextYear}. Complete its PO details first.` });
+      setPoDraft(poWorkflow);
+      setPoModalOpen(true);
+      return;
+    }
     console.debug('[CRM AnnualReturn]', {
       label: 'hub-card-open',
       at: new Date().toISOString(),
@@ -1747,6 +1855,15 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
 
   return (
     <div className="mt-5 space-y-5">
+      {!selected && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => navigate('/sales/client-master')} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-[#30737B] hover:bg-teal-50"><ArrowLeft className="h-5 w-5" /></button>
+            <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Annual Return</p><h2 className="text-xl font-black text-slate-950">{clientName}</h2></div>
+          </div>
+          <button type="button" onClick={() => { setPoDraft(poWorkflow); setPoModalOpen(true); }} className="btn-lift rounded-xl bg-[#30737B] px-5 py-3 text-sm font-black text-white">Purchase Order Confirmation</button>
+        </div>
+      )}
       {annualToast && (
         <div className="fixed right-5 top-16 z-[160] w-[min(430px,calc(100vw-40px))]">
           <ToastMessage type={annualToast.type} actionLabel="Close" onAction={() => setAnnualToast(null)}>{annualToast.message}</ToastMessage>
@@ -1765,13 +1882,14 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           <div className="annual-year-grid mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {years.map((year, index) => {
               const active = selected?.label === year.label;
+              const locked = isAnnualYearLocked(year.label);
               const [yearStart, yearEnd] = year.label.split('-');
               return (
                 <button
                   key={year.label}
                   type="button"
                   onClick={() => openAnnualYear(year)}
-                  className={`annual-year-card ${active ? 'annual-year-card-active' : ''}`}
+                  className={`annual-year-card ${active ? 'annual-year-card-active' : ''} ${locked ? '!border-red-300 !bg-red-50/80 opacity-80' : ''}`}
                   style={{ '--delay': `${index * 90}ms` }}
                 >
                   <span className="annual-year-topline" />
@@ -1781,7 +1899,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
                     <span className="block">{yearEnd}</span>
                   </strong>
                   <span className="mt-4 block text-xs font-black text-slate-400">{year.period}</span>
-                  <span className="mt-1 block text-xs font-black text-slate-400">- {year.status}</span>
+                  <span className={`mt-1 block text-xs font-black ${locked ? 'text-red-600' : 'text-slate-400'}`}>- {locked ? 'Frozen — PO details pending' : year.status}</span>
                 </button>
               );
             })}
@@ -1793,6 +1911,36 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           />
         )}
       </section>}
+
+      {poModalOpen && !selected && (
+        <div className="fixed inset-0 z-[190] grid place-items-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm">
+          <section className="my-6 w-full max-w-6xl overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-2xl">
+            <header className="flex items-start justify-between bg-gradient-to-r from-[#faf7f0] to-[#f4eee5] px-6 py-5">
+              <div><p className="text-xs font-black uppercase tracking-[0.22em] text-[#527566]">PO Workflow</p><h2 className="mt-2 text-2xl font-black text-slate-950">Purchase Order Confirmation</h2><p className="mt-1 text-sm font-semibold text-slate-500">{clientName} · {uniqueId}</p></div>
+              <button type="button" onClick={() => setPoModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl bg-white text-slate-500 shadow-sm"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="space-y-5 p-6">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received</p>
+                <div className="mt-4 flex gap-3">
+                  {['yes', 'no'].map((mode) => <button key={mode} type="button" onClick={() => { setPoDraft((current) => ({ ...current, mode })); setPoValidationError(''); }} className={`rounded-xl border px-5 py-3 text-sm font-black capitalize ${String(poDraft.mode || 'yes') === mode ? 'border-emerald-200 bg-emerald-50 text-[#416c5a]' : 'border-slate-200 bg-white text-slate-600'}`}>◉ {mode}</button>)}
+                </div>
+              </div>
+
+              {(poDraft.mode || 'yes') === 'yes' ? (
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received For No Of Year</p><strong className="mt-2 block text-2xl text-slate-900">{(poDraft.rows || []).length}</strong></div><div className="flex gap-2"><button type="button" onClick={addPoYear} disabled={(poDraft.rows || []).length >= years.length} className="rounded-xl bg-[#416c5a] px-4 py-3 text-sm font-black text-white disabled:opacity-50">+ Add Next Year</button><button type="button" onClick={() => updatePoRows((poDraft.rows || []).slice(0, -1))} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600">Remove Last Year</button></div></div>
+                  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full min-w-[950px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-widest text-slate-500"><tr><th className="p-4">Sr. No</th><th className="p-4">FY Year</th><th className="p-4">PO Number</th><th className="p-4">PO Upload</th><th className="p-4">Service</th></tr></thead><tbody>{(poDraft.rows || []).length ? (poDraft.rows || []).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="p-4 font-black">{index + 1}</td><td className="p-4"><select className="form-input" value={row.fyYear || ''} onChange={(event) => updatePoRow(index, 'fyYear', event.target.value)}><option value="">Select FY Year</option>{years.map((year) => <option key={year.label} value={year.label}>{year.label}</option>)}</select></td><td className="p-4"><input className="form-input" value={row.poNumber || ''} onChange={(event) => updatePoRow(index, 'poNumber', event.target.value)} placeholder="Enter PO Number" /></td><td className="p-4"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 font-black text-[#416c5a]"><Upload className="h-4 w-4" />{row.file?.name || 'Choose File'}<input type="file" className="sr-only" onChange={(event) => uploadPoFile(index, event.target.files?.[0])} /></label></td><td className="p-4"><select className="form-input" value={row.service || ''} onChange={(event) => updatePoRow(index, 'service', event.target.value)}><option value="">Select Service</option>{annualPoServiceCategoryOptions.map((service) => <option key={service} value={service}>{service}</option>)}</select></td></tr>) : <tr><td colSpan="5" className="p-10 text-center font-bold text-slate-400">Click “Add Next Year” to add PO details.</td></tr>}</tbody></table></div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 p-5"><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Please Provide Special Approval</p><p className="mt-2 text-sm font-semibold text-slate-500">Upload supporting images or email approval proof.</p><div className="mt-5 grid gap-5 md:grid-cols-2"><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Upload Images / Email</span><span className="mt-2 flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 font-black text-[#416c5a]"><Upload className="h-5 w-5" />{(poDraft.approvalFiles || []).length ? `${poDraft.approvalFiles.length} file(s) selected` : 'Choose Files'}<input type="file" multiple accept="image/*,.pdf,.eml,.msg" className="sr-only" onChange={(event) => uploadApprovalFiles(event.target.files)} /></span></label><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Email / Approval Note</span><textarea className="form-input mt-2 min-h-28 py-3" value={poDraft.approvalNote || ''} onChange={(event) => setPoDraft((current) => ({ ...current, approvalNote: event.target.value }))} placeholder="Enter approval email details or notes here" /></label></div></div>
+              )}
+              {poValidationError && <ToastMessage type="error">{poValidationError}</ToastMessage>}
+              <footer className="flex justify-end gap-3 border-t border-slate-200 pt-5"><button type="button" onClick={() => setPoModalOpen(false)} className="rounded-xl border border-slate-200 px-5 py-3 font-black text-slate-600">Cancel</button><button type="button" onClick={savePoWorkflow} className="rounded-xl bg-[#416c5a] px-6 py-3 font-black text-white">Save And Continue</button></footer>
+            </div>
+          </section>
+        </div>
+      )}
 
       {selected && (
         <section className="annual-workspace">

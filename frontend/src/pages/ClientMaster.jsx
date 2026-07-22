@@ -1158,6 +1158,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   ];
   const activeTabMeta = detailTabs.find((tab) => tab.id === activeClientTab) || detailTabs[0];
   const isAnnualProcessingView = activeClientTab === 'annual' && annualYears.some((year) => year.label === selectedAnnualYear);
+  const isAnnualStandaloneView = activeClientTab === 'annual' && initialTab === 'annual';
   const calendarClientKey = String(client._id || client.id || getClientUniqueId(client) || clientName);
   const [interactionTab, setInteractionTab] = useState('follow-up');
   const [calendarItems, setCalendarItems] = useState(() => readCalendarTodoItems());
@@ -1224,6 +1225,11 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   }
 
   function openClientSection(id) {
+    if (id === 'annual') {
+      const clientKey = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || getClientUniqueId(client);
+      navigate(`/sales/client-annual-returns/${encodeURIComponent(clientKey)}`);
+      return;
+    }
     setActiveClientTab(id);
   }
 
@@ -1260,7 +1266,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   return (
     <div className="bg-[#f3f8f6]">
       <section className="min-h-[calc(100vh-64px)] px-4 py-4 sm:px-6 lg:px-8">
-        {!isAnnualProcessingView && <div className="-mx-4 -mt-4 border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        {!isAnnualStandaloneView && <div className="-mx-4 -mt-4 border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <button type="button" onClick={onClose} className="btn-lift grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-orange-600 shadow-sm" title="Back">
@@ -1279,8 +1285,8 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
           </div>
         </div>}
 
-        <div className={isAnnualProcessingView ? 'mt-0 w-full max-w-none' : 'mt-4 w-full max-w-none'}>
-          {!isAnnualProcessingView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/6">
+        <div className={isAnnualStandaloneView ? 'mt-0 w-full max-w-none' : 'mt-4 w-full max-w-none'}>
+          {!isAnnualStandaloneView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/6">
             <div className="bg-[linear-gradient(135deg,#ffffff_0%,#f0fdfa_58%,#fff7ed_100%)] p-4 sm:p-5">
               <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-center">
                 <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
@@ -1308,7 +1314,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
 
           </section>}
 
-          {!isAnnualProcessingView && (
+          {!isAnnualStandaloneView && (
             <ClientInteractionsCard
               activeTab={interactionTab}
               onTabChange={setInteractionTab}
@@ -1319,8 +1325,8 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
             />
           )}
 
-          <div className={isAnnualProcessingView ? 'space-y-0' : 'mt-5 space-y-5'}>
-            {!isAnnualProcessingView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+          <div className={isAnnualStandaloneView ? 'space-y-0' : 'mt-5 space-y-5'}>
+            {!isAnnualStandaloneView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
               <div className="client-detail-tab-strip grid sm:grid-cols-5">
                 {detailTabs.map((tab) => {
                   const Icon = tab.icon;
@@ -1336,8 +1342,8 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
             </section>}
 
             <main className="space-y-5">
-              <section className={isAnnualProcessingView ? '' : 'client-detail-card rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5'}>
-                {!isAnnualProcessingView && <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <section className={isAnnualStandaloneView ? '' : 'client-detail-card rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5'}>
+                {!isAnnualStandaloneView && <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">{activeTabMeta.label}</p>
                     <h3 className="mt-1 text-2xl font-black text-slate-950">{activeTabMeta.title || activeTabMeta.label}</h3>
