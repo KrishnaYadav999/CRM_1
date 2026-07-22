@@ -1070,6 +1070,7 @@ function BasicTab({ client, setValue }) {
 }
 
 function ClientViewModal({ client, quotations = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
+  const navigate = useNavigate();
   const data = readClientData(client);
   const msmeRows = getMsmeRows(data);
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Client Details';
