@@ -8,6 +8,7 @@ import ToastMessage from '../components/ToastMessage';
 import SearchableSelect from '../components/form/SearchableSelect';
 import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import PiboDependentSelect from '../components/form/PiboDependentSelect';
+import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeadHistory, fetchCcpLeads } from '../services/ccpApi';
@@ -181,6 +182,7 @@ export default function LeadGeneration() {
   const resolvedPiboParent = lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory);
   const isFirstStepReady = Boolean(lead.status && lead.company && resolvedPiboParent && lead.piboCategory && lead.servicesOffered);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
+  const canUseExcelBulkImport = adminRoles.includes(currentUser?.role);
 
   const staffOptions = useMemo(() => staff.map((user) => ({
     value: user._id || user.id,
@@ -508,7 +510,7 @@ export default function LeadGeneration() {
             </div>
           </div>
 
-          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          {canUseExcelBulkImport && <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-sm font-black text-slate-950">Excel upload (Lead Import)</p>
               <p className="mt-1 text-xs font-bold text-slate-500">
@@ -534,7 +536,7 @@ export default function LeadGeneration() {
                 {importing ? 'Importing...' : 'Import Drafts'}
               </button>
             </div>
-          </div>
+          </div>}
 
           <section className="mt-6 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-cyan-50 p-3 shadow-lg shadow-emerald-900/5">
             <div className="grid gap-2 sm:grid-cols-4">

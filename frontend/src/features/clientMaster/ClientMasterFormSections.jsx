@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Eye, MapPin, Plus, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Eye, FileCheck2, MapPin, Plus, Trash2, Upload } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
 import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 
@@ -352,7 +352,7 @@ function CteTab({ client, setValue, selectOptions }) {
 
 function CpcbTab({ client, setValue, selectOptions }) {
   return (
-    <Card title="CPCB Details">
+    <Card title="CPCB Login Credential">
       <div className="grid gap-5 md:grid-cols-2">
         <SelectLike required label="CPCB Status" value={client.cpcb.status || ''} options={selectOptions.cpcbStatus} onChange={(value) => setValue('cpcb', 'status', value)} />
         <Field label="Remark"><textarea className="form-input min-h-[92px] resize-y py-3" value={client.cpcb.remark || ''} onChange={(event) => setValue('cpcb', 'remark', event.target.value)} /></Field>
@@ -370,17 +370,64 @@ function CpcbTab({ client, setValue, selectOptions }) {
   );
 }
 
-function ValidationTab({ client, setValue }) {
+function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
+  const items = Array.isArray(client.cpcbScreenshots) ? client.cpcbScreenshots : [];
+
+  function updateItems(nextItems) {
+    setRoot('cpcbScreenshots', nextItems);
+  }
+
+  function addFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const pending = files.map((file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ id: `${Date.now()}-${file.name}-${Math.random()}`, name: '', file: { name: file.name, type: file.type, dataUrl: reader.result } });
+      reader.readAsDataURL(file);
+    }));
+    Promise.all(pending).then((uploaded) => {
+      updateItems([...items, ...uploaded]);
+      onValidationError?.(`Add a name for ${uploaded.length === 1 ? 'the uploaded file' : `all ${uploaded.length} uploaded files`} before saving.`);
+    });
+  }
+
+  function updateItem(index, field, value) {
+    updateItems(items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
+  }
+
   return (
-    <Card title="Validation Documents">
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field label="Quotation Number"><input className="form-input" value={client.validation.quotationNumber || ''} onChange={(event) => setValue('validation', 'quotationNumber', event.target.value)} /></Field>
-          <Field label="Quotation Date"><PremiumDatePicker value={client.validation.quotationDate || ''} onChange={(event) => setValue('validation', 'quotationDate', event.target.value)} /></Field>
-        <Field label="Quotation Document"><UploadButton value={client.validation.quotationDocument} onChange={(value) => setValue('validation', 'quotationDocument', value)} /></Field>
-        <Field label="Initial Purchase Order Number"><input className="form-input" value={client.validation.poNumber || ''} onChange={(event) => setValue('validation', 'poNumber', event.target.value)} /></Field>
-          <Field label="Initial Purchase Order Date"><PremiumDatePicker value={client.validation.poDate || ''} onChange={(event) => setValue('validation', 'poDate', event.target.value)} /></Field>
-        <Field label="Initial Purchase Order Document"><UploadButton value={client.validation.poDocument} onChange={(value) => setValue('validation', 'poDocument', value)} /></Field>
+    <Card title="CPCB Screenshot">
+      <div className="rounded-2xl border border-dashed border-teal-300 bg-gradient-to-br from-teal-50 via-white to-orange-50 p-6 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#30737B] text-white shadow-lg shadow-teal-900/20"><Upload className="h-6 w-6" /></div>
+        <h3 className="mt-4 text-xl font-black text-slate-950">Upload screenshots and documents</h3>
+        <p className="mx-auto mt-2 max-w-2xl text-sm font-semibold text-slate-500">Select multiple files at once for bulk upload. Give every file a clear name so the team can identify it later.</p>
+        <label className="btn-lift mt-5 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20">
+          <Upload className="h-4 w-4" /> Bulk Upload
+          <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" className="sr-only" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+        </label>
       </div>
+
+      {items.length ? (
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          {items.map((item, index) => (
+            <div key={item.id || index} className={`rounded-2xl border bg-white p-4 shadow-sm ${String(item.name || '').trim() ? 'border-slate-200' : 'border-red-300 ring-2 ring-red-50'}`}>
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-[#30737B]"><FileCheck2 className="h-5 w-5" /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-black text-slate-800">{item.file?.name || 'No file selected'}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">Screenshot / supporting document</p>
+                </div>
+                <button type="button" aria-label="Remove file" onClick={() => updateItems(items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-xl p-2 text-red-500 hover:bg-red-50"><Trash2 className="h-5 w-5" /></button>
+              </div>
+              <Field required label="Document Name">
+                <input className="form-input" value={item.name || ''} onChange={(event) => updateItem(index, 'name', event.target.value)} placeholder="e.g. CPCB dashboard screenshot" />
+              </Field>
+              {!String(item.name || '').trim() && <p className="mt-2 text-xs font-black text-red-500">Document name is required.</p>}
+              <button type="button" onClick={() => window.open(item.file?.dataUrl || item.file?.url, '_blank', 'noopener,noreferrer')} className="mt-3 inline-flex items-center gap-2 text-sm font-black text-[#30737B]"><Eye className="h-4 w-4" /> Preview file</button>
+            </div>
+          ))}
+        </div>
+      ) : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-10 text-center font-bold text-slate-400">No CPCB screenshots or documents uploaded yet.</div>}
     </Card>
   );
 }
@@ -530,7 +577,7 @@ export {
   ComplianceTab,
   CteTab,
   CpcbTab,
-  ValidationTab,
+  CpcbScreenshotTab,
   ContactsTab,
   Card,
   Field,

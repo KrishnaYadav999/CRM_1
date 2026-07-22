@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FolderCheck, Images, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -17,13 +17,13 @@ import {
   AddressTab,
   Card,
   CpcbTab,
+  CpcbScreenshotTab,
   ComplianceTab,
   ContactsTab,
   CteTab,
   Field,
   SelectLike,
   UploadButton,
-  ValidationTab
 } from '../features/clientMaster/ClientMasterFormSections';
 import {
   annualDraftLegacyKeys,
@@ -73,11 +73,11 @@ import {
 const tabs = [
   { id: 'basic', label: 'Client Basic Info', icon: Building2 },
   { id: 'address', label: 'Address Details', icon: MapPin },
-  { id: 'compliance', label: 'Compliance & MSME', icon: FileCheck2 },
-  { id: 'cte', label: 'CTE / CTO / CCA', icon: FolderCheck },
-  { id: 'cpcb', label: 'CPCB Details', icon: ShieldCheck },
-  { id: 'validation', label: 'Validation Documents', icon: FileText },
-  { id: 'contacts', label: 'OTP & People', icon: UserRound }
+  { id: 'compliance', label: 'Document', icon: FileCheck2 },
+  { id: 'cte', label: 'CTE & CTO / CCA', icon: FolderCheck },
+  { id: 'cpcb', label: 'CPCB Login Credential', icon: ShieldCheck },
+  { id: 'cpcbScreenshots', label: 'CPCB Screenshot', icon: Images },
+  { id: 'contacts', label: 'Authorized Person Details', icon: UserRound }
 ];
 
 const complianceRows = [
@@ -375,7 +375,7 @@ const emptyClient = {
   msmeRows: [],
   cte: { numberOfPlantsLocations: '', plantWiseDetails: [] },
   cpcb: {},
-  validation: {},
+  cpcbScreenshots: [],
   otp: {},
   authorised: {},
   coordinating: {}
@@ -656,6 +656,13 @@ export default function ClientMaster() {
       setError('First enter Client Legal Name or Trade Name before moving to the next step.');
       return;
     }
+    if (activeTab === 'cpcbScreenshots') {
+      const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidScreenshot) {
+        setError('Please enter a name for every CPCB screenshot/document before continuing.');
+        return;
+      }
+    }
     setError('');
     const next = tabs[Math.min(activeIndex + 1, tabs.length - 1)];
     setActiveTab(next.id);
@@ -835,6 +842,12 @@ export default function ClientMaster() {
     setError('');
     setNotice('');
     try {
+      const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidScreenshot) {
+        setError('Every CPCB screenshot/document must have a name and an uploaded file.');
+        setActiveTab('cpcbScreenshots');
+        return;
+      }
       const submittedRequired = [
         ['Choose Existing Lead', client.selectedLead], ['Client Legal Name', client.basic?.clientLegalName],
         ['Registered Address', client.registeredAddress?.address1], ['Registered State', client.registeredAddress?.state], ['Registered City', client.registeredAddress?.city], ['Registered Pincode', client.registeredAddress?.pincode],
@@ -961,7 +974,7 @@ export default function ClientMaster() {
             </Card>
           )}
 
-          <Card title="Excel Bulk Import" className="mt-6">
+          {canSeeAdminControls && <Card title="Excel Bulk Import" className="mt-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-black text-slate-950">Client Master Import</p>
@@ -989,7 +1002,7 @@ export default function ClientMaster() {
                 </button>
               </div>
             </div>
-          </Card>
+          </Card>}
 
           <section className="mt-6 rounded-2xl border border-teal-100 bg-white/80 p-3 shadow-lg shadow-teal-900/5">
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -1022,7 +1035,7 @@ export default function ClientMaster() {
             {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} />}
             {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} />}
-            {activeTab === 'validation' && <ValidationTab client={client} setValue={setValue} />}
+            {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setRoot={setRoot} onValidationError={setError} />}
             {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} />}
           </div>
 

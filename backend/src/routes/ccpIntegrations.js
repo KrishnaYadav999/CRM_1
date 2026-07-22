@@ -1,5 +1,6 @@
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRoles } = require('../middleware/auth');
+const { ADMIN_ROLES } = require('../constants/roles');
 const { ccpApiUrl, ccpHeaders } = require('../utils/ccpConfig');
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
 
@@ -84,6 +85,9 @@ function sanitizeClient(body, user, isAdmin = false) {
     numberOfPlantsLocations: input.cte?.numberOfPlantsLocations || '',
     plantWiseDetails: Array.isArray(input.cte?.plantWiseDetails) ? input.cte.plantWiseDetails.map((row) => pick(row, Object.keys(row || {}).filter((key) => !['__proto__', 'prototype', 'constructor'].includes(key)))) : []
   };
+  data.cpcbScreenshots = Array.isArray(input.cpcbScreenshots)
+    ? input.cpcbScreenshots.map((row) => pick(row, ['id', 'name', 'file']))
+    : [];
   const admin = pick(body?.adminControls, ['visibilityStatus', 'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedToCrmUserId', ...(isAdmin ? ['approvalStatus'] : [])]);
   if (!isAdmin) admin.approvalStatus = 'PENDING';
   if (admin.assignedTo && !/^[a-f\d]{24}$/i.test(String(admin.assignedTo))) delete admin.assignedTo;
@@ -129,7 +133,7 @@ router.post('/leads', requireAuth, async (req, res) => {
   try { return forward(req, res, 'POST', 'leads', await validatedLeadPayload(req.body, req.user)); }
   catch (error) { return res.status(error.statusCode || 400).json({ error: error.message }); }
 });
-router.post('/leads/bulk', requireAuth, async (req, res) => {
+router.post('/leads/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
   const rows = Array.isArray(req.body?.leads) ? req.body.leads : [];
   if (!rows.length) return res.status(400).json({ error: 'No leads provided' });
 
@@ -176,7 +180,7 @@ router.put('/leads/:id', requireAuth, async (req, res) => {
 });
 router.get('/clients', requireAuth, (req, res) => forward(req, res, 'GET', 'clients'));
 router.post('/clients', requireAuth, (req, res) => forward(req, res, 'POST', 'clients', sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role))));
-router.post('/clients/bulk', requireAuth, async (req, res) => {
+router.post('/clients/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
   const rows = Array.isArray(req.body?.clients) ? req.body.clients : [];
   if (!rows.length) return res.status(400).json({ error: 'No clients provided' });
 
@@ -195,7 +199,7 @@ router.post('/clients/bulk', requireAuth, async (req, res) => {
   }
   return res.status(result.status).json(result.payload);
 });
-router.post('/clients/years/bulk', requireAuth, async (req, res) => {
+router.post('/clients/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
   if (!rows.length) return res.status(400).json({ error: 'No annual return year rows provided' });
   return forward(req, res, 'POST', 'clients/years/bulk', { rows: rows.map((row, index) => ({
