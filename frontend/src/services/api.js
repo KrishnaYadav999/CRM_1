@@ -110,7 +110,17 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error?.response?.status === 401) {
+    const status = error?.response?.status
+    const requestUrl = String(error?.config?.url || '')
+    const message = String(error?.response?.data?.error || error?.response?.data?.message || '').toLowerCase()
+    const isSessionValidationRequest = requestUrl.includes(API_ENDPOINTS.auth.me)
+    const isActualCrmSessionFailure = message.includes('invalid or expired token')
+      || message.includes('user is not active')
+
+    // Integration endpoints (for example CCP lead/quotation sync) can return
+    // their own 401 when a backend-to-backend credential is unavailable. That
+    // must never erase an otherwise valid CRM browser session.
+    if (status === 401 && (isSessionValidationRequest || isActualCrmSessionFailure)) {
       clearStoredSession()
     }
     return Promise.reject(error)
