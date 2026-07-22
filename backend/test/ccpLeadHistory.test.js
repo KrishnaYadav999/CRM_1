@@ -19,6 +19,11 @@ test('CCP API key stays in server-side headers', () => {
   else process.env.CCP_SHARED_API_KEY = previous;
 });
 
+test('CCP API headers forward the signed-in bearer token for collection reads', () => {
+  const req = { get: (name) => String(name).toLowerCase() === 'authorization' ? 'Bearer crm-user-token' : '' };
+  assert.equal(ccpApiHeaders(false, req).Authorization, 'Bearer crm-user-token');
+});
+
 test('quotation-only helper documents are excluded from CCP client rows', () => {
   const { isQuotationOnlyClientRecord, cleanCcpRowsForCrm } = ccpRouter._test;
   const helper = { data: { basic: { clientLegalName: 'Example' }, quotation: { quotationNumber: 'Q-1' } } };

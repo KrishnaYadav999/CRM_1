@@ -203,6 +203,7 @@ export default function LeadGeneration() {
 
   async function loadPage() {
     setLoading(true);
+    setError('');
     try {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
@@ -216,6 +217,13 @@ export default function LeadGeneration() {
         ? (ccpLeadsResult.value.data.leads || [])
         : [];
       setLeads(ccpLeads);
+      if (ccpLeadsResult.status === 'rejected') {
+        setError(
+          ccpLeadsResult.reason?.response?.data?.detail
+          || ccpLeadsResult.reason?.response?.data?.error
+          || 'Unable to fetch leads from CCP. Please retry.'
+        );
+      }
       setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
       setPiboCategories(piboCategoriesResult.status === 'fulfilled' ? (piboCategoriesResult.value.data.categories || []) : []);
       setPiboCategoriesLoading(false);

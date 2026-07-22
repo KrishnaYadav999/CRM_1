@@ -366,7 +366,10 @@ async function fetchCcp(path, key, req, res) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(`${baseUrl}/ccp/${path}`, { headers: ccpApiHeaders(), signal: controller.signal });
+      // CCP accepts the signed-in user's bearer token for read access. Forward it
+      // so collection reads keep working even when an optional server-to-server
+      // shared key is not configured on the CRM deployment.
+      const response = await fetch(`${baseUrl}/ccp/${path}`, { headers: ccpApiHeaders(false, req), signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
