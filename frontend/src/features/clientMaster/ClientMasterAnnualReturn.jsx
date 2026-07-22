@@ -722,6 +722,13 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   }, [annualToast]);
 
   useEffect(() => {
+    if (!poModalOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [poModalOpen]);
+
+  useEffect(() => {
     if (selected) return;
     const missingYears = years.filter((year) => poWorkflow.mode === 'yes' && !(poWorkflow.rows || []).some((row) => row.fyYear === year.label));
     if (poWorkflow.confirmed && missingYears.length) {
@@ -1912,15 +1919,15 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
         )}
       </section>}
 
-      {poModalOpen && !selected && (
-        <div className="fixed inset-0 z-[190] grid place-items-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm">
-          <section className="my-6 w-full max-w-6xl overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-2xl">
-            <header className="flex items-start justify-between bg-gradient-to-r from-[#faf7f0] to-[#f4eee5] px-6 py-5">
+      {poModalOpen && !selected && createPortal((
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-md sm:p-6">
+          <section className="flex max-h-[calc(100vh-24px)] w-full max-w-[1180px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.38)] sm:max-h-[calc(100vh-48px)]">
+            <header className="flex shrink-0 items-start justify-between border-b border-emerald-100 bg-[linear-gradient(120deg,#f0fdf4_0%,#ffffff_48%,#fff7ed_100%)] px-5 py-5 sm:px-7 sm:py-6">
               <div><p className="text-xs font-black uppercase tracking-[0.22em] text-[#527566]">PO Workflow</p><h2 className="mt-2 text-2xl font-black text-slate-950">Purchase Order Confirmation</h2><p className="mt-1 text-sm font-semibold text-slate-500">{clientName} · {uniqueId}</p></div>
-              <button type="button" onClick={() => setPoModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl bg-white text-slate-500 shadow-sm"><X className="h-5 w-5" /></button>
+              <button type="button" onClick={() => setPoModalOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:-translate-y-0.5 hover:text-red-500 hover:shadow-md"><X className="h-5 w-5" /></button>
             </header>
-            <div className="space-y-5 p-6">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <div className="flex-1 space-y-5 overflow-y-auto bg-slate-50/60 p-4 sm:p-6">
+              <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received</p>
                 <div className="mt-4 flex gap-3">
                   {['yes', 'no'].map((mode) => <button key={mode} type="button" onClick={() => { setPoDraft((current) => ({ ...current, mode })); setPoValidationError(''); }} className={`rounded-xl border px-5 py-3 text-sm font-black capitalize ${String(poDraft.mode || 'yes') === mode ? 'border-emerald-200 bg-emerald-50 text-[#416c5a]' : 'border-slate-200 bg-white text-slate-600'}`}>◉ {mode}</button>)}
@@ -1928,7 +1935,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
               </div>
 
               {(poDraft.mode || 'yes') === 'yes' ? (
-                <div className="rounded-2xl border border-slate-200 p-5">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received For No Of Year</p><strong className="mt-2 block text-2xl text-slate-900">{(poDraft.rows || []).length}</strong></div><div className="flex gap-2"><button type="button" onClick={addPoYear} disabled={(poDraft.rows || []).length >= years.length} className="rounded-xl bg-[#416c5a] px-4 py-3 text-sm font-black text-white disabled:opacity-50">+ Add Next Year</button><button type="button" onClick={() => updatePoRows((poDraft.rows || []).slice(0, -1))} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600">Remove Last Year</button></div></div>
                   <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full min-w-[950px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-widest text-slate-500"><tr><th className="p-4">Sr. No</th><th className="p-4">FY Year</th><th className="p-4">PO Number</th><th className="p-4">PO Upload</th><th className="p-4">Service</th></tr></thead><tbody>{(poDraft.rows || []).length ? (poDraft.rows || []).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="p-4 font-black">{index + 1}</td><td className="p-4"><select className="form-input" value={row.fyYear || ''} onChange={(event) => updatePoRow(index, 'fyYear', event.target.value)}><option value="">Select FY Year</option>{years.map((year) => <option key={year.label} value={year.label}>{year.label}</option>)}</select></td><td className="p-4"><input className="form-input" value={row.poNumber || ''} onChange={(event) => updatePoRow(index, 'poNumber', event.target.value)} placeholder="Enter PO Number" /></td><td className="p-4"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 font-black text-[#416c5a]"><Upload className="h-4 w-4" />{row.file?.name || 'Choose File'}<input type="file" className="sr-only" onChange={(event) => uploadPoFile(index, event.target.files?.[0])} /></label></td><td className="p-4"><select className="form-input" value={row.service || ''} onChange={(event) => updatePoRow(index, 'service', event.target.value)}><option value="">Select Service</option>{annualPoServiceCategoryOptions.map((service) => <option key={service} value={service}>{service}</option>)}</select></td></tr>) : <tr><td colSpan="5" className="p-10 text-center font-bold text-slate-400">Click “Add Next Year” to add PO details.</td></tr>}</tbody></table></div>
                 </div>
@@ -1940,7 +1947,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
             </div>
           </section>
         </div>
-      )}
+      ), document.body)}
 
       {selected && (
         <section className="annual-workspace">
