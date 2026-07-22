@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileSpreadsheet, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import PiboDependentSelect from '../components/form/PiboDependentSelect';
@@ -265,6 +266,78 @@ function mergeLeadLists(...lists) {
   return merged;
 }
 
+function excelDate(value) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  if (typeof value === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+  }
+  const match = String(value).trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  return match ? `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}` : String(value).trim();
+}
+
+function excelAmount(value) {
+  const parsed = Number(String(value ?? '').replace(/[^\d.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function splitTerms(value) {
+  return String(value || '').split(/\r?\n/).map((term) => term.trim()).filter(Boolean);
+}
+
+function parseQuotationWorkbook(fileRows, leads = []) {
+  const grouped = new Map();
+  fileRows.forEach((row, index) => {
+    const quotationNumber = String(row['Quotation Number'] || '').trim();
+    const companyName = String(row['Company Name'] || '').trim();
+    const sourceLeadRow = String(row['Lead Row'] || '').trim();
+    const key = quotationNumber || `missing-${sourceLeadRow || `${companyName}-${excelDate(row['Quotation Date'])}` || index + 2}`;
+    if (!grouped.has(key)) {
+      const lead = leads.find((item) => normalizeSearchValue(item.company || item.companyName) === normalizeSearchValue(companyName));
+      grouped.set(key, {
+        quotationNumber,
+        leadId: lead?._id || lead?.id || '',
+        leadCode: lead ? displayLeadCode(lead, leads.indexOf(lead)) : '',
+        quotationDate: excelDate(row['Quotation Date']),
+        validUntil: excelDate(row['Quotation Valid Until']),
+        leadDetails: {
+          ...emptyLeadDetails,
+          salutation: row.Salutation || '', contactPerson: row['Contact Person'] || '', designation: row.Designation || '',
+          companyName, addressLine1: row['Address Line 1'] || '', addressLine2: row['Address Line 2'] || '',
+          addressLine3: row['Address Line 3'] || '', city: row.City || '', state: row.State || '',
+          pinCode: String(row.Pincode || ''), referredBy: row['Referred By'] || ''
+        },
+        terms: splitTerms(row['Terms and Conditions']), items: [], status: 'draft', __sourceRows: []
+      });
+    }
+    const quotation = grouped.get(key);
+    const piboCategory = String(row['Item PIBO Category'] || row['PIBO Category'] || '').trim();
+    quotation.items.push({
+      ...emptyItem,
+      serviceCategory: String(row['Item Service Category'] || row['Service Category'] || '').trim(),
+      servicesForYear: String(row['Services for the Year'] || '').trim(),
+      eprCategory: String(row['Item EPR Category'] || row['EPR Category'] || '').trim(),
+      piboParent: inferPiboParent(piboCategory), piboCategory,
+      unit: String(row['Item Unit'] || row['Quantity/Unit'] || '').trim(),
+      basicAmount: excelAmount(row['Item Basic Amount (INR)'] || row['Basic Amount (INR)'])
+    });
+    quotation.__sourceRows.push(index + 2);
+  });
+  return [...grouped.values()].map((quotation) => {
+    const errors = [];
+    if (!quotation.quotationNumber) errors.push('Quotation Number');
+    if (!quotation.leadDetails.companyName) errors.push('Company Name');
+    if (!quotation.validUntil) errors.push('Valid Until');
+    quotation.items.forEach((item, index) => {
+      if (!item.serviceCategory) errors.push(`Item ${index + 1} Service`);
+      if (!item.piboCategory) errors.push(`Item ${index + 1} PIBO Category`);
+      if (!item.basicAmount) errors.push(`Item ${index + 1} Amount`);
+    });
+    return { ...quotation, __errors: errors };
+  });
+}
+
 export default function Quotations() {
   const [currentUser, setCurrentUser] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -295,6 +368,9 @@ export default function Quotations() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [bulkPreview, setBulkPreview] = useState(null);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const bulkInputRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const quotationContext = location.state?.quotationContext || null;
@@ -431,6 +507,41 @@ export default function Quotations() {
     } finally {
       setLoading(false);
       setPiboCategoriesLoading(false);
+    }
+  }
+
+  async function readBulkFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError('');
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '', raw: true });
+      const parsed = parseQuotationWorkbook(rows, leads);
+      if (!parsed.length) throw new Error('No quotation rows were found in the workbook.');
+      setBulkPreview({ fileName: file.name, quotations: parsed });
+    } catch (readError) {
+      setError(readError.message || 'Unable to read this Excel file.');
+    }
+  }
+
+  async function importBulkQuotations() {
+    if (!bulkPreview || bulkPreview.quotations.some((row) => row.__errors.length)) return;
+    setBulkImporting(true);
+    setError('');
+    try {
+      const quotationsToSave = bulkPreview.quotations.map(({ __errors, __sourceRows, ...row }) => row);
+      const response = await api.post(API_ENDPOINTS.quotations.bulk, { quotations: quotationsToSave });
+      const summary = response.data.summary || {};
+      setBulkPreview(null);
+      await loadPage({ syncCcp: false });
+      setSuccessModal({ title: 'Bulk quotation import complete', message: `${summary.created || 0} created, ${summary.updated || 0} updated${summary.failed ? `, ${summary.failed} failed` : ''}. All saved quotations were sent to Pending Approval.` });
+    } catch (importError) {
+      const failures = importError.response?.data?.failures || [];
+      setError(failures.length ? failures.slice(0, 3).map((row) => `${row.quotationNumber || `Row ${row.row}`}: ${row.error}`).join(' · ') : (importError.response?.data?.error || 'Bulk quotation import failed.'));
+    } finally {
+      setBulkImporting(false);
     }
   }
 
@@ -820,10 +931,10 @@ export default function Quotations() {
             <h1 className="mt-1 text-3xl font-black text-slate-950">{editingId ? 'Edit Quotation' : 'Create Quotation'}</h1>
           </div>
           </div>
-          <button type="button" onClick={showQuotationList} className="btn-lift inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 font-black text-slate-700 shadow-sm">
-            <Eye className="h-4 w-4" /> View Quotations
-          </button>
+          <div className="flex flex-wrap gap-2"><input ref={bulkInputRef} type="file" accept=".xlsx,.xls" onChange={readBulkFile} className="hidden" /><button type="button" onClick={() => bulkInputRef.current?.click()} className="btn-lift inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 font-black text-white shadow-lg shadow-emerald-700/20"><UploadCloud className="h-4 w-4" /> Bulk Upload</button><button type="button" onClick={showQuotationList} className="btn-lift inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 font-black text-slate-700 shadow-sm"><Eye className="h-4 w-4" /> View Quotations</button></div>
         </div>
+
+        {bulkPreview && <div className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"><div className="max-h-[88vh] w-full max-w-6xl overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-2xl"><header className="flex items-center justify-between border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-orange-50 p-5"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-700 text-white"><FileSpreadsheet /></span><div><h2 className="text-xl font-black text-slate-950">Quotation bulk preview</h2><p className="text-sm font-bold text-slate-500">{bulkPreview.fileName} · {bulkPreview.quotations.length} quotations</p></div></div><button onClick={() => setBulkPreview(null)} className="grid h-10 w-10 place-items-center rounded-xl border bg-white"><X /></button></header><div className="max-h-[60vh] overflow-auto p-5"><div className="mb-4 grid grid-cols-3 gap-3"><div className="rounded-2xl bg-emerald-50 p-4"><small className="font-black uppercase text-emerald-700">Ready</small><strong className="block text-2xl text-slate-950">{bulkPreview.quotations.filter((row) => !row.__errors.length).length}</strong></div><div className="rounded-2xl bg-amber-50 p-4"><small className="font-black uppercase text-amber-700">Needs correction</small><strong className="block text-2xl text-slate-950">{bulkPreview.quotations.filter((row) => row.__errors.length).length}</strong></div><div className="rounded-2xl bg-sky-50 p-4"><small className="font-black uppercase text-sky-700">Items</small><strong className="block text-2xl text-slate-950">{bulkPreview.quotations.reduce((sum, row) => sum + row.items.length, 0)}</strong></div></div><table className="w-full min-w-[850px] overflow-hidden rounded-2xl text-left text-sm"><thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="p-3">Quotation</th><th className="p-3">Company</th><th className="p-3">Date</th><th className="p-3">Items</th><th className="p-3">Amount</th><th className="p-3">Validation</th></tr></thead><tbody>{bulkPreview.quotations.slice(0, 200).map((row) => <tr key={`${row.quotationNumber}-${row.__sourceRows[0]}`} className="border-b"><td className="p-3 font-black">{row.quotationNumber || 'Missing'}</td><td className="p-3 font-bold">{row.leadDetails.companyName || 'Missing'}</td><td className="p-3">{row.quotationDate || '-'}</td><td className="p-3">{row.items.length}</td><td className="p-3 font-black">₹{row.items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * item.basicAmount), 0).toLocaleString('en-IN')}</td><td className="p-3">{row.__errors.length ? <span className="font-bold text-red-600">{row.__errors.join(', ')}</span> : <span className="inline-flex items-center gap-1 font-black text-emerald-700"><Check className="h-4 w-4" /> Ready</span>}</td></tr>)}</tbody></table></div><footer className="flex items-center justify-between border-t bg-slate-50 p-5"><p className="text-sm font-bold text-slate-500">Re-import the corrected Excel if validation errors are shown.</p><div className="flex gap-2"><button onClick={() => setBulkPreview(null)} className="rounded-xl border bg-white px-5 py-3 font-black text-slate-600">Cancel</button><button disabled={bulkImporting || bulkPreview.quotations.some((row) => row.__errors.length)} onClick={importBulkQuotations} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-40">{bulkImporting ? 'Importing…' : `Import ${bulkPreview.quotations.length} Quotations`}</button></div></footer></div></div>}
 
         {(error || notice) && (
           <div className={`mt-5 rounded-lg border px-4 py-3 font-bold ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>

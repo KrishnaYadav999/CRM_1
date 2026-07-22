@@ -777,6 +777,57 @@ exports.updateQuotationApproval = async (req, res) => {
   res.json({ ok: true, approvalStatus: status, quotation });
 };
 
+exports.bulkCreateQuotations = async (req, res) => {
+  const rows = Array.isArray(req.body.quotations) ? req.body.quotations : [];
+  if (!rows.length) return res.status(400).json({ error: 'At least one quotation is required.' });
+  if (rows.length > 1000) return res.status(400).json({ error: 'A maximum of 1,000 quotations can be imported at once.' });
+
+  const summary = { total: rows.length, created: 0, updated: 0, failed: 0 };
+  const failures = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || {};
+    try {
+      const gstError = validateGstNumber(row.leadDetails?.gstNumber);
+      if (gstError) throw new Error(gstError);
+      const data = cleanBody(row);
+      if (!data.companyName) throw new Error('Company Name is required');
+      if (!data.items.length) throw new Error('At least one quotation item is required');
+      await validateQuotationPiboItems(data.items);
+      const quotationNumber = cleanString(row.quotationNumber) || await nextQuotationNumber();
+      const existing = await Quotation.findOne({ quotationNumber });
+      let quotation;
+      if (existing) {
+        Object.assign(existing, data, { source: 'bulk', status: 'draft' });
+        quotation = await existing.save();
+        summary.updated += 1;
+      } else {
+        quotation = await Quotation.create({
+          ...data,
+          quotationNumber,
+          source: 'bulk',
+          status: 'draft',
+          createdBy: req.user?._id
+        });
+        summary.created += 1;
+      }
+      await upsertQuotationPendingApproval(quotation, existing ? 'UPDATE' : 'CREATE');
+    } catch (error) {
+      summary.failed += 1;
+      failures.push({
+        row: index + 2,
+        quotationNumber: cleanString(row.quotationNumber),
+        companyName: cleanString(row.companyName || row.leadDetails?.companyName),
+        error: error.message || 'Import failed'
+      });
+    }
+  }
+  return res.status(summary.failed === summary.total ? 400 : 200).json({
+    ok: summary.failed === 0,
+    summary,
+    failures
+  });
+};
+
 exports.approveAllPendingQuotations = async (req, res) => {
   const remarks = String(req.body.remarks || 'Bulk approved').trim();
   const records = await PendingApproval.find({ type: 'quotation', approvalStatus: 'PENDING' });

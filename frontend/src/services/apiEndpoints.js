@@ -37,6 +37,7 @@ const API_ENDPOINTS = {
   quotations: {
     list: '/quotations',
     create: '/quotations',
+    bulk: '/quotations/bulk',
     serviceCategories: '/quotations/service-categories',
     piboCategories: '/quotations/pibo-categories',
     approveAllPending: '/quotations/pending-approvals/approve-all',
