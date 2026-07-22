@@ -6,6 +6,9 @@ import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import {
   getAssignedName,
+  getCpcbStatus,
+  getOtpMobile,
+  getOtpName,
   getClientUniqueId,
   getFirstAnnualReturnYear,
   getMsmeRows,
@@ -211,10 +214,10 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRe
   const visibleClients = filteredClients.slice((page - 1) * rowsPerPage, page * rowsPerPage);
   const staffFilterOptions = useMemo(() => buildStaffFilterOptions(staff, clients), [clients, staff]);
   const metricStats = useMemo(() => {
-    const portalApproved = clients.filter((item) => readClientData(item).cpcb?.status === 'Approved').length;
-    const pending = clients.filter((item) => ['Not Started', 'Applied', 'Under Review'].includes(readClientData(item).cpcb?.status)).length;
-    const inProgress = clients.filter((item) => readClientData(item).cpcb?.status === 'Under Review').length;
-    const rejected = clients.filter((item) => readClientData(item).cpcb?.status === 'Rejected').length;
+    const portalApproved = clients.filter((item) => getCpcbStatus(readClientData(item)) === 'Approved').length;
+    const pending = clients.filter((item) => ['Not Started', 'Applied', 'Under Review'].includes(getCpcbStatus(readClientData(item)))).length;
+    const inProgress = clients.filter((item) => getCpcbStatus(readClientData(item)) === 'Under Review').length;
+    const rejected = clients.filter((item) => getCpcbStatus(readClientData(item)) === 'Rejected').length;
     const discontinued = clients.filter((item) => ['DISCONTINUED', 'SUSPENDED'].includes(getVisibilityStatus(item))).length;
     const annualReturn = clients.filter((item) => getFirstAnnualReturnYear(item)).length;
     return [
@@ -394,9 +397,9 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRe
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.piboCategory || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.eprCategory || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getMsmeSummary(data)}</span></td>
-                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.cpcb?.status || '-'}</span></td>
-                      <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{data.otp?.mobile || '-'}</span></td>
-                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.otp?.personName || '-'}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getCpcbStatus(data)}</span></td>
+                      <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{getOtpMobile(data)}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getOtpName(data)}</span></td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
