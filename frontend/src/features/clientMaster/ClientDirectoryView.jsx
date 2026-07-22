@@ -1,7 +1,9 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Building2, CheckCircle2, ChevronDown, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Plus, RefreshCw, Search, UserCheck, X } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, ChevronDown, CloudUpload, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Loader2, Plus, RefreshCw, Search, UserCheck, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
+import api from '../../services/api';
+import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import {
   getAssignedName,
   getClientUniqueId,
@@ -97,14 +99,87 @@ function clientMatchesSearch(item, term) {
     compactHaystack.includes(compactTerm);
 }
 
-function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView, onCreate, selectOptions = {}, totalClientCount }) {
+function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRefresh, onView, onCreate, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
   const [metricFilter, setMetricFilter] = useState('');
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [page, setPage] = useState(1);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncState, setSyncState] = useState({ phase: 'idle', preview: null, batch: 0, processed: 0, upserted: 0, failedRecords: [], report: null, error: '' });
   const deferredQuery = useDeferredValue(query);
+  const canSyncClients = ['admin', 'superadmin'].includes(String(currentUser?.role || '').toLowerCase());
+
+  async function openSyncDialog() {
+    setSyncDialogOpen(true);
+    setSyncState({ phase: 'loading', preview: null, batch: 0, processed: 0, upserted: 0, failedRecords: [], report: null, error: '' });
+    try {
+      const response = await api.get(API_ENDPOINTS.ccp.liveClientSyncPreview);
+      setSyncState((current) => ({ ...current, phase: 'confirm', preview: response.data }));
+    } catch (requestError) {
+      setSyncState((current) => ({ ...current, phase: 'error', error: requestError?.response?.data?.error || 'Unable to prepare live-client synchronization.' }));
+    }
+  }
+
+  async function reconcile(preview, failedRecords, progress) {
+    const response = await api.post(API_ENDPOINTS.ccp.liveClientSyncReconciliation, { syncRunId: preview.syncRunId, startedAt: preview.startedAt, failedRecords });
+    const report = { ...response.data, clientProcessed: progress.processed, batchUpserted: progress.upserted };
+    setSyncState((current) => ({ ...current, phase: report.ok ? 'complete' : 'failed', report, failedRecords: report.failedRecords || failedRecords }));
+    if (report.ok) onRefresh?.();
+  }
+
+  async function startSynchronization() {
+    const preview = syncState.preview;
+    if (!preview) return;
+    let processed = 0;
+    let upserted = 0;
+    let failedRecords = [];
+    setSyncState((current) => ({ ...current, phase: 'running', batch: 0, processed: 0, upserted: 0, failedRecords: [], report: null, error: '' }));
+    try {
+      for (let batchIndex = 0; batchIndex < preview.totalBatches; batchIndex += 1) {
+        setSyncState((current) => ({ ...current, batch: batchIndex + 1 }));
+        const response = await api.post(API_ENDPOINTS.ccp.liveClientSyncBatch, { syncRunId: preview.syncRunId, batchIndex });
+        processed += Number(response.data.processed || 0);
+        upserted += Number(response.data.successfullyUpserted || 0);
+        failedRecords = [...failedRecords, ...(response.data.failedRecords || [])];
+        setSyncState((current) => ({ ...current, processed, upserted, failedRecords }));
+      }
+      await reconcile(preview, failedRecords, { processed, upserted });
+    } catch (requestError) {
+      setSyncState((current) => ({ ...current, phase: 'error', error: requestError?.response?.data?.error || 'Synchronization stopped before reconciliation.' }));
+    }
+  }
+
+  async function retryFailedRecords() {
+    const preview = syncState.preview;
+    const uniqueIds = [...new Set((syncState.failedRecords || []).map((row) => row.uniqueId).filter(Boolean))];
+    if (!preview || !uniqueIds.length) return;
+    let remainingFailures = [];
+    let retryUpserted = 0;
+    setSyncState((current) => ({ ...current, phase: 'retrying', error: '' }));
+    try {
+      for (let index = 0; index < uniqueIds.length; index += 10) {
+        const response = await api.post(API_ENDPOINTS.ccp.liveClientSyncBatch, { syncRunId: preview.syncRunId, uniqueIds: uniqueIds.slice(index, index + 10), batchIndex: Math.floor(index / 10) });
+        retryUpserted += Number(response.data.successfullyUpserted || 0);
+        remainingFailures = [...remainingFailures, ...(response.data.failedRecords || [])];
+      }
+      await reconcile(preview, remainingFailures, { processed: syncState.processed, upserted: syncState.upserted + retryUpserted });
+    } catch (requestError) {
+      setSyncState((current) => ({ ...current, phase: 'error', error: requestError?.response?.data?.error || 'Failed-record retry could not complete.' }));
+    }
+  }
+
+  function downloadFailureReport() {
+    const report = syncState.report || { failedRecords: syncState.failedRecords, error: syncState.error };
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `crm-ccp-client-sync-${syncState.preview?.syncRunId || 'report'}.json`;
+    link.click();
+    URL.revokeObjectURL(href);
+  }
 
   const filteredClients = useMemo(() => {
     const term = deferredQuery.trim();
@@ -257,12 +332,42 @@ function ClientDirectoryView({ clients, staff, loading, error, onRefresh, onView
           />
           <ClientFilterSelect value={staffFilter} onChange={setStaffFilter} placeholder="All Staff" label="Staff filter" type="staff" searchable options={staffFilterOptions} />
           <div className="grid grid-cols-2 gap-2 xl:flex xl:justify-end">
+            {canSyncClients && <button type="button" onClick={openSyncDialog} className="btn-lift col-span-2 inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-teal-200 bg-teal-50 px-4 text-sm font-black text-[#24675f] hover:bg-teal-100 xl:col-span-1"><CloudUpload className="h-4 w-4" />Sync all live clients to CCP</button>}
             <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Client Master</button>
             <button type="button" onClick={() => { setQuery(''); setVisibilityFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
             <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
           </div>
         </div>
+
+        {syncDialogOpen && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-700/65 p-4 backdrop-blur-sm">
+            <section className="max-h-[calc(100vh-32px)] w-full max-w-3xl overflow-y-auto rounded-[28px] border border-emerald-100 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.32)]">
+              <header className="flex items-start justify-between gap-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-orange-50 p-6">
+                <div><p className="text-xs font-black uppercase tracking-[0.2em] text-[#30737B]">CRM → CCP</p><h2 className="mt-2 text-2xl font-black text-slate-900">Complete Client Master synchronization</h2><p className="mt-1 text-sm font-semibold text-slate-500">Only CRM Live Applications are used as the canonical source.</p></div>
+                <button type="button" disabled={['running', 'retrying'].includes(syncState.phase)} onClick={() => setSyncDialogOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-500 disabled:opacity-40"><X className="h-5 w-5" /></button>
+              </header>
+              <div className="space-y-5 p-6">
+                {syncState.phase === 'loading' && <div className="flex min-h-48 flex-col items-center justify-center text-center"><Loader2 className="h-9 w-9 animate-spin text-[#30737B]" /><p className="mt-4 font-black text-slate-700">Reading canonical CRM Live Applications…</p></div>}
+                {syncState.preview && (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {[['Live Applications', syncState.preview.liveApplicationsCount], ['Annual Return Applicable', syncState.preview.annualReturnApplicableCount], ['Sync Source', syncState.preview.syncSourceCount]].map(([label, value]) => <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-slate-500">{label}</p><strong className="mt-2 block text-3xl font-black text-slate-900">{value}</strong></div>)}
+                  </div>
+                )}
+                {syncState.phase === 'confirm' && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><div className="flex gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" /><div><h3 className="font-black text-slate-900">Confirm full synchronization</h3><p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{syncState.preview.syncSourceCount} live clients will be upserted in {syncState.preview.totalBatches} batches of 10. Existing CCP identities will be updated, not duplicated.</p></div></div></div>}
+                {['running', 'retrying'].includes(syncState.phase) && <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-5"><div className="flex items-center justify-between gap-3"><div><p className="font-black text-slate-900">{syncState.phase === 'retrying' ? 'Retrying failed records' : `Synchronizing batch ${syncState.batch} of ${syncState.preview.totalBatches}`}</p><p className="mt-1 text-sm font-bold text-slate-500">Processed {syncState.processed} of {syncState.preview.syncSourceCount} clients</p></div><Loader2 className="h-7 w-7 animate-spin text-[#30737B]" /></div><div className="mt-4 h-3 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 transition-all" style={{ width: `${Math.min(100, (syncState.processed / Math.max(1, syncState.preview.syncSourceCount)) * 100)}%` }} /></div></div>}
+                {syncState.report && <div className={`rounded-2xl border p-5 ${syncState.report.ok ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}><h3 className="text-lg font-black text-slate-900">{syncState.report.ok ? 'Synchronization reconciled successfully' : 'Reconciliation found differences'}</h3><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[['Expected live', syncState.report.expectedLiveCount], ['Sync source', syncState.report.syncSourceCount], ['Upserted', syncState.report.successfullyUpserted], ['CCP stored', syncState.report.ccpStoredCount], ['Missing IDs', syncState.report.missingCrmIds?.length || 0], ['Unexpected IDs', syncState.report.unexpectedCcpIds?.length || 0]].map(([label, value]) => <div key={label} className="rounded-xl bg-white/80 p-3"><span className="text-xs font-black uppercase text-slate-500">{label}</span><strong className="mt-1 block text-xl text-slate-900">{value}</strong></div>)}</div>{Boolean(syncState.report.missingCrmIds?.length) && <p className="mt-4 break-words text-sm font-bold text-red-700">Missing: {syncState.report.missingCrmIds.join(', ')}</p>}</div>}
+                {syncState.error && <ToastMessage type="error">{syncState.error}</ToastMessage>}
+                <footer className="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-5">
+                  {(syncState.failedRecords?.length > 0 || syncState.report) && <button type="button" onClick={downloadFailureReport} className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-600"><Download className="mr-2 inline h-4 w-4" />Download report</button>}
+                  {syncState.failedRecords?.length > 0 && !['running', 'retrying'].includes(syncState.phase) && <button type="button" onClick={retryFailedRecords} className="rounded-xl border border-orange-200 bg-orange-50 px-5 py-3 text-sm font-black text-orange-700"><RefreshCw className="mr-2 inline h-4 w-4" />Retry Failed Records</button>}
+                  {syncState.phase === 'confirm' && <button type="button" onClick={startSynchronization} className="rounded-xl bg-[#30737B] px-6 py-3 text-sm font-black text-white shadow-lg shadow-teal-900/20">Start synchronization</button>}
+                  {!['running', 'retrying'].includes(syncState.phase) && <button type="button" onClick={() => setSyncDialogOpen(false)} className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-600">Close</button>}
+                </footer>
+              </div>
+            </section>
+          </div>
+        )}
 
         <DirectoryTableHeader showing={visibleClients.length} total={filteredClients.length} label="clients" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="client-directory-table-shell overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
