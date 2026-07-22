@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const ccpRouter = require('../src/routes/ccp');
-const { nonEmptyQuery, ccpApiHeaders } = ccpRouter._test;
+const { nonEmptyQuery, ccpApiHeaders, ccpCollectionHeaders } = ccpRouter._test;
 
 test('CCP history query removes empty identifiers', () => {
   assert.deepEqual(nonEmptyQuery({ leadCode: ' ATPL-LEAD-0001 ', company: '', unused: null }), { leadCode: 'ATPL-LEAD-0001' });
@@ -19,9 +19,13 @@ test('CCP API key stays in server-side headers', () => {
   else process.env.CCP_SHARED_API_KEY = previous;
 });
 
-test('CCP API headers forward the signed-in bearer token for collection reads', () => {
+test('CCP history headers may forward the signed-in bearer token', () => {
   const req = { get: (name) => String(name).toLowerCase() === 'authorization' ? 'Bearer crm-user-token' : '' };
   assert.equal(ccpApiHeaders(false, req).Authorization, 'Bearer crm-user-token');
+});
+
+test('CCP collection reads use only backend integration credentials', () => {
+  assert.equal(ccpCollectionHeaders().Authorization, undefined);
 });
 
 test('quotation-only helper documents are excluded from CCP client rows', () => {

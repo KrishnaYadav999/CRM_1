@@ -6,7 +6,8 @@ const Role = require('../models/Role');
 const { ROLES } = require('../constants/roles');
 
 async function seed() {
-  const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/registerd_types';
+  const uri = process.env.MONGO_ATLAS_URI || process.env.MONGO_URI;
+  if (!uri) throw new Error('MongoDB Atlas is not configured. Set MONGO_ATLAS_URI or MONGO_URI.');
   await mongoose.connect(uri, { dbName: process.env.DB_NAME || 'registerd_types' });
   console.log('Connected to DB for seeding');
 
