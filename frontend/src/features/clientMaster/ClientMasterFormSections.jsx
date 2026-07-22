@@ -116,7 +116,7 @@ function ConsentTable({ title, eyebrow, plants, columns, onPlantChange }) {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] text-left text-sm">
-            <thead className="bg-slate-950 text-xs font-black uppercase tracking-[0.08em] text-white">
+            <thead className="border-b border-teal-200 bg-gradient-to-r from-teal-50 via-emerald-50 to-cyan-50 text-xs font-black uppercase tracking-[0.08em] text-teal-900">
               <tr>
                 <th className="w-20 px-4 py-4 text-center">Sr.No</th>
                 <th className="px-4 py-4">Plant Name</th>
@@ -178,7 +178,7 @@ function PlantQuantityTable({ title, plants, quantityKey, columns, rowTemplate, 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
-            <thead className="bg-slate-950 text-xs font-black uppercase tracking-[0.08em] text-white">
+            <thead className="border-b border-teal-200 bg-gradient-to-r from-teal-50 via-emerald-50 to-cyan-50 text-xs font-black uppercase tracking-[0.08em] text-teal-900">
               <tr>
                 <th className="w-20 px-4 py-4 text-center">Sr.No</th>
                 {columns.map(([field, label], index) => (
