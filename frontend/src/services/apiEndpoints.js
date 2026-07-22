@@ -46,6 +46,11 @@ const API_ENDPOINTS = {
     approval: (id) => `/quotations/${encodePathValue(id)}/approval`,
     byLead: (leadId) => `/leads/${encodePathValue(leadId)}/quotations`
   },
+  proformaInvoices: {
+    list: '/proforma-invoices',
+    create: '/proforma-invoices',
+    detail: (id) => `/proforma-invoices/${encodePathValue(id)}`
+  },
   annualReturns: {
     list: '/annual-returns'
   },
