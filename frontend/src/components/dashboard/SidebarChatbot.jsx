@@ -3,17 +3,20 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useLocation } from 'react-router-dom'
 import { Bot, BrainCircuit, CalendarDays, Maximize2, MessageCircle, Minimize2, Send, Sparkles, X, Zap } from 'lucide-react'
 import { getAssignedName, getClientUniqueId, getVisibilityStatus, isFilled, normalizeClientIdentity, readClientData } from '../../features/clientMaster/clientMaster.utils'
+import { findPiboOperationsAnswer } from './piboOperationsFaq'
 
 const starterMessages = [
   {
     id: 'welcome',
     role: 'bot',
-    text: 'Hi, I am your CRM assistant. Ask me about Dashboard, Pending Approval, Notifications, Calendar, Sales, Lead Generation, Client Master, Add Quotation, or Follow-ups.',
+    text: 'Hi, I am your CRM assistant. Ask me about CRM workflows or PIBO Operations—including procurement, bulk uploads, invoice validation, sales, road construction, wallet and common portal errors.',
     source: 'CRM Guide'
   }
 ]
 
 const quickPrompts = [
+  { label: 'PIBO Operations', prompt: 'How is the PIBO Operations module accessed?' },
+  { label: 'Bulk Upload', prompt: 'How do I complete a procurement bulk upload?' },
   { label: 'Follow-ups', prompt: 'What are Follow-ups used for?' },
   { label: 'Approval', prompt: 'Explain Pending Approval' },
   { label: 'Calendar', prompt: 'How does Calendar work?' },
@@ -608,6 +611,20 @@ function buildAnswer(question) {
     }
   }
 
+  const piboFaq = findPiboOperationsAnswer(question)
+  if (piboFaq) {
+    return {
+      text: `${piboFaq.title}: ${piboFaq.answer}`,
+      source: `PIBO Operations FAQ · ${piboFaq.section}`,
+      confidence: 'Official FAQ match',
+      suggestions: [
+        { label: 'Bulk process', prompt: 'How is a bulk procurement upload started?' },
+        { label: 'Invoice validation', prompt: 'What does the Invoice Validation page display?' },
+        { label: 'Common errors', prompt: 'Why can a new procurement or sales entry not be added for a past year?' }
+      ]
+    }
+  }
+
   const guideMatched = guideKnowledge.find((item) => item.keywords.some((keyword) => cleanQuestion.includes(keyword)))
   if (guideMatched) {
     return {
@@ -670,7 +687,7 @@ function buildAnswer(question) {
 
   if (cleanQuestion.includes('what can') || cleanQuestion.includes('help')) {
     return {
-      text: 'I can explain how this CRM works, including Dashboard, Pending Approval, Notifications, Calendar, Sales, Lead Generation, Client Master, Add Quotation, Follow-ups, todos, approvals, and user roles.',
+      text: 'I can explain CRM workflows and the PIBO Operations module, including procurement, sales, bulk templates, invoice ZIP matching, QR validation, road-construction EoL, wallet potential, legacy data and portal troubleshooting.',
       source: 'Assistant scope',
       confidence: 'Ready'
     }
@@ -840,7 +857,7 @@ export default function SidebarChatbot({ collapsed = false }) {
 
           <div className="sidebar-chatbot-insights">
             <span><Zap className="h-3.5 w-3.5" /> Instant guide</span>
-            <span><MessageCircle className="h-3.5 w-3.5" /> CRM trained</span>
+            <span><MessageCircle className="h-3.5 w-3.5" /> CRM + PIBO FAQ trained</span>
           </div>
 
           <div className="sidebar-chatbot-body" ref={bodyRef}>
@@ -965,7 +982,7 @@ export default function SidebarChatbot({ collapsed = false }) {
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask anything about this CRM..."
+              placeholder="Ask about CRM or PIBO Operations..."
               aria-label="Ask CRM Assistant"
             />
             <button type="submit" aria-label="Send question">
@@ -975,7 +992,7 @@ export default function SidebarChatbot({ collapsed = false }) {
 
           <div className="sidebar-chatbot-foot">
             <CalendarDays className="h-3.5 w-3.5" />
-            <span>Answers are focused on this CRM software.</span>
+            <span>Answers cover CRM workflows and the official PIBO Operations FAQ.</span>
           </div>
         </motion.div>
         )}
