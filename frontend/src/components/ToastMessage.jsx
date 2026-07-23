@@ -28,6 +28,11 @@ export default function ToastMessage({ type = 'info', children, actionLabel = ''
   const style = toastStyles[type] || toastStyles.info;
   const Icon = style.icon;
   const [visible, setVisible] = useState(true);
+  const isCloseAction = actionLabel.trim().toLowerCase() === 'close';
+  const closeToast = () => {
+    setVisible(false);
+    if (isCloseAction && onAction) onAction();
+  };
 
   useEffect(() => {
     setVisible(true);
@@ -46,12 +51,12 @@ export default function ToastMessage({ type = 'info', children, actionLabel = ''
         <strong className="toast-message-title">{type === 'error' ? 'Failed!' : `${style.label}!`}</strong>
         <p className="toast-message-copy">{children}</p>
       </div>
-      {onAction ? (
+      {onAction && !isCloseAction ? (
         <button type="button" onClick={onAction} className="toast-message-action">
           {actionLabel || 'Action'}
         </button>
       ) : null}
-      <button type="button" onClick={() => setVisible(false)} className="toast-message-close" aria-label="Close message">
+      <button type="button" onClick={closeToast} className="toast-message-close" aria-label="Close message">
         <X className="h-4 w-4" />
       </button>
     </div>
