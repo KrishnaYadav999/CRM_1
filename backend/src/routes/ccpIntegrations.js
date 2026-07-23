@@ -48,6 +48,14 @@ function creatorIdentity(user) {
   };
 }
 
+function isObjectId(value) {
+  return /^[a-f\d]{24}$/i.test(String(value || ''));
+}
+
+function stripInvalidObjectId(payload, field) {
+  if (!isObjectId(payload[field])) delete payload[field];
+}
+
 function sanitizeLead(body, user, { isUpdate = false } = {}) {
   const payload = pick(body, LEAD_FIELDS);
   const identity = creatorIdentity(user);
@@ -55,14 +63,16 @@ function sanitizeLead(body, user, { isUpdate = false } = {}) {
     delete payload.importedCreatedBy;
     payload.updatedByCrmUserId = identity.createdByCrmUserId;
     payload.updatedByEmail = identity.createdByEmail;
-    payload.updatedBy = identity.importedCreatedBy;
+    payload.updatedByText = identity.importedCreatedBy;
+    stripInvalidObjectId(payload, 'updatedBy');
   } else {
     payload.createdByCrmUserId = identity.createdByCrmUserId;
     payload.createdByEmail = identity.createdByEmail;
     payload.importedCreatedBy = identity.importedCreatedBy;
+    stripInvalidObjectId(payload, 'updatedBy');
   }
-  if (payload.assignedTo && !/^[a-f\d]{24}$/i.test(String(payload.assignedTo))) delete payload.assignedTo;
-  if (payload.closedBy && !/^[a-f\d]{24}$/i.test(String(payload.closedBy))) delete payload.closedBy;
+  stripInvalidObjectId(payload, 'assignedTo');
+  stripInvalidObjectId(payload, 'closedBy');
   payload.piboParent = normalizeParent(payload.piboParent || payload.piboCategoryParent) || inferPiboParent(payload.piboCategory) || '';
   delete payload.piboCategoryParent;
   return payload;
@@ -90,9 +100,12 @@ function sanitizeClient(body, user, isAdmin = false) {
   data.cpcbScreenshots = Array.isArray(input.cpcbScreenshots)
     ? input.cpcbScreenshots.map((row) => pick(row, ['id', 'name', 'file']))
     : [];
+  data.processDiagrams = Array.isArray(input.processDiagrams)
+    ? input.processDiagrams.map((row) => pick(row, ['id', 'name', 'file']))
+    : [];
   const admin = pick(body?.adminControls, ['visibilityStatus', 'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedToCrmUserId', ...(isAdmin ? ['approvalStatus'] : [])]);
   if (!isAdmin) admin.approvalStatus = 'PENDING';
-  if (admin.assignedTo && !/^[a-f\d]{24}$/i.test(String(admin.assignedTo))) delete admin.assignedTo;
+  stripInvalidObjectId(admin, 'assignedTo');
   const identity = creatorIdentity(user);
   return {
     selectedLead: String(body?.selectedLead || ''),
