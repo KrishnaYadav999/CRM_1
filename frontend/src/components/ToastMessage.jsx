@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 
 const toastStyles = {
@@ -27,18 +27,33 @@ const toastStyles = {
 export default function ToastMessage({ type = 'info', children, actionLabel = '', onAction, className = '' }) {
   const style = toastStyles[type] || toastStyles.info;
   const Icon = style.icon;
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    setVisible(true);
+    const timer = window.setTimeout(() => setVisible(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [children, type]);
+
+  if (!visible) return null;
 
   return (
     <div className={`toast-message ${style.shell} ${className}`} role="status" aria-label={style.label}>
       <span className="toast-message-icon">
         <Icon className="h-5 w-5" />
       </span>
-      <p className="min-w-0 flex-1 text-sm font-black leading-5 text-slate-700">{children}</p>
+      <div className="min-w-0 flex-1">
+        <strong className="toast-message-title">{type === 'error' ? 'Failed!' : `${style.label}!`}</strong>
+        <p className="toast-message-copy">{children}</p>
+      </div>
       {onAction ? (
         <button type="button" onClick={onAction} className="toast-message-action">
           {actionLabel || 'Action'}
         </button>
       ) : null}
+      <button type="button" onClick={() => setVisible(false)} className="toast-message-close" aria-label="Close message">
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }

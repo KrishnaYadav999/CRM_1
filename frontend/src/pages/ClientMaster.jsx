@@ -1209,7 +1209,7 @@ export default function ClientMaster() {
               <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200 xl:max-w-md">
                 <div className="h-full rounded-full bg-gradient-to-r from-orange-400 via-emerald-500 to-[#30737B]" style={{ width: `${overallProgress.percent}%` }} />
               </div>
-              <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+              <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 shadow-sm">
                 {overallProgress.percent}% complete
               </span>
             </div>
@@ -1262,7 +1262,10 @@ export default function ClientMaster() {
           </Card>}
 
           <section className="mt-4 rounded-2xl border border-teal-100 bg-white/95 p-2 shadow-sm">
-            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-color:#94a3b8_transparent]">
+            <div className="relative">
+              <div className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-8 rounded-l-2xl bg-gradient-to-r from-white to-transparent" />
+              <div className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 w-8 rounded-r-2xl bg-gradient-to-l from-white to-transparent" />
+              <div className="client-progress-tab-rail">
               {tabProgress.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.id;
@@ -1272,23 +1275,24 @@ export default function ClientMaster() {
                     key={tab.id}
                     type="button"
                     onClick={() => openClientTab(tab.id)}
-                    className={`flex h-11 min-w-[190px] shrink-0 items-center gap-2 rounded-xl border px-3 text-left font-black transition hover:-translate-y-0.5 ${
-                      active ? 'border-[#30737B] bg-[#30737B] text-white shadow-md shadow-teal-900/15' : complete ? 'border-emerald-100 bg-emerald-50 text-emerald-800' : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-teal-100 hover:bg-teal-50 hover:text-[#30737B]'
-                    }`}
+                    className={`client-progress-tab ${active ? 'client-progress-tab-active' : ''} ${complete ? 'client-progress-tab-complete' : ''}`}
+                    style={{ '--tab-progress': `${tab.percent}%` }}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
                     <span className="min-w-0 flex-1 truncate">{tab.label}</span>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${active ? 'bg-white/15 text-white' : 'bg-white text-slate-500'}`}>
-                      {tab.filled}/{tab.total}
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${active ? 'bg-white/15 text-white' : complete ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-[#30737B]'}`}>
+                      {tab.percent}%
                     </span>
+                    <span className="client-progress-tab-fill" aria-hidden="true" />
                   </button>
                 );
               })}
-            </div>
+              </div>
+              </div>
           </section>
 
-          {error && <ToastMessage type="error" className="ml-auto mt-4 max-w-3xl rounded-2xl">{error}</ToastMessage>}
-          {notice && <ToastMessage type="success" className="ml-auto mt-4 max-w-3xl rounded-2xl">{notice}</ToastMessage>}
+          {error && <ToastMessage type="error" className="mx-auto mt-4">{error}</ToastMessage>}
+          {notice && <ToastMessage type="success" className="mx-auto mt-4">{notice}</ToastMessage>}
 
           <div className="mt-6 grid gap-6">
             {activeTab === 'basic' && <BasicTab client={client} setValue={setValue} />}
