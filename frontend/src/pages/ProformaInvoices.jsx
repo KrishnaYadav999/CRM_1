@@ -23,7 +23,7 @@ function QuotationPicker({ value, quotations, onChange }) {
   return <div className="relative"><button type="button" onClick={() => setOpen((current) => !current)} className={`flex h-14 w-full items-center justify-between gap-3 rounded-2xl border bg-white px-4 text-left shadow-sm transition ${open ? 'border-emerald-400 ring-4 ring-emerald-100' : 'border-slate-200 hover:border-emerald-300'}`}><span className="min-w-0"><small className="block text-[10px] font-black uppercase tracking-wider text-emerald-600">{selected ? 'Selected quotation' : 'Create mode'}</small><strong className="block truncate text-sm text-slate-900">{selected ? `${selected.quotationNumber} · ${selected.leadDetails?.companyName || selected.companyName}` : 'New / Manual Proforma Invoice'}</strong></span><ChevronDown className={`h-5 w-5 shrink-0 text-emerald-700 transition ${open ? 'rotate-180' : ''}`} /></button>{open && <><button type="button" aria-label="Close quotation list" onClick={() => setOpen(false)} className="fixed inset-0 z-40 cursor-default" /><div className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-[0_20px_55px_rgba(15,93,70,.2)]"><label className="m-3 flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3"><Search className="h-4 w-4 text-emerald-600" /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search quotation or company..." className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" /></label><div className="max-h-80 overflow-y-auto p-2 pt-0"><button type="button" onClick={() => { onChange(''); setOpen(false); setSearch('') }} className="mb-1 flex w-full items-center justify-between rounded-xl px-3 py-3 text-left font-black text-emerald-700 hover:bg-emerald-50"><span>New / Manual Proforma Invoice</span><Plus className="h-4 w-4" /></button>{filtered.map((quote) => <button type="button" key={quote._id || quote.id} onClick={() => { onChange(quote._id || quote.id); setOpen(false); setSearch('') }} className={`mb-1 grid w-full grid-cols-[1fr_auto] gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-emerald-50 ${String(value) === String(quote._id || quote.id) ? 'bg-emerald-50 ring-1 ring-emerald-200' : ''}`}><span className="min-w-0"><strong className="block text-sm text-slate-900">{quote.quotationNumber}</strong><small className="block truncate font-bold text-slate-500">{quote.leadDetails?.companyName || quote.companyName || 'Unnamed company'}</small></span><span className="self-center text-xs font-black text-orange-600">{money(quote.grandTotal)}</span></button>)}{!filtered.length && <p className="p-8 text-center text-sm font-bold text-slate-400">No matching quotation found.</p>}</div></div></>}</div>
 }
 
-function downloadProforma(row) {
+function downloadProformaLegacy(row) {
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
   const left = 48; let y = 52
   pdf.setTextColor(249, 115, 22); pdf.setFontSize(20); pdf.setFont('helvetica', 'bold'); pdf.text('ANANT TATTVA PRIVATE LIMITED', left, y)
@@ -41,6 +41,166 @@ function downloadProforma(row) {
   pdf.save(`${row.proformaNumber || 'proforma-invoice'}.pdf`)
 }
 
+function inr(value) {
+  return `INR ${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+}
+
+async function loadPdfLogo() {
+  try {
+    const response = await fetch('/ananttattva-logo.png')
+    if (!response.ok) return ''
+    const blob = await response.blob()
+    return await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = () => resolve('')
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return ''
+  }
+}
+
+async function downloadProforma(row) {
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+  const page = { width: 595.28, height: 841.89, left: 32, right: 32, top: 34, bottom: 48 }
+  const contentWidth = page.width - page.left - page.right
+  const details = row.leadDetails || {}
+  const items = row.items?.length ? row.items : [{ ...blankItem }]
+  const logo = await loadPdfLogo()
+  let y = page.top
+
+  const setText = (options = {}) => {
+    pdf.setFont('helvetica', options.bold ? 'bold' : 'normal')
+    pdf.setFontSize(options.size || 8)
+    pdf.setTextColor(...(options.color || [15, 23, 42]))
+  }
+  const text = (value, x, lineY, options = {}) => {
+    setText(options)
+    const config = options.align ? { align: options.align } : undefined
+    pdf.text(value || '-', x, lineY, config)
+  }
+  const wrapped = (value, x, lineY, width, options = {}) => {
+    const lines = pdf.splitTextToSize(String(value || '-'), width)
+    text(lines, x, lineY, options)
+    return lineY + (lines.length * (options.lineHeight || 10))
+  }
+  const ensurePage = (needed = 80) => {
+    if (y + needed <= page.height - page.bottom) return
+    pdf.addPage()
+    y = page.top
+  }
+  const drawDarkLine = (lineY) => {
+    pdf.setDrawColor(15, 23, 42)
+    pdf.setLineWidth(1)
+    pdf.line(page.left, lineY, page.width - page.right, lineY)
+  }
+
+  if (logo) {
+    pdf.addImage(logo, 'PNG', page.left, y - 4, 70, 30)
+  } else {
+    text('ANANT TATTVA', page.left, y + 16, { bold: true, size: 11, color: [249, 115, 22] })
+  }
+  text('PROFORMA INVOICE', page.width - page.right, y + 18, { bold: true, size: 13, color: [249, 115, 22], align: 'right' })
+  y += 42
+  drawDarkLine(y)
+  y += 20
+
+  text('From:', page.left, y, { bold: true, size: 7 })
+  text('Proforma Details', page.width - page.right, y, { bold: true, size: 7, align: 'right' })
+  y += 12
+  ;[
+    row.createdBy?.name || 'KRISHNA Yadav',
+    'Anant Tattva Private Limited',
+    'Office No.12 & 614, Midas Building, Sahar Plaza, JB Nagar, Andheri East,',
+    'Mumbai - 400059'
+  ].forEach((lineValue, index) => text(lineValue, page.left, y + (index * 10), { bold: index < 2, size: 7 }))
+  ;[
+    ['Proforma Date', displayDate(row.invoiceDate)],
+    ['Proforma No.', row.proformaNumber || '-'],
+    ['Quotation No.', row.quotationNumber || '-'],
+    ['PO Number', row.poNumber || '-'],
+    ['Valid Until', displayDate(row.validUntil)],
+    ['Prepared By', row.createdBy?.name || '-']
+  ].forEach(([label, value], index) => text(`${label}: ${value}`, page.width - page.right, y + (index * 10), { size: 7, align: 'right' }))
+  y += 76
+  pdf.setDrawColor(203, 213, 225)
+  pdf.line(page.left, y, page.width - page.right, y)
+  y += 18
+
+  text('To:', page.left, y, { bold: true, size: 7 })
+  y += 12
+  text([details.salutation, details.contactPerson, details.designation].filter(Boolean).join(' ') || 'Client Contact', page.left, y, { bold: true, size: 7 })
+  y += 11
+  text(`Mobile No.: ${details.mobileNo1 || '-'}`, page.left, y, { size: 7 })
+  y += 11
+  text(row.companyName || details.companyName || '-', page.left, y, { bold: true, size: 7 })
+  y += 11
+  y = wrapped([details.addressLine1, details.addressLine2, details.addressLine3].filter(Boolean).join(', ') || 'Address not provided', page.left, y, 240, { size: 7, lineHeight: 9 })
+  ;[['State', details.state], ['City', details.city], ['Pincode', details.pinCode], ['GST Number', details.gstNumber]].forEach(([label, value]) => {
+    text(`${label}: ${value || '-'}`, page.left, y, { size: 7 })
+    y += 11
+  })
+  y += 8
+
+  const columns = [
+    { label: 'Service Category', x: page.left, width: 124 },
+    { label: 'Services For The Year', x: page.left + 124, width: 82 },
+    { label: 'EPR Category', x: page.left + 206, width: 74 },
+    { label: 'PIBO Category', x: page.left + 280, width: 112 },
+    { label: 'Unit', x: page.left + 392, width: 45 },
+    { label: 'Basic Amount (INR)', x: page.left + 437, width: 94 }
+  ]
+  const drawTableHeader = () => {
+    pdf.setFillColor(249, 115, 22)
+    pdf.rect(page.left, y, contentWidth, 24, 'F')
+    columns.forEach((column) => text(column.label, column.x + 5, y + 15, { bold: true, size: 6, color: [255, 255, 255] }))
+    y += 24
+  }
+
+  drawTableHeader()
+  items.forEach((item) => {
+    const pibo = [item.piboParent, item.piboCategory].filter(Boolean).join(' - ') || '-'
+    const values = [item.serviceCategory || '-', item.servicesForYear || '-', item.eprCategory || '-', pibo, item.unit || '1', inr((Number(item.unit) || 1) * Number(item.basicAmount || 0))]
+    const lines = values.map((value, index) => pdf.splitTextToSize(String(value), columns[index].width - 10))
+    const rowHeight = Math.max(24, ...lines.map((lineList) => lineList.length * 8 + 12))
+    ensurePage(rowHeight + 40)
+    if (y === page.top) drawTableHeader()
+    pdf.setDrawColor(15, 23, 42)
+    columns.forEach((column, index) => {
+      pdf.rect(column.x, y, column.width, rowHeight)
+      text(lines[index], column.x + (index === 5 ? column.width - 6 : 5), y + 12, { size: 6.5, bold: index === 0 || index === 5, align: index === 5 ? 'right' : undefined })
+    })
+    y += rowHeight
+  })
+  pdf.rect(page.left, y, contentWidth - 94, 22)
+  pdf.rect(page.left + contentWidth - 94, y, 94, 22)
+  text('GRAND TOTAL', page.left + contentWidth - 100, y + 14, { bold: true, size: 6.5, align: 'right' })
+  text(inr(row.grandTotal || amount(items)), page.left + contentWidth - 6, y + 14, { bold: true, size: 6.5, color: [249, 115, 22], align: 'right' })
+  y += 42
+
+  ensurePage(120)
+  text('Terms & Conditions:', page.left, y, { bold: true, size: 7 })
+  y += 13
+  ;(row.terms || ['Terms and conditions as per quotation.']).filter(Boolean).forEach((term, index) => {
+    y = wrapped(`${index + 1}. ${term}`, page.left + 8, y, contentWidth - 16, { size: 6.6, lineHeight: 9 })
+    y += 2
+  })
+  y += 8
+  text('Important Note:', page.left, y, { bold: true, size: 7, color: [220, 38, 38] })
+  y += 13
+  ;['GST will be extra @ 18%.', 'Any Government Charges to be paid by Client directly.'].forEach((note, index) => {
+    text(`${index + 1}. ${note}`, page.left + 8, y, { size: 6.6 })
+    y += 10
+  })
+
+  const footerY = page.height - 58
+  drawDarkLine(footerY)
+  text('For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520', page.width / 2, footerY + 20, { bold: true, size: 6.5, align: 'center' })
+  text('This is a computer-generated proforma invoice and does not require a signature.', page.width / 2, footerY + 38, { bold: true, size: 6.5, align: 'center' })
+  pdf.save(`${row.proformaNumber || 'proforma-invoice'}.pdf`)
+}
+
 function ProformaDetail({ row, onClose, onEdit }) {
   if (!row) return null
   const details = row.leadDetails || {}
@@ -54,7 +214,7 @@ function ProformaDetail({ row, onClose, onEdit }) {
       </header>
       <div className="overflow-y-auto p-3 sm:p-6">
         <article className="mx-auto min-h-[900px] w-full max-w-[850px] bg-white px-7 py-7 text-[11px] leading-relaxed text-slate-950 shadow-xl sm:px-10 sm:py-9">
-          <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4"><img src="/anant-tattva-logo-chroma.png" alt="Anant Tattva" className="h-14 w-auto object-contain" /><h1 className="text-2xl font-black uppercase tracking-[.22em] text-orange-500">Proforma Invoice</h1></div>
+          <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4"><img src="/ananttattva-logo.png" alt="Anant Tattva" className="h-14 w-auto object-contain" /><h1 className="text-2xl font-black uppercase tracking-[.22em] text-orange-500">Proforma Invoice</h1></div>
           <div className="grid gap-7 border-b border-slate-300 py-5 md:grid-cols-2">
             <section><p className="mb-2 font-black">From:</p><p className="font-bold">{row.createdBy?.name || 'Anant Tattva Team'}</p><p className="font-bold">Anant Tattva Private Limited</p><p>Office No.12 & 614, Midas Building, Sahar Plaza, JB Nagar, Andheri East, Mumbai - 400059</p></section>
             <section className="space-y-1 md:text-right"><p>Proforma Date: {displayDate(row.invoiceDate)}</p><p>Proforma No.: {row.proformaNumber || '-'}</p><p>Quotation No.: {row.quotationNumber || '-'}</p><p>PO Number: {row.poNumber || '-'}</p><p>Valid Until: {displayDate(row.validUntil)}</p><p>Prepared By: {row.createdBy?.name || '-'}</p></section>
