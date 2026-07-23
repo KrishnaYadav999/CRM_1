@@ -34,7 +34,10 @@ function normalizeCcpLead(row = {}) {
   const importMeta = data.importMeta || row.importMeta || {}
 
   const sourceLeadId = firstFilled(row.sourceLeadId, row._id, row.id, row.mongoId, row.uniqueId, row.leadId)
-  const leadCode = firstFilled(row.leadCode, row.uniqueId, row.leadId, row.code, row.sourceLeadId, sourceLeadId)
+  // CCP may expose an internal generated leadCode as well as the business-facing
+  // lead number. Keep the real business number in preference to that internal id.
+  const leadNumber = firstFilled(row.businessLeadCode, row.leadNumber, row['Lead Number'], importMeta.leadNumber)
+  const leadCode = firstFilled(leadNumber, row.leadCode, row.uniqueId, row.leadId, row.code, row.sourceLeadId, sourceLeadId)
   const company = firstFilled(
     row.company,
     row.companyName,
@@ -45,10 +48,30 @@ function normalizeCcpLead(row = {}) {
     basic.clientLegalName,
     basic.tradeName
   )
+  const assignedBy = firstFilled(
+    row.assignedBy?.name,
+    typeof row.assignedBy === 'string' ? row.assignedBy : '',
+    row.assignedByName,
+    row['Assigned By'],
+    importMeta.assignedBy,
+    importMeta.assignedByName
+  )
+  const importedCreatedBy = firstFilled(
+    row.importedCreatedBy,
+    row.createdByName,
+    row.createdBy?.name,
+    row.createdBy?.email,
+    typeof row.createdBy === 'string' ? row.createdBy : '',
+    row['Created By'],
+    importMeta.createdBy,
+    importMeta.createdByName,
+    importMeta.createdByEmail
+  )
 
   return {
     ...row,
     sourceLeadId,
+    leadNumber,
     leadCode,
     company,
     status: firstFilled(row.status, row.leadStatus, row.workflowStatus, row.stage, 'Draft'),
@@ -72,7 +95,8 @@ function normalizeCcpLead(row = {}) {
     mobileNo2: firstFilled(row.mobileNo2, row.mobile2, contact.mobileNo2),
     source: firstFilled(row.source, importMeta.source, 'ccp'),
     assignedToText: firstFilled(row.assignedToText, row.assignedTo?.name, importMeta.assignedTo),
-    importedCreatedBy: firstFilled(row.importedCreatedBy, row.createdBy?.name, row.createdBy, importMeta.createdBy),
+    assignedBy,
+    importedCreatedBy,
     importedCreatedAt: firstFilled(row.importedCreatedAt, row.createdAt, importMeta.createdAt),
     importedUpdatedAt: firstFilled(row.importedUpdatedAt, row.updatedAt, importMeta.updatedAt)
   }

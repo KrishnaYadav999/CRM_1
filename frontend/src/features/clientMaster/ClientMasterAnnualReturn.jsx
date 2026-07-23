@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Database, Download, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
+import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { adminRoles } from '../../constants/dashboard';
 import { quotationServiceCategoryOptions, selectOptions } from './clientMaster.constants';
 import { UploadButton } from './ClientMasterFormSections';
+import { uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
 import {
   annualDraftLegacyKeys,
   buildAnnualReturnYears,
@@ -549,6 +551,41 @@ function formatCompletedTabsMessage(completedTabs = {}) {
   return `${labels.join(', ')} done.`;
 }
 
+function PoServiceMultiSelect({ value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = Array.isArray(value) ? value : String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+  const filtered = options.filter((option) => option.toLowerCase().includes(query.trim().toLowerCase()));
+
+  function toggle(option) {
+    onChange(selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option]);
+  }
+
+  return (
+    <div className="min-w-[360px] rounded-2xl border border-slate-200 bg-white p-2 shadow-sm transition focus-within:border-teal-300 focus-within:ring-4 focus-within:ring-teal-50">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+          {selected.length ? selected.slice(0, 2).map((service) => <span key={service} className="max-w-40 truncate rounded-lg bg-teal-50 px-2.5 py-1.5 text-xs font-black text-[#30737B]">{service}</span>) : <span className="px-1 text-sm font-bold text-slate-400">Select one or more services</span>}
+          {selected.length > 2 && <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-black text-slate-600">+{selected.length - 2} more</span>}
+        </div>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-[#30737B] transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+          <div className="flex items-center gap-2 border-b border-slate-100 p-2.5"><Search className="h-4 w-4 text-slate-400" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-sm font-bold outline-none" placeholder="Search services..." />{selected.length > 0 && <button type="button" onClick={() => onChange([])} className="text-xs font-black text-red-500">Clear</button>}</div>
+          <div className="max-h-56 overflow-y-auto p-2">
+            {filtered.map((option) => {
+              const checked = selected.includes(option);
+              return <button type="button" key={option} onClick={() => toggle(option)} className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-black transition last:mb-0 ${checked ? 'bg-teal-50 text-[#205e65]' : 'text-slate-600 hover:bg-slate-50'}`}><span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${checked ? 'border-[#30737B] bg-[#30737B] text-white' : 'border-slate-300 bg-white'}`}>{checked && <Check className="h-3.5 w-3.5" />}</span><span>{option}</span></button>;
+            })}
+            {!filtered.length && <p className="p-5 text-center text-sm font-bold text-slate-400">No matching service found.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AnnualReturnHistory({ client, quotations = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
@@ -571,6 +608,19 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   const selected = years.find((year) => year.label === selectedYear);
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Selected Client';
   const uniqueId = getClientUniqueId(client);
+  const annualPoStorageKey = `annual-return-po:${client?._id || client?.id || uniqueId}`;
+  const storedPoWorkflow = Object.values(data.annualReturn?.filings || {})
+    .map((filing) => filing?.draft?.purchaseOrderConfirmation)
+    .find((value) => value?.confirmed) || {};
+  const [poWorkflow, setPoWorkflow] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(annualPoStorageKey) || 'null') || storedPoWorkflow; } catch { return storedPoWorkflow; }
+  });
+  const [poDraft, setPoDraft] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(annualPoStorageKey) || 'null') || storedPoWorkflow; } catch { return storedPoWorkflow; }
+  });
+  const [poModalOpen, setPoModalOpen] = useState(false);
+  const [poApprovalPreviewOpen, setPoApprovalPreviewOpen] = useState(false);
+  const [poValidationError, setPoValidationError] = useState('');
   const assignedName = getAssignedName(client);
   const rawPreviousSpoc = String(data.importMeta?.previousSpoc || '').trim();
   const previousSpocName = rawPreviousSpoc && rawPreviousSpoc.toUpperCase() !== 'N/A' ? rawPreviousSpoc : assignedName;
@@ -587,6 +637,11 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
       .filter(Boolean);
     return [...new Set([...quotationServiceCategoryOptions, ...fromQuotations])].sort((left, right) => left.localeCompare(right));
   }, [quotations]);
+  const previousQuotationService = useMemo(() => quotations
+    .flatMap((quotation) => Array.isArray(quotation.items) ? quotation.items : [])
+    .map((item) => String(item.serviceCategory || item.service || '').trim())
+    .filter(Boolean)
+    .at(-1) || '', [quotations]);
   const latestQuotationNo = useMemo(() => {
     const normalizeName = (value = '') => String(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     const clientNames = [
@@ -702,6 +757,97 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
     const timer = window.setTimeout(() => setAnnualToast(null), 3600);
     return () => window.clearTimeout(timer);
   }, [annualToast]);
+
+  useEffect(() => {
+    if (!poModalOpen && !poApprovalPreviewOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [poModalOpen, poApprovalPreviewOpen]);
+
+  useEffect(() => {
+    if (selected) return;
+    const missingYears = years.filter((year) => poWorkflow.mode === 'yes' && !(poWorkflow.rows || []).some((row) => row.fyYear === year.label));
+    if (poWorkflow.confirmed && missingYears.length) {
+      setAnnualToast({ type: 'error', message: `You didn't fill Annual Return ${missingYears.map((year) => year.label).join(', ')}. Complete PO details to unlock these years.` });
+    }
+  }, [poWorkflow, selectedYear, years.map((year) => year.label).join('|')]);
+
+  function updatePoRows(nextRows) {
+    setPoDraft((current) => ({ ...current, mode: current.mode || 'yes', rows: nextRows }));
+  }
+
+  function addPoYear() {
+    const rows = Array.isArray(poDraft.rows) ? poDraft.rows : [];
+    const nextAvailableYear = years.find((year) => !rows.some((row) => row.fyYear === year.label))?.label || '';
+    const inheritedService = rows.at(-1)?.service || previousQuotationService || '';
+    updatePoRows([...rows, { fyYear: nextAvailableYear, poNumber: '', file: null, service: inheritedService }]);
+  }
+
+  function updatePoRow(index, field, value) {
+    const rows = Array.isArray(poDraft.rows) ? poDraft.rows : [];
+    updatePoRows(rows.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row));
+  }
+
+  async function uploadPoFile(index, file) {
+    if (!file) return;
+    updatePoRow(index, 'file', await uploadMedia(file, 'crm/annual-return/purchase-orders'));
+  }
+
+  async function uploadApprovalFiles(fileList) {
+    const approvalFiles = await uploadMediaBatch(fileList, 'crm/annual-return/special-approvals');
+    setPoDraft((current) => ({ ...current, approvalFiles }));
+  }
+
+  async function savePoWorkflow() {
+    const mode = poDraft.mode;
+    const rows = Array.isArray(poDraft.rows) ? poDraft.rows : [];
+    if (!mode) {
+      setPoValidationError('Please select Yes or No for PO Received.');
+      return;
+    }
+    if (mode === 'yes') {
+      const invalid = !rows.length || rows.some((row) => !row.fyYear || !String(row.poNumber || '').trim() || !row.file || !String(row.service || '').trim());
+      if (invalid) {
+        setPoValidationError('FY Year, PO Number, PO Upload and Service are required for every row.');
+        return;
+      }
+    } else if (!(poDraft.approvalFiles || []).length && !String(poDraft.approvalNote || '').trim()) {
+      setPoValidationError('Upload special approval proof or enter the approval email/note.');
+      return;
+    }
+    const saved = { ...poDraft, mode, confirmed: true, savedAt: new Date().toISOString() };
+    const clientId = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId;
+    const targetYears = mode === 'yes' ? [...new Set(rows.map((row) => row.fyYear))] : years.map((year) => year.label);
+    try {
+      await Promise.all(targetYears.map((annualYear, index) => api.put(API_ENDPOINTS.clients.annualReturn(clientId), {
+        annualYear,
+        notifyPoApproval: mode === 'no' && index === 0,
+        activeTab: 'basic',
+        activeSection: 'Purchase Order Confirmation',
+        status: 'draft',
+        draft: {
+          ...getStoredAnnualReturnDraft(data, annualYear),
+          purchaseOrderConfirmation: saved
+        }
+      })));
+    } catch (error) {
+      setPoValidationError(error?.response?.data?.error || 'Unable to save PO confirmation. Please try again.');
+      return;
+    }
+    localStorage.setItem(annualPoStorageKey, JSON.stringify(saved));
+    setPoWorkflow(saved);
+    setPoDraft(saved);
+    setPoValidationError('');
+    setPoModalOpen(false);
+    setAnnualToast({ type: 'success', message: 'Purchase Order confirmation saved successfully.' });
+  }
+
+  function isAnnualYearLocked(yearLabel) {
+    if (!poWorkflow.confirmed) return true;
+    if (poWorkflow.mode === 'no') return !(poWorkflow.approvalFiles || []).length && !String(poWorkflow.approvalNote || '').trim();
+    return !(poWorkflow.rows || []).some((row) => row.fyYear === yearLabel);
+  }
 
   useEffect(() => {
     if (!reviewDrawerOpen) return undefined;
@@ -1732,6 +1878,12 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   function openAnnualYear(year) {
     const clientKey = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || getClientUniqueId(client);
     const nextYear = year?.label || '';
+    if (isAnnualYearLocked(nextYear)) {
+      setAnnualToast({ type: 'error', message: `You didn't fill Annual Return ${nextYear}. Complete its PO details first.` });
+      setPoDraft(poWorkflow);
+      setPoModalOpen(true);
+      return;
+    }
     console.debug('[CRM AnnualReturn]', {
       label: 'hub-card-open',
       at: new Date().toISOString(),
@@ -1746,6 +1898,20 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
 
   return (
     <div className="mt-5 space-y-5">
+      {!selected && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => navigate('/sales/client-master')} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-[#30737B] hover:bg-teal-50"><ArrowLeft className="h-5 w-5" /></button>
+            <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Annual Return</p><h2 className="text-xl font-black text-slate-950">{clientName}</h2></div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {poWorkflow.confirmed && poWorkflow.mode === 'no' && (
+              <button type="button" onClick={() => setPoApprovalPreviewOpen(true)} className="btn-lift inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-black text-[#24675f] hover:bg-emerald-100"><Eye className="h-4 w-4" /> View Approval Email</button>
+            )}
+            <button type="button" onClick={() => { setPoDraft(poWorkflow.confirmed ? poWorkflow : {}); setPoValidationError(''); setPoModalOpen(true); }} className="btn-lift inline-flex items-center gap-2 rounded-xl bg-[#30737B] px-5 py-3 text-sm font-black text-white"><Plus className="h-4 w-4" /> {poWorkflow.confirmed ? 'Edit PO' : 'Add PO'}</button>
+          </div>
+        </div>
+      )}
       {annualToast && (
         <div className="fixed right-5 top-16 z-[160] w-[min(430px,calc(100vw-40px))]">
           <ToastMessage type={annualToast.type} actionLabel="Close" onAction={() => setAnnualToast(null)}>{annualToast.message}</ToastMessage>
@@ -1764,13 +1930,14 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           <div className="annual-year-grid mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {years.map((year, index) => {
               const active = selected?.label === year.label;
+              const locked = isAnnualYearLocked(year.label);
               const [yearStart, yearEnd] = year.label.split('-');
               return (
                 <button
                   key={year.label}
                   type="button"
                   onClick={() => openAnnualYear(year)}
-                  className={`annual-year-card ${active ? 'annual-year-card-active' : ''}`}
+                  className={`annual-year-card ${active ? 'annual-year-card-active' : ''} ${locked ? '!border-red-300 !bg-red-50/80 opacity-80' : ''}`}
                   style={{ '--delay': `${index * 90}ms` }}
                 >
                   <span className="annual-year-topline" />
@@ -1780,7 +1947,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
                     <span className="block">{yearEnd}</span>
                   </strong>
                   <span className="mt-4 block text-xs font-black text-slate-400">{year.period}</span>
-                  <span className="mt-1 block text-xs font-black text-slate-400">- {year.status}</span>
+                  <span className={`mt-1 block text-xs font-black ${locked ? 'text-red-600' : 'text-slate-400'}`}>- {locked ? 'Frozen — PO details pending' : year.status}</span>
                 </button>
               );
             })}
@@ -1792,6 +1959,97 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           />
         )}
       </section>}
+
+      {poApprovalPreviewOpen && !selected && createPortal((
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-700/70 p-3 backdrop-blur-md sm:p-6">
+          <section className="flex max-h-[calc(100vh-24px)] w-full max-w-[1320px] flex-col overflow-hidden rounded-[30px] border border-emerald-100 bg-[#fbfdfd] shadow-[0_35px_100px_rgba(15,23,42,0.35)] sm:max-h-[calc(100vh-48px)]">
+            <header className="flex shrink-0 items-start justify-between gap-5 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-orange-50 px-5 py-5 sm:px-7">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700">Preview</span><span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold text-slate-500">Approval email / proof</span></div>
+                <h2 className="mt-3 truncate text-xl font-black text-slate-900 sm:text-2xl">PO Special Approval</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">{clientName} · {uniqueId}</p>
+              </div>
+              <button type="button" onClick={() => setPoApprovalPreviewOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-red-200 hover:text-red-500"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
+              <section className="rounded-[24px] border border-emerald-100 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Mail summary</p><h3 className="mt-2 text-lg font-black text-slate-900">Purchase Order special approval for review</h3><p className="mt-1 text-sm font-semibold text-slate-500">{(poWorkflow.approvalFiles || []).length} attachment(s) included</p></div>
+                  <span className="rounded-full bg-teal-50 px-4 py-2 text-xs font-black text-[#30737B]">Saved {formatDisplayDate(poWorkflow.savedAt)}</span>
+                </div>
+                <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_1.35fr]">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Subject</p><p className="mt-2 font-bold leading-6 text-slate-700">PO approval · {clientName}</p></div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Date</p><p className="mt-2 font-bold text-slate-700">{formatDisplayDate(poWorkflow.savedAt)}</p></div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Attachments</p><div className="mt-2 flex flex-wrap gap-2">{(poWorkflow.approvalFiles || []).map((file, index) => { const href = file.secureUrl || file.url || file.fileUrl; return <a key={`${file.name}-${index}`} href={href} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-2 rounded-xl border border-emerald-100 bg-white px-3 py-2 text-xs font-bold text-[#30737B] shadow-sm hover:bg-emerald-50"><FileText className="h-4 w-4 shrink-0" /><span className="truncate">{file.name || `Proof ${index + 1}`}</span></a>; })}</div></div>
+                </div>
+              </section>
+              <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Approval message</p></div>
+                <div className="min-h-44 whitespace-pre-wrap p-5 text-sm font-medium leading-7 text-slate-700 sm:p-7">{poWorkflow.approvalNote || 'No written approval note was provided. Review the uploaded proof above.'}</div>
+              </section>
+              <div className="flex justify-end"><button type="button" onClick={() => setPoApprovalPreviewOpen(false)} className="rounded-xl bg-[#30737B] px-6 py-3 text-sm font-black text-white shadow-sm">Close Preview</button></div>
+            </div>
+          </section>
+        </div>
+      ), document.body)}
+
+      {poModalOpen && !selected && createPortal((
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-md sm:p-6">
+          <section className="flex max-h-[calc(100vh-24px)] w-full max-w-[1480px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.38)] sm:max-h-[calc(100vh-48px)]">
+            <header className="flex shrink-0 items-start justify-between border-b border-emerald-100 bg-[linear-gradient(120deg,#f0fdf4_0%,#ffffff_48%,#fff7ed_100%)] px-5 py-5 sm:px-7 sm:py-6">
+              <div><p className="text-xs font-black uppercase tracking-[0.22em] text-[#527566]">PO Workflow</p><h2 className="mt-2 text-2xl font-black text-slate-950">Purchase Order Confirmation</h2><p className="mt-1 text-sm font-semibold text-slate-500">{clientName} · {uniqueId}</p></div>
+              <button type="button" onClick={() => setPoModalOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:-translate-y-0.5 hover:text-red-500 hover:shadow-md"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="flex-1 space-y-5 overflow-y-auto bg-slate-50/60 p-4 sm:p-6">
+              <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received</p>
+                <div className="mt-4 flex gap-3">
+                  {['yes', 'no'].map((mode) => {
+                    const selectedMode = poDraft.mode === mode;
+                    return (
+                      <button key={mode} type="button" aria-pressed={selectedMode} onClick={() => { setPoDraft((current) => ({ ...current, mode })); setPoValidationError(''); }} className={`group flex min-w-36 items-center gap-3 rounded-2xl border-2 px-4 py-3.5 text-left transition-all ${selectedMode ? 'border-[#30737B] bg-teal-50 text-[#205e65] shadow-md shadow-teal-900/10' : 'border-slate-200 bg-white text-slate-600 hover:border-teal-200 hover:bg-teal-50/40'}`}>
+                        <span className={`grid h-9 w-9 place-items-center rounded-xl transition ${selectedMode ? 'bg-[#30737B] text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-teal-100 group-hover:text-[#30737B]'}`}>{mode === 'yes' ? <Check className="h-5 w-5" /> : <X className="h-5 w-5" />}</span>
+                        <span><strong className="block text-sm font-black capitalize">{mode}</strong><small className="mt-0.5 block text-[11px] font-bold text-slate-400">{mode === 'yes' ? 'PO is available' : 'Special approval'}</small></span>
+                        {selectedMode && <CheckCircle2 className="ml-auto h-5 w-5 text-[#30737B]" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {!poDraft.mode ? (
+                <div className="rounded-2xl border border-dashed border-teal-200 bg-gradient-to-br from-white to-teal-50/60 px-6 py-10 text-center shadow-sm">
+                  <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-teal-100 text-[#30737B]"><FileCheck2 className="h-7 w-7" /></div>
+                  <h3 className="mt-4 text-lg font-black text-slate-900">Select PO availability</h3>
+                  <p className="mx-auto mt-2 max-w-lg text-sm font-semibold text-slate-500">Choose Yes to add financial-year purchase orders, or No to provide special approval proof.</p>
+                </div>
+              ) : poDraft.mode === 'yes' ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received For No Of Year</p><strong className="mt-2 block text-2xl text-slate-900">{(poDraft.rows || []).length}</strong></div><div className="flex gap-2"><button type="button" onClick={addPoYear} disabled={(poDraft.rows || []).length >= years.length} className="rounded-xl bg-[#416c5a] px-4 py-3 text-sm font-black text-white disabled:opacity-50">+ Add Next Year</button><button type="button" onClick={() => updatePoRows((poDraft.rows || []).slice(0, -1))} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600">Remove Last Year</button></div></div>
+                  <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <table className="w-full min-w-[1180px] text-left text-sm">
+                      <thead className="border-b border-teal-200 bg-gradient-to-r from-teal-50 via-emerald-50 to-cyan-50 text-xs font-black uppercase tracking-widest text-teal-900"><tr><th className="w-24 p-5">Sr. No</th><th className="w-48 p-5">FY Year</th><th className="w-64 p-5">PO Number</th><th className="w-60 p-5">PO Upload</th><th className="min-w-[420px] p-5">Services</th></tr></thead>
+                      <tbody>{(poDraft.rows || []).length ? (poDraft.rows || []).map((row, index) => (
+                        <tr key={index} className="border-t border-slate-100 align-top transition hover:bg-teal-50/30">
+                          <td className="p-5"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 font-black text-slate-700">{index + 1}</span></td>
+                          <td className="p-5"><select className="form-input min-w-40" value={row.fyYear || ''} onChange={(event) => updatePoRow(index, 'fyYear', event.target.value)}><option value="">Select FY Year</option>{years.map((year) => <option key={year.label} value={year.label}>{year.label}</option>)}</select></td>
+                          <td className="p-5"><input className="form-input min-w-52" value={row.poNumber || ''} onChange={(event) => updatePoRow(index, 'poNumber', event.target.value)} placeholder="Enter PO Number" /></td>
+                          <td className="p-5"><label className="inline-flex min-h-12 max-w-52 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 font-black text-[#416c5a] transition hover:bg-emerald-100"><Upload className="h-4 w-4 shrink-0" /><span className="truncate">{row.file?.name || 'Choose File'}</span><input type="file" className="sr-only" onChange={(event) => uploadPoFile(index, event.target.files?.[0])} /></label></td>
+                          <td className="p-5"><PoServiceMultiSelect value={row.service} options={annualPoServiceCategoryOptions} onChange={(services) => updatePoRow(index, 'service', services)} /></td>
+                        </tr>
+                      )) : <tr><td colSpan="5" className="p-14 text-center"><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-teal-50 text-[#30737B]"><Plus className="h-7 w-7" /></div><p className="mt-4 font-black text-slate-700">No purchase order year added</p><p className="mt-1 text-sm font-semibold text-slate-400">Click Add Next Year to start adding PO and services.</p></td></tr>}</tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 p-5"><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Please Provide Special Approval</p><p className="mt-2 text-sm font-semibold text-slate-500">Upload supporting images or email approval proof.</p><div className="mt-5 grid gap-5 md:grid-cols-2"><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Upload Images / Email</span><span className="mt-2 flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 font-black text-[#416c5a]"><Upload className="h-5 w-5" />{(poDraft.approvalFiles || []).length ? `${poDraft.approvalFiles.length} file(s) selected` : 'Choose Files'}<input type="file" multiple accept="image/*,.pdf,.eml,.msg" className="sr-only" onChange={(event) => uploadApprovalFiles(event.target.files)} /></span></label><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Email / Approval Note</span><textarea className="form-input mt-2 min-h-28 py-3" value={poDraft.approvalNote || ''} onChange={(event) => setPoDraft((current) => ({ ...current, approvalNote: event.target.value }))} placeholder="Enter approval email details or notes here" /></label></div></div>
+              )}
+              {poValidationError && <ToastMessage type="error">{poValidationError}</ToastMessage>}
+              <footer className="flex justify-end gap-3 border-t border-slate-200 pt-5"><button type="button" onClick={() => setPoModalOpen(false)} className="rounded-xl border border-slate-200 px-5 py-3 font-black text-slate-600">Cancel</button><button type="button" onClick={savePoWorkflow} className="rounded-xl bg-[#416c5a] px-6 py-3 font-black text-white">Save And Continue</button></footer>
+            </div>
+          </section>
+        </div>
+      ), document.body)}
 
       {selected && (
         <section className="annual-workspace">
@@ -2881,11 +3139,7 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                     />
                   </td>
                   <td>
-                    <input
-                      type="date"
-                      value={row.compliancePoDate || ''}
-                      onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)}
-                    />
+                    <PremiumDatePicker value={row.compliancePoDate || ''} onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)} />
                   </td>
                   <td>
                     <label className="annual-po-upload-cell">
@@ -3275,12 +3529,10 @@ function AnnualFieldControl({ field, value, displayValue, isAutoLocked, onChange
   const fileUrl = getProcessingFileUrl(value);
   const isUrl = fileUrl && (fileUrl.startsWith('http') || fileUrl.startsWith('data:') || fileUrl.includes('/'));
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/documents'));
   }
 
   if (field.type === 'select') {
@@ -3331,12 +3583,10 @@ function LegacyDataField({ field, value, source, onChange }) {
   const isFilled = Boolean(getProcessingDisplayValue(value).trim());
   const isAutoLocked = source !== 'Manual' && isFilled && field.type !== 'file';
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/documents'));
   }
 
   return (
@@ -3532,12 +3782,10 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
     onChange(nextRows.length ? nextRows : [createClientInteractionRow()]);
   }
 
-  function handleMailUpload(index, event) {
+  async function handleMailUpload(index, event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => updateRow(index, 'attachedMail', { name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    updateRow(index, 'attachedMail', await uploadMedia(file, 'crm/annual-return/client-interactions'));
   }
 
   function openMom(index, readOnly = false) {
@@ -3618,12 +3866,7 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
               return (
                 <tr key={index}>
                   <td>
-                      <input
-                        type="date"
-                        value={formatDateInputValue(normalized.date)}
-                        aria-label="Client interaction date"
-                        onChange={(event) => updateRow(index, 'date', event.target.value)}
-                      />
+                      <PremiumDatePicker value={formatDateInputValue(normalized.date)} aria-label="Client interaction date" onChange={(event) => updateRow(index, 'date', event.target.value)} />
                   </td>
                   <td>
                       <input
@@ -3663,7 +3906,7 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
             <div className="mom-modal-grid">
               <label>
                 <span>Date</span>
-                <input type="date" value={formatDateInputValue(form.date)} readOnly={momReadOnly} disabled={momReadOnly} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
+                <PremiumDatePicker value={formatDateInputValue(form.date)} readOnly={momReadOnly} disabled={momReadOnly} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
               </label>
               <label>
                 <span>Subject</span>
@@ -3695,12 +3938,10 @@ function ClientInteractionTable({ rawFiles, onRawFilesChange, rows, onChange }) 
 function RawDataUploadCard({ label, value, onChange }) {
   const displayValue = getProcessingDisplayValue(value);
 
-  function handleFile(event) {
+  async function handleFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/raw-data'));
   }
 
   function viewFile() {
@@ -3845,12 +4086,10 @@ function ProcessingPill({ label, value, icon: Icon, type = 'text', tone = 'white
   const inputClass = 'processing-input';
   const isAutoLocked = source !== 'Manual' && Boolean(getProcessingDisplayValue(value).trim()) && type !== 'file';
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/annual-return/documents'));
   }
 
   return (

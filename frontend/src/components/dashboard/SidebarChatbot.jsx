@@ -1,19 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Bot, BrainCircuit, CalendarDays, Maximize2, MessageCircle, Minimize2, Send, Sparkles, X, Zap } from 'lucide-react'
 import { getAssignedName, getClientUniqueId, getVisibilityStatus, isFilled, normalizeClientIdentity, readClientData } from '../../features/clientMaster/clientMaster.utils'
+import { findPiboOperationsAnswer } from './piboOperationsFaq'
 
 const starterMessages = [
   {
     id: 'welcome',
     role: 'bot',
-    text: 'Hi, I am your CRM assistant. Ask me about Dashboard, Pending Approval, Notifications, Calendar, Sales, Lead Generation, Client Master, Add Quotation, or Follow-ups.',
+    text: 'Hi, I am your CRM assistant. Ask me about CRM workflows or PIBO Operations—including procurement, bulk uploads, invoice validation, sales, road construction, wallet and common portal errors.',
     source: 'CRM Guide'
   }
 ]
 
 const quickPrompts = [
+  { label: 'PIBO Operations', prompt: 'How is the PIBO Operations module accessed?' },
+  { label: 'Bulk Upload', prompt: 'How do I complete a procurement bulk upload?' },
   { label: 'Follow-ups', prompt: 'What are Follow-ups used for?' },
   { label: 'Approval', prompt: 'Explain Pending Approval' },
   { label: 'Calendar', prompt: 'How does Calendar work?' },
@@ -456,8 +459,8 @@ function latestAnnualWorkflow(data) {
   return filingRows[filingRows.length - 1]
 }
 
-function buildCompanyAudit(query) {
-  const clients = getCachedClients()
+function buildCompanyAudit(query, liveClients = []) {
+  const clients = Array.isArray(liveClients) && liveClients.length ? liveClients : getCachedClients()
   const matchedClient = clients.find((client) => matchCompanyName(client, query))
   if (!matchedClient) return null
 
@@ -585,15 +588,38 @@ function buildCompanyAudit(query) {
     owner: getAssignedName(matchedClient) || '-',
     visibility: getVisibilityStatus(matchedClient) || '-',
     overallPercent,
+    filledFields: rows.reduce((sum, row) => sum + row.filled, 0),
+    remainingFields: rows.reduce((sum, row) => sum + row.missingCount, 0),
+    totalFields: rows.reduce((sum, row) => sum + row.filled + row.missingCount, 0),
+    alertCount: criticalMissing.length + calendarItems.filter((item) => item.status !== 'completed').length,
     rows,
     criticalMissing,
     activeProcess
   }
 }
 
-function buildAnswer(question) {
+export function buildAnswer(question, context = {}) {
   const cleanQuestion = normalize(question)
-  const companyAudit = cleanQuestion.length >= 3 ? buildCompanyAudit(question) : null
+  const userName = String(context.userName || 'Krishna Yadav').trim()
+  const firstName = userName.split(/\s+/)[0] || 'Krishna'
+  const asksName = /^(my )?name( is)?( krishna)?$/.test(cleanQuestion)
+    || cleanQuestion === 'krishna'
+    || cleanQuestion.includes('what is my name')
+    || cleanQuestion.includes('who am i')
+  if (asksName) {
+    return {
+      text: `Your name is ${userName}. Nice to have you here, ${firstName}! I can also help with your CRM profile, assigned work, leads, clients and compliance workflows.`,
+      source: 'Signed-in CRM profile',
+      confidence: 'Personalized',
+      suggestions: [
+        { label: 'My profile', prompt: 'What details are in my CRM profile?' },
+        { label: 'My work', prompt: 'Show me what CRM work I should check today' },
+        { label: 'Client Master', prompt: 'Explain Client Master full flow' },
+        { label: 'PIBO help', prompt: 'How is the PIBO Operations module accessed?' }
+      ]
+    }
+  }
+  const companyAudit = cleanQuestion.length >= 3 ? buildCompanyAudit(question, context.clients) : null
   if (companyAudit) {
     return {
       text: `Company audit for ${companyAudit.companyName}. Overall data completion is ${companyAudit.overallPercent}%.`,
@@ -604,6 +630,20 @@ function buildAnswer(question) {
         { label: 'Client Master Map', prompt: 'Client Master all tabs end to end' },
         { label: 'Annual Data', prompt: 'Explain Annual Return Data Part A Part B Part C Part D' },
         { label: 'Follow-ups', prompt: 'Explain Client Interactions Follow-Up and To-Do' }
+      ]
+    }
+  }
+
+  const piboFaq = findPiboOperationsAnswer(question)
+  if (piboFaq) {
+    return {
+      text: `${piboFaq.title}: ${piboFaq.answer}`,
+      source: `PIBO Operations FAQ · ${piboFaq.section}`,
+      confidence: 'Official FAQ match',
+      suggestions: [
+        { label: 'Bulk process', prompt: 'How is a bulk procurement upload started?' },
+        { label: 'Invoice validation', prompt: 'What does the Invoice Validation page display?' },
+        { label: 'Common errors', prompt: 'Why can a new procurement or sales entry not be added for a past year?' }
       ]
     }
   }
@@ -670,7 +710,7 @@ function buildAnswer(question) {
 
   if (cleanQuestion.includes('what can') || cleanQuestion.includes('help')) {
     return {
-      text: 'I can explain how this CRM works, including Dashboard, Pending Approval, Notifications, Calendar, Sales, Lead Generation, Client Master, Add Quotation, Follow-ups, todos, approvals, and user roles.',
+      text: 'I can explain CRM workflows and the PIBO Operations module, including procurement, sales, bulk templates, invoice ZIP matching, QR validation, road-construction EoL, wallet potential, legacy data and portal troubleshooting.',
       source: 'Assistant scope',
       confidence: 'Ready'
     }
@@ -695,6 +735,7 @@ function buildAnswer(question) {
 
 export default function SidebarChatbot({ collapsed = false }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [messages, setMessages] = useState(starterMessages)
@@ -788,13 +829,7 @@ export default function SidebarChatbot({ collapsed = false }) {
       <button
         type="button"
         className="sidebar-chatbot-trigger"
-        onClick={() => {
-          if (open) {
-            closeAssistant()
-            return
-          }
-          openAssistant()
-        }}
+        onClick={() => navigate('/assistant')}
         title="CRM Assistant"
         aria-label="Open CRM Assistant"
       >
@@ -840,7 +875,7 @@ export default function SidebarChatbot({ collapsed = false }) {
 
           <div className="sidebar-chatbot-insights">
             <span><Zap className="h-3.5 w-3.5" /> Instant guide</span>
-            <span><MessageCircle className="h-3.5 w-3.5" /> CRM trained</span>
+            <span><MessageCircle className="h-3.5 w-3.5" /> CRM + PIBO FAQ trained</span>
           </div>
 
           <div className="sidebar-chatbot-body" ref={bodyRef}>
@@ -965,7 +1000,7 @@ export default function SidebarChatbot({ collapsed = false }) {
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask anything about this CRM..."
+              placeholder="Ask about CRM or PIBO Operations..."
               aria-label="Ask CRM Assistant"
             />
             <button type="submit" aria-label="Send question">
@@ -975,7 +1010,7 @@ export default function SidebarChatbot({ collapsed = false }) {
 
           <div className="sidebar-chatbot-foot">
             <CalendarDays className="h-3.5 w-3.5" />
-            <span>Answers are focused on this CRM software.</span>
+            <span>Answers cover CRM workflows and the official PIBO Operations FAQ.</span>
           </div>
         </motion.div>
         )}

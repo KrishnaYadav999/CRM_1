@@ -183,8 +183,8 @@ function mapFlatClientData(item) {
     },
     msmeRows,
     cpcb: {
-      registrationNumber: pickLookup(lookup, ['CPCB Reg No', 'CPCB Registration Number']),
-      status: pickLookup(lookup, ['CPCB Status', 'CPCB Approval']),
+      registrationNumber: pickLookup(lookup, ['CPCB Reg No', 'CPCB Registration Number', 'CPCB Registration No', 'CPCB Application Number']),
+      status: pickLookup(lookup, ['CPCB Status', 'CPCB Approval', 'CPCB Approval Status', 'CPCB Application Status', 'Application Processing Status', 'Portal Status']),
       ceprUserId: pickLookup(lookup, ['CEPR User ID']),
       ceprPassword: pickLookup(lookup, ['CEPR Password']),
       loginId: pickLookup(lookup, ['CPCB Login', 'CPCB Login ID']),
@@ -192,8 +192,8 @@ function mapFlatClientData(item) {
     },
     validation: {},
     otp: {
-      mobile: pickLookup(lookup, ['OTP Mobile', 'Contact No', 'Contact Number', 'Mobile']),
-      personName: pickLookup(lookup, ['OTP Name', 'Contact Person']),
+      mobile: pickLookup(lookup, ['OTP Mobile', 'OTP Mobile Number', 'OTP Mobile No', 'OTP Enabled Mobile No', 'Contact No', 'Contact Number', 'Mobile Number', 'Mobile']),
+      personName: pickLookup(lookup, ['OTP Name', 'OTP Person Name', 'OTP Contact Name', 'Contact Person']),
       designation: pickLookup(lookup, ['Designation'])
     },
     authorised: {
@@ -216,7 +216,7 @@ function mapFlatClientData(item) {
       visibilityStatus: pickLookup(lookup, ['Visibility Status']),
       createdBy: pickLookup(lookup, ['Created By']),
       creationDate: pickLookup(lookup, ['Creation Date']),
-      assignedTo: pickLookup(lookup, ['Assigned To']),
+      assignedTo: pickLookup(lookup, ['Assigned To', 'Assigned To Name', 'Assignee', 'Assignee Name']),
       approvedBy: pickLookup(lookup, ['Approved By'])
     }
   };
@@ -494,7 +494,81 @@ function getAssignedName(item) {
   const assigned = item?.adminControls?.assignedTo;
   if (assigned && typeof assigned === 'object') return assigned.name || assigned.email || '-';
   const data = readClientData(item);
-  return data.importMeta?.assignedTo || item?.assignedToText || (typeof assigned === 'string' ? assigned : '') || '-';
+  const selectedLeadAssigned = item?.selectedLead?.assignedTo;
+  return data.importMeta?.assignedTo
+    || item?.assignedToText
+    || item?.assignedToName
+    || (typeof assigned === 'string' ? assigned : '')
+    || item?.selectedLead?.assignedToText
+    || (typeof selectedLeadAssigned === 'object' ? selectedLeadAssigned?.name || selectedLeadAssigned?.email : selectedLeadAssigned)
+    || data.importMeta?.createdBy
+    || 'Not assigned';
+}
+
+function getCpcbStatus(data = {}) {
+  return data.cpcb?.status
+    || data.cpcb?.approvalStatus
+    || data.cpcb?.applicationStatus
+    || data.cpcb?.processingStatus
+    || 'Not provided';
+}
+
+function getOtpMobile(data = {}) {
+  return data.otp?.mobile || data.authorised?.mobile || data.coordinating?.mobile || 'Not provided';
+}
+
+function getOtpName(data = {}) {
+  return data.otp?.personName || data.authorised?.name || data.coordinating?.name || 'Not provided';
+}
+
+function enrichClientsFromLeads(clients = [], leads = []) {
+  const normalizedLeads = mergeLeadSources([], leads);
+  const byStableId = new Map();
+  const byCompany = new Map();
+
+  normalizedLeads.forEach((lead) => {
+    [lead.leadNumber, lead.leadCode, lead.businessLeadCode, lead.sourceLeadId, lead._id, lead.id]
+      .map((value) => normalizeClientIdentity(value))
+      .filter(Boolean)
+      .forEach((key) => byStableId.set(key, lead));
+    const companyKey = normalizeClientIdentity(lead.company || lead.companyName);
+    if (companyKey && !byCompany.has(companyKey)) byCompany.set(companyKey, lead);
+  });
+
+  return clients.map((client) => {
+    const data = readClientData(client);
+    const selectedLead = client?.selectedLead;
+    const stableCandidates = [
+      data.importMeta?.leadNumber,
+      typeof selectedLead === 'object' ? selectedLead?.leadNumber || selectedLead?.leadCode || selectedLead?._id || selectedLead?.id : selectedLead
+    ].map((value) => normalizeClientIdentity(value)).filter(Boolean);
+    const companyCandidates = [data.basic?.clientLegalName, data.basic?.tradeName]
+      .map((value) => normalizeClientIdentity(value)).filter(Boolean);
+    const lead = stableCandidates.map((key) => byStableId.get(key)).find(Boolean)
+      || companyCandidates.map((key) => byCompany.get(key)).find(Boolean);
+    if (!lead) return client;
+
+    const assigned = lead.assignedToText
+      || lead.assignedTo?.name
+      || (typeof lead.assignedTo === 'string' ? lead.assignedTo : '')
+      || lead.assignedBy
+      || lead.importedCreatedBy;
+    const enrichedData = mergeClientData({
+      otp: {
+        ...(data.otp || {}),
+        mobile: data.otp?.mobile || lead.mobileNo1 || lead.mobile || lead.phone || '',
+        personName: data.otp?.personName || lead.contactPerson || lead.contactName || ''
+      },
+      authorised: {
+        ...(data.authorised || {}),
+        mobile: data.authorised?.mobile || lead.mobileNo1 || lead.mobile || lead.phone || '',
+        name: data.authorised?.name || lead.contactPerson || lead.contactName || '',
+        email: data.authorised?.email || lead.emails || lead.email || ''
+      },
+      importMeta: { ...(data.importMeta || {}), assignedTo: data.importMeta?.assignedTo || assigned || '' }
+    }, data);
+    return { ...client, data: enrichedData };
+  });
 }
 
 function getAssignedId(item) {
@@ -743,6 +817,10 @@ function mapExcelRowToClient(row, staff, leads) {
     creationdate: 'importMeta.creationDate',
     assignedto: 'importMeta.assignedTo',
     clientname: 'basic.clientLegalName',
+    clientonboardingyear: 'basic.onboardingYear',
+    firstannualreturnyearapplicable: 'basic.firstAnnualReturnYear',
+    firstannualreturnyear: 'basic.firstAnnualReturnYear',
+    annualreturnyear: 'basic.firstAnnualReturnYear',
     state: 'registeredAddress.state',
     citywithpin: 'cityWithPin',
     contactperson: 'otp.personName',
@@ -952,6 +1030,10 @@ export {
   normalizePersonName,
   getVisibilityStatus,
   getAssignedName,
+  getCpcbStatus,
+  getOtpMobile,
+  getOtpName,
+  enrichClientsFromLeads,
   getAssignedId,
   getMsmeRows,
   getMsmeSummary,

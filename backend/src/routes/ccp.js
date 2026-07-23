@@ -31,6 +31,12 @@ function ccpApiHeaders(contentType = false, req = null) {
   };
 }
 
+function ccpCollectionHeaders() {
+  // Collection reads are a backend-to-backend integration. Do not forward the
+  // CRM user's JWT: CCP would treat it as a CCP session and reject CRM-only users.
+  return ccpApiHeaders(false);
+}
+
 function nonEmptyQuery(input = {}) {
   return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value));
 }
@@ -97,7 +103,9 @@ function normalizeCcpLead(row = {}) {
   const importMeta = data.importMeta || row.importMeta || {};
 
   const sourceLeadId = firstFilled(row.sourceLeadId, row._id, row.id, row.mongoId, row.uniqueId, row.leadId);
-  const leadCode = firstFilled(row.leadCode, row.uniqueId, row.leadId, row.code, row.sourceLeadId, sourceLeadId);
+  // Prefer CCP's business-facing lead number over its generated/internal code.
+  const leadNumber = firstFilled(row.businessLeadCode, row.leadNumber, row['Lead Number'], importMeta.leadNumber);
+  const leadCode = firstFilled(leadNumber, row.leadCode, row.uniqueId, row.leadId, row.code, row.sourceLeadId, sourceLeadId);
   const company = firstFilled(
     row.company,
     row.companyName,
@@ -108,10 +116,30 @@ function normalizeCcpLead(row = {}) {
     basic.clientLegalName,
     basic.tradeName
   );
+  const assignedBy = firstFilled(
+    row.assignedBy?.name,
+    typeof row.assignedBy === 'string' ? row.assignedBy : '',
+    row.assignedByName,
+    row['Assigned By'],
+    importMeta.assignedBy,
+    importMeta.assignedByName
+  );
+  const importedCreatedBy = firstFilled(
+    row.importedCreatedBy,
+    row.createdByName,
+    row.createdBy?.name,
+    row.createdBy?.email,
+    typeof row.createdBy === 'string' ? row.createdBy : '',
+    row['Created By'],
+    importMeta.createdBy,
+    importMeta.createdByName,
+    importMeta.createdByEmail
+  );
 
   return {
     ...row,
     sourceLeadId,
+    leadNumber,
     leadCode,
     company,
     status: firstFilled(row.status, row.leadStatus, row.workflowStatus, row.stage, 'Draft'),
@@ -134,7 +162,8 @@ function normalizeCcpLead(row = {}) {
     mobileNo2: firstFilled(row.mobileNo2, row.mobile2, contact.mobileNo2),
     source: firstFilled(row.source, importMeta.source, 'ccp'),
     assignedToText: firstFilled(row.assignedToText, row.assignedTo?.name, importMeta.assignedTo),
-    importedCreatedBy: firstFilled(row.importedCreatedBy, row.createdBy?.name, row.createdBy, importMeta.createdBy),
+    assignedBy,
+    importedCreatedBy,
     importedCreatedAt: firstFilled(row.importedCreatedAt, row.createdAt, importMeta.createdAt),
     importedUpdatedAt: firstFilled(row.importedUpdatedAt, row.updatedAt, importMeta.updatedAt)
   };
@@ -343,7 +372,7 @@ async function fetchCcp(path, key, req, res) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(`${baseUrl}/ccp/${path}`, { headers: ccpApiHeaders(), signal: controller.signal });
+      const response = await fetch(`${baseUrl}/ccp/${path}`, { headers: ccpCollectionHeaders(), signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
@@ -385,7 +414,7 @@ router.patch('/clients/:id/approval', requireAuth, (req, res) => proxyCcpEndpoin
 router.get('/leads/:id/history', requireAuth, proxyCcpLeadHistory);
 router.post('/leads/:id/history/email', requireAuth, proxyCcpEmailHistory);
 
-router._test = { nonEmptyQuery, ccpHistoryBaseUrls, ccpApiHeaders, isQuotationOnlyClientRecord, cleanCcpRowsForCrm };
+router._test = { nonEmptyQuery, ccpHistoryBaseUrls, ccpApiHeaders, ccpCollectionHeaders, isQuotationOnlyClientRecord, cleanCcpRowsForCrm };
 
 module.exports = router;
 

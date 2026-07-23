@@ -4,6 +4,7 @@ const Quotation = require('../models/Quotation');
 const AnnualReturn = require('../models/AnnualReturn');
 const PendingApproval = require('../models/PendingApproval');
 const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
+const { notifyPoSpecialApproval } = require('../services/poApprovalNotifications');
 const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
 const { mapQuotationPendingApprovalRow, hydrateCcpQuotationCreators } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
@@ -1178,6 +1179,25 @@ exports.updateAnnualReturn = async (req, res) => {
         preventDuplicate: preventDuplicateManagerNotification
       });
     }
+    let poApprovalNotification = null;
+    const purchaseOrderConfirmation = filing.draft?.purchaseOrderConfirmation;
+    if (req.body.notifyPoApproval === true && purchaseOrderConfirmation?.mode === 'no' && purchaseOrderConfirmation?.confirmed) {
+      try {
+        poApprovalNotification = await notifyPoSpecialApproval({
+          client,
+          annualYear,
+          submitter: req.user,
+          workflow: purchaseOrderConfirmation
+        });
+      } catch (notificationError) {
+        console.error('PO special approval notification failed', {
+          clientId: String(client._id),
+          annualYear,
+          error: notificationError?.message || notificationError
+        });
+        poApprovalNotification = { ok: false, error: 'Approval saved, but reviewer notification could not be sent.' };
+      }
+    }
     console.log('[AnnualReview:updateAnnualReturn] saved', {
       clientId: String(client._id),
       annualYear,
@@ -1197,7 +1217,7 @@ exports.updateAnnualReturn = async (req, res) => {
         }
       ]))
     });
-    res.json({ ok: true, client, annualReturn: client.data.annualReturn.filings[annualYear], annualReturnRecord: annualReturn, managerNotification });
+    res.json({ ok: true, client, annualReturn: client.data.annualReturn.filings[annualYear], annualReturnRecord: annualReturn, managerNotification, poApprovalNotification });
   } catch (err) {
     console.error('Annual return update error', err);
     const message = err?.name === 'ValidationError'

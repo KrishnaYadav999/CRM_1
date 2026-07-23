@@ -18,8 +18,8 @@ function ccpApiUrl(path = '') {
 }
 
 function ccpHeaders({ json = false } = {}) {
-  const apiKey = String(process.env.CCP_API_KEY || process.env.CCP_SHARED_API_KEY || '').trim();
   const sharedSecret = String(process.env.CCP_SHARED_SECRET || '').trim();
+  const apiKey = String(process.env.CCP_SHARED_API_KEY || process.env.CCP_API_KEY || sharedSecret).trim();
   return {
     ...(json ? { 'Content-Type': 'application/json' } : {}),
     ...(apiKey ? { 'x-ccp-api-key': apiKey } : {}),

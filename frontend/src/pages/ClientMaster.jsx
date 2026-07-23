@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ToastMessage from '../components/ToastMessage';
 import SearchableSelect from '../components/form/SearchableSelect';
+import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
@@ -16,18 +17,19 @@ import {
   AddressTab,
   Card,
   CpcbTab,
+  CpcbScreenshotTab,
   ComplianceTab,
   ContactsTab,
   CteTab,
   Field,
   SelectLike,
   UploadButton,
-  ValidationTab
 } from '../features/clientMaster/ClientMasterFormSections';
 import {
   annualDraftLegacyKeys,
   buildAnnualReturnYears,
   buildCcpClientEditUrl,
+  enrichClientsFromLeads,
   findClientByRouteKey,
   formatDateInputValue,
   getAnnualDraftAliasValue,
@@ -43,6 +45,7 @@ import {
   mapExcelRowToClient,
   mergeClientData,
   mergeLeadSources,
+  normalizeHeaderKey,
   normalizePersonName,
   normalizeFinancialYearLabel,
   openCcpClientEdit,
@@ -71,11 +74,11 @@ import {
 const tabs = [
   { id: 'basic', label: 'Client Basic Info', icon: Building2 },
   { id: 'address', label: 'Address Details', icon: MapPin },
-  { id: 'compliance', label: 'Compliance & MSME', icon: FileCheck2 },
-  { id: 'cte', label: 'CTE / CTO / CCA', icon: FolderCheck },
-  { id: 'cpcb', label: 'CPCB Details', icon: ShieldCheck },
-  { id: 'validation', label: 'Validation Documents', icon: FileText },
-  { id: 'contacts', label: 'OTP & People', icon: UserRound }
+  { id: 'compliance', label: 'Document', icon: FileCheck2 },
+  { id: 'cte', label: 'CTE & CTO / CCA', icon: FolderCheck },
+  { id: 'cpcb', label: 'CPCB Login Credential', icon: ShieldCheck },
+  { id: 'cpcbScreenshots', label: 'CPCB Screenshot', icon: Images },
+  { id: 'contacts', label: 'Authorized Person Details', icon: UserRound }
 ];
 
 const complianceRows = [
@@ -87,6 +90,131 @@ const complianceRows = [
   ['iec', 'IEC Certificate', 'IEC Certificate Date', 'IEC Certificate File'],
   ['dicDcssi', 'DIC/DCSSI Certificate No', 'DIC/DCSSI Certificate Date', 'DIC/DCSSI Certificate File']
 ];
+
+const tabProgressFields = {
+  basic: [
+    ['basic', 'clientLegalName'],
+    ['basic', 'tradeName'],
+    ['basic', 'piboCategory'],
+    ['basic', 'eprCategory'],
+    ['basic', 'onboardingYear'],
+    ['basic', 'firstAnnualReturnYear']
+  ],
+  address: [
+    ['registeredAddress', 'address1'],
+    ['registeredAddress', 'address2'],
+    ['registeredAddress', 'address3'],
+    ['registeredAddress', 'state'],
+    ['registeredAddress', 'city'],
+    ['registeredAddress', 'pincode'],
+    ['communicationAddress', 'address1'],
+    ['communicationAddress', 'address2'],
+    ['communicationAddress', 'address3'],
+    ['communicationAddress', 'state'],
+    ['communicationAddress', 'city'],
+    ['communicationAddress', 'pincode']
+  ],
+  cpcb: [
+    ['cpcb', 'status'],
+    ['cpcb', 'remark'],
+    ['cpcb', 'homePageFile'],
+    ['cpcb', 'registrationNumber'],
+    ['cpcb', 'applicationDate'],
+    ['cpcb', 'approvalDate'],
+    ['cpcb', 'applicationNumber'],
+    ['cpcb', 'ceprUserId'],
+    ['cpcb', 'ceprPassword'],
+    ['cpcb', 'loginId'],
+    ['cpcb', 'loginPassword']
+  ],
+  contacts: [
+    ['otp', 'mobile'],
+    ['otp', 'personName'],
+    ['otp', 'designation'],
+    ['authorised', 'name'],
+    ['authorised', 'designation'],
+    ['authorised', 'department'],
+    ['authorised', 'reporting'],
+    ['authorised', 'mobile'],
+    ['authorised', 'email'],
+    ['authorised', 'pan'],
+    ['authorised', 'panDocument'],
+    ['coordinating', 'name'],
+    ['coordinating', 'designation'],
+    ['coordinating', 'department'],
+    ['coordinating', 'reporting'],
+    ['coordinating', 'mobile'],
+    ['coordinating', 'email']
+  ]
+};
+
+function isProgressValueFilled(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value && typeof value === 'object') {
+    return Boolean(value.url || value.secureUrl || value.dataUrl || value.path || value.publicId || value.name || value.fileName);
+  }
+  return String(value ?? '').trim().length > 0;
+}
+
+function countFields(client, fields) {
+  return fields.reduce((summary, [section, field]) => {
+    const filled = isProgressValueFilled(client?.[section]?.[field]);
+    return { total: summary.total + 1, filled: summary.filled + (filled ? 1 : 0) };
+  }, { filled: 0, total: 0 });
+}
+
+function countRows(rows = [], fields = []) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { filled: 0, total: fields.length };
+  }
+  return rows.reduce((summary, row) => {
+    const rowSummary = fields.reduce((fieldSummary, field) => {
+      const filled = isProgressValueFilled(row?.[field]);
+      return { total: fieldSummary.total + 1, filled: fieldSummary.filled + (filled ? 1 : 0) };
+    }, { filled: 0, total: 0 });
+    return { filled: summary.filled + rowSummary.filled, total: summary.total + rowSummary.total };
+  }, { filled: 0, total: 0 });
+}
+
+function addProgressParts(...parts) {
+  return parts.reduce((summary, part) => ({
+    filled: summary.filled + part.filled,
+    total: summary.total + part.total
+  }), { filled: 0, total: 0 });
+}
+
+function buildClientTabProgress(client = {}) {
+  const complianceDocumentFields = complianceRows.flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`]);
+  const ctePlants = Array.isArray(client.cte?.plantWiseDetails) ? client.cte.plantWiseDetails : [];
+  const progressByTab = {
+    basic: countFields(client, tabProgressFields.basic),
+    address: countFields(client, tabProgressFields.address),
+    compliance: addProgressParts(
+      countRows([client.compliance || {}], complianceDocumentFields),
+      countRows(client.msmeRows, ['classificationYear', 'status', 'majorActivity', 'udyamNumber', 'turnover', 'file'])
+    ),
+    cte: addProgressParts(
+      countFields(client, [['cte', 'numberOfPlantsLocations']]),
+      countRows(ctePlants, ['plantName', 'cteConsentNo', 'cteCategory', 'cteIssuedDate', 'cteValidDate', 'plantLocation', 'cteDocument', 'ctoOrderNo', 'ctoIssueDate', 'ctoValidDate', 'ctoDocument']),
+      ...ctePlants.map((plant) => addProgressParts(
+        countRows(plant.cteProductionRows, ['productName', 'capacity']),
+        countRows(plant.ctoProductRows, ['productName', 'quantity'])
+      ))
+    ),
+    cpcb: countFields(client, tabProgressFields.cpcb),
+    cpcbScreenshots: addProgressParts(
+      countRows(client.cpcbScreenshots, ['name', 'file']),
+      countRows(client.processDiagrams, ['name', 'file'])
+    ),
+    contacts: countFields(client, tabProgressFields.contacts)
+  };
+
+  return tabs.map((tab) => {
+    const summary = progressByTab[tab.id] || { filled: 0, total: 0 };
+    const percent = summary.total ? Math.round((summary.filled / summary.total) * 100) : 0;
+    return { ...tab, ...summary, percent };
+  });
+}
 
 function normalizeAnnualClientKey(value = '') {
   return String(value || '').trim().toLowerCase();
@@ -188,6 +316,25 @@ function debugAnnualFlow(label, payload = {}) {
 
 function getLeadSelectValue(lead = {}) {
   return String(lead._id || lead.id || lead.sourceLeadId || lead.leadCode || lead.uniqueId || lead.company || '').trim();
+}
+
+const CCP_LEAD_SEQUENCE_START = 353;
+
+function getLeadDisplayCode(lead = {}, index = -1) {
+  const value = String(
+    lead.businessLeadCode
+    || lead.leadNumber
+    || lead['Lead Number']
+    || lead.data?.importMeta?.leadNumber
+    || lead.importMeta?.leadNumber
+    || lead.leadCode
+    || lead.sourceLeadId
+    || ''
+  ).trim();
+  const generatedCode = /^ATPL(?:-LEAD)?-[A-F\d]{10,}$/i.test(value);
+  if (generatedCode && index >= 0) return `ATPL-${String(CCP_LEAD_SEQUENCE_START + index).padStart(4, '0')}`;
+  const numericMatch = value.match(/^ATPL(?:-LEAD)?-(\d+)$/i);
+  return numericMatch ? `ATPL-${numericMatch[1].padStart(4, '0')}` : (value || '-');
 }
 
 function getLeadIdentityValues(lead = {}) {
@@ -354,13 +501,15 @@ const emptyClient = {
   msmeRows: [],
   cte: { numberOfPlantsLocations: '', plantWiseDetails: [] },
   cpcb: {},
-  validation: {},
+  cpcbScreenshots: [],
+  processDiagrams: [],
   otp: {},
   authorised: {},
   coordinating: {}
 };
 
 const calendarTodoStorageKey = 'crm.calendar.todos.v1';
+const clientDraftStorageKey = 'crm.clientMaster.drafts.v1';
 
 function readCalendarTodoItems() {
   try {
@@ -374,6 +523,62 @@ function readCalendarTodoItems() {
 function writeCalendarTodoItems(items) {
   localStorage.setItem(calendarTodoStorageKey, JSON.stringify(items));
   window.dispatchEvent(new CustomEvent('crm-calendar-items-updated'));
+}
+
+function normalizeDraftKey(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getClientDraftKeys(data = {}, selectedLead = '') {
+  const lead = typeof selectedLead === 'object' ? selectedLead : {};
+  return [...new Set([
+    selectedLead,
+    lead?._id,
+    lead?.id,
+    lead?.leadCode,
+    lead?.sourceLeadId,
+    data.selectedLead,
+    data.importMeta?.leadNumber,
+    data.importMeta?.uniqueId,
+    data.importMeta?.ccpClientId,
+    data.basic?.clientLegalName,
+    data.basic?.tradeName
+  ].map(normalizeDraftKey).filter(Boolean))];
+}
+
+function readClientDraftCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(clientDraftStorageKey) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeClientDraftCache(cache) {
+  localStorage.setItem(clientDraftStorageKey, JSON.stringify(cache));
+}
+
+function findCachedClientDraft(keys = []) {
+  const cache = readClientDraftCache();
+  return keys.map((key) => cache[normalizeDraftKey(key)]).find(Boolean) || null;
+}
+
+function rememberClientDraft(savedClient = {}, fallbackClient = {}) {
+  const savedData = readClientData(savedClient);
+  const data = { ...fallbackClient, ...savedData };
+  const draft = {
+    id: savedClient._id || savedClient.id || fallbackClient._id || fallbackClient.id || '',
+    workflowStatus: savedClient.workflowStatus || fallbackClient.workflowStatus || 'draft',
+    adminControls: { ...emptyClient.adminControls, ...(savedClient.adminControls || fallbackClient.adminControls || {}) },
+    data,
+    savedAt: new Date().toISOString()
+  };
+  const cache = readClientDraftCache();
+  getClientDraftKeys(data, fallbackClient.selectedLead || savedClient.selectedLead).forEach((key) => {
+    cache[key] = draft;
+  });
+  writeClientDraftCache(cache);
 }
 
 export default function ClientMaster() {
@@ -397,16 +602,25 @@ export default function ClientMaster() {
   const [importing, setImporting] = useState(false);
   const [excelFileName, setExcelFileName] = useState('');
   const [excelRows, setExcelRows] = useState([]);
+  const [excelImportMode, setExcelImportMode] = useState('clients');
   const navigate = useNavigate();
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
 
   const canSeeAdminControls = adminRoles.includes(currentUser?.role);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
+  const tabProgress = useMemo(() => buildClientTabProgress(client), [client]);
+  const overallProgress = useMemo(() => {
+    const summary = tabProgress.reduce((total, tab) => ({
+      filled: total.filled + tab.filled,
+      total: total.total + tab.total
+    }), { filled: 0, total: 0 });
+    return { ...summary, percent: summary.total ? Math.round((summary.filled / summary.total) * 100) : 0 };
+  }, [tabProgress]);
   const isFirstStepReady = Boolean(String(client.basic?.clientLegalName || client.basic?.tradeName || '').trim());
-  const leadOptions = useMemo(() => leads.map((lead) => ({
+  const leadOptions = useMemo(() => leads.map((lead, index) => ({
     value: getLeadSelectValue(lead),
-    label: `${lead.leadCode || 'ATPL-LEAD-0001'} - ${lead.company || 'Untitled lead'} - ${lead.piboCategory || lead.status || 'Draft'}`
+    label: `${getLeadDisplayCode(lead, index)} - ${lead.company || 'Untitled lead'} - ${lead.piboCategory || lead.status || 'Draft'}`
   })), [leads]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
 
@@ -473,11 +687,17 @@ export default function ClientMaster() {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
-      const [ccpClientsResult] = await Promise.allSettled([fetchCcpClients()]);
+      const [crmClientsResult, ccpClientsResult, ccpLeadsResult] = await Promise.allSettled([api.get(API_ENDPOINTS.clients.list), fetchCcpClients(), fetchCcpLeads()]);
+      const crmClients = crmClientsResult.status === 'fulfilled'
+        ? (crmClientsResult.value.data.clients || [])
+        : [];
       const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
         ? (ccpClientsResult.value.data.clients || [])
         : [];
-      const visibleClients = getClientMasterRows([], ccpClients);
+      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
+        ? (ccpLeadsResult.value.data.leads || [])
+        : [];
+      const visibleClients = enrichClientsFromLeads(getClientMasterRows(crmClients, ccpClients), ccpLeads);
       setTotalClientCount(visibleClients.length);
       try {
         const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
@@ -488,10 +708,6 @@ export default function ClientMaster() {
         setAnnualReturnRecords([]);
         setClients(visibleClients);
       }
-      const [ccpLeadsResult] = await Promise.allSettled([fetchCcpLeads()]);
-      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
-        ? (ccpLeadsResult.value.data.leads || [])
-        : [];
       setLeads(ccpLeads);
       try {
         const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);
@@ -524,6 +740,29 @@ export default function ClientMaster() {
     setClient((current) => ({ ...current, [field]: value }));
   }
 
+  function findClientDraftForLead(selectedLead, leadValue) {
+    const leadKeys = getLeadIdentityValues(selectedLead).concat([
+      leadValue,
+      selectedLead?.company,
+      selectedLead?.companyName,
+      selectedLead?.clientName
+    ]).map(normalizeDraftKey).filter(Boolean);
+    const matchedClient = clients.find((item) => {
+      const data = readClientData(item);
+      const itemKeys = getClientDraftKeys(data, item.selectedLead);
+      return itemKeys.some((key) => leadKeys.includes(key));
+    });
+    if (matchedClient) {
+      return {
+        id: matchedClient._id || matchedClient.id || '',
+        workflowStatus: matchedClient.workflowStatus || 'draft',
+        adminControls: { ...emptyClient.adminControls, ...(matchedClient.adminControls || {}) },
+        data: { ...emptyClient, ...readClientData(matchedClient), selectedLead: leadValue || matchedClient.selectedLead || '' }
+      };
+    }
+    return findCachedClientDraft(leadKeys);
+  }
+
   function handleLeadSelect(value) {
     const selectedLead = findLeadByValue(leads, value);
     if (!selectedLead) {
@@ -531,6 +770,19 @@ export default function ClientMaster() {
       return;
     }
     const leadValue = getLeadSelectValue(selectedLead);
+    const existingDraft = findClientDraftForLead(selectedLead, leadValue);
+    if (existingDraft?.data) {
+      setClient({
+        ...emptyClient,
+        ...existingDraft.data,
+        selectedLead: leadValue,
+        adminControls: { ...emptyClient.adminControls, ...(existingDraft.adminControls || existingDraft.data.adminControls || {}) }
+      });
+      setEditingClientId(existingDraft.id || '');
+      setNotice('Saved draft loaded. Continue from where you left.');
+      setError('');
+      return;
+    }
     const leadCode = selectedLead.leadCode || selectedLead.uniqueId || selectedLead.sourceLeadId || leadValue || '';
     const company = selectedLead.company || selectedLead.companyName || selectedLead.clientName || '';
     const email = String(selectedLead.emails || selectedLead.email || '').split(/[,\s;]+/).find(Boolean) || '';
@@ -634,6 +886,18 @@ export default function ClientMaster() {
       setError('First enter Client Legal Name or Trade Name before moving to the next step.');
       return;
     }
+    if (activeTab === 'cpcbScreenshots') {
+      const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidScreenshot) {
+        setError('Please enter a name for every CPCB screenshot/document before continuing.');
+        return;
+      }
+      const invalidProcessDiagram = (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidProcessDiagram) {
+        setError('Please enter a name for every PFD and Machinery Diagram PDF before continuing.');
+        return;
+      }
+    }
     setError('');
     const next = tabs[Math.min(activeIndex + 1, tabs.length - 1)];
     setActiveTab(next.id);
@@ -684,6 +948,7 @@ export default function ClientMaster() {
     setNotice('');
     setExcelFileName(file.name);
     setExcelRows([]);
+    setExcelImportMode('clients');
 
     try {
       const buffer = await file.arrayBuffer();
@@ -694,6 +959,24 @@ export default function ClientMaster() {
         return;
       }
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+      const headers = rows[0] ? Object.keys(rows[0]).map(normalizeHeaderKey) : [];
+      const isAnnualYearUpload = headers.includes('companyuniqueid') && headers.includes('firstannualreturnyearapplicable');
+      if (isAnnualYearUpload) {
+        const yearRows = rows.map((row, index) => ({
+          row: index + 2,
+          companyUniqueId: row['Company Unique ID'] || row['Unique ID'] || '',
+          onboardingYear: row['Client Onboarding Year'] || row['Onboarding Year'] || '',
+          firstAnnualReturnYear: row['First Annual Return Year Applicable'] || row['First Annual Return Year'] || ''
+        })).filter((row) => String(row.companyUniqueId).trim() && (String(row.onboardingYear).trim() || String(row.firstAnnualReturnYear).trim()));
+        if (!yearRows.length) {
+          setError('Excel has no usable annual return year rows.');
+          return;
+        }
+        setExcelImportMode('annual-years');
+        setExcelRows(yearRows);
+        setNotice(`${yearRows.length} annual return year row${yearRows.length === 1 ? '' : 's'} loaded. Click Import Drafts to update matched clients.`);
+        return;
+      }
       const parsed = rows
         .map((row) => mapExcelRowToClient(row, staff, leads))
         .filter((row) => Object.values(row.data || {}).some((value) => JSON.stringify(value || '').replace(/["{}[\],:]/g, '').trim() !== ''));
@@ -725,6 +1008,15 @@ export default function ClientMaster() {
     setNotice('');
 
     try {
+      if (excelImportMode === 'annual-years') {
+        const response = await api.post(API_ENDPOINTS.ccp.bulkUpdateClientYears, { rows: excelRows });
+        const updated = Number(response.data?.updated || 0);
+        const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
+        setNotice(`${updated} client${updated === 1 ? '' : 's'} updated with annual return years.`);
+        if (failures.length) setError(`${failures.length} row${failures.length === 1 ? '' : 's'} failed. First: row ${failures[0].row} (${failures[0].error})`);
+        await loadPage();
+        return;
+      }
       const payload = excelRows.map((row) => {
         const assignedText = row.data?.importMeta?.assignedTo || '';
         const leadText = row.data?.importMeta?.leadNumber || row.data?.importMeta?.uniqueId || '';
@@ -785,6 +1077,18 @@ export default function ClientMaster() {
     setError('');
     setNotice('');
     try {
+      const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidScreenshot) {
+        setError('Every CPCB screenshot/document must have a name and an uploaded file.');
+        setActiveTab('cpcbScreenshots');
+        return;
+      }
+      const invalidProcessDiagram = (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidProcessDiagram) {
+        setError('Every PFD and Machinery Diagram PDF must have a name and an uploaded PDF.');
+        setActiveTab('cpcbScreenshots');
+        return;
+      }
       const submittedRequired = [
         ['Choose Existing Lead', client.selectedLead], ['Client Legal Name', client.basic?.clientLegalName],
         ['Registered Address', client.registeredAddress?.address1], ['Registered State', client.registeredAddress?.state], ['Registered City', client.registeredAddress?.city], ['Registered Pincode', client.registeredAddress?.pincode],
@@ -806,7 +1110,16 @@ export default function ClientMaster() {
       const response = editingClientId ? await api.put(API_ENDPOINTS.ccp.updateClient(editingClientId), payload) : await api.post(API_ENDPOINTS.ccp.createClient, payload);
       const savedClient = response.data.client || response.data.data?.client || response.data.data;
       if (!savedClient || typeof savedClient !== 'object') throw new Error('CCP did not return the saved client.');
-      setNotice(workflowStatus === 'submitted' ? 'Client submitted successfully.' : 'Client draft saved successfully.');
+      const savedId = savedClient._id || savedClient.id || editingClientId || '';
+      if (savedId) setEditingClientId(savedId);
+      rememberClientDraft(savedClient, { ...client, selectedLead: client.selectedLead, workflowStatus });
+      setClient((current) => ({
+        ...current,
+        ...readClientData(savedClient),
+        selectedLead: current.selectedLead,
+        adminControls: { ...current.adminControls, ...(savedClient.adminControls || {}) }
+      }));
+      setNotice(workflowStatus === 'submitted' ? 'Client submitted successfully.' : 'Client draft saved. You can continue editing this same lead.');
       await loadPage();
       if (workflowStatus === 'submitted') {
         setClient(emptyClient);
@@ -895,6 +1208,28 @@ export default function ClientMaster() {
             </div>
           </div>
 
+          <section className="mt-5 rounded-2xl border border-teal-100 bg-white/95 px-4 py-3 shadow-sm">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-teal-50 text-[#30737B] ring-1 ring-teal-100">
+                  {React.createElement(tabs[activeIndex]?.icon || FileText, { className: 'h-4 w-4' })}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#30737B]">Form Progress</p>
+                  <p className="truncate text-sm font-extrabold text-slate-600">
+                    {editingClientId ? 'Draft open' : 'Live'} · {tabs[activeIndex]?.label || 'Client Master'} · {overallProgress.filled}/{overallProgress.total} fields filled
+                  </p>
+                </div>
+              </div>
+              <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200 xl:max-w-md">
+                <div className="h-full rounded-full bg-gradient-to-r from-orange-400 via-emerald-500 to-[#30737B]" style={{ width: `${overallProgress.percent}%` }} />
+              </div>
+              <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 shadow-sm">
+                {overallProgress.percent}% complete
+              </span>
+            </div>
+          </section>
+
           <Card title="Select Lead" className="mt-6">
             <Field required label="Choose Existing Lead">
               <SearchableSelect value={client.selectedLead} options={leadOptions} onChange={handleLeadSelect} placeholder="Search and select a CCP lead" />
@@ -911,7 +1246,7 @@ export default function ClientMaster() {
             </Card>
           )}
 
-          <Card title="Excel Bulk Import" className="mt-6">
+          {canSeeAdminControls && <Card title="Excel Bulk Import" className="mt-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-black text-slate-950">Client Master Import</p>
@@ -939,32 +1274,40 @@ export default function ClientMaster() {
                 </button>
               </div>
             </div>
-          </Card>
+          </Card>}
 
-          <section className="mt-6 rounded-2xl border border-teal-100 bg-white/80 p-3 shadow-lg shadow-teal-900/5">
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {tabs.map((tab) => {
+          <section className="mt-4 rounded-2xl border border-teal-100 bg-white/95 p-2 shadow-sm">
+            <div className="relative">
+              <div className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-8 rounded-l-2xl bg-gradient-to-r from-white to-transparent" />
+              <div className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 w-8 rounded-r-2xl bg-gradient-to-l from-white to-transparent" />
+              <div className="client-progress-tab-rail">
+              {tabProgress.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.id;
+                const complete = tab.percent === 100;
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => openClientTab(tab.id)}
-                    className={`btn-lift flex min-h-12 shrink-0 items-center gap-2 rounded-xl px-4 font-black transition ${
-                      active ? 'bg-[#30737B] text-white shadow-lg shadow-teal-900/15' : 'bg-slate-50 text-slate-600 hover:bg-teal-50 hover:text-[#30737B]'
-                    }`}
+                    className={`client-progress-tab ${active ? 'client-progress-tab-active' : ''} ${complete ? 'client-progress-tab-complete' : ''}`}
+                    style={{ '--tab-progress': `${tab.percent}%` }}
                   >
-                    <Icon className="h-4 w-4" />
-                    {tab.label}
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${active ? 'bg-white/15 text-white' : complete ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-[#30737B]'}`}>
+                      {tab.percent}%
+                    </span>
+                    <span className="client-progress-tab-fill" aria-hidden="true" />
                   </button>
                 );
               })}
-            </div>
+              </div>
+              </div>
           </section>
 
-          {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
-          {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
+          {error && <ToastMessage type="error" className="mx-auto mt-4">{error}</ToastMessage>}
+          {notice && <ToastMessage type="success" className="mx-auto mt-4">{notice}</ToastMessage>}
 
           <div className="mt-6 grid gap-6">
             {activeTab === 'basic' && <BasicTab client={client} setValue={setValue} />}
@@ -972,7 +1315,7 @@ export default function ClientMaster() {
             {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} />}
             {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} />}
-            {activeTab === 'validation' && <ValidationTab client={client} setValue={setValue} />}
+            {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setRoot={setRoot} onValidationError={setError} />}
             {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} />}
           </div>
 
@@ -1007,6 +1350,7 @@ function BasicTab({ client, setValue }) {
 }
 
 function ClientViewModal({ client, quotations = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
+  const navigate = useNavigate();
   const data = readClientData(client);
   const msmeRows = getMsmeRows(data);
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Client Details';
@@ -1095,6 +1439,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   ];
   const activeTabMeta = detailTabs.find((tab) => tab.id === activeClientTab) || detailTabs[0];
   const isAnnualProcessingView = activeClientTab === 'annual' && annualYears.some((year) => year.label === selectedAnnualYear);
+  const isAnnualStandaloneView = activeClientTab === 'annual' && initialTab === 'annual';
   const calendarClientKey = String(client._id || client.id || getClientUniqueId(client) || clientName);
   const [interactionTab, setInteractionTab] = useState('follow-up');
   const [calendarItems, setCalendarItems] = useState(() => readCalendarTodoItems());
@@ -1161,6 +1506,11 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   }
 
   function openClientSection(id) {
+    if (id === 'annual') {
+      const clientKey = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || getClientUniqueId(client);
+      navigate(`/sales/client-annual-returns/${encodeURIComponent(clientKey)}`);
+      return;
+    }
     setActiveClientTab(id);
   }
 
@@ -1197,7 +1547,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
   return (
     <div className="bg-[#f3f8f6]">
       <section className="min-h-[calc(100vh-64px)] px-4 py-4 sm:px-6 lg:px-8">
-        {!isAnnualProcessingView && <div className="-mx-4 -mt-4 border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        {!isAnnualStandaloneView && <div className="-mx-4 -mt-4 border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <button type="button" onClick={onClose} className="btn-lift grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-orange-600 shadow-sm" title="Back">
@@ -1216,8 +1566,8 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
           </div>
         </div>}
 
-        <div className={isAnnualProcessingView ? 'mt-0 w-full max-w-none' : 'mt-4 w-full max-w-none'}>
-          {!isAnnualProcessingView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/6">
+        <div className={isAnnualStandaloneView ? 'mt-0 w-full max-w-none' : 'mt-4 w-full max-w-none'}>
+          {!isAnnualStandaloneView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/6">
             <div className="bg-[linear-gradient(135deg,#ffffff_0%,#f0fdfa_58%,#fff7ed_100%)] p-4 sm:p-5">
               <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-center">
                 <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
@@ -1245,7 +1595,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
 
           </section>}
 
-          {!isAnnualProcessingView && (
+          {!isAnnualStandaloneView && (
             <ClientInteractionsCard
               activeTab={interactionTab}
               onTabChange={setInteractionTab}
@@ -1256,8 +1606,8 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
             />
           )}
 
-          <div className={isAnnualProcessingView ? 'space-y-0' : 'mt-5 space-y-5'}>
-            {!isAnnualProcessingView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+          <div className={isAnnualStandaloneView ? 'space-y-0' : 'mt-5 space-y-5'}>
+            {!isAnnualStandaloneView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
               <div className="client-detail-tab-strip grid sm:grid-cols-5">
                 {detailTabs.map((tab) => {
                   const Icon = tab.icon;
@@ -1273,8 +1623,8 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
             </section>}
 
             <main className="space-y-5">
-              <section className={isAnnualProcessingView ? '' : 'client-detail-card rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5'}>
-                {!isAnnualProcessingView && <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <section className={isAnnualStandaloneView ? '' : 'client-detail-card rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5'}>
+                {!isAnnualStandaloneView && <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">{activeTabMeta.label}</p>
                     <h3 className="mt-1 text-2xl font-black text-slate-950">{activeTabMeta.title || activeTabMeta.label}</h3>
@@ -1488,7 +1838,7 @@ function ClientInteractionModal({ type, clientName, clientNumber = '', leadNumbe
           </label>
           <label>
             <span>{isFollowUp ? 'Follow-Up Date' : 'Scheduled Date'}</span>
-            <input type="date" value={draft.scheduledDate} onChange={(event) => update('scheduledDate', event.target.value)} />
+            <PremiumDatePicker value={draft.scheduledDate} onChange={(event) => update('scheduledDate', event.target.value)} />
           </label>
           <label>
             <span>{isFollowUp ? 'Follow-Up Time' : 'Scheduled Time'}</span>
@@ -1791,4 +2141,5 @@ function QuotationHistoryCard({ quotation, index, onOpen, onPreview, onRevise })
     </article>
   );
 }
+
 

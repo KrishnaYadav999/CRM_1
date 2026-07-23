@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { ChevronDown, Eye, MapPin, Plus, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Eye, FileCheck2, FileText, MapPin, Plus, Trash2, Upload } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
+import PremiumDatePicker from '../../components/form/PremiumDatePicker';
+import { mediaUrl, uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
 
 function AddressTab({ client, setValue, copyRegisteredAddress, selectOptions }) {
   return (
@@ -38,7 +40,7 @@ function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complia
           {complianceRows.map(([key, numberLabel, dateLabel, fileLabel]) => (
             <div key={key} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 lg:grid-cols-[1fr_1fr_180px]">
               <Field label={numberLabel}><input className="form-input" value={client.compliance[`${key}Number`] || ''} onChange={(event) => setValue('compliance', `${key}Number`, event.target.value)} /></Field>
-              <Field label={dateLabel}><input type="date" className="form-input" value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
+      <Field label={dateLabel}><PremiumDatePicker value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
               <Field label={fileLabel}><UploadButton value={client.compliance[`${key}File`]} onChange={(value) => setValue('compliance', `${key}File`, value)} /></Field>
             </div>
           ))}
@@ -115,7 +117,7 @@ function ConsentTable({ title, eyebrow, plants, columns, onPlantChange }) {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] text-left text-sm">
-            <thead className="bg-slate-950 text-xs font-black uppercase tracking-[0.08em] text-white">
+            <thead className="border-b border-teal-200 bg-gradient-to-r from-teal-50 via-emerald-50 to-cyan-50 text-xs font-black uppercase tracking-[0.08em] text-teal-900">
               <tr>
                 <th className="w-20 px-4 py-4 text-center">Sr.No</th>
                 <th className="px-4 py-4">Plant Name</th>
@@ -177,7 +179,7 @@ function PlantQuantityTable({ title, plants, quantityKey, columns, rowTemplate, 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
-            <thead className="bg-slate-950 text-xs font-black uppercase tracking-[0.08em] text-white">
+            <thead className="border-b border-teal-200 bg-gradient-to-r from-teal-50 via-emerald-50 to-cyan-50 text-xs font-black uppercase tracking-[0.08em] text-teal-900">
               <tr>
                 <th className="w-20 px-4 py-4 text-center">Sr.No</th>
                 {columns.map(([field, label], index) => (
@@ -351,14 +353,14 @@ function CteTab({ client, setValue, selectOptions }) {
 
 function CpcbTab({ client, setValue, selectOptions }) {
   return (
-    <Card title="CPCB Details">
+    <Card title="CPCB Login Credential">
       <div className="grid gap-5 md:grid-cols-2">
         <SelectLike required label="CPCB Status" value={client.cpcb.status || ''} options={selectOptions.cpcbStatus} onChange={(value) => setValue('cpcb', 'status', value)} />
         <Field label="Remark"><textarea className="form-input min-h-[92px] resize-y py-3" value={client.cpcb.remark || ''} onChange={(event) => setValue('cpcb', 'remark', event.target.value)} /></Field>
         <Field label="CPCB Home page"><UploadButton value={client.cpcb.homePageFile} onChange={(value) => setValue('cpcb', 'homePageFile', value)} /></Field>
         <Field label="CPCB Registration Number"><input className="form-input" value={client.cpcb.registrationNumber || ''} onChange={(event) => setValue('cpcb', 'registrationNumber', event.target.value)} /></Field>
-        <Field label="Date of Application"><input type="date" className="form-input" value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
-        <Field label="Date of Application Approval"><input type="date" className="form-input" value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
+          <Field label="Date of Application"><PremiumDatePicker value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
+          <Field label="Date of Application Approval"><PremiumDatePicker value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
         <Field label="Application Number"><input className="form-input" value={client.cpcb.applicationNumber || ''} onChange={(event) => setValue('cpcb', 'applicationNumber', event.target.value)} /></Field>
         <Field label="CEPR User ID"><input className="form-input" value={client.cpcb.ceprUserId || ''} onChange={(event) => setValue('cpcb', 'ceprUserId', event.target.value)} /></Field>
         <Field label="CEPR Password"><input type="password" className="form-input" value={client.cpcb.ceprPassword || ''} onChange={(event) => setValue('cpcb', 'ceprPassword', event.target.value)} /></Field>
@@ -369,17 +371,120 @@ function CpcbTab({ client, setValue, selectOptions }) {
   );
 }
 
-function ValidationTab({ client, setValue }) {
+function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
   return (
-    <Card title="Validation Documents">
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field label="Quotation Number"><input className="form-input" value={client.validation.quotationNumber || ''} onChange={(event) => setValue('validation', 'quotationNumber', event.target.value)} /></Field>
-        <Field label="Quotation Date"><input type="date" className="form-input" value={client.validation.quotationDate || ''} onChange={(event) => setValue('validation', 'quotationDate', event.target.value)} /></Field>
-        <Field label="Quotation Document"><UploadButton value={client.validation.quotationDocument} onChange={(value) => setValue('validation', 'quotationDocument', value)} /></Field>
-        <Field label="Initial Purchase Order Number"><input className="form-input" value={client.validation.poNumber || ''} onChange={(event) => setValue('validation', 'poNumber', event.target.value)} /></Field>
-        <Field label="Initial Purchase Order Date"><input type="date" className="form-input" value={client.validation.poDate || ''} onChange={(event) => setValue('validation', 'poDate', event.target.value)} /></Field>
-        <Field label="Initial Purchase Order Document"><UploadButton value={client.validation.poDocument} onChange={(value) => setValue('validation', 'poDocument', value)} /></Field>
+    <div className="grid gap-6">
+      <DocumentUploadSection
+        title="CPCB Screenshot"
+        items={Array.isArray(client.cpcbScreenshots) ? client.cpcbScreenshots : []}
+        emptyText="No CPCB screenshots or documents uploaded yet."
+        folder="crm/client-master/cpcb"
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+        uploadTitle="Upload screenshots and documents"
+        uploadHint="Select one file or multiple files at once for bulk upload. Give every file a clear name so the team can identify it later."
+        fileTypeLabel="Screenshot / supporting document"
+        namePlaceholder="e.g. CPCB dashboard screenshot"
+        onValidationError={onValidationError}
+        onChange={(nextItems) => setRoot('cpcbScreenshots', nextItems)}
+      />
+      <DocumentUploadSection
+        title="Process Flow Diagram (PFD) and Machinery Diagram"
+        items={Array.isArray(client.processDiagrams) ? client.processDiagrams : []}
+        emptyText="No Process Flow Diagram or Machinery Diagram PDFs uploaded yet."
+        folder="crm/client-master/process-diagrams"
+        accept="application/pdf,.pdf"
+        uploadTitle="Upload PFD and Machinery Diagram PDFs"
+        uploadHint="Upload one PDF or bulk upload multiple PDFs. Enter a clear document name for every PFD or machinery diagram."
+        fileTypeLabel="PFD / Machinery Diagram PDF"
+        namePlaceholder="e.g. Process Flow Diagram - Unit 1"
+        pdfOnly
+        onValidationError={onValidationError}
+        onChange={(nextItems) => setRoot('processDiagrams', nextItems)}
+      />
+    </div>
+  );
+}
+
+function DocumentUploadSection({
+  title,
+  items,
+  emptyText,
+  folder,
+  accept,
+  uploadTitle,
+  uploadHint,
+  fileTypeLabel,
+  namePlaceholder,
+  pdfOnly = false,
+  onChange,
+  onValidationError
+}) {
+  const safeItems = Array.isArray(items) ? items : [];
+
+  function updateItems(nextItems) {
+    onChange(nextItems);
+  }
+
+  async function addFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    if (pdfOnly && files.some((file) => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) {
+      onValidationError?.('Only PDF files are allowed for Process Flow Diagram and Machinery Diagram.');
+      return;
+    }
+    try {
+      const cloudFiles = await uploadMediaBatch(files, folder);
+      const uploaded = cloudFiles.map((file) => ({ id: file.publicId, name: '', file }));
+      updateItems([...safeItems, ...uploaded]);
+      onValidationError?.(`Add a name for ${uploaded.length === 1 ? 'the uploaded file' : `all ${uploaded.length} uploaded files`} before saving.`);
+    } catch (error) {
+      onValidationError?.(error.message || 'Unable to upload files to Cloudinary.');
+    }
+  }
+
+  function updateItem(index, field, value) {
+    updateItems(safeItems.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
+  }
+
+  return (
+    <Card title={title}>
+      <div className="rounded-2xl border border-dashed border-teal-300 bg-gradient-to-br from-teal-50 via-white to-orange-50 p-6 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#30737B] text-white shadow-lg shadow-teal-900/20"><Upload className="h-6 w-6" /></div>
+        <h3 className="mt-4 text-xl font-black text-slate-950">{uploadTitle}</h3>
+        <p className="mx-auto mt-2 max-w-2xl text-sm font-semibold text-slate-500">{uploadHint}</p>
+        <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-white px-5 font-black text-emerald-800 shadow-sm hover:bg-emerald-50">
+            <FileText className="h-4 w-4" /> Single Upload
+            <input type="file" accept={accept} className="sr-only" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+          </label>
+          <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20">
+            <Upload className="h-4 w-4" /> Bulk Upload
+            <input type="file" multiple accept={accept} className="sr-only" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+          </label>
+        </div>
       </div>
+
+      {safeItems.length ? (
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          {safeItems.map((item, index) => (
+            <div key={item.id || index} className={`rounded-2xl border bg-white p-4 shadow-sm ${String(item.name || '').trim() ? 'border-slate-200' : 'border-red-300 ring-2 ring-red-50'}`}>
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-[#30737B]"><FileCheck2 className="h-5 w-5" /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-black text-slate-800">{item.file?.name || 'No file selected'}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">{fileTypeLabel}</p>
+                </div>
+                <button type="button" aria-label="Remove file" onClick={() => updateItems(safeItems.filter((_, itemIndex) => itemIndex !== index))} className="rounded-xl p-2 text-red-500 hover:bg-red-50"><Trash2 className="h-5 w-5" /></button>
+              </div>
+              <Field required label="Document Name">
+                <input className="form-input" value={item.name || ''} onChange={(event) => updateItem(index, 'name', event.target.value)} placeholder={namePlaceholder} />
+              </Field>
+              {!String(item.name || '').trim() && <p className="mt-2 text-xs font-black text-red-500">Document name is required.</p>}
+              <button type="button" onClick={() => window.open(item.file?.dataUrl || item.file?.url, '_blank', 'noopener,noreferrer')} className="mt-3 inline-flex items-center gap-2 text-sm font-black text-[#30737B]"><Eye className="h-4 w-4" /> Preview file</button>
+            </div>
+          ))}
+        </div>
+      ) : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-10 text-center font-bold text-slate-400">{emptyText}</div>}
     </Card>
   );
 }
@@ -463,16 +568,14 @@ function DynamicTable({ title, rows, columns, uploadColumn, onAdd, onUpdate, onR
 }
 
 function UploadButton({ value, onChange }) {
-  function handleFile(event) {
+  async function handleFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange({ name: file.name, dataUrl: reader.result });
-    reader.readAsDataURL(file);
+    onChange(await uploadMedia(file, 'crm/client-master/documents'));
   }
 
   function viewFile() {
-    const url = value?.dataUrl || value?.url || (typeof value === 'string' ? value : '');
+    const url = mediaUrl(value);
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
   }
@@ -529,7 +632,7 @@ export {
   ComplianceTab,
   CteTab,
   CpcbTab,
-  ValidationTab,
+  CpcbScreenshotTab,
   ContactsTab,
   Card,
   Field,

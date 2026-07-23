@@ -46,6 +46,13 @@ test('CCP quotation mapping preserves CCP identity and calculates totals', () =>
   assert.equal(mapped.ccpSource, 'bulk');
 });
 
+test('CCP sync does not overwrite a terminal CRM approval with submitted', () => {
+  const { preserveTerminalApprovalStatus } = quotationController._test;
+  assert.equal(preserveTerminalApprovalStatus({ status: 'approved' }, { status: 'submitted' }).status, 'approved');
+  assert.equal(preserveTerminalApprovalStatus({ status: 'rejected' }, { status: 'draft' }).status, 'rejected');
+  assert.equal(preserveTerminalApprovalStatus({ status: 'draft' }, { status: 'submitted' }).status, 'submitted');
+});
+
 test('CCP quotation URL is built from the configured deployment base URL', () => {
   const previousUrl = process.env.CCP_API_URL;
   const previousBase = process.env.CCP_API_BASE_URL;

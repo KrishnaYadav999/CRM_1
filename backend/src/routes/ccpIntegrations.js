@@ -1,7 +1,10 @@
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRoles } = require('../middleware/auth');
+const { ADMIN_ROLES } = require('../constants/roles');
 const { ccpApiUrl, ccpHeaders } = require('../utils/ccpConfig');
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
+const liveClientSyncController = require('../controllers/liveClientSyncController');
+const { trackManualClientSave } = require('../services/clientOnboardingReminders');
 
 const router = express.Router();
 const TIMEOUT_MS = Number(process.env.CCP_FETCH_TIMEOUT_MS) || 15000;
@@ -13,6 +16,8 @@ const LEAD_FIELDS = [
   'designation', 'emails', 'emailsSentCount', 'lastEmailSent', 'mobileNo1', 'mobileNo2',
   'businessCardUrl', 'referredBy', 'source', 'notes', 'assignedTo', 'assignedToText',
   'assignedToEmail', 'assignedToCrmUserId', 'assignedBy', 'importedCreatedBy', 'leadDate',
+  'updatedBy', 'updatedByEmail', 'updatedByCrmUserId', 'closedBy', 'closedByText',
+  'closedByEmail', 'closedByCrmUserId', 'closedAt',
   'nextFollowUpDate', 'nextFollowUpTime', 'followUpRemarks', 'importedCreatedAt',
   'importedUpdatedAt', 'workflowStatus'
 ];
@@ -43,20 +48,38 @@ function creatorIdentity(user) {
   };
 }
 
-function sanitizeLead(body, user) {
+function isObjectId(value) {
+  return /^[a-f\d]{24}$/i.test(String(value || ''));
+}
+
+function stripInvalidObjectId(payload, field) {
+  if (!isObjectId(payload[field])) delete payload[field];
+}
+
+function sanitizeLead(body, user, { isUpdate = false } = {}) {
   const payload = pick(body, LEAD_FIELDS);
   const identity = creatorIdentity(user);
-  payload.createdByCrmUserId = identity.createdByCrmUserId;
-  payload.createdByEmail = identity.createdByEmail;
-  payload.importedCreatedBy = identity.importedCreatedBy;
-  if (payload.assignedTo && !/^[a-f\d]{24}$/i.test(String(payload.assignedTo))) delete payload.assignedTo;
+  if (isUpdate) {
+    delete payload.importedCreatedBy;
+    payload.updatedByCrmUserId = identity.createdByCrmUserId;
+    payload.updatedByEmail = identity.createdByEmail;
+    payload.updatedByText = identity.importedCreatedBy;
+    stripInvalidObjectId(payload, 'updatedBy');
+  } else {
+    payload.createdByCrmUserId = identity.createdByCrmUserId;
+    payload.createdByEmail = identity.createdByEmail;
+    payload.importedCreatedBy = identity.importedCreatedBy;
+    stripInvalidObjectId(payload, 'updatedBy');
+  }
+  stripInvalidObjectId(payload, 'assignedTo');
+  stripInvalidObjectId(payload, 'closedBy');
   payload.piboParent = normalizeParent(payload.piboParent || payload.piboCategoryParent) || inferPiboParent(payload.piboCategory) || '';
   delete payload.piboCategoryParent;
   return payload;
 }
 
-async function validatedLeadPayload(body, user) {
-  const payload = sanitizeLead(body, user);
+async function validatedLeadPayload(body, user, options) {
+  const payload = sanitizeLead(body, user, options);
   if (payload.workflowStatus === 'submitted' || payload.piboParent || payload.piboCategory) {
     const selection = await validatePiboSelection({ parent: payload.piboParent, child: payload.piboCategory, required: true });
     payload.piboParent = selection.piboParent;
@@ -74,9 +97,15 @@ function sanitizeClient(body, user, isAdmin = false) {
     numberOfPlantsLocations: input.cte?.numberOfPlantsLocations || '',
     plantWiseDetails: Array.isArray(input.cte?.plantWiseDetails) ? input.cte.plantWiseDetails.map((row) => pick(row, Object.keys(row || {}).filter((key) => !['__proto__', 'prototype', 'constructor'].includes(key)))) : []
   };
+  data.cpcbScreenshots = Array.isArray(input.cpcbScreenshots)
+    ? input.cpcbScreenshots.map((row) => pick(row, ['id', 'name', 'file']))
+    : [];
+  data.processDiagrams = Array.isArray(input.processDiagrams)
+    ? input.processDiagrams.map((row) => pick(row, ['id', 'name', 'file']))
+    : [];
   const admin = pick(body?.adminControls, ['visibilityStatus', 'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedToCrmUserId', ...(isAdmin ? ['approvalStatus'] : [])]);
   if (!isAdmin) admin.approvalStatus = 'PENDING';
-  if (admin.assignedTo && !/^[a-f\d]{24}$/i.test(String(admin.assignedTo))) delete admin.assignedTo;
+  stripInvalidObjectId(admin, 'assignedTo');
   const identity = creatorIdentity(user);
   return {
     selectedLead: String(body?.selectedLead || ''),
@@ -119,7 +148,7 @@ router.post('/leads', requireAuth, async (req, res) => {
   try { return forward(req, res, 'POST', 'leads', await validatedLeadPayload(req.body, req.user)); }
   catch (error) { return res.status(error.statusCode || 400).json({ error: error.message }); }
 });
-router.post('/leads/bulk', requireAuth, async (req, res) => {
+router.post('/leads/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
   const rows = Array.isArray(req.body?.leads) ? req.body.leads : [];
   if (!rows.length) return res.status(400).json({ error: 'No leads provided' });
 
@@ -161,12 +190,20 @@ router.post('/leads/bulk', requireAuth, async (req, res) => {
   });
 });
 router.put('/leads/:id', requireAuth, async (req, res) => {
-  try { return forward(req, res, 'PUT', `leads/${encodeURIComponent(req.params.id)}`, await validatedLeadPayload(req.body, req.user)); }
+  try { return forward(req, res, 'PUT', `leads/${encodeURIComponent(req.params.id)}`, await validatedLeadPayload(req.body, req.user, { isUpdate: true })); }
   catch (error) { return res.status(error.statusCode || 400).json({ error: error.message }); }
 });
 router.get('/clients', requireAuth, (req, res) => forward(req, res, 'GET', 'clients'));
-router.post('/clients', requireAuth, (req, res) => forward(req, res, 'POST', 'clients', sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role))));
-router.post('/clients/bulk', requireAuth, async (req, res) => {
+router.get('/clients/sync-live/preview', requireAuth, requireRoles(ADMIN_ROLES), liveClientSyncController.preview);
+router.post('/clients/sync-live/batch', requireAuth, requireRoles(ADMIN_ROLES), liveClientSyncController.batch);
+router.post('/clients/sync-live/reconciliation', requireAuth, requireRoles(ADMIN_ROLES), liveClientSyncController.reconcile);
+router.post('/clients', requireAuth, async (req, res) => {
+  const body = sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role));
+  const result = await requestCcp('POST', 'clients', body);
+  if (result.status >= 200 && result.status < 300) await trackManualClientSave({ payload: body, ccpPayload: result.payload, user: req.user }).catch(() => null);
+  return res.status(result.status).json(result.payload);
+});
+router.post('/clients/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
   const rows = Array.isArray(req.body?.clients) ? req.body.clients : [];
   if (!rows.length) return res.status(400).json({ error: 'No clients provided' });
 
@@ -185,7 +222,7 @@ router.post('/clients/bulk', requireAuth, async (req, res) => {
   }
   return res.status(result.status).json(result.payload);
 });
-router.post('/clients/years/bulk', requireAuth, async (req, res) => {
+router.post('/clients/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
   if (!rows.length) return res.status(400).json({ error: 'No annual return year rows provided' });
   return forward(req, res, 'POST', 'clients/years/bulk', { rows: rows.map((row, index) => ({
@@ -195,7 +232,12 @@ router.post('/clients/years/bulk', requireAuth, async (req, res) => {
     firstAnnualReturnYear: String(row.firstAnnualReturnYear || '').trim()
   })) });
 });
-router.put('/clients/:id', requireAuth, (req, res) => forward(req, res, 'PUT', `clients/${encodeURIComponent(req.params.id)}`, sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role))));
+router.put('/clients/:id', requireAuth, async (req, res) => {
+  const body = sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role));
+  const result = await requestCcp('PUT', `clients/${encodeURIComponent(req.params.id)}`, body);
+  if (result.status >= 200 && result.status < 300) await trackManualClientSave({ payload: body, ccpPayload: { ...result.payload, id: req.params.id }, user: req.user }).catch(() => null);
+  return res.status(result.status).json(result.payload);
+});
 
 router._test = { LEAD_FIELDS, CLIENT_SECTIONS, pick, creatorIdentity, sanitizeLead, sanitizeClient, validatedLeadPayload };
 module.exports = router;

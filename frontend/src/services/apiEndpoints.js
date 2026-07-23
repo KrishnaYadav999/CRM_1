@@ -37,6 +37,7 @@ const API_ENDPOINTS = {
   quotations: {
     list: '/quotations',
     create: '/quotations',
+    bulk: '/quotations/bulk',
     serviceCategories: '/quotations/service-categories',
     piboCategories: '/quotations/pibo-categories',
     approveAllPending: '/quotations/pending-approvals/approve-all',
@@ -44,6 +45,11 @@ const API_ENDPOINTS = {
     detail: (id) => `/quotations/${encodePathValue(id)}`,
     approval: (id) => `/quotations/${encodePathValue(id)}/approval`,
     byLead: (leadId) => `/leads/${encodePathValue(leadId)}/quotations`
+  },
+  proformaInvoices: {
+    list: '/proforma-invoices',
+    create: '/proforma-invoices',
+    detail: (id) => `/proforma-invoices/${encodePathValue(id)}`
   },
   annualReturns: {
     list: '/annual-returns'
@@ -71,6 +77,9 @@ const API_ENDPOINTS = {
     updateLead: (id) => `/integrations/ccp/leads/${encodePathValue(id)}`,
     createClient: '/integrations/ccp/clients',
     bulkCreateClients: '/integrations/ccp/clients/bulk',
+    liveClientSyncPreview: '/integrations/ccp/clients/sync-live/preview',
+    liveClientSyncBatch: '/integrations/ccp/clients/sync-live/batch',
+    liveClientSyncReconciliation: '/integrations/ccp/clients/sync-live/reconciliation',
     bulkUpdateClientYears: '/integrations/ccp/clients/years/bulk',
     updateClient: (id) => `/integrations/ccp/clients/${encodePathValue(id)}`,
     leadHistory: (id) => `/ccp/leads/${encodePathValue(id)}/history`,

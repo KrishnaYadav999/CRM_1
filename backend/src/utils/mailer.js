@@ -114,7 +114,7 @@ function buildBrandedEmail(html) {
   return `<div style="margin:0;background:#f4f7fb;padding:0;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">${header}${source}</div>`;
 }
 
-async function sendMail(to, subject, html) {
+async function sendMail(to, subject, html, options = {}) {
   const mailUser = readMailUser();
   if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is not configured');
   const recipients = normalizeRecipients(to);
@@ -123,7 +123,7 @@ async function sendMail(to, subject, html) {
   const from = formatFromAddress();
   const replyTo = process.env.MAIL_REPLY_TO || mailUser || undefined;
   const transporter = createTransporter();
-  const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html: buildBrandedEmail(html) });
+  const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html: buildBrandedEmail(html), attachments: Array.isArray(options.attachments) ? options.attachments : undefined });
   return { raw: info, summary: summarizeMailInfo(info) };
 }
 

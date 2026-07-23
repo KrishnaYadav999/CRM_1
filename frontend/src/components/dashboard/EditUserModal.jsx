@@ -1,19 +1,17 @@
 import React from 'react'
 import { ImagePlus, Trash2, X } from 'lucide-react'
 import { defaultTeams, roles, roleLabels } from '../../constants/dashboard'
+import { uploadMedia } from '../../services/mediaUpload'
 
 export default function EditUserModal({ form, saving, onChange, onClose, onSubmit }) {
-  function handleAvatarChange(event) {
+  async function handleAvatarChange(event) {
     const file = event.target.files?.[0]
     if (!file) return
 
     if (!file.type.startsWith('image/')) return
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      onChange({ ...form, avatarUrl: reader.result })
-    }
-    reader.readAsDataURL(file)
+    const uploaded = await uploadMedia(file, 'crm/users/avatars')
+    onChange({ ...form, avatarUrl: uploaded.secureUrl })
   }
 
   return (

@@ -338,6 +338,15 @@ function comparableCcpFields(record) {
   });
 }
 
+function preserveTerminalApprovalStatus(existing, incoming) {
+  const currentStatus = cleanString(existing?.status).toLowerCase();
+  const incomingStatus = cleanString(incoming?.status).toLowerCase();
+  if (['approved', 'rejected'].includes(currentStatus) && ['draft', 'submitted', 'sent'].includes(incomingStatus)) {
+    return { ...incoming, status: currentStatus };
+  }
+  return incoming;
+}
+
 function approvalDateParts(value) {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) {
@@ -570,12 +579,13 @@ exports.syncCcpQuotations = async (req, res) => {
           status: 'unmatched', lastSeenAt: new Date(), resolvedAt: null
         };
         await QuotationSyncIssue.findOneAndUpdate({ ccpQuotationId: issueIdentity }, { $set: issue }, { upsert: true, new: true });
-        const unmatchedQuotation = {
+        let unmatchedQuotation = {
           ...mapCcpQuotation(row, null),
           syncMatchStatus: 'unmatched',
           unmatchedReason: issue.reason
         };
         const existingUnmatched = await Quotation.findOne({ ccpQuotationId }).lean();
+        unmatchedQuotation = preserveTerminalApprovalStatus(existingUnmatched, unmatchedQuotation);
         let savedQuotation;
         let changed = false;
         if (!existingUnmatched) {
@@ -601,13 +611,14 @@ exports.syncCcpQuotations = async (req, res) => {
         continue;
       }
 
-      const mapped = mapCcpQuotation(row, match.lead);
+      let mapped = mapCcpQuotation(row, match.lead);
       const existing = await Quotation.findOne({
         $or: [
           { ccpQuotationId },
           { leadId: mapped.leadId, quotationNumber: mapped.quotationNumber }
         ]
       }).lean();
+      mapped = preserveTerminalApprovalStatus(existing, mapped);
 
       let savedQuotation;
       let changed = false;
@@ -725,6 +736,9 @@ exports.updateQuotationApproval = async (req, res) => {
   }
 
   const approvalRecordId = String(req.body.approvalRecordId || '').trim();
+  const approvalRecord = require('mongoose').Types.ObjectId.isValid(approvalRecordId)
+    ? await PendingApproval.findById(approvalRecordId)
+    : null;
   const update = {
     approvalStatus: status,
     nextReminderAt: null,
@@ -732,27 +746,86 @@ exports.updateQuotationApproval = async (req, res) => {
     actionAt: new Date(),
     remarks: String(req.body.remarks || '').trim()
   };
-  const quotation = await Quotation.findById(req.params.id).populate('createdBy', 'name email');
+  const requestedId = String(req.params.id || '').trim();
+  const resolvedQuotationId = require('mongoose').Types.ObjectId.isValid(requestedId)
+    ? requestedId
+    : String(approvalRecord?.sourceClientId || approvalRecord?.payload?.quotationId || '').trim();
+  const quotation = require('mongoose').Types.ObjectId.isValid(resolvedQuotationId)
+    ? await Quotation.findById(resolvedQuotationId).populate('createdBy', 'name email')
+    : null;
 
   if (!quotation) {
-    if (!approvalRecordId) return res.status(404).json({ error: 'Quotation not found' });
-    await PendingApproval.findByIdAndUpdate(approvalRecordId, update);
-    return res.json({ ok: true });
+    return res.status(404).json({ error: 'Linked quotation not found. Refresh Pending Approval and try again.' });
   }
 
   quotation.status = status === 'APPROVED' ? 'approved' : 'rejected';
   await quotation.save();
 
-  if (approvalRecordId) {
-    await PendingApproval.findByIdAndUpdate(approvalRecordId, update);
-  } else {
-    await PendingApproval.findOneAndUpdate(
-      { type: 'quotation', source: 'crm', sourceClientId: String(quotation._id) },
-      update
-    );
-  }
+  await PendingApproval.updateMany(
+    {
+      type: 'quotation',
+      $or: [
+        ...(approvalRecord?._id ? [{ _id: approvalRecord._id }] : []),
+        { sourceClientId: String(quotation._id) },
+        { 'payload.quotationId': quotation._id },
+        { 'payload.quotationId': String(quotation._id) }
+      ]
+    },
+    { $set: update }
+  );
 
-  res.json({ ok: true, quotation });
+  res.json({ ok: true, approvalStatus: status, quotation });
+};
+
+exports.bulkCreateQuotations = async (req, res) => {
+  const rows = Array.isArray(req.body.quotations) ? req.body.quotations : [];
+  if (!rows.length) return res.status(400).json({ error: 'At least one quotation is required.' });
+  if (rows.length > 1000) return res.status(400).json({ error: 'A maximum of 1,000 quotations can be imported at once.' });
+
+  const summary = { total: rows.length, created: 0, updated: 0, failed: 0 };
+  const failures = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || {};
+    try {
+      const gstError = validateGstNumber(row.leadDetails?.gstNumber);
+      if (gstError) throw new Error(gstError);
+      const data = cleanBody(row);
+      if (!data.companyName) throw new Error('Company Name is required');
+      if (!data.items.length) throw new Error('At least one quotation item is required');
+      await validateQuotationPiboItems(data.items);
+      const quotationNumber = cleanString(row.quotationNumber) || await nextQuotationNumber();
+      const existing = await Quotation.findOne({ quotationNumber });
+      let quotation;
+      if (existing) {
+        Object.assign(existing, data, { source: 'bulk', status: 'draft' });
+        quotation = await existing.save();
+        summary.updated += 1;
+      } else {
+        quotation = await Quotation.create({
+          ...data,
+          quotationNumber,
+          source: 'bulk',
+          status: 'draft',
+          createdBy: req.user?._id
+        });
+        summary.created += 1;
+      }
+      await upsertQuotationPendingApproval(quotation, existing ? 'UPDATE' : 'CREATE');
+    } catch (error) {
+      summary.failed += 1;
+      failures.push({
+        row: index + 2,
+        quotationNumber: cleanString(row.quotationNumber),
+        companyName: cleanString(row.companyName || row.leadDetails?.companyName),
+        error: error.message || 'Import failed'
+      });
+    }
+  }
+  return res.status(summary.failed === summary.total ? 400 : 200).json({
+    ok: summary.failed === 0,
+    summary,
+    failures
+  });
 };
 
 exports.approveAllPendingQuotations = async (req, res) => {
@@ -849,5 +922,6 @@ exports._test = {
   ccpRequestHeaders,
   ccpQuotationUrl,
   mapCcpQuotation,
-  comparableCcpFields
+  comparableCcpFields,
+  preserveTerminalApprovalStatus
 };

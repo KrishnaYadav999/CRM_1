@@ -9,6 +9,7 @@ export default function SearchableSelect({ value = '', options = [], onChange, d
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
   const normalized = useMemo(() => options.map((option) => typeof option === 'string' ? ({ value: option, label: option }) : option).filter((option) => option?.value), [options]);
+  const selectedOption = normalized.find((option) => String(option.value) === String(value));
   const filtered = normalized.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   function positionMenu() {
@@ -50,7 +51,7 @@ export default function SearchableSelect({ value = '', options = [], onChange, d
   return (
     <>
       <div ref={triggerRef} className={`relative flex min-h-12 items-center rounded-xl border bg-white transition ${open ? 'border-emerald-500 ring-4 ring-emerald-100' : 'border-slate-200 hover:border-emerald-300'} ${disabled ? 'cursor-not-allowed bg-slate-100 opacity-70' : ''}`}>
-        <input value={open ? query : value} disabled={disabled} onFocus={() => { setQuery(''); setOpen(true); }} onChange={(event) => { setQuery(event.target.value); onChange(event.target.value); setOpen(true); }} placeholder={placeholder} className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm font-black text-slate-800 outline-none placeholder:text-slate-400" />
+        <input value={open ? query : (selectedOption?.label || value)} disabled={disabled} onFocus={() => { setQuery(''); setOpen(true); }} onChange={(event) => { setQuery(event.target.value); onChange(event.target.value); setOpen(true); }} placeholder={placeholder} className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm font-black text-slate-800 outline-none placeholder:text-slate-400" />
         {(value || query) && !disabled && <button type="button" onClick={() => { onChange(''); setQuery(''); }} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Clear"><X className="h-4 w-4" /></button>}
         <button type="button" disabled={disabled} onClick={() => { setQuery(''); setOpen((current) => !current); }} className="mr-2 grid h-8 w-8 place-items-center rounded-lg text-emerald-700 hover:bg-emerald-50" aria-label="Toggle options"><ChevronDown className={`h-4 w-4 transition ${open ? 'rotate-180' : ''}`} /></button>
       </div>

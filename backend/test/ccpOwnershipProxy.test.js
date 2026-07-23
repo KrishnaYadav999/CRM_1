@@ -21,12 +21,40 @@ test('CRM ids are not forwarded as CCP assignedTo ids', () => {
   assert.equal(payload.assignedToCrmUserId, 'crm-user-id');
 });
 
+test('blank closedBy is not forwarded as a CCP ObjectId', () => {
+  const payload = sanitizeLead({ company: 'Acme', closedBy: '', closedByText: 'CRM User', closedByEmail: 'closer@example.com' }, user);
+  assert.equal(payload.closedBy, undefined);
+  assert.equal(payload.closedByText, 'CRM User');
+  assert.equal(payload.closedByEmail, 'closer@example.com');
+});
+
+test('lead update does not send CRM user names as CCP updatedBy ObjectIds', () => {
+  const payload = sanitizeLead({ company: 'Acme', updatedBy: 'CRM User' }, user, { isUpdate: true });
+  assert.equal(payload.updatedBy, undefined);
+  assert.equal(payload.updatedByText, 'CRM User');
+  assert.equal(payload.updatedByEmail, 'user@example.com');
+  assert.equal(payload.updatedByCrmUserId, String(user._id));
+});
+
 test('client payload remains nested and non-admin cannot spoof approval', () => {
   const payload = sanitizeClient({ selectedLead: '64b000000000000000000099', workflowStatus: 'submitted', adminControls: { approvalStatus: 'APPROVED' }, data: { basic: { clientLegalName: 'Acme', evil: true }, registeredAddress: { address1: 'One' } } }, user, false);
   assert.equal(payload.data.basic.clientLegalName, 'Acme');
   assert.equal(payload.data.basic.evil, undefined);
   assert.equal(payload.adminControls.approvalStatus, 'PENDING');
   assert.equal(payload.createdByEmail, 'user@example.com');
+});
+
+test('client payload forwards named process diagram PDFs to CCP', () => {
+  const payload = sanitizeClient({
+    data: {
+      processDiagrams: [
+        { id: 'pfd-1', name: 'Process Flow Diagram', file: { url: 'https://cdn.example.com/pfd.pdf' }, ignored: true }
+      ]
+    }
+  }, user, true);
+  assert.deepEqual(payload.data.processDiagrams, [
+    { id: 'pfd-1', name: 'Process Flow Diagram', file: { url: 'https://cdn.example.com/pfd.pdf' } }
+  ]);
 });
 
 test('frontend never contains the CCP shared API key', () => {

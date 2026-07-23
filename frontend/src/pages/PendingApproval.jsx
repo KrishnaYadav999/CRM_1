@@ -329,17 +329,20 @@ export default function PendingApproval() {
 
   async function updateQuotationApproval(row, status) {
     if (!canApprove) return;
-    const id = row?.id;
+    const id = row?.quotationId || row?._id || row?.id;
     setSavingId(`quote-${id}-${status}`);
     setError('');
     setNotice('');
 
     try {
-      await api.patch(API_ENDPOINTS.quotations.approval(id), {
+      const response = await api.patch(API_ENDPOINTS.quotations.approval(id), {
         status,
         approvalRecordId: row?.approvalRecordId,
         remarks: `${status === 'APPROVED' ? 'Approved' : 'Rejected'} from Pending Approval`
       });
+      if (String(response.data?.quotation?.status || '').toUpperCase() !== status) {
+        throw new Error(`Quotation status was not saved as ${status}.`);
+      }
       setNotice(`Quotation ${status.toLowerCase()} successfully.`);
       await loadPage({ force: true, silent: true });
     } catch (err) {
