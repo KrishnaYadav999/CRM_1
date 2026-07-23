@@ -202,7 +202,10 @@ function buildClientTabProgress(client = {}) {
       ))
     ),
     cpcb: countFields(client, tabProgressFields.cpcb),
-    cpcbScreenshots: countRows(client.cpcbScreenshots, ['name', 'file']),
+    cpcbScreenshots: addProgressParts(
+      countRows(client.cpcbScreenshots, ['name', 'file']),
+      countRows(client.processDiagrams, ['name', 'file'])
+    ),
     contacts: countFields(client, tabProgressFields.contacts)
   };
 
@@ -499,6 +502,7 @@ const emptyClient = {
   cte: { numberOfPlantsLocations: '', plantWiseDetails: [] },
   cpcb: {},
   cpcbScreenshots: [],
+  processDiagrams: [],
   otp: {},
   authorised: {},
   coordinating: {}
@@ -888,6 +892,11 @@ export default function ClientMaster() {
         setError('Please enter a name for every CPCB screenshot/document before continuing.');
         return;
       }
+      const invalidProcessDiagram = (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidProcessDiagram) {
+        setError('Please enter a name for every PFD and Machinery Diagram PDF before continuing.');
+        return;
+      }
     }
     setError('');
     const next = tabs[Math.min(activeIndex + 1, tabs.length - 1)];
@@ -1071,6 +1080,12 @@ export default function ClientMaster() {
       const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
       if (invalidScreenshot) {
         setError('Every CPCB screenshot/document must have a name and an uploaded file.');
+        setActiveTab('cpcbScreenshots');
+        return;
+      }
+      const invalidProcessDiagram = (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file);
+      if (invalidProcessDiagram) {
+        setError('Every PFD and Machinery Diagram PDF must have a name and an uploaded PDF.');
         setActiveTab('cpcbScreenshots');
         return;
       }

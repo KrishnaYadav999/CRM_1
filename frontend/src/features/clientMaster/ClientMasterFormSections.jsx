@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Eye, FileCheck2, MapPin, Plus, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Eye, FileCheck2, FileText, MapPin, Plus, Trash2, Upload } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
 import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 import { mediaUrl, uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
@@ -372,19 +372,70 @@ function CpcbTab({ client, setValue, selectOptions }) {
 }
 
 function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
-  const items = Array.isArray(client.cpcbScreenshots) ? client.cpcbScreenshots : [];
+  return (
+    <div className="grid gap-6">
+      <DocumentUploadSection
+        title="CPCB Screenshot"
+        items={Array.isArray(client.cpcbScreenshots) ? client.cpcbScreenshots : []}
+        emptyText="No CPCB screenshots or documents uploaded yet."
+        folder="crm/client-master/cpcb"
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+        uploadTitle="Upload screenshots and documents"
+        uploadHint="Select one file or multiple files at once for bulk upload. Give every file a clear name so the team can identify it later."
+        fileTypeLabel="Screenshot / supporting document"
+        namePlaceholder="e.g. CPCB dashboard screenshot"
+        onValidationError={onValidationError}
+        onChange={(nextItems) => setRoot('cpcbScreenshots', nextItems)}
+      />
+      <DocumentUploadSection
+        title="Process Flow Diagram (PFD) and Machinery Diagram"
+        items={Array.isArray(client.processDiagrams) ? client.processDiagrams : []}
+        emptyText="No Process Flow Diagram or Machinery Diagram PDFs uploaded yet."
+        folder="crm/client-master/process-diagrams"
+        accept="application/pdf,.pdf"
+        uploadTitle="Upload PFD and Machinery Diagram PDFs"
+        uploadHint="Upload one PDF or bulk upload multiple PDFs. Enter a clear document name for every PFD or machinery diagram."
+        fileTypeLabel="PFD / Machinery Diagram PDF"
+        namePlaceholder="e.g. Process Flow Diagram - Unit 1"
+        pdfOnly
+        onValidationError={onValidationError}
+        onChange={(nextItems) => setRoot('processDiagrams', nextItems)}
+      />
+    </div>
+  );
+}
+
+function DocumentUploadSection({
+  title,
+  items,
+  emptyText,
+  folder,
+  accept,
+  uploadTitle,
+  uploadHint,
+  fileTypeLabel,
+  namePlaceholder,
+  pdfOnly = false,
+  onChange,
+  onValidationError
+}) {
+  const safeItems = Array.isArray(items) ? items : [];
 
   function updateItems(nextItems) {
-    setRoot('cpcbScreenshots', nextItems);
+    onChange(nextItems);
   }
 
   async function addFiles(fileList) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
+    if (pdfOnly && files.some((file) => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) {
+      onValidationError?.('Only PDF files are allowed for Process Flow Diagram and Machinery Diagram.');
+      return;
+    }
     try {
-      const cloudFiles = await uploadMediaBatch(files, 'crm/client-master/cpcb');
+      const cloudFiles = await uploadMediaBatch(files, folder);
       const uploaded = cloudFiles.map((file) => ({ id: file.publicId, name: '', file }));
-      updateItems([...items, ...uploaded]);
+      updateItems([...safeItems, ...uploaded]);
       onValidationError?.(`Add a name for ${uploaded.length === 1 ? 'the uploaded file' : `all ${uploaded.length} uploaded files`} before saving.`);
     } catch (error) {
       onValidationError?.(error.message || 'Unable to upload files to Cloudinary.');
@@ -392,42 +443,48 @@ function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
   }
 
   function updateItem(index, field, value) {
-    updateItems(items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
+    updateItems(safeItems.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
   }
 
   return (
-    <Card title="CPCB Screenshot">
+    <Card title={title}>
       <div className="rounded-2xl border border-dashed border-teal-300 bg-gradient-to-br from-teal-50 via-white to-orange-50 p-6 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#30737B] text-white shadow-lg shadow-teal-900/20"><Upload className="h-6 w-6" /></div>
-        <h3 className="mt-4 text-xl font-black text-slate-950">Upload screenshots and documents</h3>
-        <p className="mx-auto mt-2 max-w-2xl text-sm font-semibold text-slate-500">Select multiple files at once for bulk upload. Give every file a clear name so the team can identify it later.</p>
-        <label className="btn-lift mt-5 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20">
-          <Upload className="h-4 w-4" /> Bulk Upload
-          <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" className="sr-only" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
-        </label>
+        <h3 className="mt-4 text-xl font-black text-slate-950">{uploadTitle}</h3>
+        <p className="mx-auto mt-2 max-w-2xl text-sm font-semibold text-slate-500">{uploadHint}</p>
+        <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-white px-5 font-black text-emerald-800 shadow-sm hover:bg-emerald-50">
+            <FileText className="h-4 w-4" /> Single Upload
+            <input type="file" accept={accept} className="sr-only" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+          </label>
+          <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20">
+            <Upload className="h-4 w-4" /> Bulk Upload
+            <input type="file" multiple accept={accept} className="sr-only" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+          </label>
+        </div>
       </div>
 
-      {items.length ? (
+      {safeItems.length ? (
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          {items.map((item, index) => (
+          {safeItems.map((item, index) => (
             <div key={item.id || index} className={`rounded-2xl border bg-white p-4 shadow-sm ${String(item.name || '').trim() ? 'border-slate-200' : 'border-red-300 ring-2 ring-red-50'}`}>
               <div className="flex items-start gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-[#30737B]"><FileCheck2 className="h-5 w-5" /></div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-black text-slate-800">{item.file?.name || 'No file selected'}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">Screenshot / supporting document</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">{fileTypeLabel}</p>
                 </div>
-                <button type="button" aria-label="Remove file" onClick={() => updateItems(items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-xl p-2 text-red-500 hover:bg-red-50"><Trash2 className="h-5 w-5" /></button>
+                <button type="button" aria-label="Remove file" onClick={() => updateItems(safeItems.filter((_, itemIndex) => itemIndex !== index))} className="rounded-xl p-2 text-red-500 hover:bg-red-50"><Trash2 className="h-5 w-5" /></button>
               </div>
               <Field required label="Document Name">
-                <input className="form-input" value={item.name || ''} onChange={(event) => updateItem(index, 'name', event.target.value)} placeholder="e.g. CPCB dashboard screenshot" />
+                <input className="form-input" value={item.name || ''} onChange={(event) => updateItem(index, 'name', event.target.value)} placeholder={namePlaceholder} />
               </Field>
               {!String(item.name || '').trim() && <p className="mt-2 text-xs font-black text-red-500">Document name is required.</p>}
               <button type="button" onClick={() => window.open(item.file?.dataUrl || item.file?.url, '_blank', 'noopener,noreferrer')} className="mt-3 inline-flex items-center gap-2 text-sm font-black text-[#30737B]"><Eye className="h-4 w-4" /> Preview file</button>
             </div>
           ))}
         </div>
-      ) : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-10 text-center font-bold text-slate-400">No CPCB screenshots or documents uploaded yet.</div>}
+      ) : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-10 text-center font-bold text-slate-400">{emptyText}</div>}
     </Card>
   );
 }
