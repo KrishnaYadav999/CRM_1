@@ -1460,6 +1460,8 @@ export default function LeadGeneration() {
                     state: viewLead.state || '',
                     city: viewLead.city || '',
                     pinCode: viewLead.pinCode || '',
+                    industryType: viewLead.industryType || viewLead.serviceSelections?.[0]?.industryType || '',
+                    servicesOffered: viewLead.servicesOffered || viewLead.serviceSelections?.[0]?.servicesOffered || '',
                     eprCategory: viewLead.eprCategory || '',
                     piboCategory: viewLead.piboCategory || ''
                   }

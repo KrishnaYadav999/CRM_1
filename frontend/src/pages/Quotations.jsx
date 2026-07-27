@@ -35,6 +35,7 @@ const emptyLeadDetails = {
 };
 
 const emptyItem = {
+  industryType: '',
   serviceCategory: '',
   servicesForYear: '',
   eprCategory: '',
@@ -69,6 +70,8 @@ const emptyQuotation = {
   leadCode: '',
   leadDetails: emptyLeadDetails,
   validUntil: '',
+  pricingMode: '',
+  combinedBasicAmount: '',
   items: [],
   terms: [],
   status: 'draft'
@@ -108,6 +111,7 @@ const serviceCategoryOptions = [
 const yearOptions = ['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30'];
 const salutationOptions = ['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.', 'Er.', 'CA', 'Adv.'];
 const eprCategoryOptions = ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'];
+const industryTypeOptions = ['Automotive', 'Chemicals', 'Construction', 'Consumer Goods', 'E-commerce', 'Electronics', 'Energy', 'FMCG', 'Financial Services', 'Healthcare', 'Hospitality', 'IT & Software', 'Logistics', 'Manufacturing', 'Pharmaceuticals', 'Renewables', 'Retail', 'Telecom', 'Waste Management', 'Food Manufacturing', 'Mechanical Industry', 'Petrochemical', 'Packaging Manufacture', 'Plastic Recycling', 'E-Waste Recycler', 'E-Waste Recycling', 'Other'];
 
 function mapLeadToDetails(lead) {
   return {
@@ -181,6 +185,8 @@ function buildQuotationFromContext(context) {
     },
     items: [{
       ...emptyItem,
+      industryType: context.industryType || '',
+      serviceCategory: context.servicesOffered || '',
       servicesForYear: context.annualYear || '',
       eprCategory: context.eprCategory || '',
       piboCategory: context.piboCategory || ''
@@ -206,6 +212,8 @@ function normalizeQuotationSnapshot(row) {
       companyName: row.leadDetails?.companyName || row.companyName || ''
     },
     validUntil: row.validUntil || '',
+    pricingMode: row.pricingMode || '',
+    combinedBasicAmount: row.combinedBasicAmount ?? '',
     items: Array.isArray(row.items) && row.items.length
       ? row.items
       : [{
@@ -563,6 +571,8 @@ export default function Quotations() {
     setEditingId('');
     setNotice('');
     setError('');
+    setEditingItemIndex(null);
+    setItemDrafts({});
     setViewMode('form');
   }
 
@@ -600,8 +610,10 @@ export default function Quotations() {
       leadCode: row.leadCode || '',
       leadDetails: { ...emptyLeadDetails, ...(row.leadDetails || {}) },
       validUntil: row.validUntil || '',
-      items: Array.isArray(row.items) ? row.items.map((item) => ({ ...emptyItem, ...item, basicAmount: item.basicAmount || '' })) : [],
-      terms: Array.isArray(row.terms) ? row.terms : [],
+      pricingMode: row.pricingMode || (Array.isArray(row.items) && row.items.length ? 'individual' : ''),
+      combinedBasicAmount: row.combinedBasicAmount ?? '',
+      items: Array.isArray(row.items) ? row.items.map((item) => ({ ...emptyItem, ...item, basicAmount: item.basicAmount ?? '' })) : [],
+      terms: Array.isArray(row.terms) ? row.terms.map((term) => String(term ?? '')) : [],
       status: row.status || 'draft'
     });
     setEditingId(row._id || row.id);
@@ -638,12 +650,32 @@ export default function Quotations() {
   }
 
   function addItem() {
+    if (!quotation.pricingMode) {
+      setError('Select Combined Price or Individual Price before adding quotation rows.');
+      return;
+    }
     setQuotation((current) => {
       const nextIndex = current.items.length;
       setEditingItemIndex(nextIndex);
       setItemDrafts((drafts) => ({ ...drafts, [nextIndex]: emptyItem }));
       return { ...current, items: [...current.items, emptyItem] };
     });
+  }
+
+  function selectPricingMode(mode) {
+    setError('');
+    setEditingItemIndex(null);
+    setItemDrafts({});
+    setQuotation((current) => ({
+      ...current,
+      pricingMode: mode,
+      combinedBasicAmount: mode === 'combined' ? (current.combinedBasicAmount ?? '') : '',
+      items: current.items.map((item) => ({
+        ...emptyItem,
+        ...item,
+        basicAmount: mode === 'combined' ? '' : (item.basicAmount ?? '')
+      }))
+    }));
   }
 
   function removeItem(index) {
@@ -736,6 +768,14 @@ export default function Quotations() {
       setError('Add at least one quotation item and select its Applicant Type and child category.');
       return;
     }
+    if (!quotation.pricingMode) {
+      setError('Select Combined Price or Individual Price.');
+      return;
+    }
+    if (quotation.pricingMode === 'combined' && !(Number(quotation.combinedBasicAmount) > 0)) {
+      setError('Enter a valid Combined Basic Amount.');
+      return;
+    }
     const availableCategories = normalizePiboCategories(piboCategories);
     const invalidItemIndex = quotation.items.findIndex((item) => {
       const parent = item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory);
@@ -754,6 +794,7 @@ export default function Quotations() {
         leadDetails: { ...quotation.leadDetails, gstNumber },
         items: quotation.items.map((item) => ({
           ...item,
+          basicAmount: quotation.pricingMode === 'combined' ? 0 : item.basicAmount,
           piboParent: item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory),
           piboCategoryParent: undefined
         })),
@@ -1037,19 +1078,23 @@ export default function Quotations() {
 
           <div className="mt-8 rounded-lg border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <h3 className="font-black text-slate-900">Quotation Items</h3>
-              <button type="button" onClick={addItem} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 font-black text-white">
+              <div><h3 className="font-black text-slate-900">Quotation Items</h3><p className="mt-0.5 text-xs font-bold text-slate-500">{quotation.pricingMode ? `${quotation.pricingMode === 'combined' ? 'Combined' : 'Individual'} pricing selected` : 'Choose the pricing type first.'}</p></div>
+              {quotation.pricingMode && <button type="button" onClick={addItem} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 font-black text-white">
                 <Plus className="h-4 w-4" /> Add Row
-              </button>
+              </button>}
             </div>
+            {!quotation.pricingMode ? <div className="grid gap-4 p-5 sm:grid-cols-2">
+              <button type="button" onClick={() => selectPricingMode('combined')} className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/70 p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-lg"><span className="text-base font-black text-emerald-800">Combined Price</span><span className="mt-1 block text-sm font-bold text-emerald-700/80">One total basic amount for all quotation rows.</span></button>
+              <button type="button" onClick={() => selectPricingMode('individual')} className="rounded-2xl border-2 border-blue-200 bg-blue-50/70 p-5 text-left transition hover:-translate-y-0.5 hover:border-blue-500 hover:shadow-lg"><span className="text-base font-black text-blue-800">Individual Price</span><span className="mt-1 block text-sm font-bold text-blue-700/80">Separate basic amount for every quotation row.</span></button>
+            </div> : <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${quotation.pricingMode === 'combined' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>{quotation.pricingMode} Price</span><button type="button" onClick={() => setQuotation((current) => ({ ...current, pricingMode: '', combinedBasicAmount: '' }))} className="text-xs font-black text-slate-500 hover:text-orange-600">Change pricing type</button></div>}
             <div className="overflow-auto p-4">
-              {quotation.items.length === 0 ? (
+              {!quotation.pricingMode ? null : quotation.items.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No quotation items added.</div>
               ) : (
                 <table className="w-full min-w-[980px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
-                      {['Sr.No', 'Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
+                      {['Sr.No', 'Industry Type', 'Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
                         <th key={header} className="px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -1060,17 +1105,19 @@ export default function Quotations() {
                         <td className="px-3 py-4 text-center font-black">{index + 1}</td>
                         {editingItemIndex === index ? (
                           <>
+                            <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.industryType || ''} options={industryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" /></td>
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.serviceCategory || ''} options={allServiceCategoryOptions} placeholder="CONSULTANCY FEE" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={addServiceCategory} /></td>
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.servicesForYear || ''} options={yearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} /></td>
                             <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.eprCategory || ''} options={eprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} /></td>
                             <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={itemDrafts[index]?.piboParent || itemDrafts[index]?.piboCategoryParent || inferPiboParent(itemDrafts[index]?.piboCategory)} value={itemDrafts[index]?.piboCategory || ''} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={addPiboCategory} /></td>
                             <td className="px-3 py-4"><input value={itemDrafts[index]?.unit || ''} onChange={(event) => setItemDraft(index, 'unit', event.target.value)} className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1" /></td>
-                            <td className="px-3 py-4">
+                            {quotation.pricingMode === 'individual' && <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
                                 <span className="grid w-10 place-items-center border-r border-slate-200 font-black text-slate-800">₹</span>
                                 <input type="number" value={itemDrafts[index]?.basicAmount || ''} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
                               </div>
-                            </td>
+                            </td>}
+                            {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="min-w-56 border-l border-slate-100 bg-emerald-50/60 px-3 py-4 align-middle"><label className="block text-[11px] font-black uppercase tracking-wider text-emerald-700">Combined Basic Amount</label><div className="mt-2 flex h-11 overflow-hidden rounded-lg border border-emerald-300 bg-white focus-within:ring-4 focus-within:ring-emerald-100"><span className="grid w-10 place-items-center border-r border-emerald-100 font-black">₹</span><input type="number" min="0" value={quotation.combinedBasicAmount ?? ''} onChange={(event) => setQuotation((current) => ({ ...current, combinedBasicAmount: event.target.value }))} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="50000" /></div></td>}
                             <td className="px-3 py-4">
                               <div className="flex items-center gap-2">
                                 <button type="button" onClick={() => saveItem(index)} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-black text-white"><Save className="h-4 w-4" /> Save</button>
@@ -1080,12 +1127,14 @@ export default function Quotations() {
                           </>
                         ) : (
                           <>
+                            <td className="px-3 py-4 font-black">{item.industryType || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.serviceCategory || '-'}</td>
                             <td className="px-3 py-4 font-black">{item.servicesForYear || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.eprCategory || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{formatPiboCategory(item)}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.unit || '-'}</td>
-                            <td className="px-3 py-4 font-black text-orange-600">{formatInr(item.basicAmount)}</td>
+                            {quotation.pricingMode === 'individual' && <td className="px-3 py-4 font-black text-orange-600">{formatInr(item.basicAmount)}</td>}
+                            {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="border-l border-slate-100 bg-emerald-50/60 px-3 py-4 align-middle font-black text-emerald-700">{formatInr(quotation.combinedBasicAmount)}</td>}
                             <td className="px-3 py-4">
                               <div className="flex items-center gap-3">
                                 <button type="button" onClick={() => startEditItem(index)} className="inline-flex h-9 items-center gap-2 rounded-lg px-2 text-sm font-black text-blue-600 hover:bg-blue-50"><Edit3 className="h-4 w-4" /> Edit</button>
@@ -1111,7 +1160,7 @@ export default function Quotations() {
             ) : quotation.terms.map((term, index) => (
               <div key={index} className="flex items-center gap-3">
                 <span className="w-8 text-right font-black text-slate-900">{index + 1}.</span>
-                <input value={term} onChange={(event) => setTerm(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter term or condition" />
+                <input value={String(term ?? '')} onChange={(event) => setTerm(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter term or condition" />
                 <button type="button" onClick={() => removeTerm(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50">
                   <X className="h-4 w-4" /> Remove
                 </button>

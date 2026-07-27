@@ -649,6 +649,8 @@ function getClientQuotationContext(client) {
     city: data.registeredAddress?.city || '',
     pinCode: data.registeredAddress?.pincode || '',
     gstNumber: data.compliance?.gst || data.compliance?.gstNumber || data.basic?.gstNumber || '',
+    industryType: data.companyOverview?.category || data.selectedLeadSnapshot?.industryType || lead?.industryType || '',
+    servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered || lead?.servicesOffered || '',
     piboCategory: data.basic?.piboCategory || '',
     eprCategory: data.basic?.eprCategory || '',
     returnTo: `/sales/client-master/${encodeURIComponent(client?._id || client?.id || getClientUniqueId(client))}`

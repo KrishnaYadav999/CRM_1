@@ -67,6 +67,7 @@ function cleanItems(items) {
   return items
     .map((item) => ({
       id: cleanString(item.id),
+      industryType: cleanString(item.industryType),
       serviceCategory: cleanString(item.serviceCategory),
       servicesForYear: cleanString(item.servicesForYear),
       eprCategory: cleanString(item.eprCategory),
@@ -104,12 +105,17 @@ async function validateQuotationPiboItems(items = []) {
 
 function cleanBody(body) {
   const items = cleanItems(body.items);
-  const calculatedTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
+  const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
+  const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(body.combinedBasicAmount) : 0;
+  const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
+  const calculatedTotal = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
   return {
     leadId: cleanString(body.leadId),
     leadCode: cleanString(body.leadCode),
     leadDetails: cleanLeadDetails(body.leadDetails),
     validUntil: cleanString(body.validUntil),
+    pricingMode,
+    combinedBasicAmount,
     companyName: cleanString(body.companyName || body.leadDetails?.companyName),
     quotationDate: body.quotationDate || undefined,
     items,

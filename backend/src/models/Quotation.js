@@ -19,6 +19,7 @@ const QuoteLeadDetailsSchema = new mongoose.Schema({
 
 const QuoteItemSchema = new mongoose.Schema({
   id: { type: String, trim: true },
+  industryType: { type: String, trim: true },
   serviceCategory: { type: String, trim: true },
   servicesForYear: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
@@ -41,6 +42,8 @@ const QuotationSchema = new mongoose.Schema({
   leadDetails: { type: QuoteLeadDetailsSchema, default: {} },
   quotationDate: { type: Date },
   validUntil: { type: String, trim: true },
+  pricingMode: { type: String, enum: ['combined', 'individual'], default: 'individual' },
+  combinedBasicAmount: { type: Number, default: 0 },
   items: { type: [QuoteItemSchema], default: [] },
   terms: { type: [String], default: [] },
   subtotal: { type: Number, default: 0 },
