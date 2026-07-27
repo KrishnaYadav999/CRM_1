@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Green CRM
 
 MERN CRM with admin-created users, role assignment, and OTP email login.
@@ -18,7 +17,13 @@ npm run install:all
 npm run seed:admin
 ```
 
-4. Start backend and frontend in separate terminals:
+4. Start backend and frontend together:
+
+```bash
+npm run dev
+```
+
+Or start them in separate terminals:
 
 ```bash
 npm run dev:backend
@@ -39,6 +44,3 @@ Backend: `http://localhost:6000`
 ## Roles
 
 `operation`, `admin`, `superadmin`, `manager`, `compliance`, `sales`
-=======
-# CRM
->>>>>>> 98b9c8806fb0af9076ad79cd2e2ce7b7cfe74544

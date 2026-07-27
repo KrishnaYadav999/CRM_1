@@ -72,6 +72,7 @@ import {
 } from '../features/clientMaster/ClientMasterAnnualReturn';
 
 const tabs = [
+  { id: 'companyOverview', label: 'Company Overview', icon: ClipboardList },
   { id: 'basic', label: 'Client Basic Info', icon: Building2 },
   { id: 'address', label: 'Address Details', icon: MapPin },
   { id: 'compliance', label: 'Document', icon: FileCheck2 },
@@ -92,6 +93,15 @@ const complianceRows = [
 ];
 
 const tabProgressFields = {
+  companyOverview: [
+    ['companyOverview', 'companyName'],
+    ['companyOverview', 'companySummary'],
+    ['companyOverview', 'productName'],
+    ['companyOverview', 'productManufacturer'],
+    ['companyOverview', 'productImage'],
+    ['companyOverview', 'category'],
+    ['companyOverview', 'numberOfEmployees']
+  ],
   basic: [
     ['basic', 'clientLegalName'],
     ['basic', 'tradeName'],
@@ -494,6 +504,16 @@ function getClientMasterRows(crmClients = [], ccpClients = []) {
 const emptyClient = {
   selectedLead: '',
   adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'DISCONTINUED', assignedTo: '' },
+  companyOverview: {
+    companyName: '',
+    companySummary: '',
+    overviewItems: ['What about company', 'Company deal', 'Product name and user'],
+    productName: '',
+    productManufacturer: '',
+    productImage: null,
+    category: '',
+    numberOfEmployees: ''
+  },
   basic: { clientLegalName: '', tradeName: '', piboCategory: '', eprCategory: '', onboardingYear: '', firstAnnualReturnYear: '' },
   registeredAddress: {},
   communicationAddress: {},
@@ -542,7 +562,8 @@ function getClientDraftKeys(data = {}, selectedLead = '') {
     data.importMeta?.uniqueId,
     data.importMeta?.ccpClientId,
     data.basic?.clientLegalName,
-    data.basic?.tradeName
+    data.basic?.tradeName,
+    data.companyOverview?.companyName
   ].map(normalizeDraftKey).filter(Boolean))];
 }
 
@@ -593,8 +614,9 @@ export default function ClientMaster() {
   const [client, setClient] = useState(emptyClient);
   const [editingClientId, setEditingClientId] = useState('');
   const [viewClient, setViewClient] = useState(null);
-  const [activeTab, setActiveTab] = useState('basic');
+  const [activeTab, setActiveTab] = useState('companyOverview');
   const [viewMode, setViewMode] = useState('list');
+  const [pendingLeadServices, setPendingLeadServices] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -617,11 +639,11 @@ export default function ClientMaster() {
     }), { filled: 0, total: 0 });
     return { ...summary, percent: summary.total ? Math.round((summary.filled / summary.total) * 100) : 0 };
   }, [tabProgress]);
-  const isFirstStepReady = Boolean(String(client.basic?.clientLegalName || client.basic?.tradeName || '').trim());
+  const isFirstStepReady = Boolean(String(client.companyOverview?.companyName || client.basic?.clientLegalName || client.basic?.tradeName || '').trim());
   const leadOptions = useMemo(() => leads.map((lead, index) => ({
     value: getLeadSelectValue(lead),
-    label: `${getLeadDisplayCode(lead, index)} - ${lead.company || 'Untitled lead'} - ${lead.piboCategory || lead.status || 'Draft'}`
-  })), [leads]);
+    label: `${getLeadDisplayCode(lead, index)} - ${lead.company || 'Untitled lead'} - ${getVisibleServiceRows(lead, currentUser).map((row) => row.industryType).filter(Boolean).join(' / ') || lead.status || 'Draft'}`
+  })), [leads, currentUser]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
 
   useEffect(() => {
@@ -681,12 +703,126 @@ export default function ClientMaster() {
     });
   }, [annualReturnRecords, clients, routeClientKey, routeAnnualYearLabel]);
 
+  function getVisibleUserTokens(currentUser = null, staff = []) {
+    if (!currentUser) return [];
+
+    const normalized = new Set();
+    const ownTokens = [
+      currentUser?._id,
+      currentUser?.id,
+      currentUser?.crmUserId,
+      currentUser?.userId,
+      currentUser?.ccpUserId,
+      currentUser?.name,
+      currentUser?.email
+    ]
+      .map((value) => normalizePersonName(value))
+      .filter(Boolean);
+
+    ownTokens.forEach((token) => normalized.add(token));
+
+    const isManagerLevel = ['manager', 'operation head', 'operations head', 'team manager'].includes(String(currentUser?.role || '').trim().toLowerCase());
+    if (isManagerLevel) {
+      const directReports = (Array.isArray(staff) ? staff : []).filter((user) => {
+        const sameTeam = currentUser?.teamId && user?.teamId && String(user.teamId) === String(currentUser.teamId);
+        const reportsToManager = String(user?.managerId || '') === String(currentUser?._id || '');
+        const reportsToOperationHead = String(user?.operationHeadId || '') === String(currentUser?._id || '');
+        return sameTeam || reportsToManager || reportsToOperationHead || String(user?._id || user?.id || '') === String(currentUser?._id || currentUser?.id || '');
+      });
+
+      directReports.forEach((user) => {
+        [
+          user?._id,
+          user?.id,
+          user?.crmUserId,
+          user?.userId,
+          user?.ccpUserId,
+          user?.name,
+          user?.email
+        ].forEach((value) => {
+          const token = normalizePersonName(value);
+          if (token) normalized.add(token);
+        });
+      });
+    }
+
+    return [...normalized];
+  }
+
+  function recordBelongsToCurrentUser(item, currentUser = null, staff = []) {
+    if (!currentUser || adminRoles.includes(String(currentUser?.role || '').toLowerCase())) return true;
+
+    const userTokens = getVisibleUserTokens(currentUser, staff);
+
+    const data = readClientData(item);
+    const selectedLead = typeof item?.selectedLead === 'object' ? item.selectedLead : {};
+    const candidates = [
+      item?._id,
+      item?.id,
+      item?.createdBy,
+      item?.createdBy?._id,
+      item?.createdBy?.id,
+      item?.adminControls?.assignedTo,
+      item?.adminControls?.assignedTo?._id,
+      item?.adminControls?.assignedTo?.id,
+      data.importMeta?.assignedTo,
+      data.importMeta?.createdBy,
+      selectedLead?.assignedToText,
+      selectedLead?.assignedTo?.name,
+      selectedLead?.assignedTo?.email,
+      selectedLead?.importedCreatedBy,
+      selectedLead?.createdBy?.name,
+      selectedLead?.createdBy?.email,
+      ...(Array.isArray(item?.assignments) ? item.assignments.flatMap((row) => [
+        row?.assignedTo, row?.assignedToText, row?.assignedToEmail,
+        row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail
+      ]) : []),
+      data.importMeta?.uniqueId,
+      data.importMeta?.leadNumber
+    ].flatMap((value) => {
+      if (!value) return [];
+      if (typeof value === 'object') {
+        return [value._id, value.id, value.crmUserId, value.userId, value.ccpUserId, value.name, value.email].map((nestedValue) => normalizePersonName(nestedValue)).filter(Boolean);
+      }
+      return [normalizePersonName(value)].filter(Boolean);
+    });
+
+    return candidates.some((candidate) => userTokens.includes(candidate));
+  }
+
+  function getVisibleServiceRows(lead, user = currentUser) {
+    const services = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
+      ? lead.serviceSelections
+      : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
+    if (!user || adminRoles.includes(String(user.role || '').toLowerCase())) return services;
+    const ownTokens = [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId, user.name, user.email]
+      .map(normalizePersonName).filter(Boolean);
+    const assignments = Array.isArray(lead?.assignments) ? lead.assignments : [];
+    const managerRole = ['manager', 'operation head', 'operations head', 'team manager'].includes(String(user.role || '').toLowerCase());
+    return services.filter((_, index) => {
+      const assignment = assignments[index] || assignments[assignments.length - 1] || {};
+      const staffTokens = [assignment.assignedStaff, assignment.assignedStaff?._id, assignment.assignedStaffText, assignment.assignedStaffEmail].map(normalizePersonName).filter(Boolean);
+      const managerTokens = [assignment.assignedTo, assignment.assignedTo?._id, assignment.assignedToText, assignment.assignedToEmail].map(normalizePersonName).filter(Boolean);
+      return staffTokens.some((token) => ownTokens.includes(token)) || (managerRole && managerTokens.some((token) => ownTokens.includes(token)));
+    });
+  }
+
   async function loadPage() {
     setLoading(true);
     try {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
+      let staffList = [];
+      try {
+        const usersResponse = await api.get(API_ENDPOINTS.auth.users);
+        staffList = usersResponse.data.users || [];
+        setStaff(staffList);
+      } catch {
+        staffList = [meResponse.data.user];
+        setStaff(staffList);
+      }
+
       const [crmClientsResult, ccpClientsResult, ccpLeadsResult] = await Promise.allSettled([api.get(API_ENDPOINTS.clients.list), fetchCcpClients(), fetchCcpLeads()]);
       const crmClients = crmClientsResult.status === 'fulfilled'
         ? (crmClientsResult.value.data.clients || [])
@@ -697,7 +833,13 @@ export default function ClientMaster() {
       const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
         ? (ccpLeadsResult.value.data.leads || [])
         : [];
-      const visibleClients = enrichClientsFromLeads(getClientMasterRows(crmClients, ccpClients), ccpLeads);
+      const scopedCcpClients = !adminRoles.includes(String(me?.role || '').toLowerCase())
+        ? ccpClients.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
+        : ccpClients;
+      const scopedCcpLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
+        ? ccpLeads.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
+        : ccpLeads;
+      const visibleClients = enrichClientsFromLeads(getClientMasterRows(crmClients, scopedCcpClients), scopedCcpLeads);
       setTotalClientCount(visibleClients.length);
       try {
         const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
@@ -708,18 +850,12 @@ export default function ClientMaster() {
         setAnnualReturnRecords([]);
         setClients(visibleClients);
       }
-      setLeads(ccpLeads);
+      setLeads(scopedCcpLeads);
       try {
         const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);
         setQuotations(quotationsResponse.data.quotations || []);
       } catch {
         setQuotations([]);
-      }
-      try {
-        const usersResponse = await api.get(API_ENDPOINTS.auth.users);
-        setStaff(usersResponse.data.users || []);
-      } catch {
-        setStaff([meResponse.data.user]);
       }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to fetch client master data.');
@@ -750,7 +886,14 @@ export default function ClientMaster() {
     const matchedClient = clients.find((item) => {
       const data = readClientData(item);
       const itemKeys = getClientDraftKeys(data, item.selectedLead);
-      return itemKeys.some((key) => leadKeys.includes(key));
+      if (!itemKeys.some((key) => leadKeys.includes(key))) return false;
+      const targetIndustry = normalizeDraftKey(selectedLead?.industryType);
+      const savedIndustry = normalizeDraftKey(data.companyOverview?.category || data.selectedLeadSnapshot?.industryType);
+      const targetEpr = normalizeDraftKey(selectedLead?.eprCategory);
+      const savedEpr = normalizeDraftKey(data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory);
+      if (targetIndustry && savedIndustry) return targetIndustry === savedIndustry;
+      if (targetEpr && savedEpr) return targetEpr === savedEpr;
+      return true;
     });
     if (matchedClient) {
       return {
@@ -760,15 +903,24 @@ export default function ClientMaster() {
         data: { ...emptyClient, ...readClientData(matchedClient), selectedLead: leadValue || matchedClient.selectedLead || '' }
       };
     }
-    return findCachedClientDraft(leadKeys);
+    return Array.isArray(selectedLead?.serviceSelections) && selectedLead.serviceSelections.length > 1
+      ? null
+      : findCachedClientDraft(leadKeys);
   }
 
-  function handleLeadSelect(value) {
-    const selectedLead = findLeadByValue(leads, value);
-    if (!selectedLead) {
+  function handleLeadSelect(value, selectedService = null) {
+    const baseLead = findLeadByValue(leads, value);
+    if (!baseLead) {
       setRoot('selectedLead', value);
       return;
     }
+    const visibleServices = getVisibleServiceRows(baseLead);
+    if (!selectedService && visibleServices.length > 1) {
+      setPendingLeadServices({ lead: baseLead, value, services: visibleServices });
+      return;
+    }
+    const service = selectedService || visibleServices[0] || {};
+    const selectedLead = { ...baseLead, ...service };
     const leadValue = getLeadSelectValue(selectedLead);
     const existingDraft = findClientDraftForLead(selectedLead, leadValue);
     if (existingDraft?.data) {
@@ -794,8 +946,8 @@ export default function ClientMaster() {
         ...current.basic,
         clientLegalName: current.basic.clientLegalName || company || '',
         tradeName: current.basic.tradeName || company || '',
-        piboCategory: current.basic.piboCategory || selectedLead.piboCategory || '',
-        eprCategory: current.basic.eprCategory || selectedLead.eprCategory || ''
+        piboCategory: selectedLead.piboCategory || '',
+        eprCategory: selectedLead.eprCategory || ''
       },
       importMeta: {
         ...current.importMeta,
@@ -806,6 +958,14 @@ export default function ClientMaster() {
         createdBy: current.importMeta?.createdBy || selectedLead.importedCreatedBy || selectedLead.referredBy || '',
         assignedTo: current.importMeta?.assignedTo || selectedLead.assignedToText || selectedLead.assignedTo?.name || ''
       },
+      companyOverview: {
+        ...current.companyOverview,
+        companyName: current.companyOverview?.companyName || company || '',
+        productName: current.companyOverview?.productName || selectedLead.productName || '',
+        productManufacturer: current.companyOverview?.productManufacturer || selectedLead.productManufacturer || '',
+        category: selectedLead.industryType || selectedLead.companyCategory || '',
+        numberOfEmployees: current.companyOverview?.numberOfEmployees || selectedLead.numberOfEmployees || ''
+      },
       selectedLeadSnapshot: {
         id: leadValue,
         sourceLeadId: selectedLead.sourceLeadId || '',
@@ -813,6 +973,8 @@ export default function ClientMaster() {
         company,
         piboCategory: selectedLead.piboCategory || '',
         eprCategory: selectedLead.eprCategory || '',
+        industryType: selectedLead.industryType || '',
+        servicesOffered: selectedLead.servicesOffered || '',
         contactPerson: selectedLead.contactPerson || '',
         mobileNo1: selectedLead.mobileNo1 || '',
         email,
@@ -866,15 +1028,15 @@ export default function ClientMaster() {
   function openClientForm() {
     setClient(emptyClient);
     setEditingClientId('');
-    setActiveTab('basic');
+    setActiveTab('companyOverview');
     setError('');
     setNotice('');
     setViewMode('form');
   }
 
   function openClientTab(tabId) {
-    if (tabId !== 'basic' && !isFirstStepReady) {
-      setError('First enter Client Legal Name or Trade Name before moving to the next step.');
+    if (!['companyOverview', 'basic'].includes(tabId) && !isFirstStepReady) {
+      setError('First enter Company Name, Client Legal Name, or Trade Name before moving to the next step.');
       return;
     }
     setError('');
@@ -883,7 +1045,7 @@ export default function ClientMaster() {
 
   function nextTab() {
     if (!isFirstStepReady) {
-      setError('First enter Client Legal Name or Trade Name before moving to the next step.');
+      setError('First enter Company Name, Client Legal Name, or Trade Name before moving to the next step.');
       return;
     }
     if (activeTab === 'cpcbScreenshots') {
@@ -1077,6 +1239,14 @@ export default function ClientMaster() {
     setError('');
     setNotice('');
     try {
+      const normalizedClient = {
+        ...client,
+        basic: {
+          ...client.basic,
+          clientLegalName: client.basic?.clientLegalName || client.companyOverview?.companyName || '',
+          tradeName: client.basic?.tradeName || client.companyOverview?.companyName || ''
+        }
+      };
       const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
       if (invalidScreenshot) {
         setError('Every CPCB screenshot/document must have a name and an uploaded file.');
@@ -1090,10 +1260,10 @@ export default function ClientMaster() {
         return;
       }
       const submittedRequired = [
-        ['Choose Existing Lead', client.selectedLead], ['Client Legal Name', client.basic?.clientLegalName],
-        ['Registered Address', client.registeredAddress?.address1], ['Registered State', client.registeredAddress?.state], ['Registered City', client.registeredAddress?.city], ['Registered Pincode', client.registeredAddress?.pincode],
-        ['Communication Address', client.communicationAddress?.address1], ['Communication State', client.communicationAddress?.state], ['Communication City', client.communicationAddress?.city], ['Communication Pincode', client.communicationAddress?.pincode],
-        ['CPCB Status', client.cpcb?.status], ['OTP Mobile', client.otp?.mobile], ['Authorised Mobile', client.authorised?.mobile], ['Authorised Email', client.authorised?.email], ['Coordinating Mobile', client.coordinating?.mobile], ['Coordinating Email', client.coordinating?.email]
+        ['Choose Existing Lead', normalizedClient.selectedLead], ['Client Legal Name', normalizedClient.basic?.clientLegalName],
+        ['Registered Address', normalizedClient.registeredAddress?.address1], ['Registered State', normalizedClient.registeredAddress?.state], ['Registered City', normalizedClient.registeredAddress?.city], ['Registered Pincode', normalizedClient.registeredAddress?.pincode],
+        ['Communication Address', normalizedClient.communicationAddress?.address1], ['Communication State', normalizedClient.communicationAddress?.state], ['Communication City', normalizedClient.communicationAddress?.city], ['Communication Pincode', normalizedClient.communicationAddress?.pincode],
+        ['CPCB Status', normalizedClient.cpcb?.status], ['OTP Mobile', normalizedClient.otp?.mobile], ['Authorised Mobile', normalizedClient.authorised?.mobile], ['Authorised Email', normalizedClient.authorised?.email], ['Coordinating Mobile', normalizedClient.coordinating?.mobile], ['Coordinating Email', normalizedClient.coordinating?.email]
       ];
       const missing = workflowStatus === 'submitted' ? submittedRequired.find(([, value]) => !String(value || '').trim()) : null;
       if (missing) {
@@ -1102,9 +1272,9 @@ export default function ClientMaster() {
         return;
       }
       const payload = {
-        selectedLead: getMongoObjectIdOrEmpty(client.selectedLead),
-        adminControls: buildAdminControlsPayload(client.adminControls),
-        data: client,
+        selectedLead: getMongoObjectIdOrEmpty(normalizedClient.selectedLead),
+        adminControls: buildAdminControlsPayload(normalizedClient.adminControls),
+        data: normalizedClient,
         workflowStatus
       };
       const response = editingClientId ? await api.put(API_ENDPOINTS.ccp.updateClient(editingClientId), payload) : await api.post(API_ENDPOINTS.ccp.createClient, payload);
@@ -1112,7 +1282,7 @@ export default function ClientMaster() {
       if (!savedClient || typeof savedClient !== 'object') throw new Error('CCP did not return the saved client.');
       const savedId = savedClient._id || savedClient.id || editingClientId || '';
       if (savedId) setEditingClientId(savedId);
-      rememberClientDraft(savedClient, { ...client, selectedLead: client.selectedLead, workflowStatus });
+      rememberClientDraft(savedClient, { ...normalizedClient, selectedLead: normalizedClient.selectedLead, workflowStatus });
       setClient((current) => ({
         ...current,
         ...readClientData(savedClient),
@@ -1236,6 +1406,27 @@ export default function ClientMaster() {
             </Field>
           </Card>
 
+          {pendingLeadServices && (
+            <div className="fixed inset-0 z-[10000] grid place-items-center bg-slate-950/55 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="service-choice-title">
+              <section className="w-full max-w-2xl overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl">
+                <header className="bg-gradient-to-r from-emerald-50 to-cyan-50 px-6 py-5">
+                  <p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Multiple assigned services</p>
+                  <h2 id="service-choice-title" className="mt-1 text-xl font-black text-slate-950">{pendingLeadServices.lead.company}</h2>
+                  <p className="mt-1 text-sm font-bold text-slate-500">Select the assigned service you want to onboard in Client Master.</p>
+                </header>
+                <div className="grid gap-3 p-6 sm:grid-cols-2">
+                  {pendingLeadServices.services.map((service, index) => (
+                    <button key={`${service.industryType}-${service.servicesOffered}-${index}`} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
+                      <strong className="block text-lg font-black text-slate-950">{service.industryType || `Service ${index + 1}`}</strong>
+                      <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
+                      <span className="mt-1 block text-xs font-bold text-slate-500">{service.eprCategory || '-'}{service.piboCategory ? ` · ${service.piboCategory}` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
+
           {canSeeAdminControls && (
             <Card title="Admin Controls" className="mt-6">
               <div className="grid gap-5 md:grid-cols-3">
@@ -1276,10 +1467,8 @@ export default function ClientMaster() {
             </div>
           </Card>}
 
-          <section className="mt-4 rounded-2xl border border-teal-100 bg-white/95 p-2 shadow-sm">
+          <section className="client-progress-tabs-shell mt-4 rounded-2xl border border-teal-100 bg-white/95 p-2 shadow-sm">
             <div className="relative">
-              <div className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-8 rounded-l-2xl bg-gradient-to-r from-white to-transparent" />
-              <div className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 w-8 rounded-r-2xl bg-gradient-to-l from-white to-transparent" />
               <div className="client-progress-tab-rail">
               {tabProgress.map((tab) => {
                 const Icon = tab.icon;
@@ -1303,13 +1492,14 @@ export default function ClientMaster() {
                 );
               })}
               </div>
-              </div>
+            </div>
           </section>
 
           {error && <ToastMessage type="error" className="mx-auto mt-4">{error}</ToastMessage>}
           {notice && <ToastMessage type="success" className="mx-auto mt-4">{notice}</ToastMessage>}
 
           <div className="mt-6 grid gap-6">
+            {activeTab === 'companyOverview' && <CompanyOverviewTab client={client} setValue={setValue} />}
             {activeTab === 'basic' && <BasicTab client={client} setValue={setValue} />}
             {activeTab === 'address' && <AddressTab client={client} setValue={setValue} copyRegisteredAddress={copyRegisteredAddress} selectOptions={selectOptions} />}
             {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} />}
@@ -1328,6 +1518,75 @@ export default function ClientMaster() {
       </div>
       {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
     </DashboardShell>
+  );
+}
+
+const companyOverviewCategories = ['Cat |', 'Cat ||', 'Cat |||', 'Cat ||||'];
+
+function CompanyOverviewTab({ client, setValue }) {
+  const overview = client?.companyOverview || {};
+  const overviewItems = Array.isArray(overview.overviewItems) && overview.overviewItems.length
+    ? overview.overviewItems
+    : [''];
+
+  function setItems(nextItems) {
+    setValue('companyOverview', 'overviewItems', nextItems);
+  }
+
+  function updateItem(index, value) {
+    setItems(overviewItems.map((item, itemIndex) => (itemIndex === index ? value : item)));
+  }
+
+  function addItem() {
+    setItems([...overviewItems, '']);
+  }
+
+  function removeItem(index) {
+    const nextItems = overviewItems.filter((_, itemIndex) => itemIndex !== index);
+    setItems(nextItems.length ? nextItems : ['']);
+  }
+
+  return (
+    <Card title="Company Overview">
+      <div className="grid gap-5 md:grid-cols-2">
+        <Field required label="Company Name"><input className="form-input" value={overview.companyName || ''} onChange={(event) => setValue('companyOverview', 'companyName', event.target.value)} /></Field>
+        <Field label="Number of Employees"><input className="form-input" value={overview.numberOfEmployees || ''} onChange={(event) => setValue('companyOverview', 'numberOfEmployees', event.target.value)} /></Field>
+        <div className="md:col-span-2">
+          <Field label="Company Summary"><textarea className="form-input min-h-[110px] resize-y py-3" value={overview.companySummary || ''} onChange={(event) => setValue('companyOverview', 'companySummary', event.target.value)} /></Field>
+        </div>
+        <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-black text-slate-950">Company Details</h3>
+              <p className="mt-1 text-xs font-bold text-slate-500">Add company notes, deals, product users, or any custom points.</p>
+            </div>
+            <button type="button" onClick={addItem} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 font-black text-emerald-700 hover:bg-emerald-50">
+              <Plus className="h-4 w-4" /> Add
+            </button>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {overviewItems.map((item, index) => (
+              <div key={index} className="grid gap-2 sm:grid-cols-[36px_minmax(0,1fr)_auto] sm:items-center">
+                <span className="font-black text-slate-700">{index + 1}.</span>
+                <input
+                  className="form-input"
+                  placeholder={index === 0 ? 'What about company' : index === 1 ? 'Company deal' : index === 2 ? 'Product name and user' : 'Add company detail'}
+                  value={item || ''}
+                  onChange={(event) => updateItem(index, event.target.value)}
+                />
+                <button type="button" onClick={() => removeItem(index)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl px-3 text-xs font-black text-red-500 hover:bg-red-50">
+                  <X className="h-4 w-4" /> Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <Field label="Product Name"><input className="form-input" value={overview.productName || ''} onChange={(event) => setValue('companyOverview', 'productName', event.target.value)} /></Field>
+        <Field label="Product Manufacturer"><input className="form-input" value={overview.productManufacturer || ''} onChange={(event) => setValue('companyOverview', 'productManufacturer', event.target.value)} /></Field>
+        <SelectLike label="Category" value={overview.category || ''} options={companyOverviewCategories} onChange={(value) => setValue('companyOverview', 'category', value)} placeholder="Select category" />
+        <Field label="Product Image Upload"><UploadButton value={overview.productImage} onChange={(value) => setValue('companyOverview', 'productImage', value)} /></Field>
+      </div>
+    </Card>
   );
 }
 
@@ -1363,6 +1622,14 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
     : String(rawDocumentUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
   const docLinks = mapClientDocuments(documentUrls);
   const profileRows = [
+    ['ATPL Lead ID', data.importMeta?.leadNumber || data.importMeta?.uniqueId || getClientUniqueId(client), FileText],
+    ['Company Overview Name', data.companyOverview?.companyName, Building2],
+    ['Company Summary', data.companyOverview?.companySummary, FileText],
+    ['Overview Points', Array.isArray(data.companyOverview?.overviewItems) ? data.companyOverview.overviewItems.filter(Boolean).join(' | ') : '', ClipboardList],
+    ['Product Name', data.companyOverview?.productName, FileText],
+    ['Product Manufacturer', data.companyOverview?.productManufacturer, Building2],
+    ['Product Category', data.companyOverview?.category, FolderCheck],
+    ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound],
     ['Client Name', clientName, Building2],
     ['Trade Name', data.basic?.tradeName, Building2],
     ['State', data.registeredAddress?.state, MapPin],
@@ -1371,6 +1638,16 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
     ['EPR Category', data.basic?.eprCategory, FileCheck2],
     ['Company Industry', data.basic?.companyIndustry, Building2],
     ['Services Offered', data.basic?.servicesOffered, CheckCircle2]
+  ];
+  const companyHistoryRows = [
+    ['Lead ID', data.importMeta?.leadNumber || data.importMeta?.uniqueId || getClientUniqueId(client), FileText],
+    ['Company Name', data.companyOverview?.companyName || clientName, Building2],
+    ['Company Summary', data.companyOverview?.companySummary, FileText],
+    ['Overview Points', Array.isArray(data.companyOverview?.overviewItems) ? data.companyOverview.overviewItems.filter(Boolean).join(' | ') : '', ClipboardList],
+    ['Product Name', data.companyOverview?.productName, FileText],
+    ['Product Manufacturer', data.companyOverview?.productManufacturer, Building2],
+    ['Product Category', data.companyOverview?.category, FolderCheck],
+    ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound]
   ];
   const contactRows = [
     ['Contact Person', data.otp?.personName || data.authorised?.name, UserRound],
@@ -1658,6 +1935,14 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
                     </div>
                   )}
 
+                  {activeClientTab === 'company' && (
+                    <DetailAccordion title="Company Overview" open={Boolean(openDetailGroups.company)} onToggle={() => toggleDetailGroup('company')}>
+                      <DetailSheet columns={2}>
+                        {companyHistoryRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
+                      </DetailSheet>
+                    </DetailAccordion>
+                  )}
+
                   {activeClientTab === 'annual' && (
                     <AnnualReturnHistory
                       client={client}
@@ -1678,7 +1963,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
                     />
                   )}
 
-                  {activeClientTab !== 'basic' && activeClientTab !== 'annual' && activeClientTab !== 'quotation' && (
+                  {activeClientTab !== 'basic' && activeClientTab !== 'company' && activeClientTab !== 'annual' && activeClientTab !== 'quotation' && (
                     <EmptyTab title={activeTabMeta.title} message={activeTabMeta.message} />
                   )}
                 </div>

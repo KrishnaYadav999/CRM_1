@@ -8,7 +8,17 @@ export default function SearchableSelect({ value = '', options = [], onChange, d
   const [position, setPosition] = useState(null);
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
-  const normalized = useMemo(() => options.map((option) => typeof option === 'string' ? ({ value: option, label: option }) : option).filter((option) => option?.value), [options]);
+  const normalized = useMemo(() => {
+    const uniqueOptions = new Map();
+    options
+      .map((option) => typeof option === 'string' ? ({ value: option, label: option }) : option)
+      .filter((option) => option?.value)
+      .forEach((option) => {
+        const key = String(option.value);
+        if (!uniqueOptions.has(key)) uniqueOptions.set(key, option);
+      });
+    return [...uniqueOptions.values()];
+  }, [options]);
   const selectedOption = normalized.find((option) => String(option.value) === String(value));
   const filtered = normalized.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(query.trim().toLowerCase()));
 
@@ -56,7 +66,7 @@ export default function SearchableSelect({ value = '', options = [], onChange, d
         <button type="button" disabled={disabled} onClick={() => { setQuery(''); setOpen((current) => !current); }} className="mr-2 grid h-8 w-8 place-items-center rounded-lg text-emerald-700 hover:bg-emerald-50" aria-label="Toggle options"><ChevronDown className={`h-4 w-4 transition ${open ? 'rotate-180' : ''}`} /></button>
       </div>
       {open && position && createPortal(
-        <div ref={menuRef} style={position} className="fixed z-[9999] flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-900/20">
+        <div ref={menuRef} style={position} className="fixed z-[10010] flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-900/20">
           <div className="flex shrink-0 items-center gap-2 border-b border-slate-100 px-3 py-2 text-slate-400"><Search className="h-4 w-4" /><span className="truncate text-xs font-bold">{query ? `Results for “${query}”` : `${normalized.length} options available`}</span></div>
           <div className="mt-1 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
             {filtered.map((option) => <button key={option.value} type="button" onClick={() => choose(option)} className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${String(option.value) === String(value) ? 'bg-emerald-50 text-emerald-800' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-950'}`}><span className="truncate">{option.label}</span>{String(option.value) === String(value) && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}</button>)}

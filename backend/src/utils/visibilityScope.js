@@ -26,21 +26,34 @@ function buildIdentityConditions(paths, identities) {
 
 async function getVisibleUserScope(user) {
   if (!user?._id) return { ids: [], identities: [] };
-  if (ADMIN_ROLES.includes(user.role)) return null;
+  if (ADMIN_ROLES.includes(String(user.role || '').trim().toLowerCase())) return null;
 
   const ownId = asObjectId(user._id);
-  const usersById = new Map();
-  usersById.set(String(user._id), user);
+  const ids = new Set();
+  const identities = new Set();
 
-  const members = await User.find({
+  if (ownId) ids.add(ownId);
+  [user.name, user.email, user.ccpUserId].forEach((value) => {
+    const normalized = cleanIdentity(value);
+    if (normalized) identities.add(normalized);
+  });
+
+  const subordinateUsers = await User.find({
     isActive: true,
     $or: [
       { managerId: user._id },
-      { operationHeadId: user._id },
-      { _id: user._id }
+      { operationHeadId: user._id }
     ]
   }).select('_id name email ccpUserId').lean();
-  members.forEach((member) => usersById.set(String(member._id), member));
+
+  subordinateUsers.forEach((member) => {
+    const memberId = asObjectId(member._id);
+    if (memberId) ids.add(memberId);
+    [member.name, member.email, member.ccpUserId].forEach((value) => {
+      const normalized = cleanIdentity(value);
+      if (normalized) identities.add(normalized);
+    });
+  });
 
   const managedTeams = await Team.find({
     $or: [
@@ -48,33 +61,18 @@ async function getVisibleUserScope(user) {
       { operationHead: user._id }
     ]
   }).select('members manager operationHead').lean();
-  const teamUserIds = managedTeams.flatMap((team) => [
-    team.manager,
-    team.operationHead,
-    ...(Array.isArray(team.members) ? team.members : [])
-  ]).map((id) => String(id || '')).filter(Boolean);
 
-  if (teamUserIds.length) {
-    const teamUsers = await User.find({ isActive: true, _id: { $in: teamUserIds } })
-      .select('_id name email ccpUserId')
-      .lean();
-    teamUsers.forEach((member) => usersById.set(String(member._id), member));
-  }
-
-  const ids = [...usersById.keys()].map(asObjectId).filter(Boolean);
-  if (!ids.length && ownId) ids.push(ownId);
-
-  const names = new Set();
-  usersById.forEach((visibleUser) => {
-    const name = cleanIdentity(visibleUser.name);
-    const email = cleanIdentity(visibleUser.email);
-    const ccpUserId = cleanIdentity(visibleUser.ccpUserId);
-    if (name) names.add(name);
-    if (email) names.add(email);
-    if (ccpUserId) names.add(ccpUserId);
+  managedTeams.forEach((team) => {
+    (Array.isArray(team.members) ? team.members : []).forEach((memberId) => {
+      const objectId = asObjectId(memberId);
+      if (objectId) ids.add(objectId);
+    });
   });
 
-  return { ids, identities: [...names] };
+  return {
+    ids: [...ids],
+    identities: [...identities]
+  };
 }
 
 async function getVisibleUserIds(user) {

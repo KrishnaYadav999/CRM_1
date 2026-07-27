@@ -37,6 +37,7 @@ async function trackManualClientSave({ payload, ccpPayload, user }) {
     { ccpClientId },
     {
       $set: {
+        sourceLeadId: String(payload.selectedLead),
         uniqueId: payload.data?.importMeta?.uniqueId || client?.data?.importMeta?.uniqueId || '',
         clientName: payload.data?.basic?.clientLegalName || payload.data?.basic?.tradeName || 'Client',
         ownerId: user._id, managerId: owner?.managerId || undefined, lastSavedAt: new Date(), ...status

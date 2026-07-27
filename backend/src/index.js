@@ -18,6 +18,8 @@ const teamRoutes = require('./routes/teams');
 const calendarItemRoutes = require('./routes/calendarItems');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
+const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
+const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
 const { requireCcpSecret } = require('./middleware/ccpSecret');
 const PendingApproval = require('./models/PendingApproval');
 
@@ -51,6 +53,8 @@ function connectAndStartServices() {
     if (!schedulerStarted) {
       startPendingApprovalReminderScheduler();
       startClientOnboardingReminderScheduler();
+      startLeadWorkflowReminderScheduler();
+      startStaffOnboardingWorkflowScheduler();
       schedulerStarted = true;
     }
   });

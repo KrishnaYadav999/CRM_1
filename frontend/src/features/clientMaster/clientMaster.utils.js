@@ -144,6 +144,15 @@ function mapFlatClientData(item) {
   })).filter((row) => Object.values(row).some((value) => isFilled(value) && !/^MSME \d+$/.test(String(value))));
 
   return {
+    companyOverview: {
+      companyName: pickLookup(lookup, ['Company Overview Name', 'Company Name', 'Client Name', 'Client Legal Name', 'Legal Name', 'Name']),
+      companySummary: pickLookup(lookup, ['Company Summary', 'Summary']),
+      overviewItems: pickLookup(lookup, ['Overview Points', 'Company Details']) ? String(pickLookup(lookup, ['Overview Points', 'Company Details'])).split('|').map((item) => item.trim()).filter(Boolean) : [],
+      productName: pickLookup(lookup, ['Product Name']),
+      productManufacturer: pickLookup(lookup, ['Product Manufacturer']),
+      category: pickLookup(lookup, ['Product Category', 'Category']),
+      numberOfEmployees: pickLookup(lookup, ['Number of Employees'])
+    },
     basic: {
       clientLegalName: pickLookup(lookup, ['Client Name', 'Client Legal Name', 'Legal Name', 'Company Name', 'Name']),
       tradeName: pickLookup(lookup, ['Trade Name', 'Company', 'Company Name']),
@@ -226,6 +235,7 @@ function mergeClientData(primary = {}, fallback = {}) {
   return {
     ...fallback,
     ...primary,
+    companyOverview: { ...(fallback.companyOverview || {}), ...(primary.companyOverview || {}) },
     basic: { ...(fallback.basic || {}), ...(primary.basic || {}) },
     registeredAddress: { ...(fallback.registeredAddress || {}), ...(primary.registeredAddress || {}) },
     communicationAddress: { ...(fallback.communicationAddress || {}), ...(primary.communicationAddress || {}) },

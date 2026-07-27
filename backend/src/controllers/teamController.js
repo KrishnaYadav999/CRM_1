@@ -138,8 +138,15 @@ exports.createTeam = async (req, res) => {
   if (existing) return res.status(400).json({ error: 'Team name already exists' });
 
   const allUserIds = [...new Set([...memberIds, managerId, operationHeadId].filter(Boolean))];
-  const users = await User.find({ _id: { $in: allUserIds }, isActive: true }).select('_id').lean();
+  if (memberIds.includes(managerId)) return res.status(400).json({ error: 'Manager cannot also be selected as a team member' });
+  if (operationHeadId && memberIds.includes(operationHeadId)) return res.status(400).json({ error: 'Operation Head cannot also be selected as a team member' });
+
+  const users = await User.find({ _id: { $in: allUserIds }, isActive: true }).select('_id role name').lean();
   if (users.length !== allUserIds.length) return res.status(400).json({ error: 'Select only active CRM users for this team' });
+  const manager = users.find((user) => String(user._id) === managerId);
+  if (manager?.role !== 'manager') return res.status(400).json({ error: 'Selected team manager must have the Manager role' });
+  const invalidMember = users.find((user) => memberIds.includes(String(user._id)) && ['manager', 'admin', 'superadmin'].includes(user.role));
+  if (invalidMember) return res.status(400).json({ error: `${invalidMember.name || 'Selected user'} cannot be added as a team member because of their role` });
 
   const teamData = {
     name,
@@ -151,6 +158,12 @@ exports.createTeam = async (req, res) => {
   if (operationHeadId) teamData.operationHead = operationHeadId;
   const team = await Team.create(teamData);
   await ensureCrmTeamId(team);
+  if (memberIds.length) {
+    await Team.updateMany(
+      { _id: { $ne: team._id }, members: { $in: memberIds } },
+      { $pull: { members: { $in: memberIds } } }
+    );
+  }
 
   const memberUpdate = operationHeadId
     ? { $set: { teamId: team._id, team: name, managerId, operationHeadId } }

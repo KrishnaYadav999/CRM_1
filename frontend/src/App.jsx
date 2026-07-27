@@ -16,6 +16,8 @@ import PendingApproval from './pages/PendingApproval'
 import NotFound from './pages/NotFound'
 import AssistantPage from './pages/AssistantPage'
 import ProformaInvoices from './pages/ProformaInvoices'
+import ComplianceHealthDashboard from './pages/ComplianceHealthDashboard'
+import PendingLeads from './pages/PendingLeads'
 
 function App(){
   return (
@@ -30,10 +32,13 @@ function App(){
         <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/dashboard/users" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />
+        <Route path="/pending-leads" element={<ProtectedRoute><PendingLeads/></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications/></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarTodo/></ProtectedRoute>} />
         <Route path="/assistant" element={<ProtectedRoute><AssistantPage/></ProtectedRoute>} />
         <Route path="/sales/lead-generation" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
+        <Route path="/sales/compliance-health-report/:leadId" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
+        <Route path="/compliance/health-report" element={<ProtectedRoute><ComplianceHealthDashboard/></ProtectedRoute>} />
         <Route path="/sales/client-master" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />
         <Route path="/sales/client-annual-returns/:clientKey" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />
         <Route path="/sales/client-data-processing/:clientKey/:annualYear" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />

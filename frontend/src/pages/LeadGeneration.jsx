@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Building2, CheckCircle2, ChevronDown, Clock3, ContactRound, CreditCard, Download, Edit3, Eye, FileText, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, BadgeIndianRupee, Building2, Check, CheckCircle2, ChevronDown, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
+import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -13,8 +14,9 @@ import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeadHistory, fetchCcpLeads } from '../services/ccpApi';
 import { mergeLeadSources } from '../features/clientMaster/clientMaster.utils';
-import { inferPiboParent, normalizeLegacyPiboCategory } from '../constants/piboCategories';
+import { inferPiboParent, normalizeLegacyPiboCategory, normalizePiboCategories, PIBO_PARENTS } from '../constants/piboCategories';
 import { uploadMedia } from '../services/mediaUpload';
+import { fetchIndiaStateCities, fetchIndiaStates } from '../services/countriesNow';
 
 const emptyLead = {
   sourceLeadId: '',
@@ -26,7 +28,16 @@ const emptyLead = {
   piboParent: '',
   piboCategoryParent: '',
   piboCategory: '',
+  applicantType: '',
+  serviceSelections: [],
   servicesOffered: '',
+  firstAnnualReturnYearApplicable: '',
+  addresses: [],
+  contacts: [],
+  assignments: [],
+  assignedStaff: '',
+  assignedStaffText: '',
+  assignedStaffEmail: '',
   addressLine1: '',
   addressLine2: '',
   addressLine3: '',
@@ -64,15 +75,117 @@ const emptyLead = {
   importedUpdatedAt: ''
 };
 
+const emptyComplianceHealthReport = {
+  yearOfCommencement: '',
+  establishmentDate: '',
+  organizationType: '',
+  keyProductsBrands: '',
+  productCategory: '',
+  eprRegistrationNumber: '',
+  financialYearReviewed: '',
+  objectiveReview: '',
+  keyObservations: '',
+  annualReturnObservations: '',
+  checklistReview: '',
+  conclusion: '',
+  recommendations: '',
+  finalNotes: '',
+  screenshotReferences: '',
+  sharedFolderUploads: [],
+  keyObservationDetails: [],
+  annualReturnDetails: [],
+  checklistItems: [],
+  conclusionNotes: [],
+  reviewedConfirmation: false
+};
+
+const defaultComplianceHealthRows = {
+  keyObservations: [
+    'Part A General Information',
+    'Part B Liquid and gaseous emissions',
+    'Part C Waste',
+    'Part D Waste Action Plan'
+  ],
+  annualReturnObservations: ['Annual Return'],
+  checklistReview: [
+    'PART A',
+    'Legal / Trade Name of Company',
+    'Type of Company',
+    'Type of Business',
+    'CIN',
+    'PAN',
+    'Registered Address',
+    'Authorized Person Details',
+    'Name',
+    'Designation',
+    'PAN',
+    'Mobile Number',
+    'Email ID',
+    'Operational & Production',
+    'States/UTs where PIBO operates',
+    'Confirmation of Production Facility',
+    'Total Capital Invested in the Project',
+    'Year of Commencement of Operations',
+    'Documents Uploaded on Portal',
+    'Company PAN, CIN & GST',
+    'Authorized Person PAN',
+    'Product details and quantity',
+    'PART B',
+    'Air / Water Consent',
+    'PART C',
+    'Raw plastic material details',
+    'Plastic raw material sold details',
+    'PART D',
+    'Geo-tagged photographs of facility',
+    'Picture of machine',
+    'Electricity bill',
+    'Covering Letter',
+    'Scanned Signature',
+    'Any other supporting information'
+  ]
+};
+
+function reportToDraft(report = {}) {
+  const listText = (value) => Array.isArray(value) ? value.join('\n') : String(value || '');
+  const attachmentList = Array.isArray(report.sharedFolderUploads)
+    ? report.sharedFolderUploads.map((item) => (typeof item === 'string' ? { label: item, url: item } : item))
+    : [];
+  const checklistLabels = Array.isArray(report.checklistReview) && report.checklistReview.length
+    ? report.checklistReview
+    : defaultComplianceHealthRows.checklistReview;
+  return {
+    ...emptyComplianceHealthReport,
+    ...report,
+    keyObservations: listText(report.keyObservations) || defaultComplianceHealthRows.keyObservations.join('\n'),
+    annualReturnObservations: listText(report.annualReturnObservations) || defaultComplianceHealthRows.annualReturnObservations.join('\n'),
+    checklistReview: listText(report.checklistReview) || defaultComplianceHealthRows.checklistReview.join('\n'),
+    finalNotes: listText(report.finalNotes),
+    screenshotReferences: listText(report.screenshotReferences),
+    sharedFolderUploads: attachmentList,
+    keyObservationDetails: Array.isArray(report.keyObservationDetails) ? report.keyObservationDetails : [],
+    annualReturnDetails: Array.isArray(report.annualReturnDetails) ? report.annualReturnDetails : [],
+    checklistItems: Array.isArray(report.checklistItems) && report.checklistItems.length
+      ? report.checklistItems
+      : checklistLabels.map((requirement) => ({ requirement, status: '', remark: '' })),
+    conclusionNotes: Array.isArray(report.conclusionNotes) && report.conclusionNotes.length
+      ? report.conclusionNotes
+      : (report.conclusion || report.recommendations
+          ? [{ conclusion: String(report.conclusion || ''), recommendation: String(report.recommendations || '') }]
+          : [{ conclusion: '', recommendation: '' }]),
+    reviewedConfirmation: Boolean(report.reviewedConfirmation)
+  };
+}
+
 const tabs = [
   { id: 'basic', label: 'Company', icon: Building2 },
   { id: 'address', label: 'Address', icon: MapPin },
   { id: 'contact', label: 'Contact', icon: ContactRound },
   { id: 'assign', label: 'Assign', icon: UserCheck }
 ];
+const annualReturnYearOptions = Array.from({ length: 7 }, (_, index) => `${2023 + index}-${String(24 + index).padStart(2, '0')}`);
 const options = {
-  communicationMode: ['TeleCalling', 'Referral', 'Physical Visit', 'Campaign', 'Existing Client' , 'Web Database'],
-  status: ['Potential - Interested', 'Potential - Not Interested', 'Need Assistance', 'Lost', 'Existing Client'],
+  communicationMode: ['TeleCalling', 'Referral', 'Physical Visit', 'Campaign', 'Existing Client', 'Web Database', 'Webinar', 'Seminar', 'Exhibition', 'Associate Reference', 'Government'],
+  status: ['Potential - Registered', 'Potential - Unregistered', 'Existing Client', 'Existing Client - Not Renewed'],
   industryType: ["Automotive", "Chemicals", "Construction", "Consumer Goods", "E-commerce" , "Electronics" , "Energy" , "FMCG","Financial Services" , "Healthcare" , "Hospitality", "IT & Software" , "Logistics" , "Manufacturing","Pharmaceuticals", "Renewables", "Retail", "Telecom", "Waste Management", "Other" , "Food Manufacturing" , "Mechinical Industry" ,"Petrochemical", "Packaging Manufacture" , "Plastic Recycling" , "E-Waste Recycler" , "E-Waste Recycling"],
   eprCategory:  ["EPR - Plastic Waste", "EPR - E-Waste", "EPR - Battery Waste", "EPR - Paper Waste", "EPR - Water Waste", "EPR - C&D Waste", "EPR - Tyre Waste" , "EPR - Used Oil Waste" , "EPR - End of Life Vehicles" , "EPR - Non Ferrous"],
   servicesOffered:["EPR - Plastic Compliance", "Monthly Patraka", "ISO Certification", "N/A" , "CTE-CTO/CCA" , "EPR - E-Waste Compliance", "EPR - Battery Waste Compliance" , "C & D WASTE CONSULTANCY" , "EPR DIGITAL CREDIT" , "EPR - Used Oil Compliance" , "EPR - Waster Waste Compliance" , "EPR ETP Portal handling" , "Registration for Compositable Plastic"],
@@ -152,9 +265,109 @@ function openCcpLeadEdit(item = {}) {
 }
 
 function displayLeadId(item = {}) {
-  const value = String(item.sourceLeadId || item.leadCode || '').trim();
+  const value = String(item.leadCode || item.leadNumber || item.sourceLeadId || '').trim();
   const businessMatch = value.match(/^ATPL-LEAD-(\d+)$/i);
-  return businessMatch ? `ATPL-${businessMatch[1]}` : (value || '-');
+  if (businessMatch) return `ATPL-${businessMatch[1]}`;
+  return /^[a-f\d]{24}$/i.test(value) ? '-' : (value || '-');
+}
+
+function nextVisibleLeadCode(leads = []) {
+  const maximum = leads.reduce((max, item) => {
+    const match = String(item.leadCode || item.leadNumber || '').match(/^ATPL(?:-LEAD)?-(\d+)$/i);
+    return match ? Math.max(max, Number(match[1]) || 0) : max;
+  }, 0);
+  return `ATPL-${String(maximum + 1).padStart(4, '0')}`;
+}
+
+function normalizeCompanyIdentity(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/&/g, ' AND ')
+    .replace(/\bPRIVATE\s+LIMITED\b/g, ' PVT LTD ')
+    .replace(/\bLIMITED\b/g, ' LTD ')
+    .replace(/\bCORPORATION\b/g, ' CORP ')
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function leadRecordId(item = {}) {
+  return String(item._id || item.id || item.sourceLeadId || item.ccpLeadId || item.externalLeadId || '').trim();
+}
+
+function leadOwnerLabel(item = {}) {
+  return String(item.importedCreatedBy || item.createdByName || item.createdBy?.name || item.createdBy?.email || item.assignedToText || item.assignedTo?.name || 'another user').trim();
+}
+
+function isTyreWasteCategory(value) {
+  return /\btyre\b/i.test(String(value || ''));
+}
+
+function directApplicantOptions(value) {
+  const category = String(value || '').toLowerCase();
+  if (category.includes('e-waste')) return ['Producer', 'Manufacturer', 'Recycler', 'Refurbisher'];
+  if (category.includes('battery')) return ['Producer', 'Recycler', 'Refurbisher'];
+  if (category.includes('tyre')) return ['Producer', 'Recycler', 'Retreader'];
+  if (category.includes('used oil')) return ['Producers', 'Collection Agents', 'Recyclers', 'Used Oil Importers'];
+  return null;
+}
+
+function createServiceSelection(source = {}) {
+  return {
+    industryType: source.industryType || '',
+    eprCategory: source.eprCategory || '',
+    applicantType: source.applicantType || source.piboParent || source.piboCategoryParent || '',
+    piboCategory: source.piboCategory || '',
+    servicesOffered: source.servicesOffered || '',
+    firstAnnualReturnYearApplicable: source.firstAnnualReturnYearApplicable || '',
+    createdByCrmUserId: source.createdByCrmUserId || '',
+    createdByName: source.createdByName || source.leadGeneratedBy || '',
+    createdByEmail: source.createdByEmail || ''
+  };
+}
+
+function createAddressRow(source = {}) {
+  return {
+    addressLine1: source.addressLine1 || '',
+    addressLine2: source.addressLine2 || '',
+    addressLine3: source.addressLine3 || '',
+    landmark: source.landmark || '',
+    state: source.state || '',
+    city: source.city || '',
+    pinCode: source.pinCode || '',
+    existingClient: source.existingClient || 'No',
+    website: source.website || ''
+  };
+}
+
+function createContactRow(source = {}) {
+  return {
+    salutation: source.salutation || '',
+    contactPerson: source.contactPerson || '',
+    designation: source.designation || '',
+    emails: source.emails || '',
+    mobileNo1: source.mobileNo1 || '',
+    mobileNo2: source.mobileNo2 || '',
+    referredBy: source.referredBy || '',
+    source: source.source || '',
+    businessCardUrl: source.businessCardUrl || ''
+  };
+}
+
+function createAssignmentRow(source = {}) {
+  return {
+    assignedTo: source.assignedTo?._id || source.assignedTo || '',
+    assignedToText: source.assignedToText || source.assignedTo?.name || '',
+    assignedToEmail: source.assignedToEmail || source.assignedTo?.email || '',
+    closedBy: source.closedBy?._id || source.closedBy || '',
+    closedByText: source.closedByText || source.closedBy?.name || '',
+    closedByEmail: source.closedByEmail || source.closedBy?.email || '',
+    assignedStaff: source.assignedStaff?._id || source.assignedStaff || '',
+    assignedStaffText: source.assignedStaffText || source.assignedStaff?.name || '',
+    assignedStaffEmail: source.assignedStaffEmail || source.assignedStaff?.email || ''
+  };
 }
 
 export default function LeadGeneration() {
@@ -162,6 +375,7 @@ export default function LeadGeneration() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [staff, setStaff] = useState([]);
   const [leads, setLeads] = useState([]);
+  const [allCcpLeads, setAllCcpLeads] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [piboCategories, setPiboCategories] = useState([]);
   const [piboCategoriesLoading, setPiboCategoriesLoading] = useState(true);
@@ -178,28 +392,594 @@ export default function LeadGeneration() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
+  const [healthPromptOpen, setHealthPromptOpen] = useState(false);
+  const [healthReportLead, setHealthReportLead] = useState(null);
+  const [healthReport, setHealthReport] = useState(emptyComplianceHealthReport);
+  const [healthReportSaving, setHealthReportSaving] = useState(false);
+  const [healthReportError, setHealthReportError] = useState('');
+  const [companySearch, setCompanySearch] = useState('');
+  const [companySearchTouched, setCompanySearchTouched] = useState(false);
+  const [selectedSearchLead, setSelectedSearchLead] = useState(null);
+  const [duplicateDecisionOpen, setDuplicateDecisionOpen] = useState(false);
+  const [generatedForOpen, setGeneratedForOpen] = useState(false);
+  const [generatedForAction, setGeneratedForAction] = useState('new');
+  const [generatedForMode, setGeneratedForMode] = useState('');
+  const [generatedForUserId, setGeneratedForUserId] = useState('');
+  const [generatedForConfirmed, setGeneratedForConfirmed] = useState(false);
+  const [duplicateApprovalMode, setDuplicateApprovalMode] = useState(false);
+  const [duplicateNoOptions, setDuplicateNoOptions] = useState(false);
+  const [serviceOnlyMode, setServiceOnlyMode] = useState(false);
+  const [duplicateApprovalSaving, setDuplicateApprovalSaving] = useState(false);
+  const [duplicateApproval, setDuplicateApproval] = useState({ reason: '', requesterEmail: '', screenshotUrl: '', screenshotName: '' });
+  const [duplicateLeadApprovals, setDuplicateLeadApprovals] = useState([]);
+  const [countryStates, setCountryStates] = useState([]);
+  const [citiesByState, setCitiesByState] = useState({});
+  const [locationLoading, setLocationLoading] = useState({ states: false, cities: {} });
+  const [locationError, setLocationError] = useState('');
+  const [frozenServiceRowCount, setFrozenServiceRowCount] = useState(0);
+  const [frozenAddressRowCount, setFrozenAddressRowCount] = useState(0);
+  const [frozenContactRowCount, setFrozenContactRowCount] = useState(0);
+  const [frozenAssignmentRowCount, setFrozenAssignmentRowCount] = useState(0);
+  const [specifyDialog, setSpecifyDialog] = useState(null);
+  const [specifyNote, setSpecifyNote] = useState('');
+  const [royaltyClaiming, setRoyaltyClaiming] = useState(false);
+  const [royaltyClaimed, setRoyaltyClaimed] = useState(false);
   const navigate = useNavigate();
+  const { leadId: complianceRouteLeadId } = useParams();
 
   const resolvedPiboParent = lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory);
-  const isFirstStepReady = Boolean(lead.status && lead.company && resolvedPiboParent && lead.piboCategory && lead.servicesOffered);
+  const primaryDirectSelection = Boolean(directApplicantOptions(lead.eprCategory));
+  const resolvedApplicantType = primaryDirectSelection ? lead.applicantType : resolvedPiboParent;
+  const isFirstStepReady = Boolean(lead.status && lead.company && resolvedApplicantType && (primaryDirectSelection || lead.piboCategory) && lead.servicesOffered);
+  const ownershipRequired = Boolean(!editingLeadId && !serviceOnlyMode && lead.company.trim() && !generatedForConfirmed);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const canUseExcelBulkImport = adminRoles.includes(currentUser?.role);
 
-  const staffOptions = useMemo(() => staff.map((user) => ({
-    value: user._id || user.id,
-    label: `${user.name || user.email} (${user.team || 'Team'})`
-  })), [staff]);
+  const staffOptions = useMemo(() => {
+    const seen = new Set();
+    return staff.flatMap((user) => {
+      const label = `${user.name || user.email} (${user.team || 'No team assigned'})`;
+      return [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId]
+        .filter(Boolean)
+        .filter((id) => {
+          const key = String(id);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((id) => ({ value: String(id), label }));
+    });
+  }, [staff]);
+  const managerOptions = useMemo(() => {
+    const managers = staff.filter((user) => /\bmanager\b/i.test(String(user.role || user.designation || '')));
+    const seen = new Set();
+    return managers.flatMap((user) => {
+      const label = `${user.name || user.email} (${user.role || user.designation || 'Manager'})`;
+      return [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId].filter(Boolean).filter((id) => {
+        const key = String(id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).map((id) => ({ value: String(id), label }));
+    });
+  }, [staff]);
+  const generatedForOptions = useMemo(() => {
+    const seen = new Set();
+    return staff.map((user) => ({
+      value: String(user._id || user.id || user.crmUserId || user.ccpUserId || ''),
+      label: `${user.name || user.email} (${user.role || 'User'})`
+    })).filter((option) => option.value && !seen.has(option.value) && seen.add(option.value));
+  }, [staff]);
+  const selectedGeneratedForUser = generatedForMode === 'self'
+    ? currentUser
+    : staff.find((user) => [user._id, user.id, user.crmUserId, user.ccpUserId].some((id) => String(id || '') === String(generatedForUserId)));
   const cityOptions = lead.state ? stateCities[lead.state] || [] : [];
+  const addressRows = Array.isArray(lead.addresses) && lead.addresses.length ? lead.addresses : [createAddressRow(lead)];
+  const contactRows = Array.isArray(lead.contacts) && lead.contacts.length ? lead.contacts : [createContactRow(lead)];
+  const assignmentRows = Array.isArray(lead.assignments) && lead.assignments.length ? lead.assignments : [createAssignmentRow(lead)];
+  const serviceRows = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length
+    ? lead.serviceSelections
+    : [createServiceSelection(lead)];
+  const normalizedCompanySearch = normalizeCompanyIdentity(companySearch);
+  const companySearchMatches = useMemo(() => {
+    if (normalizedCompanySearch.length < 2) return [];
+    return allCcpLeads.filter((item) => normalizeCompanyIdentity(item.company).includes(normalizedCompanySearch)).slice(0, 6);
+  }, [allCcpLeads, normalizedCompanySearch]);
+  const approvedCompanyIdentities = useMemo(() => new Set(
+    duplicateLeadApprovals.filter((item) => item.approvalStatus === 'APPROVED').map((item) => item.payload?.companyIdentity).filter(Boolean)
+  ), [duplicateLeadApprovals]);
+  const duplicateCompanyLead = useMemo(() => {
+    const identity = normalizeCompanyIdentity(lead.company);
+    if (!identity) return null;
+    const approved = duplicateLeadApprovals.some((item) => item.approvalStatus === 'APPROVED' && item.payload?.companyIdentity === identity);
+    if (approved) return null;
+    return allCcpLeads.find((item) => normalizeCompanyIdentity(item.company) === identity && leadRecordId(item) !== String(editingLeadId || '')) || null;
+  }, [allCcpLeads, lead.company, editingLeadId, duplicateLeadApprovals]);
+  const canClaimRoyalty = useMemo(() => {
+    if (!serviceOnlyMode || !selectedSearchLead) return false;
+    const identityTokens = (source = {}) => [
+      source.createdByCrmUserId,
+      source.createdByEmail,
+      source.createdByName,
+      source.importedCreatedBy
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const currentTokens = [
+      currentUser?._id,
+      currentUser?.id,
+      currentUser?.crmUserId,
+      currentUser?.ccpUserId,
+      currentUser?.email,
+      currentUser?.name
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const originalTokens = identityTokens(selectedSearchLead);
+    const creatorGroups = serviceRows
+      .map((row, index) => {
+        const tokens = identityTokens(row);
+        return tokens.length ? tokens : index < frozenServiceRowCount ? originalTokens : [];
+      })
+      .filter((tokens) => tokens.length);
+    const distinctCreators = [];
+    creatorGroups.forEach((tokens) => {
+      if (!distinctCreators.some((known) => known.some((token) => tokens.includes(token)))) distinctCreators.push(tokens);
+    });
+    const currentUserContributed = distinctCreators.some((tokens) => tokens.some((token) => currentTokens.includes(token)));
+    const currentUserIsOriginal = originalTokens.some((token) => currentTokens.includes(token));
+    return distinctCreators.length >= 2 && currentUserContributed && !currentUserIsOriginal;
+  }, [serviceOnlyMode, selectedSearchLead, currentUser, serviceRows, frozenServiceRowCount]);
+  const approvedRoyalty = useMemo(() => duplicateLeadApprovals.find((item) =>
+    item.type === 'lead_royalty'
+    && item.approvalStatus === 'APPROVED'
+    && String(item.payload?.leadId || '') === String(editingLeadId || leadRecordId(selectedSearchLead || {}))
+  ), [duplicateLeadApprovals, editingLeadId, selectedSearchLead]);
+
+  function updateServiceRow(index, field, value) {
+    const next = serviceRows.map((row) => ({ ...row }));
+    next[index] = { ...next[index], [field]: value };
+    if (field === 'eprCategory') {
+      next[index].applicantType = '';
+      next[index].piboCategory = '';
+    }
+    if (field === 'applicantType') next[index].piboCategory = '';
+    const first = next[0];
+    const direct = Boolean(directApplicantOptions(first.eprCategory));
+    setLead((current) => ({
+      ...current,
+      serviceSelections: next,
+      industryType: first.industryType,
+      eprCategory: first.eprCategory,
+      applicantType: first.applicantType,
+      piboParent: direct ? '' : first.applicantType,
+      piboCategoryParent: '',
+      piboCategory: direct ? '' : first.piboCategory,
+      servicesOffered: first.servicesOffered
+      ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
+    }));
+  }
+
+  function addServiceRow() {
+    setLead((current) => ({ ...current, serviceSelections: [...serviceRows, createServiceSelection({ createdByCrmUserId: selectedGeneratedForUser?._id || selectedGeneratedForUser?.id, createdByName: selectedGeneratedForUser?.name || selectedGeneratedForUser?.email, createdByEmail: selectedGeneratedForUser?.email })] }));
+  }
+
+  function removeServiceRow(index) {
+    if (serviceRows.length === 1) return;
+    const next = serviceRows.filter((_, rowIndex) => rowIndex !== index);
+    const first = next[0];
+    const direct = Boolean(directApplicantOptions(first.eprCategory));
+    setLead((current) => ({
+      ...current,
+      serviceSelections: next,
+      industryType: first.industryType,
+      eprCategory: first.eprCategory,
+      applicantType: first.applicantType,
+      piboParent: direct ? '' : first.applicantType,
+      piboCategory: direct ? '' : first.piboCategory,
+      servicesOffered: first.servicesOffered
+      ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
+    }));
+  }
+
+  function openExistingLeadDecision(item) {
+    setSelectedSearchLead(item);
+    setDuplicateApprovalMode(false);
+    setDuplicateNoOptions(false);
+    setDuplicateApproval({ reason: '', requesterEmail: currentUser?.email || '', screenshotUrl: '', screenshotName: '' });
+    setDuplicateDecisionOpen(true);
+  }
+
+  function continueWithDuplicateTemplate() {
+    setLead({ ...emptyLead });
+    setEditingLeadId('');
+    setServiceOnlyMode(false);
+    setDuplicateDecisionOpen(false);
+    setCompanySearch('');
+    setCompanySearchTouched(false);
+    showToast('Blank new lead form opened. Duplicate validation will run before save.', 'success');
+  }
+
+  function startAddServicesMode() {
+    if (!selectedSearchLead) return;
+    const rows = Array.isArray(selectedSearchLead.serviceSelections) && selectedSearchLead.serviceSelections.length
+      ? selectedSearchLead.serviceSelections
+      : [createServiceSelection(selectedSearchLead)];
+    setLead({ ...emptyLead, ...selectedSearchLead, leadCode: displayLeadId(selectedSearchLead) === '-' ? nextVisibleLeadCode(allCcpLeads) : selectedSearchLead.leadCode, serviceSelections: rows.map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? selectedSearchLead.firstAnnualReturnYearApplicable : '') })), addresses: Array.isArray(selectedSearchLead.addresses) && selectedSearchLead.addresses.length ? selectedSearchLead.addresses : [createAddressRow(selectedSearchLead)] });
+    setEditingLeadId(leadRecordId(selectedSearchLead));
+    setRoyaltyClaimed(false);
+    setRoyaltyClaiming(false);
+    setServiceOnlyMode(true);
+    setFrozenServiceRowCount(rows.length);
+    setFrozenAddressRowCount(Array.isArray(selectedSearchLead.addresses) && selectedSearchLead.addresses.length ? selectedSearchLead.addresses.length : 1);
+    setFrozenContactRowCount(Array.isArray(selectedSearchLead.contacts) && selectedSearchLead.contacts.length ? selectedSearchLead.contacts.length : 1);
+    setFrozenAssignmentRowCount(Array.isArray(selectedSearchLead.assignments) && selectedSearchLead.assignments.length ? selectedSearchLead.assignments.length : 1);
+    setActiveTab('basic');
+    setDuplicateDecisionOpen(false);
+    setCompanySearch(selectedSearchLead.company || '');
+    setCompanySearchTouched(false);
+    showToast('Add Services mode opened. Existing lead details are frozen; only service rows can be changed.', 'success');
+  }
+
+  function openGeneratedForChooser(action = 'new') {
+    setGeneratedForAction(action);
+    setGeneratedForMode('');
+    setGeneratedForUserId('');
+    if (action === 'services') setDuplicateDecisionOpen(false);
+    setGeneratedForOpen(true);
+  }
+
+  function confirmGeneratedFor() {
+    if (!generatedForMode) return showToast('Please choose Yourself or Other User.', 'error');
+    const userId = generatedForMode === 'self'
+      ? String(currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.ccpUserId || '')
+      : generatedForUserId;
+    if (!userId) return showToast('Please select the user who owns this lead.', 'error');
+    setGeneratedForUserId(userId);
+    setGeneratedForConfirmed(true);
+    setGeneratedForOpen(false);
+    if (generatedForAction === 'services') startAddServicesMode();
+  }
+
+  function openAddServicesMode() {
+    openGeneratedForChooser('services');
+  }
+
+  function updateAddressRow(index, field, value) {
+    if (field === 'pinCode') value = String(value || '').replace(/\D/g, '').slice(0, 6);
+    const next = addressRows.map((row) => ({ ...row }));
+    next[index] = { ...next[index], [field]: value, ...(field === 'state' ? { city: '' } : {}) };
+    const first = next[0];
+    setLead((current) => ({ ...current, addresses: next, ...first }));
+    if (field === 'state' && value) loadCitiesForState(value);
+  }
+
+  async function loadCitiesForState(state) {
+    const key = String(state || '').trim();
+    if (!key || citiesByState[key]) return;
+    setLocationLoading((current) => ({ ...current, cities: { ...current.cities, [key]: true } }));
+    try {
+      const cities = await fetchIndiaStateCities(key);
+      setCitiesByState((current) => ({ ...current, [key]: cities }));
+      setLocationError('');
+    } catch (requestError) {
+      setLocationError(requestError?.message || 'Live city list could not be loaded. Showing available local options.');
+    } finally {
+      setLocationLoading((current) => ({ ...current, cities: { ...current.cities, [key]: false } }));
+    }
+  }
+
+  function addAddressRow() {
+    setLead((current) => ({ ...current, addresses: [...addressRows, createAddressRow()] }));
+  }
+
+  function removeAddressRow(index) {
+    if (addressRows.length === 1) return;
+    const next = addressRows.filter((_, rowIndex) => rowIndex !== index);
+    setLead((current) => ({ ...current, addresses: next, ...next[0] }));
+  }
+
+  function updateContactRow(index, field, value) {
+    const next = contactRows.map((row) => ({ ...row }));
+    next[index] = { ...next[index], [field]: value };
+    setLead((current) => ({ ...current, contacts: next, ...next[0] }));
+  }
+
+  function addContactRow() {
+    setLead((current) => ({ ...current, contacts: [...contactRows, createContactRow()] }));
+  }
+
+  function removeContactRow(index) {
+    if (contactRows.length === 1) return;
+    const next = contactRows.filter((_, rowIndex) => rowIndex !== index);
+    setLead((current) => ({ ...current, contacts: next, ...next[0] }));
+  }
+
+  async function uploadContactBusinessCard(index, event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const uploaded = await uploadMedia(file, 'crm/leads/business-cards');
+      updateContactRow(index, 'businessCardUrl', uploaded.secureUrl);
+      showToast('Business card uploaded.', 'success');
+    } catch (uploadError) {
+      showToast(uploadError?.message || 'Business card upload failed.', 'error');
+    }
+  }
+
+  function updateAssignmentRow(index, field, value) {
+    const user = staff.find((item) => [item._id, item.id, item.crmUserId, item.userId, item.ccpUserId].filter(Boolean).some((id) => String(id) === String(value)));
+    const next = assignmentRows.map((row) => ({ ...row }));
+    next[index] = field === 'assignedTo'
+      ? { ...next[index], assignedTo: value, assignedToText: user?.name || user?.email || '', assignedToEmail: user?.email || '' }
+      : field === 'assignedStaff'
+        ? { ...next[index], assignedStaff: value, assignedStaffText: user?.name || user?.email || '', assignedStaffEmail: user?.email || '' }
+        : { ...next[index], closedBy: value, closedByText: user?.name || user?.email || '', closedByEmail: user?.email || '' };
+    setLead((current) => ({
+      ...current,
+      assignments: next,
+      ...next[0],
+      assignedToCrmUserId: next[0].assignedTo,
+      assignedStaff: next[0].assignedStaff,
+      assignedStaffText: next[0].assignedStaffText,
+      assignedStaffEmail: next[0].assignedStaffEmail,
+      closedByCrmUserId: next[0].closedBy,
+      assignedBy: currentUser?.name || currentUser?.email || ''
+    }));
+  }
+
+  function addAssignmentRow() {
+    setLead((current) => ({ ...current, assignments: [...assignmentRows, createAssignmentRow()] }));
+  }
+
+  function removeAssignmentRow(index) {
+    if (assignmentRows.length === 1) return;
+    const next = assignmentRows.filter((_, rowIndex) => rowIndex !== index);
+    setLead((current) => ({ ...current, assignments: next, ...next[0] }));
+  }
+
+  async function claimRoyalty() {
+    if (!canClaimRoyalty || royaltyClaiming || royaltyClaimed || !editingLeadId) return;
+    const latestFinancialYear = [...serviceRows].reverse().find((row) => row.firstAnnualReturnYearApplicable)?.firstAnnualReturnYearApplicable || '';
+    setRoyaltyClaiming(true);
+    try {
+      await api.post(API_ENDPOINTS.ccp.claimLeadRoyalty(editingLeadId), { financialYear: latestFinancialYear });
+      setRoyaltyClaimed(true);
+      showToast('Royalty claim sent to Admin and Super Admin by email and notification.', 'success');
+    } catch (claimError) {
+      showToast(claimError?.response?.data?.error || 'Unable to submit royalty claim.', 'error');
+    } finally {
+      setRoyaltyClaiming(false);
+    }
+  }
+
+  function requestSpecification(field, value, label) {
+    if (!value) {
+      updateField(field, '');
+      return;
+    }
+    setSpecifyNote('');
+    setSpecifyDialog({ field, value, label });
+  }
+
+  async function submitSpecification() {
+    if (!specifyDialog || !specifyNote.trim()) {
+      showToast('Please add a note before submitting.', 'warning');
+      return;
+    }
+    if (Number.isInteger(specifyDialog.categoryRow)) {
+      try {
+        const category = await addPiboCategory(specifyDialog.applicantType, specifyNote.trim());
+        updateServiceRow(specifyDialog.categoryRow, 'piboCategory', category.name);
+        setSpecifyDialog(null);
+        setSpecifyNote('');
+        showToast(`${category.name} added.`, 'success');
+      } catch (requestError) {
+        showToast(requestError?.response?.data?.error || 'Unable to add category.', 'error');
+      }
+      return;
+    }
+    setLead((current) => ({
+      ...current,
+      [specifyDialog.field]: specifyDialog.value,
+      [`${specifyDialog.field}Note`]: specifyNote.trim()
+    }));
+    setSpecifyDialog(null);
+    setSpecifyNote('');
+    showToast(`${specifyDialog.label} details added.`, 'success');
+  }
+
+  async function uploadDuplicateApprovalScreenshot(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const uploaded = await uploadMedia(file, 'crm/leads/duplicate-approvals');
+      setDuplicateApproval((current) => ({ ...current, screenshotUrl: uploaded.secureUrl, screenshotName: file.name }));
+    } catch (err) {
+      showToast(err?.message || 'Screenshot upload failed.', 'error');
+    }
+  }
+
+  async function sendDuplicateApprovalRequest() {
+    if (!selectedSearchLead || duplicateApprovalSaving) return;
+    if (duplicateApproval.reason.trim().length < 10) return showToast('Please enter a reason of at least 10 characters.', 'error');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(duplicateApproval.requesterEmail.trim())) return showToast('Enter a valid email address.', 'error');
+    setDuplicateApprovalSaving(true);
+    try {
+      await api.post(API_ENDPOINTS.leads.duplicateApprovals, {
+        existingLeadId: leadRecordId(selectedSearchLead),
+        company: selectedSearchLead.company,
+        reason: duplicateApproval.reason.trim(),
+        requesterEmail: duplicateApproval.requesterEmail.trim(),
+        screenshotUrl: duplicateApproval.screenshotUrl,
+        candidateUsers: [
+          { id: selectedSearchLead.createdByCrmUserId || selectedSearchLead.createdByEmail || selectedSearchLead.importedCreatedBy, name: selectedSearchLead.importedCreatedBy || selectedSearchLead.createdByEmail || 'Original lead creator' },
+          ...((selectedSearchLead.assignments || []).flatMap((row) => [
+            { id: row.assignedTo, name: row.assignedToText },
+            { id: row.closedBy, name: row.closedByText },
+            { id: row.assignedStaff, name: row.assignedStaffText }
+          ]))
+        ].filter((item, index, rows) => item.id && rows.findIndex((entry) => String(entry.id) === String(item.id)) === index)
+      });
+      setDuplicateDecisionOpen(false);
+      showToast('Special approval request sent to Admin and Super Admin.', 'success');
+    } catch (err) {
+      showToast(err?.response?.data?.error || 'Unable to send special approval request.', 'error');
+    } finally {
+      setDuplicateApprovalSaving(false);
+    }
+  }
 
   useEffect(() => {
     loadPage();
   }, []);
 
   useEffect(() => {
+    if (!ownershipRequired || generatedForOpen) return undefined;
+    const timer = window.setTimeout(() => openGeneratedForChooser('new'), 300);
+    return () => window.clearTimeout(timer);
+  }, [lead.company, ownershipRequired, generatedForOpen]);
+
+  useEffect(() => {
+    let active = true;
+    setLocationLoading((current) => ({ ...current, states: true }));
+    fetchIndiaStates()
+      .then((states) => {
+        if (!active) return;
+        setCountryStates(states);
+        setLocationError('');
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setLocationError(requestError?.message || 'Live state list could not be loaded. Showing available local options.');
+      })
+      .finally(() => {
+        if (active) setLocationLoading((current) => ({ ...current, states: false }));
+      });
+    return () => { active = false; };
+  }, []);
+
+  const addressStateKey = addressRows.map((row) => row.state).filter(Boolean).join('|');
+  useEffect(() => {
+    if (activeTab !== 'address') return;
+    [...new Set(addressRows.map((row) => row.state).filter(Boolean))]
+      .forEach((state) => loadCitiesForState(state));
+  }, [activeTab, addressStateKey]);
+
+  useEffect(() => {
     if (!toast) return undefined;
     const timer = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  function getVisibleUserTokens(currentUser = null, staff = []) {
+    if (!currentUser) return [];
+
+    const normalized = new Set();
+    const ownTokens = [
+      currentUser?._id,
+      currentUser?.id,
+      currentUser?.crmUserId,
+      currentUser?.userId,
+      currentUser?.ccpUserId,
+      currentUser?.name,
+      currentUser?.email
+    ]
+      .map((value) => normalizePersonName(value))
+      .filter(Boolean);
+
+    ownTokens.forEach((token) => normalized.add(token));
+
+    const isManagerLevel = ['manager', 'operation head', 'operations head', 'team manager'].includes(String(currentUser?.role || '').trim().toLowerCase());
+    if (isManagerLevel) {
+      const directReports = (Array.isArray(staff) ? staff : []).filter((user) => {
+        const sameTeam = currentUser?.teamId && user?.teamId && String(user.teamId) === String(currentUser.teamId);
+        const reportsToManager = String(user?.managerId || '') === String(currentUser?._id || '');
+        const reportsToOperationHead = String(user?.operationHeadId || '') === String(currentUser?._id || '');
+        return sameTeam || reportsToManager || reportsToOperationHead || String(user?._id || user?.id || '') === String(currentUser?._id || currentUser?.id || '');
+      });
+
+      directReports.forEach((user) => {
+        [
+          user?._id,
+          user?.id,
+          user?.crmUserId,
+          user?.userId,
+          user?.ccpUserId,
+          user?.name,
+          user?.email
+        ].forEach((value) => {
+          const token = normalizePersonName(value);
+          if (token) normalized.add(token);
+        });
+      });
+    }
+
+    return [...normalized];
+  }
+
+  function leadBelongsToCurrentUser(item, currentUser = null, staff = []) {
+    if (!currentUser || adminRoles.includes(String(currentUser?.role || '').toLowerCase())) return true;
+
+    const userTokens = getVisibleUserTokens(currentUser, staff);
+
+    const candidates = [
+      item?.assignedTo,
+      item?.assignedToText,
+      item?.assignedToEmail,
+      item?.assignedStaff,
+      item?.assignedStaffText,
+      item?.assignedStaffEmail,
+      item?.assignedBy,
+      item?.importedCreatedBy,
+      item?.createdBy,
+      item?.createdBy?.name,
+      item?.createdBy?.email,
+      item?.createdBy?._id,
+      item?.createdBy?.id,
+      item?.assignedTo?.name,
+      item?.assignedTo?.email,
+      item?.assignedTo?._id,
+      item?.assignedTo?.id,
+      item?.sourceLeadId,
+      item?.leadCode,
+      item?.leadNumber,
+      item?.company,
+      item?.importedCreatedAt
+    ]
+      .flatMap((value) => {
+        if (!value) return [];
+        if (typeof value === 'object') {
+          return [value._id, value.id, value.crmUserId, value.userId, value.ccpUserId, value.name, value.email].map((nestedValue) => normalizePersonName(nestedValue)).filter(Boolean);
+        }
+        return [normalizePersonName(value)].filter(Boolean);
+      });
+
+    (Array.isArray(item?.assignments) ? item.assignments : []).forEach((assignment) => {
+      [
+        assignment?.assignedTo,
+        assignment?.assignedToText,
+        assignment?.assignedToEmail,
+        assignment?.assignedStaff,
+        assignment?.assignedStaffText,
+        assignment?.assignedStaffEmail,
+        assignment?.closedBy,
+        assignment?.closedByText,
+        assignment?.closedByEmail
+      ].forEach((value) => {
+        if (!value) return;
+        if (typeof value === 'object') {
+          [value._id, value.id, value.crmUserId, value.userId, value.ccpUserId, value.name, value.email]
+            .map((nestedValue) => normalizePersonName(nestedValue))
+            .filter(Boolean)
+            .forEach((token) => candidates.push(token));
+          return;
+        }
+        const token = normalizePersonName(value);
+        if (token) candidates.push(token);
+      });
+    });
+
+    return candidates.some((candidate) => userTokens.includes(candidate));
+  }
 
   async function loadPage() {
     setLoading(true);
@@ -208,15 +988,31 @@ export default function LeadGeneration() {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
       setCurrentUser(me);
-      const [ccpLeadsResult, quotationsResult, piboCategoriesResult] = await Promise.allSettled([
+
+      let staffList = [];
+      try {
+        const usersResponse = await api.get(API_ENDPOINTS.auth.users);
+        staffList = usersResponse.data.users || [];
+        setStaff(staffList);
+      } catch {
+        staffList = [meResponse.data.user];
+        setStaff(staffList);
+      }
+
+      const [ccpLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult] = await Promise.allSettled([
         fetchCcpLeads(),
         api.get(API_ENDPOINTS.quotations.list),
-        api.get(API_ENDPOINTS.quotations.piboCategories)
+        api.get(API_ENDPOINTS.quotations.piboCategories),
+        api.get(API_ENDPOINTS.leads.duplicateApprovals)
       ]);
       const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
         ? (ccpLeadsResult.value.data.leads || [])
         : [];
-      setLeads(ccpLeads);
+      const scopedCcpLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
+        ? ccpLeads.filter((item) => leadBelongsToCurrentUser(item, me, staffList))
+        : ccpLeads;
+      setAllCcpLeads(ccpLeads);
+      setLeads(scopedCcpLeads);
       if (ccpLeadsResult.status === 'rejected') {
         setError(
           ccpLeadsResult.reason?.response?.data?.detail
@@ -226,16 +1022,12 @@ export default function LeadGeneration() {
       }
       setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
       setPiboCategories(piboCategoriesResult.status === 'fulfilled' ? (piboCategoriesResult.value.data.categories || []) : []);
+      setDuplicateLeadApprovals(duplicateApprovalsResult.status === 'fulfilled' ? (duplicateApprovalsResult.value.data.approvals || []) : []);
       setPiboCategoriesLoading(false);
-      try {
-        const usersResponse = await api.get(API_ENDPOINTS.auth.users);
-        setStaff(usersResponse.data.users || []);
-      } catch {
-        setStaff([meResponse.data.user]);
-      }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to fetch lead data.');
       setLeads([]);
+      setAllCcpLeads([]);
       setQuotations([]);
     } finally {
       setLoading(false);
@@ -263,6 +1055,12 @@ export default function LeadGeneration() {
   }
 
   function openTab(tabId) {
+    if (tabId !== 'basic' && duplicateCompanyLead) {
+      const message = 'Existing company detected. Choose Add Services or request Special Approval.';
+      setError(message);
+      showToast(message, 'error');
+      return;
+    }
     if (tabId !== 'basic' && !isFirstStepReady) {
       showToast('First complete Company, Status, PIBO Category and Services Offered.', 'warning');
       return;
@@ -272,6 +1070,12 @@ export default function LeadGeneration() {
   }
 
   function nextTab() {
+    if (duplicateCompanyLead) {
+      const message = 'Existing company detected. Choose Add Services or request Special Approval.';
+      setError(message);
+      showToast(message, 'error');
+      return;
+    }
     if (!isFirstStepReady) {
       setError('Complete Company, Status, PIBO Category, and Services Offered before moving ahead.');
       showToast('Complete required first-step fields before next step.', 'warning');
@@ -380,26 +1184,93 @@ export default function LeadGeneration() {
     }
   }
 
-  async function saveLead(workflowStatus) {
-    if (saving) return;
-    const required = workflowStatus === 'submitted' ? ['status', 'company', 'piboCategory', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'] : [];
+  function validateLeadForSubmit(workflowStatus) {
+    const required = workflowStatus === 'submitted' ? ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'] : [];
     const missing = required.find((field) => !String(lead[field] ?? '').trim());
-    if (missing) { setError(`${missing.replace(/([A-Z])/g, ' $1')} is required before submit.`); return; }
-    if (workflowStatus === 'submitted' && !resolvedPiboParent) { setError('Applicant Type is required before submit.'); return; }
+    if (missing) return `${missing.replace(/([A-Z])/g, ' $1')} is required before submit.`;
+    if (workflowStatus === 'submitted') {
+      const incompleteRow = serviceRows.findIndex((row) => !row.applicantType || !row.servicesOffered || (!directApplicantOptions(row.eprCategory) && !row.piboCategory));
+      if (incompleteRow >= 0) return `Complete Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Category, '}and Services Offered in service row ${incompleteRow + 1}.`;
+      const incompleteAddress = addressRows.findIndex((row) => !row.addressLine1 || !row.state || !row.city || !row.pinCode);
+      if (incompleteAddress >= 0) return `Complete Address Line 1, State, City, and PIN in address row ${incompleteAddress + 1}.`;
+      const invalidPin = addressRows.findIndex((row) => !/^\d{6}$/.test(String(row.pinCode || '')));
+      if (invalidPin >= 0) return `Enter a valid 6-digit PIN code in address row ${invalidPin + 1}.`;
+      const incompleteContact = contactRows.findIndex((row) => !row.salutation || !row.contactPerson || !row.designation || !row.emails || !row.mobileNo1 || !row.referredBy || !row.source);
+      if (incompleteContact >= 0) return `Complete all required fields in contact row ${incompleteContact + 1}. Mobile No. 2 is optional.`;
+      const invalidContactEmail = contactRows.findIndex((row) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.emails || '').trim()));
+      if (invalidContactEmail >= 0) return `Enter a valid email address in contact row ${invalidContactEmail + 1}.`;
+      const invalidContactMobile = contactRows.findIndex((row) => !/^\d{10}$/.test(String(row.mobileNo1 || '').replace(/\D/g, '')));
+      if (invalidContactMobile >= 0) return `Mobile No. 1 must contain exactly 10 digits in contact row ${invalidContactMobile + 1}.`;
+    }
     const invalidEmail = String(lead.emails || '').split(',').map((email) => email.trim()).filter(Boolean).find((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-    if (invalidEmail) { setError(`Invalid email: ${invalidEmail}`); return; }
+    if (invalidEmail) return `Invalid email: ${invalidEmail}`;
+    if (duplicateCompanyLead) return 'Existing company detected. Choose Add Services or request Special Approval.';
+    return '';
+  }
+
+  function requestLeadSubmit() {
+    const validationError = validateLeadForSubmit('submitted');
+    if (validationError) {
+      setError(validationError);
+      showToast(validationError, 'error');
+      return;
+    }
+    setError('');
+    setHealthPromptOpen(true);
+  }
+
+  async function saveLead(workflowStatus, { openHealthReport = false } = {}) {
+    if (saving) return;
+    const validationError = validateLeadForSubmit(workflowStatus);
+    if (validationError) { setError(validationError); showToast(validationError, 'error'); return null; }
     setSaving(true);
     setError('');
     setNotice('');
     try {
+      const {
+        assignedStaff: _legacyAssignedStaff,
+        assignedStaffText: _legacyAssignedStaffText,
+        assignedStaffEmail: _legacyAssignedStaffEmail,
+        ...leadWithoutLegacyStaff
+      } = lead;
       const leadPayload = {
-        ...lead,
+        ...leadWithoutLegacyStaff,
+        generatedForUserId: generatedForUserId || currentUser?._id || currentUser?.id || '',
+        serviceSelections: serviceRows.map((row) => ({
+          ...row,
+          createdByCrmUserId: row.createdByCrmUserId || currentUser?._id || currentUser?.id || '',
+          createdByName: row.createdByName || currentUser?.name || currentUser?.email || '',
+          createdByEmail: row.createdByEmail || currentUser?.email || ''
+        })),
+        addresses: addressRows,
+        contacts: contactRows,
+        assignments: assignmentRows,
+        addServicesMode: serviceOnlyMode,
+        applicantType: serviceRows[0]?.applicantType || lead.applicantType || '',
         piboParent: lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory),
         workflowStatus
       };
+      if (editingLeadId) {
+        delete leadPayload.industryType;
+        delete leadPayload.eprCategory;
+        delete leadPayload.applicantType;
+        delete leadPayload.piboCategory;
+        delete leadPayload.servicesOffered;
+        delete leadPayload.firstAnnualReturnYearApplicable;
+      }
       const response = editingLeadId ? await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), leadPayload) : await api.post(API_ENDPOINTS.ccp.createLead, leadPayload);
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('CCP did not return the saved lead.');
+      setHealthPromptOpen(false);
+      if (openHealthReport) {
+        setHealthReportLead(savedLead);
+        setHealthReport(reportToDraft(savedLead.complianceHealthReport));
+        setHealthReportError('');
+        setNotice('Lead submitted. Complete the Compliance Health Report.');
+        showToast('Lead submitted. Complete the Compliance Health Report.', 'success');
+        navigate(`/sales/compliance-health-report/${encodeURIComponent(savedLead._id || savedLead.id)}`);
+        return savedLead;
+      }
       setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
       showToast(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.', 'success');
       if (workflowStatus === 'submitted') setLead(emptyLead);
@@ -407,19 +1278,153 @@ export default function LeadGeneration() {
       setActiveTab('basic');
       await loadPage();
       if (workflowStatus === 'submitted') setViewMode('list');
+      return savedLead;
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to save lead');
       showToast(err?.response?.data?.error || 'Unable to save lead', 'error');
+      return null;
     } finally {
       setSaving(false);
     }
   }
+
+  function updateHealthReport(field, value) {
+    setHealthReport((current) => ({ ...current, [field]: value }));
+  }
+
+  function buildHealthReportPayload(reviewConfirmed = false) {
+    const toList = (value) => String(value || '').split('\n').map((item) => item.trim()).filter(Boolean);
+    const sharedUploads = Array.isArray(healthReport.sharedFolderUploads)
+      ? healthReport.sharedFolderUploads.map((item) => ({
+          label: String(item?.label || item?.name || '').trim(),
+          url: String(item?.url || item?.secureUrl || item?.file?.secureUrl || item?.file?.url || '').trim(),
+          source: String(item?.source || 'shared-folder').trim(),
+          uploadedAt: String(item?.uploadedAt || new Date().toISOString()).trim()
+        })).filter((item) => item.label && item.url)
+      : [];
+    return {
+      yearOfCommencement: String(healthReport.yearOfCommencement || '').trim(),
+      establishmentDate: String(healthReport.establishmentDate || '').trim(),
+      organizationType: String(healthReport.organizationType || '').trim(),
+      keyProductsBrands: String(healthReport.keyProductsBrands || '').trim(),
+      productCategory: String(healthReport.productCategory || '').trim(),
+      eprRegistrationNumber: String(healthReport.eprRegistrationNumber || '').trim(),
+      financialYearReviewed: String(healthReport.financialYearReviewed || '').trim(),
+      objectiveReview: String(healthReport.objectiveReview || '').trim(),
+      keyObservations: toList(healthReport.keyObservations),
+      annualReturnObservations: toList(healthReport.annualReturnObservations),
+      checklistReview: toList(healthReport.checklistReview),
+      conclusion: String(healthReport.conclusion || '').trim(),
+      recommendations: String(healthReport.recommendations || '').trim(),
+      finalNotes: toList(healthReport.finalNotes),
+      screenshotReferences: toList(healthReport.screenshotReferences),
+      sharedFolderUploads: sharedUploads,
+      keyObservationDetails: Array.isArray(healthReport.keyObservationDetails)
+        ? healthReport.keyObservationDetails.map((item, index) => ({
+            area: String(item?.area || toList(healthReport.keyObservations)[index] || '').trim(),
+            observation: String(item?.observation || '').trim(),
+            potentialRisk: String(item?.potentialRisk || '').trim(),
+            evidence: Array.isArray(item?.evidence) ? item.evidence : []
+          }))
+        : [],
+      annualReturnDetails: Array.isArray(healthReport.annualReturnDetails) ? healthReport.annualReturnDetails : [],
+      checklistItems: Array.isArray(healthReport.checklistItems)
+        ? healthReport.checklistItems.map((item) => ({
+            requirement: String(item?.requirement || '').trim(),
+            status: String(item?.status || '').trim(),
+            remark: String(item?.remark || '').trim()
+          })).filter((item) => item.requirement)
+        : [],
+      conclusionNotes: Array.isArray(healthReport.conclusionNotes) ? healthReport.conclusionNotes : [],
+      reviewedConfirmation: Boolean(reviewConfirmed || healthReport.reviewedConfirmation),
+      schemaVersion: 2,
+      submittedAt: new Date().toISOString()
+    };
+  }
+
+  async function submitHealthReport({ confirmed = false } = {}) {
+    const leadId = healthReportLead?._id || healthReportLead?.id;
+    if (!leadId || healthReportSaving) return;
+    if (!confirmed && !healthReport.reviewedConfirmation) {
+      setHealthReportError('Review confirmation is required before saving the report.');
+      return;
+    }
+    setHealthReportSaving(true);
+    setHealthReportError('');
+    try {
+      const response = await api.put(API_ENDPOINTS.ccp.updateLead(leadId), {
+        workflowStatus: 'submitted',
+        complianceHealthReport: buildHealthReportPayload(confirmed)
+      });
+      const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
+      if (!savedLead || typeof savedLead !== 'object') throw new Error('CCP did not return the saved lead.');
+      setHealthReportLead(null);
+      setHealthReport(emptyComplianceHealthReport);
+      setLead(emptyLead);
+      setEditingLeadId('');
+      setActiveTab('basic');
+      setNotice('Compliance Health Report saved successfully.');
+      showToast('Compliance Health Report saved successfully.', 'success');
+      await loadPage();
+      navigate('/sales/lead-generation');
+      setViewMode('list');
+    } catch (err) {
+      const message = err?.response?.data?.error || err.message || 'Unable to save Compliance Health Report.';
+      setHealthReportError(message);
+      showToast(message, 'error');
+    } finally {
+      setHealthReportSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!complianceRouteLeadId || loading) return;
+    const routeId = String(complianceRouteLeadId || '').trim();
+    const match = leads.find((item) => [
+      item._id,
+      item.id,
+      item.sourceLeadId,
+      item.ccpLeadId,
+      item.externalLeadId,
+      item.leadCode,
+      item.importMeta?.ccpLeadId,
+      item.importMeta?.uniqueId
+    ].some((value) => String(value || '').trim() === routeId));
+    if (!match) {
+      setHealthReportLead({ _id: routeId, id: routeId });
+      setHealthReport(reportToDraft({}));
+      setHealthReportError('');
+      return;
+    }
+    setHealthReportLead(match);
+    setHealthReport(reportToDraft(match.complianceHealthReport));
+    setHealthReportError('');
+  }, [complianceRouteLeadId, loading, leads]);
 
   function handleLogout() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('login_email');
     navigate('/', { replace: true });
+  }
+
+  if (complianceRouteLeadId) {
+    return (
+      <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
+        <ComplianceHealthReportModal
+          lead={healthReportLead || {}}
+          report={healthReport}
+          saving={healthReportSaving}
+          error={healthReportError}
+          onChange={updateHealthReport}
+          onSubmit={submitHealthReport}
+          pageMode
+          loading={loading}
+          onBack={() => navigate('/sales/lead-generation')}
+        />
+        {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
+      </DashboardShell>
+    );
   }
 
   if (viewMode === 'list') {
@@ -429,6 +1434,8 @@ export default function LeadGeneration() {
           <LeadDetailView
             lead={viewLead}
             quotations={quotations}
+            staff={staff}
+            currentUser={currentUser}
             onBack={() => setViewLead(null)}
             onLeadUpdated={(updatedLead) => {
               setViewLead(updatedLead);
@@ -463,14 +1470,18 @@ export default function LeadGeneration() {
               setLead({
                 ...emptyLead,
                 ...viewLead,
+                leadCode: displayLeadId(viewLead) === '-' ? nextVisibleLeadCode(allCcpLeads) : viewLead.leadCode,
+                serviceSelections: (Array.isArray(viewLead.serviceSelections) && viewLead.serviceSelections.length ? viewLead.serviceSelections : [createServiceSelection(viewLead)]).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? viewLead.firstAnnualReturnYearApplicable : '') })),
                 assignedTo: viewLead.assignedTo?._id || viewLead.assignedTo?.id || viewLead.assignedTo || '',
                 closedBy: viewLead.closedBy?._id || viewLead.closedBy?.id || viewLead.closedBy || ''
               });
               setEditingLeadId(viewLead._id || viewLead.id || '');
+              setServiceOnlyMode(false);
               setViewLead(null);
               setActiveTab('basic');
               setViewMode('form');
             }}
+            canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
           />
           {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
         </DashboardShell>
@@ -486,7 +1497,22 @@ export default function LeadGeneration() {
           error={error}
           onRefresh={loadPage}
           onView={setViewLead}
-          onCreate={() => { setLead({ ...emptyLead }); setEditingLeadId(''); setActiveTab('basic'); setViewMode('form'); }}
+          onEdit={(item) => {
+            setLead({ ...emptyLead, ...item, serviceSelections: item.serviceSelections?.length ? item.serviceSelections : [createServiceSelection(item)], addresses: item.addresses?.length ? item.addresses : [createAddressRow(item)], contacts: item.contacts?.length ? item.contacts : [createContactRow(item)], assignments: item.assignments?.length ? item.assignments : [createAssignmentRow(item)] });
+            setEditingLeadId(leadRecordId(item));
+            setServiceOnlyMode(false);
+            setActiveTab('basic');
+            setViewMode('form');
+          }}
+          onToggleActive={async (item, recordStatus) => {
+            const id = leadRecordId(item);
+            const response = await api.put(API_ENDPOINTS.ccp.updateLead(id), { ...item, recordStatus });
+            const updated = response.data?.lead || response.data?.data?.lead || { ...item, recordStatus };
+            setLeads((current) => current.map((row) => leadRecordId(row) === id ? { ...row, ...updated, recordStatus } : row));
+            showToast(`Lead marked ${recordStatus.toLowerCase()}.`, 'success');
+          }}
+          canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
+          onCreate={() => { setLead({ ...emptyLead }); setEditingLeadId(''); setServiceOnlyMode(false); setActiveTab('basic'); setViewMode('form'); }}
         />
         {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
       </DashboardShell>
@@ -550,7 +1576,7 @@ export default function LeadGeneration() {
             <div className="grid gap-2 sm:grid-cols-4">
               {tabs.map((tab, index) => {
                 const Icon = tab.icon;
-                const locked = tab.id !== 'basic' && !isFirstStepReady;
+                const locked = ownershipRequired || (tab.id !== 'basic' && !isFirstStepReady);
                 const active = activeTab === tab.id;
                 const complete = index === 0 && isFirstStepReady;
                 return (
@@ -585,110 +1611,276 @@ export default function LeadGeneration() {
           <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             {activeTab === 'basic' && (
               <div className="grid gap-7">
-                <LeadSection title="Client Communication Mode">
-                  <SelectLike label="Client Communication Mode" value={lead.communicationMode} options={options.communicationMode} onChange={(value) => updateField('communicationMode', value)} />
-                  <SelectLike required label="Status" value={lead.status} options={options.status} onChange={(value) => updateField('status', value)} />
-                </LeadSection>
+                {serviceOnlyMode && <div className="lead-service-only-banner"><CheckCircle2 className="h-5 w-5" /><div><strong>Add Services mode</strong><p>Existing lead details are frozen. Only Service &amp; Applicant can be edited.</p></div></div>}
+                {!serviceOnlyMode && <section className="lead-company-search">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <Field label="Lead Search Company" className="min-w-[260px] flex-1">
+                      <div className="relative">
+                        <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <input className="form-input pl-11" value={companySearch} onChange={(event) => { setCompanySearch(event.target.value); setCompanySearchTouched(false); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); setCompanySearchTouched(true); } }} placeholder="For example: 20 MICRONS NANO MINERALS LIMITED" />
+                      </div>
+                    </Field>
+                    <button type="button" disabled={companySearch.trim().length < 2} onClick={() => setCompanySearchTouched(true)} className="min-h-[50px] rounded-xl bg-emerald-700 px-7 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50"><Search className="mr-2 inline h-4 w-4" />Search</button>
+                  </div>
+                  {companySearchTouched && (
+                    <div className="mt-4">
+                      {companySearchMatches.length ? (
+                        <div className="grid gap-2">
+                          {companySearchMatches.map((item) => {
+                            const exact = normalizeCompanyIdentity(item.company) === normalizedCompanySearch;
+                            const approved = approvedCompanyIdentities.has(normalizeCompanyIdentity(item.company));
+                            return <button type="button" key={leadRecordId(item)} onClick={() => openExistingLeadDecision(item)} className={`lead-search-result w-full text-left ${exact && !approved ? 'duplicate' : ''}`}>
+                              <div><strong>{item.company}</strong><p>{displayLeadId(item)} · Generated by {leadOwnerLabel(item)}</p></div>
+                              <span>{approved ? 'Approved override' : exact ? 'Already exists' : 'Existing lead'}</span>
+                            </button>;
+                          })}
+                          {companySearchMatches.some((item) => normalizeCompanyIdentity(item.company) === normalizedCompanySearch) && !approvedCompanyIdentities.has(normalizedCompanySearch) && <div className="lead-duplicate-warning"><CircleAlert className="h-5 w-5" /><div><strong>This lead already exists</strong><p>Open the company result to add services or request special approval.</p></div></div>}
+                        </div>
+                      ) : (
+                        <div className="lead-search-available"><CheckCircle2 className="h-5 w-5" /><div><strong>Company name is available</strong><p>No matching lead was found in the CCP database.</p></div><button type="button" onClick={() => { updateField('company', companySearch.trim()); showToast('Company added to the new lead form.', 'success'); }}>Use this company</button></div>
+                      )}
+                    </div>
+                  )}
+                </section>}
                 <LeadSection title="Company Information">
                   <Field label="Lead ID"><input className="form-input bg-slate-100" value={displayLeadId(lead) === '-' ? 'Generated by CCP after save' : displayLeadId(lead)} readOnly /></Field>
-                  <Field required label="Company"><input className="form-input" value={lead.company} onChange={(event) => updateField('company', event.target.value)} /></Field>
-                  <SelectLike label="Industry Type" value={lead.industryType} options={options.industryType} onChange={(value) => updateField('industryType', value)} />
-                  <SelectLike label="EPR Category" value={lead.eprCategory} options={options.eprCategory} onChange={(value) => updateField('eprCategory', value)} />
-                  <div className="lg:col-span-2">
-                    <PiboDependentSelect
-                      required
-                      parent={lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory)}
-                      value={lead.piboCategory}
-                      categories={piboCategories}
-                      loading={piboCategoriesLoading}
-                      onChange={(parent, child) => setLead((current) => ({ ...current, piboParent: parent, piboCategoryParent: '', piboCategory: child }))}
-                      onAddCategory={addPiboCategory}
-                    />
-                  </div>
-                  <SelectLike required label="Services Offered" value={lead.servicesOffered} options={options.servicesOffered} onChange={(value) => updateField('servicesOffered', value)} />
+                  <Field required label="Company">
+                    <input disabled={serviceOnlyMode} className={`form-input disabled:bg-slate-100 disabled:text-slate-500 ${duplicateCompanyLead ? 'border-red-400 bg-red-50 ring-4 ring-red-100' : ''}`} value={lead.company} onChange={(event) => { updateField('company', event.target.value); if (!event.target.value.trim()) setGeneratedForConfirmed(false); }} onBlur={() => { if (lead.company) { setCompanySearch(lead.company); setCompanySearchTouched(true); if (!editingLeadId && !generatedForConfirmed) openGeneratedForChooser('new'); } }} />
+                  </Field>
                 </LeadSection>
+                <section className={`lead-communication-matrix ${ownershipRequired ? 'pointer-events-none select-none opacity-45' : ''}`} aria-disabled={ownershipRequired}>
+                  <h2>Client Communication Mode</h2>
+                  <div className="lead-communication-head"><span>Client Communication Mode</span><span>Status *</span></div>
+                  <div className="lead-communication-row">
+                    <SearchableSelect disabled={serviceOnlyMode} value={lead.communicationMode} options={options.communicationMode} onChange={(value) => requestSpecification('communicationMode', value, 'Communication mode')} placeholder="Select communication mode" />
+                    <SearchableSelect disabled={serviceOnlyMode} value={lead.status} options={options.status} onChange={(value) => updateField('status', value)} placeholder="Select status" />
+                  </div>
+                  {lead.communicationModeNote && (
+                    <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-slate-700">
+                      <strong className="text-emerald-800">Communication details:</strong> {lead.communicationModeNote}
+                    </div>
+                  )}
+                </section>
+                <div className={`lead-service-matrix ${ownershipRequired ? 'pointer-events-none select-none opacity-45' : ''}`} aria-disabled={ownershipRequired}>
+                  <div className="lead-service-matrix-title"><div><p>Service &amp; Applicant</p><span>Add one or more EPR service combinations for this lead.</span></div><button type="button" onClick={addServiceRow}><Plus className="h-4 w-4" />Add</button></div>
+                  <div className="overflow-x-auto">
+                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>Applicant Type <b>*</b></span><span>SIMP Category <b>*</b></span><span>Services Offered <b>*</b></span><span>First Annual Return Year Applicable</span><span>Action</span></div>
+                    {serviceRows.map((row, index) => {
+                      const currentIds = [currentUser?._id, currentUser?.id, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
+                      const rowOwners = [row.createdByCrmUserId, row.createdByEmail, row.createdByName, (!row.createdByCrmUserId && index < frozenServiceRowCount) ? selectedSearchLead?.createdByCrmUserId : '', (!row.createdByName && index < frozenServiceRowCount) ? selectedSearchLead?.importedCreatedBy : ''].filter(Boolean).map((value) => String(value).toLowerCase());
+                      const ownedByAnotherUser = rowOwners.length > 0 && !rowOwners.some((value) => currentIds.includes(value));
+                      const rowFrozen = (serviceOnlyMode && index < frozenServiceRowCount) || ownedByAnotherUser;
+                      const directOptions = directApplicantOptions(row.eprCategory);
+                      const direct = Boolean(directOptions);
+                      const applicantOptions = directOptions || PIBO_PARENTS;
+                      const categoryOptions = direct ? [] : normalizePiboCategories(piboCategories).filter((category) => category.parent === row.applicantType).map((category) => category.name);
+                      return <div className="lead-service-matrix-row" key={index}>
+                        <span className="lead-service-row-number">{index + 1}</span>
+                        <SearchableSelect disabled={rowFrozen} value={row.industryType} options={options.industryType} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" />
+                        <SearchableSelect disabled={rowFrozen} value={row.eprCategory} options={options.eprCategory} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select EPR category" />
+                        <SearchableSelect disabled={rowFrozen} value={row.applicantType} options={applicantOptions} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder={direct ? applicantOptions.join(' / ') : 'PIBO / SIMP / PWP'} />
+                        {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />Not applicable for {row.eprCategory.replace(/^EPR\s*-\s*/i, '')}</div> : <div className="flex gap-2"><div className="min-w-0 flex-1"><SearchableSelect value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} /></div><button type="button" disabled={rowFrozen || !row.applicantType} onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: `${row.applicantType} category` }); }} className="lead-matrix-inline-add" title="Add category"><Plus className="h-4 w-4" /></button></div>}
+                        <SearchableSelect disabled={rowFrozen} value={row.servicesOffered} options={options.servicesOffered} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder="Select service" />
+                        <SearchableSelect disabled={rowFrozen} value={row.firstAnnualReturnYearApplicable || ''} options={annualReturnYearOptions} onChange={(value) => updateServiceRow(index, 'firstAnnualReturnYearApplicable', value)} placeholder="Select FY" />
+                        <button type="button" disabled={rowFrozen || serviceRows.length === 1} onClick={() => removeServiceRow(index)} className="lead-matrix-remove" title="Remove row"><X className="h-4 w-4" /></button>
+                      </div>;
+                    })}
+                  </div>
+                </div>
               </div>
             )}
 
             {activeTab === 'address' && (
-              <LeadSection title="Address Information">
-                <Field required label="Address Line 1"><input className="form-input" value={lead.addressLine1} onChange={(event) => updateField('addressLine1', event.target.value)} /></Field>
-                <Field label="Address Line 2"><input className="form-input" value={lead.addressLine2} onChange={(event) => updateField('addressLine2', event.target.value)} /></Field>
-                <Field label="Address Line 3"><input className="form-input" value={lead.addressLine3} onChange={(event) => updateField('addressLine3', event.target.value)} /></Field>
-                <Field label="Landmark"><input className="form-input" value={lead.landmark} onChange={(event) => updateField('landmark', event.target.value)} /></Field>
-                <SelectLike required label="State" value={lead.state} options={options.states} onChange={(value) => updateField('state', value)} />
-                <SelectLike required label="City" value={lead.city} options={cityOptions} disabled={!lead.state} placeholder={lead.state ? 'Select or type to create new' : 'Select state first'} onChange={(value) => updateField('city', value)} />
-                <Field required label="PIN Code"><input className="form-input" value={lead.pinCode} onChange={(event) => updateField('pinCode', event.target.value)} /></Field>
-                <Field label="Existing Client?"><SearchableSelect value={lead.existingClient} options={['No', 'Yes']} onChange={(value) => updateField('existingClient', value)} placeholder="Select client status" /></Field>
-                <Field label="Website"><input className="form-input" placeholder="https://example.com" value={lead.website} onChange={(event) => updateField('website', event.target.value)} /></Field>
-              </LeadSection>
+              <section className="min-w-0 max-w-full overflow-hidden">
+                <div className="lead-address-title"><div><h2>Address Information</h2><p>Add one or more office, registered, factory, or correspondence addresses.</p></div><button type="button" onClick={addAddressRow}><Plus className="h-4 w-4" />Add Address</button></div>
+                {serviceOnlyMode && <div className="lead-service-only-banner mt-4"><CheckCircle2 className="h-5 w-5" /><div><strong>Existing addresses are frozen</strong><p>Use Add Address to create an editable new row.</p></div></div>}
+                {locationError && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800" role="status">{locationError}</div>}
+                <fieldset className="mt-5 min-w-0 max-w-full">
+                  <div className="lead-address-matrix">
+                    <div className="lead-address-head"><span>#</span><span>Address Line 1 *</span><span>Address Line 2</span><span>Address Line 3</span><span>Landmark</span><span>State *</span><span>City *</span><span>PIN *</span><span>Existing Client?</span><span>Website</span><span>Action</span></div>
+                    {addressRows.map((row, index) => {
+                      const rowCities = row.state ? citiesByState[row.state] || stateCities[row.state] || [] : [];
+                      const citiesLoading = Boolean(row.state && locationLoading.cities[row.state]);
+                      const rowFrozen = serviceOnlyMode && index < frozenAddressRowCount;
+                      return <div className="lead-address-row" key={index}>
+                        <span className="lead-service-row-number">{index + 1}</span>
+                        <input disabled={rowFrozen} className="form-input" value={row.addressLine1} onChange={(event) => updateAddressRow(index, 'addressLine1', event.target.value)} placeholder="Address line 1" />
+                        <input disabled={rowFrozen} className="form-input" value={row.addressLine2} onChange={(event) => updateAddressRow(index, 'addressLine2', event.target.value)} placeholder="Address line 2" />
+                        <input disabled={rowFrozen} className="form-input" value={row.addressLine3} onChange={(event) => updateAddressRow(index, 'addressLine3', event.target.value)} placeholder="Address line 3" />
+                        <input disabled={rowFrozen} className="form-input" value={row.landmark} onChange={(event) => updateAddressRow(index, 'landmark', event.target.value)} placeholder="Landmark" />
+                        <SearchableSelect value={row.state} options={countryStates.length ? countryStates : options.states} disabled={rowFrozen || (locationLoading.states && !countryStates.length && !options.states.length)} onChange={(value) => updateAddressRow(index, 'state', value)} placeholder={locationLoading.states ? 'Loading states...' : 'Select state'} />
+                        <SearchableSelect value={row.city} options={rowCities} disabled={rowFrozen || !row.state || citiesLoading} onChange={(value) => updateAddressRow(index, 'city', value)} placeholder={!row.state ? 'State first' : citiesLoading ? 'Loading cities...' : 'Select city'} />
+                        <input disabled={rowFrozen} className="form-input" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={row.pinCode} onChange={(event) => updateAddressRow(index, 'pinCode', event.target.value)} placeholder="6-digit PIN" />
+                        <SearchableSelect disabled={rowFrozen} value={row.existingClient} options={['No', 'Yes']} onChange={(value) => updateAddressRow(index, 'existingClient', value)} placeholder="Select" />
+                        <input disabled={rowFrozen} className="form-input" value={row.website} onChange={(event) => updateAddressRow(index, 'website', event.target.value)} placeholder="https://" />
+                        <button type="button" disabled={rowFrozen || addressRows.length === 1} onClick={() => removeAddressRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
+                      </div>;
+                    })}
+                  </div>
+                </fieldset>
+              </section>
             )}
 
             {activeTab === 'contact' && (
-              <div className="grid gap-7">
-                <LeadSection title="Contact Information">
-                  <SelectLike label="Salutation" value={lead.salutation} options={options.salutations} onChange={(value) => updateField('salutation', value)} />
-                  <Field label="Contact Person"><input className="form-input" value={lead.contactPerson} onChange={(event) => updateField('contactPerson', event.target.value)} /></Field>
-                  <SelectLike label="Designation" value={lead.designation} options={options.designation} onChange={(value) => updateField('designation', value)} />
-                  <Field label="Email(s)"><input className="form-input" placeholder="email@example.com, email2@example.com" value={lead.emails} onChange={(event) => updateField('emails', event.target.value)} /></Field>
-                  <Field label="Mobile No. 1"><input className="form-input" value={lead.mobileNo1} onChange={(event) => updateField('mobileNo1', event.target.value)} /></Field>
-                  <Field label="Mobile No. 2"><input className="form-input" value={lead.mobileNo2} onChange={(event) => updateField('mobileNo2', event.target.value)} /></Field>
-                  <Field label="Business Card">
-                    <div className="grid gap-3">
-                      <input className="form-input" placeholder="Business Card URL" value={lead.businessCardUrl} onChange={(event) => updateField('businessCardUrl', event.target.value)} />
-                      <div className="flex flex-wrap gap-2">
-                        <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 font-black text-slate-800 hover:bg-slate-50">
-                          <Upload className="h-4 w-4" /> Upload
-                          <input type="file" accept="image/*,.pdf" onChange={handleBusinessCard} className="sr-only" />
-                        </label>
-                        {lead.businessCardUrl && (
-                          <button type="button" onClick={() => window.open(lead.businessCardUrl, '_blank', 'noopener,noreferrer')} className="btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 font-black text-emerald-700 hover:bg-emerald-100">
-                            <Eye className="h-4 w-4" /> View
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </Field>
-                </LeadSection>
-                <LeadSection title="Additional Information" columns="lg:grid-cols-2">
-                  <SelectLike label="Referred By" value={lead.referredBy} options={staffOptions.map((item) => item.label)} onChange={(value) => updateField('referredBy', value)} />
-                  <SelectLike label="Source" value={lead.source} options={options.source} onChange={(value) => updateField('source', value)} />
-                  <Field label="Emails Sent Count"><input className="form-input" value={lead.emailsSentCount} onChange={(event) => updateField('emailsSentCount', event.target.value)} /></Field>
-                  <Field label="Last Email Sent"><PremiumDatePicker value={lead.lastEmailSent} onChange={(event) => updateField('lastEmailSent', event.target.value)} /></Field>
-                  <Field label="Lead Date"><PremiumDatePicker value={lead.leadDate} onChange={(event) => updateField('leadDate', event.target.value)} /></Field>
-                  <Field label="Next Follow-Up Date"><PremiumDatePicker value={lead.nextFollowUpDate} onChange={(event) => updateField('nextFollowUpDate', event.target.value)} /></Field>
-                  <Field label="Next Follow-Up Time"><input className="form-input" value={lead.nextFollowUpTime} onChange={(event) => updateField('nextFollowUpTime', event.target.value)} /></Field>
-                  <Field label="Follow-Up Remarks"><input className="form-input" value={lead.followUpRemarks} onChange={(event) => updateField('followUpRemarks', event.target.value)} /></Field>
-                  <Field label="Notes" className="lg:col-span-2"><textarea className="form-input min-h-[120px] resize-y py-3" value={lead.notes} onChange={(event) => updateField('notes', event.target.value)} /></Field>
-                </LeadSection>
-              </div>
+              <fieldset className="min-w-0 max-w-full">
+                <div className="lead-address-title"><div><h2>Contact Information</h2><p>Add one or more company contacts. Mobile No. 2 is optional.</p></div><button type="button" onClick={addContactRow}><Plus className="h-4 w-4" />Add Contact</button></div>
+                <div className="lead-contact-matrix mt-5">
+                  <div className="lead-contact-head"><span>#</span><span>Salutation *</span><span>Contact Person *</span><span>Designation *</span><span>Email *</span><span>Mobile No. 1 *</span><span>Mobile No. 2</span><span>Referred By *</span><span>Source *</span><span>Business Card</span><span>Action</span></div>
+                  {contactRows.map((row, index) => {
+                    const rowFrozen = serviceOnlyMode && index < frozenContactRowCount;
+                    return <div className="lead-contact-row" key={index}>
+                    <span className="lead-service-row-number">{index + 1}</span>
+                    <SearchableSelect disabled={rowFrozen} value={row.salutation} options={options.salutations} onChange={(value) => updateContactRow(index, 'salutation', value)} placeholder="Select" />
+                    <input disabled={rowFrozen} className="form-input" value={row.contactPerson} onChange={(event) => updateContactRow(index, 'contactPerson', event.target.value)} placeholder="Contact person" />
+                    <SearchableSelect disabled={rowFrozen} value={row.designation} options={options.designation} onChange={(value) => updateContactRow(index, 'designation', value)} placeholder="Designation" />
+                    <input disabled={rowFrozen} className="form-input" type="email" value={row.emails} onChange={(event) => updateContactRow(index, 'emails', event.target.value)} placeholder="email@example.com" />
+                    <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.mobileNo1} onChange={(event) => updateContactRow(index, 'mobileNo1', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile" />
+                    <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.mobileNo2} onChange={(event) => updateContactRow(index, 'mobileNo2', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional" />
+                    <SearchableSelect disabled={rowFrozen} value={row.referredBy} options={[...new Set(staffOptions.map((item) => item.label))]} onChange={(value) => updateContactRow(index, 'referredBy', value)} placeholder="Select staff" />
+                    <SearchableSelect disabled={rowFrozen} value={row.source} options={options.source} onChange={(value) => updateContactRow(index, 'source', value)} placeholder="Select source" />
+                    <div className="lead-contact-upload"><label className={rowFrozen ? 'pointer-events-none opacity-60' : ''}><Upload className="h-4 w-4" />{row.businessCardUrl ? 'Replace' : 'Upload'}<input disabled={rowFrozen} type="file" accept="image/*,.pdf" onChange={(event) => uploadContactBusinessCard(index, event)} className="sr-only" /></label>{row.businessCardUrl && <button type="button" onClick={() => window.open(row.businessCardUrl, '_blank', 'noopener,noreferrer')}><Eye className="h-4 w-4" />View</button>}</div>
+                    <button type="button" disabled={rowFrozen || contactRows.length === 1} onClick={() => removeContactRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
+                  </div>})}
+                </div>
+              </fieldset>
             )}
 
             {activeTab === 'assign' && (
-              <LeadSection title="Assign Lead" columns="grid-cols-1">
-                <SelectLike label="Assign To Staff" value={lead.assignedTo} options={staffOptions} placeholder="Select staff member" onChange={(value) => {
-                  const user = staff.find((item) => String(item._id || item.id) === String(value));
-                  setLead((current) => ({ ...current, assignedTo: value, assignedToCrmUserId: value, assignedToEmail: user?.email || '', assignedToText: user?.name || user?.email || '', assignedBy: currentUser?.name || currentUser?.email || '' }));
-                }} />
-                <SelectLike label="Lead Closed By" value={lead.closedBy} options={staffOptions} placeholder="Select user who closed the lead" onChange={(value) => {
-                  const user = staff.find((item) => String(item._id || item.id) === String(value));
-                  setLead((current) => ({ ...current, closedBy: value, closedByCrmUserId: value, closedByText: user?.name || user?.email || '', closedByEmail: user?.email || '' }));
-                }} />
-              </LeadSection>
+              <fieldset className="min-w-0 max-w-full">
+                <div className="lead-address-title"><div><h2>Assign Lead</h2><p>Add one or more responsible staff and closure owners.</p></div><button type="button" onClick={addAssignmentRow}><Plus className="h-4 w-4" />Add Assignment</button></div>
+                <div className="lead-assign-matrix mt-5">
+                  <div className="lead-assign-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>Services Offered</span><span>Assign To Manager</span><span>Lead Closed By</span><span>Manager Assigned to Staff</span><span>Claim Royalty</span><span>Action</span></div>
+                  {assignmentRows.map((row, index) => {
+                    const matchingService = serviceRows[index] || serviceRows[serviceRows.length - 1] || {};
+                    const rowFrozen = serviceOnlyMode && index < frozenAssignmentRowCount;
+                    const currentUserIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.ccpUserId].filter(Boolean).map(String);
+                    const canAssignStaff = String(currentUser?.role || '').toLowerCase() === 'manager' && currentUserIds.includes(String(row.assignedTo || ''));
+                    const assignedManagerOptions = row.assignedTo && !managerOptions.some((option) => String(option.value) === String(row.assignedTo))
+                      ? [{ value: String(row.assignedTo), label: row.assignedToText || lead.assignedToText || 'Previously assigned manager' }, ...managerOptions]
+                      : managerOptions;
+                    const closedByOptions = row.closedBy && !staffOptions.some((option) => String(option.value) === String(row.closedBy))
+                      ? [{ value: String(row.closedBy), label: row.closedByText || lead.closedByText || 'Previously selected user' }, ...staffOptions]
+                      : staffOptions;
+                    const assignedStaffOptions = row.assignedStaff && !staffOptions.some((option) => String(option.value) === String(row.assignedStaff))
+                      ? [{ value: String(row.assignedStaff), label: row.assignedStaffText || 'Previously assigned staff' }, ...staffOptions]
+                      : staffOptions;
+                    return <div className="lead-assign-row" key={index}>
+                    <span className="lead-service-row-number">{index + 1}</span>
+                    <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.industryType || '-'}</div>
+                    <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.eprCategory || '-'}</div>
+                    <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.servicesOffered || '-'}</div>
+                    <SearchableSelect disabled={rowFrozen} value={row.assignedTo} options={assignedManagerOptions} placeholder="Select manager" onChange={(value) => updateAssignmentRow(index, 'assignedTo', value)} />
+                    <SearchableSelect disabled={rowFrozen} value={row.closedBy} options={closedByOptions} placeholder="Select user who closed the lead" onChange={(value) => updateAssignmentRow(index, 'closedBy', value)} />
+                    <SearchableSelect disabled={!canAssignStaff} value={row.assignedStaff} options={assignedStaffOptions} placeholder={canAssignStaff ? 'Select staff member' : 'Assigned manager only'} onChange={(value) => updateAssignmentRow(index, 'assignedStaff', value)} />
+                    <div className="flex justify-center">
+                      {approvedRoyalty && index === assignmentRows.length - 1 ? (
+                        <span className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
+                          Original {approvedRoyalty.payload?.originalCreatorRatio}% · Claimant {approvedRoyalty.payload?.claimantRatio}%
+                        </span>
+                      ) : canClaimRoyalty && index === assignmentRows.length - 1 ? (
+                        <button type="button" disabled={royaltyClaiming || royaltyClaimed} onClick={claimRoyalty} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-500 px-4 text-xs font-black text-white shadow-sm disabled:opacity-60">
+                          <BadgeIndianRupee className="h-4 w-4" />{royaltyClaimed ? 'Claim Sent' : royaltyClaiming ? 'Sending...' : 'Claim Royalty'}
+                        </button>
+                      ) : <span className="text-xs font-bold text-slate-400">Not applicable</span>}
+                    </div>
+                    <button type="button" disabled={rowFrozen || assignmentRows.length === 1} onClick={() => removeAssignmentRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
+                  </div>})}
+                </div>
+              </fieldset>
             )}
 
             <div className="mt-8 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setViewMode('list')} className="btn-lift min-h-11 rounded-xl border border-slate-200 px-8 font-black text-slate-700">Cancel</button>
-              <button type="button" disabled={saving} onClick={() => saveLead('draft')} className="btn-lift min-h-11 rounded-xl border border-orange-200 px-8 font-black text-orange-600 hover:bg-orange-50">Save Draft</button>
+              <button type="button" disabled={saving || ownershipRequired} onClick={() => saveLead('draft')} className="btn-lift min-h-11 rounded-xl border border-orange-200 px-8 font-black text-orange-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50">Save Draft</button>
               {activeTab === 'assign' ? (
-                <button type="button" disabled={saving} onClick={() => saveLead('submitted')} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-8 font-black text-white shadow-lg shadow-orange-600/20">Submit</button>
+                <button type="button" disabled={saving} onClick={requestLeadSubmit} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-8 font-black text-white shadow-lg shadow-orange-600/20">Submit</button>
               ) : (
-                <button type="button" onClick={nextTab} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-8 font-black text-white shadow-lg shadow-emerald-700/20">Next Step</button>
+                <button type="button" disabled={ownershipRequired} onClick={nextTab} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-8 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50">Next Step</button>
               )}
             </div>
           </section>
         </div>
       </div>
+      {generatedForOpen && (
+        <div className="lead-duplicate-modal-overlay" style={{ zIndex: 10000 }} role="dialog" aria-modal="true" aria-labelledby="generated-for-title">
+          <section className="lead-duplicate-modal">
+            <header><div><p>Lead ownership · Required</p><h2 id="generated-for-title">Who should this lead be generated for?</h2><span>Select one option before continuing. The selected user receives the lead credit.</span></div></header>
+            <div className="p-6">
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => { setGeneratedForMode('self'); setGeneratedForUserId(''); }} className={`lead-duplicate-choice ${generatedForMode === 'self' ? 'yes' : ''}`}><UserCheck className="h-6 w-6" /><span><b>Yourself</b><small>Generate under your name</small></span></button>
+                <button type="button" onClick={() => setGeneratedForMode('other')} className={`lead-duplicate-choice ${generatedForMode === 'other' ? 'yes' : ''}`}><UsersRound className="h-6 w-6" /><span><b>Other User</b><small>Select the actual lead owner</small></span></button>
+              </div>
+              {generatedForMode === 'other' && <div className="mt-5"><Field label="Select User" required><SearchableSelect value={generatedForUserId} options={generatedForOptions} onChange={setGeneratedForUserId} placeholder="Search and select user" /></Field></div>}
+              <div className="mt-6 flex items-center justify-between gap-3"><p className="text-xs font-bold text-slate-500">Selection is mandatory to continue.</p><button type="button" disabled={!generatedForMode || (generatedForMode === 'other' && !generatedForUserId)} onClick={confirmGeneratedFor} className="min-h-11 rounded-xl bg-emerald-700 px-6 font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Continue</button></div>
+            </div>
+          </section>
+        </div>
+      )}
+      {duplicateDecisionOpen && selectedSearchLead && (
+        <div className="lead-duplicate-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="duplicate-lead-title">
+          <section className="lead-duplicate-modal">
+            <header><div><p>Existing lead found</p><h2 id="duplicate-lead-title">{selectedSearchLead.company}</h2><span>{displayLeadId(selectedSearchLead)} · Generated by {leadOwnerLabel(selectedSearchLead)}</span></div><button type="button" onClick={() => setDuplicateDecisionOpen(false)}><X className="h-5 w-5" /></button></header>
+            {!duplicateApprovalMode ? (
+              <div className="p-6">
+                <div className="lead-duplicate-question"><CircleAlert className="h-6 w-6" /><div><strong>The lead has already been generated under this company name.</strong><p>Do you want to generate a completely new lead? A blank form will open and duplicate validation will run again before save.</p></div></div>
+                {!duplicateNoOptions ? <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button type="button" onClick={continueWithDuplicateTemplate} className="lead-duplicate-choice yes"><Check className="h-6 w-6" /><span><b>Yes</b><small>Open blank new lead</small></span></button>
+                  <button type="button" onClick={() => setDuplicateNoOptions(true)} className="lead-duplicate-choice no"><X className="h-6 w-6" /><span><b>No</b><small>Show available actions</small></span></button>
+                </div> : <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => setDuplicateApprovalMode(true)} className="lead-duplicate-choice no"><CircleAlert className="h-6 w-6" /><span><b>Special Approval</b><small>Request duplicate permission</small></span></button>
+                  <button type="button" onClick={openAddServicesMode} className="lead-duplicate-choice yes"><Plus className="h-6 w-6" /><span><b>Add Services</b><small>Edit only service configuration</small></span></button>
+                </div>}
+              </div>
+            ) : (
+              <div className="p-6">
+                <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-widest text-orange-600">Special Approval</p><h3 className="mt-1 text-lg font-black">Request duplicate lead permission</h3></div><button type="button" onClick={() => setDuplicateApprovalMode(false)} className="text-xs font-black text-slate-500">Back</button></div>
+                <div className="mt-5 grid gap-4">
+                  <Field label="Reason" required><textarea className="form-input min-h-[105px] resize-y py-3" value={duplicateApproval.reason} onChange={(event) => setDuplicateApproval((current) => ({ ...current, reason: event.target.value }))} placeholder="Explain why another lead is required for this company..." /></Field>
+                  <Field label="Email" required><input type="email" className="form-input" value={duplicateApproval.requesterEmail} onChange={(event) => setDuplicateApproval((current) => ({ ...current, requesterEmail: event.target.value }))} /></Field>
+                  <Field label="Screenshot / Evidence">
+                    <label className="lead-approval-upload"><Upload className="h-4 w-4" />{duplicateApproval.screenshotName || 'Upload screenshot'}<input type="file" accept="image/*,.pdf" className="sr-only" onChange={uploadDuplicateApprovalScreenshot} /></label>
+                  </Field>
+                </div>
+                <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setDuplicateDecisionOpen(false)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black">Continue Search</button><button type="button" disabled={duplicateApprovalSaving} onClick={sendDuplicateApprovalRequest} className="min-h-11 rounded-xl bg-orange-600 px-5 font-black text-white disabled:opacity-60">{duplicateApprovalSaving ? 'Sending...' : 'Send to Admin / Super Admin'}</button></div>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+      {specifyDialog && (
+        <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/50 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="specify-title">
+          <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl shadow-slate-950/25">
+            <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-emerald-50 to-cyan-50 px-6 py-5">
+              <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Additional details</p><h2 id="specify-title" className="mt-1 text-xl font-black text-slate-950">Please Specify</h2><p className="mt-1 text-sm font-bold text-slate-500">{specifyDialog.label}{specifyDialog.value ? `: ${specifyDialog.value}` : ''}</p></div>
+              <button type="button" onClick={() => setSpecifyDialog(null)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50" aria-label="Close"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="p-6">
+              <label className="block text-sm font-black text-slate-700">Note <span className="text-red-500">*</span>
+                <textarea autoFocus value={specifyNote} onChange={(event) => setSpecifyNote(event.target.value)} className="form-input mt-2 min-h-[120px] resize-y py-3" placeholder={Number.isInteger(specifyDialog.categoryRow) ? `Enter new ${specifyDialog.applicantType} category` : 'Add relevant details or remarks...'} />
+              </label>
+              <div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setSpecifyDialog(null)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700 hover:bg-slate-50">Cancel</button><button type="button" onClick={submitSpecification} disabled={!specifyNote.trim()} className="min-h-11 rounded-xl bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50">Submit</button></div>
+            </div>
+          </section>
+        </div>
+      )}
+      {healthPromptOpen && (
+        <ComplianceHealthPrompt
+          saving={saving}
+          onCancel={() => setHealthPromptOpen(false)}
+          onSubmitLeadOnly={() => saveLead('submitted')}
+          onContinue={() => saveLead('submitted', { openHealthReport: true })}
+        />
+      )}
+      {healthReportLead && (
+        <ComplianceHealthReportModal
+          lead={healthReportLead}
+          report={healthReport}
+          saving={healthReportSaving}
+          error={healthReportError}
+          onChange={updateHealthReport}
+          onSubmit={submitHealthReport}
+        />
+      )}
       {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
     </DashboardShell>
   );
@@ -700,6 +1892,464 @@ function LeadSection({ title, children, columns = 'sm:grid-cols-2 xl:grid-cols-3
       <h2 className="text-2xl font-black text-slate-950">{title}</h2>
       <div className={`mt-5 grid gap-5 ${columns}`}>{children}</div>
     </section>
+  );
+}
+
+function ComplianceHealthPrompt({ saving, onCancel, onSubmitLeadOnly, onContinue }) {
+  return (
+    <div className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm">
+      <section className="w-full max-w-xl rounded-2xl border border-orange-100 bg-white p-6 shadow-2xl shadow-slate-950/20">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-600">Final Submit</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">COMPLIANCE HEALTH REPORT</h2>
+            <p className="mt-3 text-sm font-bold leading-6 text-slate-600">Do you want to process for COMPLIANCE HEALTH REPORT?</p>
+          </div>
+          <button type="button" onClick={onCancel} disabled={saving} className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Cancel">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onCancel} disabled={saving} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="button" onClick={onSubmitLeadOnly} disabled={saving} className="min-h-11 rounded-xl border border-orange-200 px-5 font-black text-orange-600 hover:bg-orange-50">{saving ? 'Submitting...' : 'No, Submit Lead Only'}</button>
+          <button type="button" onClick={onContinue} disabled={saving} className="min-h-11 rounded-xl bg-orange-600 px-5 font-black text-white shadow-lg shadow-orange-600/20">{saving ? 'Submitting...' : 'Yes, Continue'}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ComplianceHealthReportModal({ lead, report, saving, error, onChange, onSubmit, pageMode = false, loading = false, onBack }) {
+  const [annualReturnExpanded, setAnnualReturnExpanded] = useState(false);
+  const [checklistExpanded, setChecklistExpanded] = useState(false);
+  const [keyProductsOpen, setKeyProductsOpen] = useState(false);
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
+  const [submitConfirmed, setSubmitConfirmed] = useState(false);
+  const overviewFields = [
+    ['yearOfCommencement', 'Year Of Commencement'],
+    ['establishmentDate', 'Establishment Date'],
+    ['organizationType', 'Organization Type'],
+    ['keyProductsBrands', 'Key Products / Brands'],
+    ['productCategory', 'Product Category'],
+    ['eprRegistrationNumber', 'EPR Registration Number'],
+    ['financialYearReviewed', 'Financial Year Reviewed']
+  ];
+  const parseEditableRows = (value) => String(value || '').length ? String(value || '').split('\n') : [];
+  const countFilledRows = (rows) => rows.filter((row) => String(row || '').trim()).length;
+  const observationLines = parseEditableRows(report.keyObservations);
+  const annualReturnLines = parseEditableRows(report.annualReturnObservations);
+  const checklistItems = Array.isArray(report.checklistItems) ? report.checklistItems : [];
+  const conclusionNotes = Array.isArray(report.conclusionNotes) && report.conclusionNotes.length
+    ? report.conclusionNotes
+    : [{ conclusion: '', recommendation: '' }];
+  const checklistGroups = useMemo(() => {
+    const groups = [];
+    const headings = new Set(['PART A', 'PART B', 'PART C', 'PART D', 'Authorized Person Details', 'Operational & Production', 'Documents Uploaded on Portal']);
+    let current = { title: 'General', items: [] };
+    checklistItems.forEach((item, index) => {
+      if (headings.has(item.requirement)) {
+        if (current.items.length) groups.push(current);
+        current = { title: item.requirement, items: [] };
+      } else {
+        current.items.push({ ...item, sourceIndex: index });
+      }
+    });
+    if (current.items.length) groups.push(current);
+    return groups;
+  }, [checklistItems]);
+
+  useEffect(() => {
+    if (!submitConfirmOpen) return undefined;
+    function closeOnEscape(event) {
+      if (event.key === 'Escape' && !saving) setSubmitConfirmOpen(false);
+    }
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [submitConfirmOpen, saving]);
+
+  function updateListField(field, nextLines) {
+    onChange(field, nextLines.join('\n'));
+  }
+
+  function addListRow(field) {
+    const current = parseEditableRows(report[field]);
+    current.push(' ');
+    onChange(field, current.join('\n'));
+  }
+
+  function removeListRow(field, index) {
+    const current = parseEditableRows(report[field]);
+    current.splice(index, 1);
+    onChange(field, current.join('\n'));
+    if (field === 'keyObservations') {
+      const details = Array.isArray(report.keyObservationDetails) ? [...report.keyObservationDetails] : [];
+      details.splice(index, 1);
+      onChange('keyObservationDetails', details);
+    } else if (field === 'annualReturnObservations') {
+      const details = Array.isArray(report.annualReturnDetails) ? [...report.annualReturnDetails] : [];
+      details.splice(index, 1);
+      onChange('annualReturnDetails', details);
+    }
+  }
+
+  function updateKeyObservationDetail(index, field, value) {
+    const details = Array.isArray(report.keyObservationDetails) ? [...report.keyObservationDetails] : [];
+    details[index] = { ...(details[index] || {}), [field]: value };
+    onChange('keyObservationDetails', details);
+  }
+
+  function updateChecklistItem(index, field, value) {
+    const next = [...checklistItems];
+    next[index] = { ...(next[index] || {}), [field]: value };
+    onChange('checklistItems', next);
+  }
+
+  function updateAnnualReturnDetail(index, field, value) {
+    const next = Array.isArray(report.annualReturnDetails) ? [...report.annualReturnDetails] : [];
+    next[index] = { ...(next[index] || {}), [field]: value };
+    onChange('annualReturnDetails', next);
+  }
+
+  function updateConclusionNote(index, field, value) {
+    const next = [...conclusionNotes];
+    next[index] = { ...(next[index] || {}), [field]: value };
+    onChange('conclusionNotes', next);
+    onChange(field === 'conclusion' ? 'conclusion' : 'recommendations', next.map((item) => item[field]).filter(Boolean).join('\n'));
+  }
+
+  function handleDownloadPdf() {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const lines = [
+      'COMPLIANCE HEALTH REPORT',
+      `Lead: ${lead.company || '-'}`,
+      `Lead Code: ${lead.leadCode || '-'}`,
+      '',
+      `Year of Commencement: ${report.yearOfCommencement || '-'}`,
+      `Establishment Date: ${report.establishmentDate || '-'}`,
+      `Organization Type: ${report.organizationType || '-'}`,
+      `Key Products / Brands: ${report.keyProductsBrands || '-'}`,
+      `Product Category: ${report.productCategory || '-'}`,
+      `EPR Registration Number: ${report.eprRegistrationNumber || '-'}`,
+      `Financial Year Reviewed: ${report.financialYearReviewed || '-'}`,
+      '',
+      'Objective Review:',
+      report.objectiveReview || '-',
+      '',
+      'Key Observations:',
+      ...toPdfLines(report.keyObservations),
+      '',
+      'Annual Return Observations:',
+      ...toPdfLines(report.annualReturnObservations),
+      '',
+      'Checklist Review:',
+      ...toPdfLines(report.checklistReview),
+      '',
+      'Conclusion:',
+      report.conclusion || '-',
+      '',
+      'Recommendations:',
+      report.recommendations || '-',
+      '',
+      'Screenshot References:',
+      ...toPdfLines(report.screenshotReferences)
+    ];
+
+    let cursorY = 48;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.text(lines[0], 40, cursorY);
+    cursorY += 26;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    for (const line of lines.slice(1)) {
+      if (cursorY > 760) {
+        doc.addPage();
+        cursorY = 48;
+      }
+      doc.text(String(line || '-'), 40, cursorY);
+      cursorY += 15;
+    }
+    doc.save(`${String(lead.company || 'compliance-health-report').replace(/\s+/g, '-').toLowerCase()}.pdf`);
+  }
+
+  async function handleEvidenceUpload(type, event, observationIndex = null, detailField = 'keyObservationDetails') {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    try {
+      const uploadedFiles = await Promise.all(files.map(async (file) => {
+        const uploaded = await uploadMedia(file, type === 'screenshot' ? 'crm/leads/compliance-health/screenshots' : 'crm/leads/compliance-health/shared-folder');
+        return { label: file.webkitRelativePath || file.name, url: uploaded.secureUrl, publicId: uploaded.publicId, source: type, uploadedAt: new Date().toISOString() };
+      }));
+      const nextUploads = [...(Array.isArray(report.sharedFolderUploads) ? report.sharedFolderUploads : []), ...uploadedFiles];
+      onChange('sharedFolderUploads', nextUploads);
+      if (observationIndex !== null) {
+        const details = Array.isArray(report[detailField]) ? [...report[detailField]] : [];
+        details[observationIndex] = {
+          ...(details[observationIndex] || {}),
+          evidence: [...(Array.isArray(details[observationIndex]?.evidence) ? details[observationIndex].evidence : []), ...uploadedFiles]
+        };
+        onChange(detailField, details);
+      }
+    } catch (err) {
+      onChange('screenshotReferences', `${String(report.screenshotReferences || '').trim()}\nUpload failed: ${err.message || 'Unknown error'}`.trim());
+    }
+  }
+
+  function removeUpload(uploadIndex) {
+    const item = report.sharedFolderUploads?.[uploadIndex];
+    onChange('sharedFolderUploads', report.sharedFolderUploads.filter((_, index) => index !== uploadIndex));
+    if (item?.url) {
+      onChange('keyObservationDetails', (report.keyObservationDetails || []).map((detail) => ({
+        ...detail,
+        evidence: (detail?.evidence || []).filter((evidence) => evidence.url !== item.url)
+      })));
+    }
+  }
+
+  function toPdfLines(value) {
+    return String(value || '')
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  const wrapperClass = pageMode
+    ? 'compliance-health-page'
+    : 'fixed inset-0 z-[95] overflow-y-auto bg-slate-950/50 px-4 py-8 backdrop-blur-sm';
+  const panelClass = pageMode
+    ? 'compliance-health-shell'
+    : 'mx-auto w-full max-w-6xl rounded-2xl border border-emerald-100 bg-white p-6 shadow-2xl shadow-slate-950/20';
+
+  return (
+    <div className={wrapperClass}>
+      <section className={panelClass}>
+        <header className={`${pageMode ? 'compliance-health-page-hero' : 'flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between'}`}>
+          <div>
+            {pageMode && <button type="button" onClick={onBack} className="compliance-health-back" title="Back"><ArrowLeft className="h-5 w-5" /></button>}
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">{pageMode ? 'Compliance' : 'Saved Lead Context'}</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">COMPLIANCE HEALTH REPORT</h2>
+            <p className="mt-2 text-sm font-bold text-slate-600">{loading ? 'Loading CCP lead...' : (lead.company || '-')} {lead.leadCode ? `| ${lead.leadCode}` : ''}</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black uppercase text-emerald-700">CCP Lead Document</span>
+            <button type="button" onClick={handleDownloadPdf} className={`${pageMode ? 'compliance-health-download' : 'btn-lift inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 font-black text-slate-700 hover:bg-slate-50'}`}><Download className="h-4 w-4" />{pageMode ? 'Download Complete PDF' : 'Download PDF'}</button>
+            {pageMode && (
+              <div className="compliance-health-stats">
+                <strong>7<span>Overview Fields</span></strong>
+                <strong>{countFilledRows(observationLines) + countFilledRows(annualReturnLines)}<span>Observation Rows</span></strong>
+                <strong>{checklistGroups.reduce((total, group) => total + group.items.length, 0)}<span>Checklist Items</span></strong>
+                <strong>{Array.isArray(report.sharedFolderUploads) ? report.sharedFolderUploads.length : 0}<span>Screenshots</span></strong>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {pageMode && (
+          <nav className="compliance-health-steps">
+            {['1. Overview', '2. Objective', '3. Observations', '4. Evidence'].map((step) => <span key={step}><CheckCircle2 className="h-4 w-4" />{step}</span>)}
+          </nav>
+        )}
+
+        {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
+
+        <div className="mt-6 grid gap-6">
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <h3 className="text-xl font-black text-slate-950">1. Company Overview</h3>
+            <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {overviewFields.map(([field, label]) => (
+                <Field key={field} label={label}>
+                  {field === 'keyProductsBrands' ? (
+                    <div className="compliance-products-select">
+                      <button type="button" className={`form-input flex w-full items-center justify-between text-left ${keyProductsOpen ? 'border-emerald-400 ring-4 ring-emerald-100' : ''}`} onClick={() => setKeyProductsOpen((value) => !value)} aria-expanded={keyProductsOpen}>
+                        {report.keyProductsBrands ? <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800"><CheckCircle2 className="h-4 w-4" />{report.keyProductsBrands}</span> : <span className="text-slate-400">Select an option</span>}
+                        <ChevronDown className={`h-4 w-4 text-slate-400 transition ${keyProductsOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {keyProductsOpen && (
+                        <div className="compliance-products-panel">
+                          <button type="button" className="compliance-products-option" onClick={() => onChange('keyProductsBrands', 'Uploaded in shared folder')}>
+                            <span>Uploaded in shared folder</span>
+                            <span className={report.keyProductsBrands === 'Uploaded in shared folder' ? 'selected' : ''}>{report.keyProductsBrands === 'Uploaded in shared folder' && <Check className="h-3.5 w-3.5" />}</span>
+                          </button>
+                          {report.keyProductsBrands === 'Uploaded in shared folder' && (
+                            <div className="compliance-shared-upload">
+                              <div className="flex items-start justify-between gap-3"><div><strong>Shared folder upload</strong><p>Upload files or choose a full folder. Paths are saved with this report.</p></div><b>{report.sharedFolderUploads?.filter((item) => item.source === 'shared-folder').length || 0}<small>files</small></b></div>
+                              <div className="mt-3 grid grid-cols-2 gap-2">
+                                <label><Upload className="h-4 w-4" />Choose Files<input type="file" multiple className="sr-only" onChange={(event) => handleEvidenceUpload('shared-folder', event)} /></label>
+                                <label className="primary"><Upload className="h-4 w-4" />Choose Folder<input type="file" multiple webkitdirectory="" directory="" className="sr-only" onChange={(event) => handleEvidenceUpload('shared-folder', event)} /></label>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <input
+                      type={field === 'establishmentDate' ? 'date' : (field === 'yearOfCommencement' ? 'number' : 'text')}
+                      min={field === 'yearOfCommencement' ? '1800' : undefined}
+                      max={field === 'yearOfCommencement' ? String(new Date().getFullYear()) : undefined}
+                      className="form-input"
+                      value={report[field] || ''}
+                      onChange={(event) => onChange(field, event.target.value)}
+                    />
+                  )}
+                </Field>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <h3 className="text-xl font-black text-slate-950">2. Objective of Review</h3>
+            <div className="mt-4">
+              <textarea className="form-input min-h-[130px] resize-y py-3" value={report.objectiveReview || ''} onChange={(event) => onChange('objectiveReview', event.target.value)} />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-black text-slate-950">3.1 Key Compliance Observations</h3>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{observationLines.length} rows</span>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-center">Sr. No.</th>
+                    <th className="px-4 py-3 text-center">Area</th>
+                    <th className="px-4 py-3 text-center">Observation</th>
+                    <th className="px-4 py-3 text-center">Potential Risk</th>
+                    <th className="px-4 py-3 text-center">Screenshot Reference</th>
+                    <th className="px-4 py-3 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {observationLines.length ? observationLines.map((row, index) => (
+                    <tr key={`${row}-${index}`} className="border-t border-slate-100">
+                      <td className="px-3 py-5 text-center"><input className="form-input text-center" value={index + 1} readOnly /></td>
+                      <td className="px-3 py-5"><input className="form-input text-center" value={row} onChange={(event) => { const next = [...observationLines]; next[index] = event.target.value; updateListField('keyObservations', next); }} /></td>
+                      <td className="px-3 py-5"><input className="form-input" value={report.keyObservationDetails?.[index]?.observation || ''} onChange={(event) => updateKeyObservationDetail(index, 'observation', event.target.value)} /></td>
+                      <td className="px-3 py-5"><input className="form-input" value={report.keyObservationDetails?.[index]?.potentialRisk || ''} onChange={(event) => updateKeyObservationDetail(index, 'potentialRisk', event.target.value)} /></td>
+                      <td className="px-3 py-5">
+                        <label className="compliance-health-file-button">
+                          <Upload className="h-4 w-4" /> Choose Files
+                          <input type="file" multiple accept="image/*,.pdf" className="sr-only" onChange={(event) => handleEvidenceUpload('screenshot', event, index)} />
+                        </label>
+                        <div className="compliance-health-file-name">
+                          {report.keyObservationDetails?.[index]?.evidence?.length
+                            ? `${report.keyObservationDetails[index].evidence.length} file(s) attached`
+                            : 'No file selected'}
+                        </div>
+                      </td>
+                      <td className="px-3 py-5 text-center"><button type="button" onClick={() => removeListRow('keyObservations', index)} className="compliance-health-delete" title="Remove row"><X className="h-4 w-4" /></button></td>
+                    </tr>
+                  )) : <tr><td colSpan={6} className="px-4 py-10 text-center font-black text-slate-400">No observations yet.</td></tr>}
+                </tbody>
+              </table>
+              <div className="border-t border-slate-200 bg-white p-4">
+                <button type="button" onClick={() => addListRow('keyObservations')} className="btn-lift inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-5 font-black text-white shadow-lg shadow-emerald-700/20"><Plus className="h-4 w-4" />Add Row</button>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <button type="button" className="flex w-full items-center justify-between gap-3 text-left" onClick={() => setAnnualReturnExpanded((value) => !value)} aria-expanded={annualReturnExpanded}>
+              <h3 className="text-xl font-black text-slate-950">3.2 Key Compliance Observations For Annual Return</h3>
+              <span className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{annualReturnLines.length} rows <ChevronDown className={`h-4 w-4 transition ${annualReturnExpanded ? 'rotate-180' : ''}`} /></span>
+            </button>
+            {annualReturnExpanded && <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3 text-center">Sr. No.</th><th className="px-4 py-3 text-center">Area</th><th className="px-4 py-3 text-center">Observation</th><th className="px-4 py-3 text-center">Potential Risk</th><th className="px-4 py-3 text-center">Screenshot Reference</th><th className="px-4 py-3 text-center">Action</th></tr></thead>
+                <tbody>{annualReturnLines.length ? annualReturnLines.map((row, index) => <tr key={`${row}-${index}`} className="border-t border-slate-100">
+                  <td className="px-3 py-4"><input className="form-input text-center" value={index + 1} readOnly /></td>
+                  <td className="px-3 py-4"><input className="form-input text-center" value={row} onChange={(event) => { const next = [...annualReturnLines]; next[index] = event.target.value; updateListField('annualReturnObservations', next); }} /></td>
+                  <td className="px-3 py-4"><input className="form-input" value={report.annualReturnDetails?.[index]?.observation || ''} onChange={(event) => updateAnnualReturnDetail(index, 'observation', event.target.value)} /></td>
+                  <td className="px-3 py-4"><input className="form-input" value={report.annualReturnDetails?.[index]?.potentialRisk || ''} onChange={(event) => updateAnnualReturnDetail(index, 'potentialRisk', event.target.value)} /></td>
+                  <td className="px-3 py-4"><label className="compliance-health-file-button"><Upload className="h-4 w-4" />Choose Files<input type="file" multiple accept="image/*,.pdf" className="sr-only" onChange={(event) => handleEvidenceUpload('screenshot', event, index, 'annualReturnDetails')} /></label><div className="compliance-health-file-name">{report.annualReturnDetails?.[index]?.evidence?.length ? `${report.annualReturnDetails[index].evidence.length} file(s)` : 'No file selected'}</div></td>
+                  <td className="px-3 py-4 text-center"><button type="button" onClick={() => removeListRow('annualReturnObservations', index)} className="compliance-health-delete"><X className="h-4 w-4" /></button></td>
+                </tr>) : <tr><td colSpan={6} className="px-4 py-10 text-center font-black text-slate-400">No annual return observation yet.</td></tr>}</tbody>
+              </table>
+              <div className="border-t border-slate-200 bg-white p-4"><button type="button" onClick={() => addListRow('annualReturnObservations')} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-700 px-4 font-black text-white"><Plus className="h-4 w-4" />Add Row</button></div>
+            </div>}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 compliance-checklist-card">
+            <button type="button" className="flex w-full items-center justify-between gap-3 text-left" onClick={() => setChecklistExpanded((value) => !value)} aria-expanded={checklistExpanded}>
+              <h3 className="text-xl font-black text-slate-950">4. Compliance Checklist Review</h3>
+              <span className="flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-700">{checklistGroups.reduce((total, group) => total + group.items.length, 0)} checks <ChevronDown className={`h-4 w-4 transition ${checklistExpanded ? 'rotate-180' : ''}`} /></span>
+            </button>
+            {checklistExpanded && <div className="compliance-checklist-scroll mt-4 overflow-auto rounded-2xl border border-slate-200">
+              <div className="compliance-checklist-head"><span>Sr. No.</span><span>Compliance Requirement</span><span>Status</span><span>Remark</span></div>
+              {checklistGroups.map((group) => (
+                <div key={group.title}>
+                  <div className="compliance-checklist-group"><strong>{group.title}</strong><span>{group.items.length} items</span></div>
+                  {group.items.map((item) => {
+                    const displayNumber = checklistItems.slice(0, item.sourceIndex + 1).filter((entry) => !new Set(['PART A', 'PART B', 'PART C', 'PART D', 'Authorized Person Details', 'Operational & Production', 'Documents Uploaded on Portal']).has(entry.requirement)).length;
+                    return (
+                      <div className="compliance-checklist-row" key={`${item.requirement}-${item.sourceIndex}`}>
+                        <span className="compliance-checklist-number">{displayNumber}</span>
+                        <strong>{item.requirement}</strong>
+                        <select className="form-input" value={item.status || ''} onChange={(event) => updateChecklistItem(item.sourceIndex, 'status', event.target.value)}>
+                          <option value="">Select</option>
+                          <option value="Compliant">Compliant</option>
+                          <option value="Non-Compliant">Non-Compliant</option>
+                          <option value="Partial">Partial</option>
+                          <option value="Not Applicable">Not Applicable</option>
+                        </select>
+                        <input className="form-input" placeholder="Add remark" value={item.remark || ''} onChange={(event) => updateChecklistItem(item.sourceIndex, 'remark', event.target.value)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 compliance-conclusion-card">
+            <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Final notes</p><h3 className="mt-1 text-xl font-black text-slate-950">Conclusion &amp; Next Steps</h3></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{conclusionNotes.length} item(s)</span></div>
+            <div className="mt-5 grid gap-4">
+              {conclusionNotes.map((note, index) => (
+                <div className="compliance-conclusion-row" key={index}>
+                  <span>{index + 1}</span>
+                  <textarea className="form-input min-h-[72px] resize-y py-3" placeholder="Enter conclusion" value={note.conclusion || ''} onChange={(event) => updateConclusionNote(index, 'conclusion', event.target.value)} />
+                  <textarea className="form-input min-h-[72px] resize-y py-3" placeholder="Enter recommendations or next steps" value={note.recommendation || ''} onChange={(event) => updateConclusionNote(index, 'recommendation', event.target.value)} />
+                  <button type="button" className="compliance-health-delete" title="Remove note" disabled={conclusionNotes.length === 1} onClick={() => onChange('conclusionNotes', conclusionNotes.filter((_, itemIndex) => itemIndex !== index))}><X className="h-4 w-4" /></button>
+                </div>
+              ))}
+              <button type="button" className="compliance-add-note" onClick={() => onChange('conclusionNotes', [...conclusionNotes, { conclusion: '', recommendation: '' }])}><Plus className="h-4 w-4" /> Add Note</button>
+            </div>
+          </section>
+
+        </div>
+
+        <footer className="mt-8 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-end">
+          {pageMode && <button type="button" disabled={saving} onClick={onBack} className="min-h-11 rounded-xl border border-slate-200 px-7 font-black text-slate-700 hover:bg-slate-50">Back</button>}
+          <button type="button" disabled={saving || loading || !(lead?._id || lead?.id)} onClick={() => { setSubmitConfirmed(false); setSubmitConfirmOpen(true); }} className="min-h-11 rounded-xl bg-orange-600 px-7 font-black text-white shadow-lg shadow-orange-600/20 disabled:cursor-not-allowed disabled:opacity-70">
+            {saving ? 'Saving Report...' : 'Submit Report'}
+          </button>
+        </footer>
+        {submitConfirmOpen && (
+          <div className="compliance-submit-overlay" role="dialog" aria-modal="true" aria-labelledby="compliance-submit-title">
+            <button type="button" className="absolute inset-0 cursor-default" aria-label="Close confirmation" onClick={() => setSubmitConfirmOpen(false)} />
+            <section className="compliance-submit-modal">
+              <header>
+                <span><CheckCircle2 className="h-5 w-5" /></span>
+                <div><p>Final Review</p><h3 id="compliance-submit-title">Submit COMPLIANCE HEALTH REPORT</h3></div>
+                <button type="button" onClick={() => setSubmitConfirmOpen(false)} aria-label="Close"><X className="h-5 w-5" /></button>
+              </header>
+              <div className="p-6">
+                <label className="compliance-submit-check">
+                  <input type="checkbox" checked={submitConfirmed} onChange={(event) => setSubmitConfirmed(event.target.checked)} />
+                  <span>I have reviewed all the details I entered, and they are correct.</span>
+                </label>
+                <div className="mt-5 flex justify-end">
+                  <button type="button" disabled={!submitConfirmed || saving} onClick={() => onSubmit({ confirmed: true })} className="compliance-submit-button">{saving ? 'Submitting...' : 'Submit'}</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -756,13 +2406,14 @@ function StaffFilterSelect({ value, options, onChange }) {
   );
 }
 
-function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, onCreate }) {
+function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, canEdit = false }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
   const [metricFilter, setMetricFilter] = useState('');
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [page, setPage] = useState(1);
+  const [actionMenuId, setActionMenuId] = useState('');
 
   const filteredLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -936,7 +2587,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     ['Assigned By', 'w-[150px]'],
                     ['Created By', 'w-[150px]'],
                     ['Status', 'w-[140px]'],
-                    ['Actions', 'w-[110px]']
+                    ['Actions', 'w-[170px]']
                   ].map(([header, width]) => <th key={header} className={`px-5 py-4 ${width}`}>{header}</th>)}
                 </tr>
               </thead>
@@ -963,7 +2614,13 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
-                        <button type="button" onClick={() => openCcpLeadEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit in CCP"><Edit3 className="h-4 w-4" /></button>
+                        {canEdit && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit in CRM"><Edit3 className="h-4 w-4" /></button>}
+                        {canEdit && <div className="relative">
+                          <button type="button" onClick={() => setActionMenuId((value) => value === leadRecordId(item) ? '' : leadRecordId(item))} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="More actions"><EllipsisVertical className="h-4 w-4" /></button>
+                          {actionMenuId === leadRecordId(item) && <div className="absolute bottom-full right-0 z-30 mb-2 w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+                            {['Active', 'Inactive'].map((status) => <button key={status} type="button" onClick={async () => { await onToggleActive(item, status.toUpperCase()); setActionMenuId(''); }} className="block w-full px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-emerald-50">{status}</button>)}
+                          </div>}
+                        </div>}
                       </div>
                     </td>
                   </tr>
@@ -1189,12 +2846,13 @@ function buildLeadFollowUpRows(lead = {}) {
   return rows;
 }
 
-function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation, onLeadUpdated }) {
+function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null, onBack, onEdit, onAddQuotation, onLeadUpdated, canEdit = false }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [detailLead, setDetailLead] = useState(lead);
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [followUpError, setFollowUpError] = useState('');
+  const [assignmentSavingIndex, setAssignmentSavingIndex] = useState(-1);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyData, setHistoryData] = useState({ events: [], summary: {} });
@@ -1203,16 +2861,79 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     scheduledDate: todayDateKey(),
     scheduledTime: '',
     remarks: '',
-    reason: ''
+    reason: '',
+    priority: 'Medium'
   });
   useEffect(() => {
     setDetailLead(lead);
   }, [lead]);
   const activeLead = detailLead || lead;
+  const detailAssignments = Array.isArray(activeLead.assignments) && activeLead.assignments.length
+    ? activeLead.assignments
+    : [createAssignmentRow(activeLead)];
+  const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.ccpUserId]
+    .filter(Boolean).map(String);
+  const isManager = String(currentUser?.role || '').toLowerCase() === 'manager';
+  const isAssignmentAdmin = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+  const detailStaffOptions = staff.flatMap((user) => {
+    const label = `${user.name || user.email} (${user.team || 'No team assigned'})`;
+    return [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId]
+      .filter(Boolean)
+      .map((id) => ({ value: String(id), label }));
+  });
+
+  async function assignStaffFromDetail(index, value) {
+    const row = detailAssignments[index];
+    const managerOwnsRow = currentUserTokens.includes(String(row?.assignedTo?._id || row?.assignedTo || ''));
+    if ((!isManager || !managerOwnsRow) && !isAssignmentAdmin) return;
+    const selected = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId]
+      .filter(Boolean).some((id) => String(id) === String(value)));
+    const assignments = detailAssignments.map((item, rowIndex) => rowIndex === index ? {
+      ...item,
+      assignedStaff: value,
+      assignedStaffText: selected?.name || selected?.email || '',
+      assignedStaffEmail: selected?.email || ''
+    } : item);
+    setAssignmentSavingIndex(index);
+    try {
+      // CCP still exposes legacy lead-level staff fields. Sending those fields while
+      // editing one row makes older CCP handlers copy that staff member to every
+      // assignment. The assignments array is the source of truth for row-wise edits.
+      const {
+        assignedStaff: _legacyAssignedStaff,
+        assignedStaffText: _legacyAssignedStaffText,
+        assignedStaffEmail: _legacyAssignedStaffEmail,
+        ...leadWithoutLegacyStaff
+      } = activeLead;
+      const payload = {
+        ...leadWithoutLegacyStaff,
+        assignments
+      };
+      const response = await api.put(API_ENDPOINTS.ccp.updateLead(activeLead._id || activeLead.id || activeLead.sourceLeadId), payload);
+      const responseLead = response.data?.lead || response.data?.data?.lead || response.data?.data;
+      // Some CCP update responses contain only the changed assignment fields.
+      // Merge that patch into the current lead so company/service/contact data does
+      // not disappear, and retain the exact row-wise assignments we submitted.
+      const updatedLead = {
+        ...activeLead,
+        ...(responseLead && typeof responseLead === 'object' ? responseLead : {}),
+        assignments,
+        serviceSelections: activeLead.serviceSelections,
+        addresses: activeLead.addresses,
+        contacts: activeLead.contacts,
+        assignedStaff: assignments[0]?.assignedStaff || '',
+        assignedStaffText: assignments[0]?.assignedStaffText || '',
+        assignedStaffEmail: assignments[0]?.assignedStaffEmail || ''
+      };
+      setDetailLead(updatedLead);
+      onLeadUpdated?.(updatedLead);
+    } finally {
+      setAssignmentSavingIndex(-1);
+    }
+  }
   const hasBusinessCard = Boolean(activeLead.businessCardUrl);
   const companyName = activeLead.company || 'Lead Details';
   const initials = companyName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'LD';
-  const location = [activeLead.city, activeLead.state, activeLead.pinCode].filter(Boolean).join(', ');
   const leadQuotations = quotations.filter((quotation) => {
     const normalize = (value) => String(value || '').trim().toLowerCase();
     const crmLeadIds = [activeLead._id, activeLead.id].map(normalize).filter(Boolean);
@@ -1260,26 +2981,11 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     ['Mobile 1', activeLead.mobileNo1, Phone],
     ['Mobile 2', activeLead.mobileNo2, Phone],
     ['Email', activeLead.emails, Mail],
-    ['Emails Sent', activeLead.emailsSentCount || 0, Mail],
-    ['Last Email Sent', activeLead.lastEmailSent || 'No emails sent yet', Mail],
     ['Referred By', activeLead.referredBy, UserCheck]
-  ];
-  const assignedRows = [
-    ['Assigned To', activeLead.assignedTo?.name || activeLead.assignedToText],
-    ['Assigned Email', activeLead.assignedTo?.email],
-    ['Assigned By', activeLead.assignedBy],
-    ['Lead Closed By', activeLead.closedBy?.name || activeLead.closedByText],
-    ['Closed By Email', activeLead.closedBy?.email || activeLead.closedByEmail],
-    ['Lead Date', activeLead.leadDate],
-    ['Next Follow-Up Date', activeLead.nextFollowUpDate],
-    ['Next Follow-Up Time', activeLead.nextFollowUpTime],
-    ['Follow-Up Remarks', activeLead.followUpRemarks]
   ];
   const tabs = [
     { id: 'overview', label: 'Overview', icon: FileText },
-    { id: 'assigned', label: 'Assigned Users', icon: UserCheck },
-    { id: 'business', label: 'Business Card', icon: CreditCard },
-    { id: 'quotation', label: 'Quotations', icon: FileText }
+    { id: 'followup', label: 'Follow-Up', icon: Clock3 }
   ];
 
   async function sendIntroMail() {
@@ -1296,6 +3002,10 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     const identifiers = Object.fromEntries(Object.entries({ leadCode: activeLead.leadCode, company: activeLead.company }).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== ''));
     const fallbackEvents = [
         { id: 'lead-created', type: 'lead_created', title: 'Lead created', description: `${activeLead.leadCode || 'Lead'} created for ${activeLead.company || 'the company'}`, actor: activeLead.importedCreatedBy || activeLead.assignedBy || 'Imported user', at: activeLead.createdAt || activeLead.importedCreatedAt || activeLead.leadDate },
+        ...(activeLead.serviceSelections || []).map((row, index) => ({ id: `service-${index}`, type: 'service_added', title: `Service row ${index + 1} added`, description: `${row.industryType || 'Industry not set'} · ${row.servicesOffered || row.eprCategory || 'Service not set'}`, actor: row.createdByName || row.createdByEmail || activeLead.importedCreatedBy || 'CRM User', at: row.createdAt || activeLead.createdAt || activeLead.importedCreatedAt || activeLead.leadDate })),
+        ...detailAssignments.map((row, index) => ({ id: `assignment-${index}`, type: 'lead_assignment', title: `Assignment row ${index + 1}`, description: `Manager: ${row.assignedTo?.name || row.assignedToText || '-'} · Staff: ${row.assignedStaff?.name || row.assignedStaffText || 'Not assigned'} · Closed by: ${row.closedBy?.name || row.closedByText || '-'}`, actor: row.assignedBy || activeLead.assignedBy || activeLead.importedCreatedBy || 'CRM User', at: row.assignedAt || row.updatedAt || activeLead.updatedAt || activeLead.importedUpdatedAt || activeLead.createdAt })),
+        ...(activeLead.emailHistory || []).map((item, index) => ({ id: `email-${item.id || index}`, type: 'email_sent', title: item.subject || 'Email sent', description: `Email sent to ${item.recipient || item.to || activeLead.emails || 'client'}`, actor: item.sentBy || item.actor || 'CRM User', at: item.sentAt || item.createdAt })),
+        ...(activeLead.updatedAt || activeLead.importedUpdatedAt ? [{ id: 'lead-last-updated', type: 'lead_updated', title: 'Lead last updated', description: `Current status: ${activeLead.status || 'Draft'}`, actor: activeLead.updatedByText || activeLead.updatedBy || activeLead.assignedBy || 'CRM User', at: activeLead.updatedAt || activeLead.importedUpdatedAt }] : []),
         ...leadQuotations.map((item) => ({ id: `quote-${item._id || item.id}`, type: 'quotation_created', title: 'Quotation created', description: `${item.quotationNumber || 'Quotation'} added`, actor: item.createdBy?.name || item.createdBy?.email || 'CRM User', at: item.createdAt })),
         ...followUpRows.map((item, index) => ({ id: `follow-${index}`, type: 'follow_up', title: 'Lead follow-up', description: item.remarks || 'Follow-up updated', actor: item.updatedBy || 'CRM User', at: item.createdAt || item.updatedAt || item.scheduledDate }))
       ].filter((item) => item.at);
@@ -1321,6 +3031,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
       scheduledTime: activeLead.nextFollowUpTime || '',
       remarks: '',
       reason: ''
+      ,priority: 'Medium'
     });
     setFollowUpError('');
     setFollowUpModalOpen(true);
@@ -1352,6 +3063,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
       scheduledTime: followUpDraft.scheduledTime,
       remarks: followUpDraft.remarks.trim(),
       reason: followUpDraft.reason.trim(),
+      priority: followUpDraft.priority,
       createdAt: new Date().toISOString()
     };
     const payload = {
@@ -1360,6 +3072,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
       nextFollowUpDate: newEntry.scheduledDate,
       nextFollowUpTime: newEntry.scheduledTime,
       followUpRemarks: newEntry.remarks,
+      followUpPriority: newEntry.priority,
       followUpHistory: [newEntry, ...previousCurrent, ...(Array.isArray(activeLead.followUpHistory) ? activeLead.followUpHistory : [])]
     };
     setFollowUpSaving(true);
@@ -1367,6 +3080,19 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
     try {
       const response = await api.put(API_ENDPOINTS.ccp.updateLead(leadId), payload);
       const updatedLead = response.data?.lead || payload;
+      await api.post(API_ENDPOINTS.calendarItems.create, {
+        type: 'followup',
+        title: `Lead follow-up: ${activeLead.company || activeLead.leadCode || 'Lead'}`,
+        description: newEntry.remarks,
+        clientName: activeLead.company || '',
+        leadId,
+        scheduledDate: newEntry.scheduledDate,
+        scheduledTime: newEntry.scheduledTime,
+        priority: newEntry.priority,
+        status: 'open',
+        assignedTo: activeLead.assignedTo?._id || activeLead.assignedTo || '',
+        assignedToName: activeLead.assignedTo?.name || activeLead.assignedToText || ''
+      }).catch(() => null);
       setDetailLead(updatedLead);
       onLeadUpdated?.(updatedLead);
       setFollowUpModalOpen(false);
@@ -1390,11 +3116,9 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={() => onAddQuotation()} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-500 px-5 text-sm font-black text-white shadow-lg shadow-slate-500/20"><Plus className="h-4 w-4" />Add New Quotations</button>
           <button type="button" className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>
           <button type="button" onClick={openHistory} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-600/20"><RefreshCw className="h-4 w-4" />View History</button>
-          <button type="button" onClick={sendIntroMail} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Mail className="h-4 w-4" />Send Introduction Mail</button>
-          <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-5 text-sm font-black text-white shadow-lg shadow-orange-500/20"><Edit3 className="h-4 w-4" />Edit</button>
+          {canEdit && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-5 text-sm font-black text-white shadow-lg shadow-orange-500/20"><Edit3 className="h-4 w-4" />Edit</button>}
         </div>
         </div>
       </div>
@@ -1406,105 +3130,95 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
               <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
                 <div className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-white bg-[#30737B] text-2xl font-black text-white shadow-lg shadow-teal-900/20">{initials}</div>
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-black uppercase text-white">{activeLead.status || 'Draft'}</span>
-                    <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-black uppercase text-violet-700">{activeLead.eprCategory || 'EPR Not Set'}</span>
-                    <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-black uppercase text-blue-700">{activeLead.piboCategory || 'PIBO Not Set'}</span>
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black leading-tight text-slate-950 sm:text-4xl">{companyName}</h1>
-                  <p className="mt-2 max-w-4xl text-sm font-bold text-slate-500">{location || 'Location not set'}</p>
+                  <h1 className="text-3xl font-black leading-tight text-slate-950 sm:text-4xl">{companyName}</h1>
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/80 bg-white/80 p-4 shadow-sm shadow-teal-900/5 backdrop-blur xl:min-w-[640px]">
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-white/80 bg-white/80 p-4 shadow-sm shadow-teal-900/5 backdrop-blur xl:min-w-[500px]">
+                <div className="grid gap-4 sm:grid-cols-3">
                   <LeadInlineMeta label="Lead ID" value={displayLeadId(activeLead)} icon={FileText} />
                   <LeadInlineMeta label="Contact" value={activeLead.contactPerson} icon={ContactRound} />
                   <LeadInlineMeta label="Mobile" value={activeLead.mobileNo1} icon={Phone} />
-                  <LeadInlineMeta label="Quotations" value={leadQuotations.length} icon={FileText} />
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+        <div className="mt-5 grid gap-5">
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
-          <div className="grid border-b border-slate-200 sm:grid-cols-4">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.id;
-              return (
-                <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`flex min-h-14 items-center justify-center gap-2 border-b border-slate-100 px-3 text-sm font-black transition sm:border-b-0 sm:border-r last:border-r-0 ${active ? 'bg-emerald-50 text-[#30737B] shadow-inner' : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-                  <Icon className="h-4 w-4" />
-                  <span className="truncate">{tab.label}</span>
-                </button>
-              );
-            })}
+          <div className="grid grid-cols-2 gap-2 border-b border-emerald-100 bg-emerald-50/70 p-3">
+            {tabs.map((tab) => { const TabIcon = tab.icon; const active = activeTab === tab.id; return <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`flex min-h-14 items-center justify-center gap-2 rounded-xl font-black ${active ? 'bg-[#30737B] text-white shadow-lg' : 'bg-white text-slate-500'}`}><TabIcon className="h-4 w-4" />{tab.label}</button>; })}
           </div>
-
           {activeTab === 'overview' && (
             <div className="p-6">
               <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Overview</p>
-                  <h2 className="text-2xl font-black text-slate-950">Lead intelligence</h2>
+                  <h2 className="text-2xl font-black text-slate-950">Complete Lead Information</h2>
                 </div>
                 <span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-black uppercase text-slate-600">Updated {activeLead.importedUpdatedAt || activeLead.updatedAt || 'Recently'}</span>
               </div>
               <div className="space-y-4">
-                <LeadDetailGroup title="Basic Information" icon={Building2} rows={basicInfoRows} defaultOpen />
-                <LeadDetailGroup title="Registered & Communication Address" icon={MapPin} rows={addressInfoRows} defaultOpen />
-                <LeadDetailGroup title="Contact Matrix" icon={ContactRound} rows={contactInfoRows} defaultOpen />
+                <>
+                  <div className="overflow-auto rounded-xl border border-slate-200">
+                  <div className="border-b border-slate-200 bg-emerald-50 px-5 py-4"><h3 className="font-black text-slate-900">Service &amp; Applicant</h3></div>
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'EPR Category', 'Applicant Type', 'SIMP Category', 'Services Offered', 'FY Year'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+                    <tbody>{(activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)]).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3">{row.piboCategory || 'Not applicable'}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody>
+                  </table>
+                  </div>
+                </>
+                <ReadOnlyInfoTable title="Address Information" icon={MapPin} rows={addressInfoRows} />
+                <ReadOnlyInfoTable title="Contact Information" icon={ContactRound} rows={contactInfoRows} />
+                <div className="overflow-auto rounded-xl border border-slate-200">
+                  <div className="flex items-center gap-3 border-b border-slate-200 bg-gradient-to-r from-emerald-50 to-sky-50 px-5 py-4">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#30737B] shadow-sm"><UserCheck className="h-4 w-4" /></span>
+                    <div><h3 className="font-black text-slate-900">Assign Lead</h3><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{detailAssignments.length} assignment row{detailAssignments.length === 1 ? '' : 's'}</p></div>
+                  </div>
+                  <table className="w-full min-w-[1650px] text-left text-sm">
+                    <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                      <tr>{['#', 'Industry Type', 'Services Offered', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By', 'Lead Closed By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {detailAssignments.map((row, index) => {
+                        const matchingService = (activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)])[index]
+                          || activeLead.serviceSelections?.at(-1)
+                          || createServiceSelection(activeLead);
+                        const managerId = row.assignedTo?._id || row.assignedTo || '';
+                        const managerOwnsRow = currentUserTokens.includes(String(managerId));
+                        const canAssignThisRow = isAssignmentAdmin || (isManager && managerOwnsRow);
+                        const selectedStaffOptions = row.assignedStaff && !detailStaffOptions.some((option) => String(option.value) === String(row.assignedStaff?._id || row.assignedStaff))
+                          ? [{ value: String(row.assignedStaff?._id || row.assignedStaff), label: row.assignedStaffText || row.assignedStaff?.name || 'Assigned staff' }, ...detailStaffOptions]
+                          : detailStaffOptions;
+                        return <tr key={index} className="border-t border-slate-100">
+                          <td className="px-4 py-3 font-black">{index + 1}</td>
+                          <td className="px-4 py-3 font-black">{matchingService.industryType || '-'}</td>
+                          <td className="px-4 py-3">{matchingService.servicesOffered || '-'}</td>
+                          <td className="px-4 py-3 font-black">{row.assignedTo?.name || row.assignedToText || '-'}</td>
+                          <td className="px-4 py-3">{row.assignedTo?.email || row.assignedToEmail || '-'}</td>
+                          <td className="min-w-[270px] px-4 py-3">
+                            {canAssignThisRow
+                              ? <SearchableSelect disabled={assignmentSavingIndex === index} value={row.assignedStaff?._id || row.assignedStaff || ''} options={selectedStaffOptions} placeholder="Select staff member" onChange={(value) => assignStaffFromDetail(index, value)} />
+                              : <span className="font-black">{row.assignedStaff?.name || row.assignedStaffText || '-'}</span>}
+                          </td>
+                          <td className="px-4 py-3">{row.assignedStaff?.email || row.assignedStaffEmail || '-'}</td>
+                          <td className="px-4 py-3">{row.assignedBy || activeLead.assignedBy || '-'}</td>
+                          <td className="px-4 py-3 font-black">{row.closedBy?.name || row.closedByText || '-'}</td>
+                        </tr>;
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
-
-          {activeTab === 'assigned' && (
+          {activeTab === 'followup' && (
             <div className="p-6">
-              <LeadDetailRows rows={assignedRows} />
-            </div>
-          )}
-
-          {activeTab === 'business' && (
-            <div className="p-6">
-              {hasBusinessCard ? (
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                  <img src={activeLead.businessCardUrl} alt="Business card" className="max-h-[560px] w-full object-contain" />
-                </div>
-              ) : (
-                <EmptyDetailState title="No business card uploaded." />
-              )}
-            </div>
-          )}
-
-          {activeTab === 'quotation' && (
-            <div className="p-6">
-              {leadQuotations.length ? (
-                <div className="space-y-5">
-                  {leadQuotations.map((quotation) => (
-                    <QuotationPreviewCard key={quotation._id || quotation.id} quotation={quotation} onOpen={onAddQuotation} />
-                  ))}
-                </div>
-              ) : (
-                <EmptyDetailState title="No quotation preview mapped yet." actionLabel="Add New Quotation" onAction={() => onAddQuotation()} />
-              )}
+              <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-orange-600">Lead follow-up workflow</p><h2 className="text-2xl font-black">Follow-Up Tracker</h2></div><button type="button" onClick={openFollowUpModal} className="rounded-xl bg-orange-500 px-5 py-3 font-black text-white">Add Follow-Up</button></div>
+              <div className="grid gap-5 lg:grid-cols-2"><FollowUpBox title="Upcoming Follow-Ups" tone="orange" items={upcomingFollowUps} emptyMessage="No upcoming follow-ups." /><FollowUpBox title="Previous Follow-Ups" tone="slate" items={previousFollowUps} emptyMessage="No past follow-ups." /></div>
             </div>
           )}
         </section>
-
-        <aside className="rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-            <div className="flex items-center gap-2">
-              <Clock3 className="h-5 w-5 text-slate-500" />
-              <h2 className="text-xl font-black text-slate-900">Follow-Up Tracker</h2>
-            </div>
-            <button type="button" onClick={openFollowUpModal} className="btn-lift min-h-10 rounded-lg bg-orange-500 px-5 text-sm font-black text-white">Add Follow-Up</button>
-          </div>
-          <div className="space-y-5 p-6">
-            <FollowUpBox title="Upcoming Follow-Ups" tone="orange" items={upcomingFollowUps} emptyMessage="No upcoming follow-ups." />
-            <FollowUpBox title="Previous Follow-Ups" tone="slate" items={previousFollowUps} emptyMessage="No past follow-ups." />
-          </div>
-        </aside>
         </div>
       </div>
       {historyOpen && <LeadHistoryDrawer data={historyData} loading={historyLoading} filter={historyFilter} onFilter={setHistoryFilter} onRefresh={openHistory} onClose={() => setHistoryOpen(false)} />}
@@ -1521,6 +3235,7 @@ function LeadDetailView({ lead, quotations = [], onBack, onEdit, onAddQuotation,
             <div className="grid gap-4 px-6 py-5 sm:grid-cols-2">
               <Field label="Scheduled Date" required><PremiumDatePicker value={followUpDraft.scheduledDate} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
               <Field label="Scheduled Time"><input type="time" className="form-input" value={followUpDraft.scheduledTime} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
+              <Field label="Priority"><select className="form-input" value={followUpDraft.priority} onChange={(event) => setFollowUpDraft((current) => ({ ...current, priority: event.target.value }))}><option>Low</option><option>Medium</option><option>High</option></select></Field>
               <Field label="Follow-Up Remarks" required className="sm:col-span-2"><textarea className="form-input min-h-28 resize-y" value={followUpDraft.remarks} onChange={(event) => setFollowUpDraft((current) => ({ ...current, remarks: event.target.value }))} placeholder="Enter follow-up note or outcome" /></Field>
               <Field label="Update Reason" className="sm:col-span-2"><textarea className="form-input min-h-20 resize-y" value={followUpDraft.reason} onChange={(event) => setFollowUpDraft((current) => ({ ...current, reason: event.target.value }))} placeholder="Why is this follow-up being added?" /></Field>
               {followUpError && <p className="sm:col-span-2 rounded-lg bg-red-50 px-4 py-3 text-sm font-black text-red-600">{followUpError}</p>}
@@ -1611,11 +3326,43 @@ function LeadDetailGroup({ title, icon: Icon, rows, defaultOpen = false }) {
   );
 }
 
+function ReadOnlyInfoTable({ title, icon: Icon, rows = [] }) {
+  const renderValue = (row) => {
+    if (!row) return <span className="text-slate-300">—</span>;
+    const [, value, , kind] = row;
+    return kind === 'pill'
+      ? <span className="inline-flex rounded-full bg-blue-600 px-3 py-1 text-[11px] font-black uppercase text-white">{value || 'Draft'}</span>
+      : <span className="break-words font-black text-slate-900">{value || '-'}</span>;
+  };
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <header className="flex items-center gap-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-sky-50 px-5 py-4">
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#30737B] shadow-sm"><Icon className="h-4 w-4" /></span>
+        <h3 className="font-black text-slate-950">{title}</h3>
+      </header>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-max text-left text-sm">
+          <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-[.1em] text-slate-500">
+            <tr>
+              {rows.map(([label]) => <th key={label} className="min-w-[180px] whitespace-nowrap px-5 py-3">{label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-slate-100 bg-white">
+              {rows.map((row) => <td key={row[0]} className="min-w-[180px] whitespace-nowrap px-5 py-4">{renderValue(row)}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function LeadDetailValue({ label, value, icon: Icon, kind }) {
   return (
     <div className="grid min-h-12 grid-cols-[auto_130px_minmax(0,1fr)] items-center gap-3 border-b border-r border-emerald-50 px-4 py-3 last:border-b-0">
       <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-50 text-[#30737B]">
-        <Icon className="h-4 w-4" />
+        {Icon ? <Icon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
       </span>
       <span className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">{label}</span>
       <span className="break-words text-xs font-black uppercase text-slate-950">

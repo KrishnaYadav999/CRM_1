@@ -11,9 +11,10 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
     manager: '',
     operationHead: ''
   })
+  const [memberSearch, setMemberSearch] = useState('')
 
   const activeUsers = useMemo(() => users.filter((user) => user.isActive), [users])
-  const managerOptions = activeUsers.filter((user) => ['manager', 'admin', 'superadmin', 'operation'].includes(user.role))
+  const managerOptions = activeUsers.filter((user) => user.role === 'manager')
   const headOptions = activeUsers
   const selectedManagerId = String(form.manager || '')
   const memberOptions = useMemo(() => {
@@ -21,9 +22,15 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
     return activeUsers.filter((user) => {
       const id = String(user._id || user.id || '')
       if (id === selectedManagerId) return false
-      return String(user.managerId || '') === selectedManagerId
+      if (id === String(form.operationHead || '')) return false
+      return !['manager', 'admin', 'superadmin'].includes(String(user.role || '').toLowerCase())
     })
-  }, [activeUsers, selectedManagerId])
+  }, [activeUsers, form.operationHead, selectedManagerId])
+  const visibleMemberOptions = useMemo(() => {
+    const query = memberSearch.trim().toLowerCase()
+    if (!query) return memberOptions
+    return memberOptions.filter((user) => `${user.name || ''} ${user.email || ''} ${user.role || ''}`.toLowerCase().includes(query))
+  }, [memberOptions, memberSearch])
 
   function toggleMember(id) {
     setForm((value) => ({
@@ -59,10 +66,10 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required className="form-input" placeholder="Enter team name" />
           </Field>
           <Field label="Select Manager">
-            <PeopleSelect value={form.manager} options={managerOptions} placeholder="Choose manager" onChange={(manager) => setForm({ ...form, manager, members: [] })} />
+            <PeopleSelect value={form.manager} options={managerOptions} placeholder="Choose manager" onChange={(manager) => { setForm({ ...form, manager, members: [] }); setMemberSearch('') }} />
           </Field>
           <Field label="Select Operation Head (Optional)">
-            <PeopleSelect value={form.operationHead} options={headOptions} placeholder="No operation head" onChange={(operationHead) => setForm({ ...form, operationHead })} allowEmpty />
+            <PeopleSelect value={form.operationHead} options={headOptions} placeholder="No operation head" onChange={(operationHead) => setForm((value) => ({ ...value, operationHead, members: value.members.filter((id) => String(id) !== String(operationHead)) }))} allowEmpty />
           </Field>
           <Field label="Description">
             <input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="form-input" placeholder="Optional" />
@@ -73,13 +80,24 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-black text-slate-950">Select Users</p>
-              <p className="mt-1 text-xs font-bold text-slate-500">{form.manager ? 'Only users already mapped under this manager are shown.' : 'Choose a manager to view that manager users.'}</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">{form.manager ? 'Select multiple users to map under this manager.' : 'Choose a manager to view eligible users.'}</p>
             </div>
             <span className="rounded-lg bg-white px-3 py-2 text-sm font-black text-emerald-700 ring-1 ring-emerald-100">{form.members.length} selected</span>
           </div>
 
+          {form.manager && memberOptions.length > 0 && <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <label className="flex min-h-11 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-100">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" placeholder="Search users by name, email, or role..." />
+              {memberSearch && <button type="button" onClick={() => setMemberSearch('')} aria-label="Clear search"><X className="h-4 w-4 text-slate-400" /></button>}
+            </label>
+            <button type="button" onClick={() => setForm((value) => ({ ...value, members: memberOptions.every((user) => value.members.includes(user._id || user.id)) ? [] : memberOptions.map((user) => user._id || user.id) }))} className="min-h-11 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 hover:bg-emerald-50">
+              {memberOptions.every((user) => form.members.includes(user._id || user.id)) ? 'Clear all' : 'Select all'}
+            </button>
+          </div>}
+
           <div className="mt-4 grid max-h-72 gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
-            {memberOptions.length ? memberOptions.map((user) => {
+            {visibleMemberOptions.length ? visibleMemberOptions.map((user) => {
               const id = user._id || user.id
               const checked = form.members.includes(id)
               return (
@@ -94,7 +112,7 @@ export default function CreateTeamModal({ users, saving, error, onClose, onSubmi
               )
             }) : (
               <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm font-black text-slate-500 sm:col-span-2">
-                {form.manager ? 'No active users are mapped under this manager yet.' : 'Select manager first.'}
+                {form.manager ? (memberOptions.length ? 'No users match your search.' : 'No eligible active users are available.') : 'Select manager first.'}
               </div>
             )}
           </div>

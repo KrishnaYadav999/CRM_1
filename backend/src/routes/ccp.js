@@ -4,6 +4,8 @@ const User = require('../models/User');
 const { ROLES } = require('../constants/roles');
 const { getVisibleUserScope } = require('../utils/visibilityScope');
 const { ccpApiBaseUrl, ccpApiUrl, ccpHeaders } = require('../utils/ccpConfig');
+const { applySavedLeadAssignments } = require('../services/leadAssignmentPersistence');
+const { getLeadActivities } = require('../services/leadAssignmentPersistence');
 
 const router = express.Router();
 
@@ -49,11 +51,16 @@ async function proxyCcpLeadHistory(req, res) {
     try {
       const response = await fetch(`${baseUrl}/api/leads/${encodeURIComponent(req.params.id)}/history${suffix ? `?${suffix}` : ''}`, { headers: ccpApiHeaders(false, req) });
       const payload = await response.json().catch(() => ({}));
-      if (response.ok) return res.json({ ...payload, source: payload.source || 'ccp-history' });
+      if (response.ok) {
+        const localEvents = await getLeadActivities(req.params.id);
+        const remoteEvents = Array.isArray(payload.events) ? payload.events : [];
+        return res.json({ ...payload, events: [...remoteEvents, ...localEvents], source: payload.source || 'ccp-history+crm-audit' });
+      }
       lastError = payload.error || payload.message || `CCP history returned ${response.status}`;
     } catch (err) { lastError = err.message || 'CCP history is unreachable'; }
   }
-  return res.json({ ok: false, events: [], summary: { total: 0, quotations: 0, followUps: 0, todos: 0, emails: 0 }, error: 'CCP lead history is unavailable', detail: lastError, degraded: true });
+  const localEvents = await getLeadActivities(req.params.id);
+  return res.json({ ok: true, events: localEvents, summary: { total: localEvents.length, quotations: 0, followUps: 0, todos: 0, emails: 0 }, error: 'CCP lead history is unavailable', detail: lastError, degraded: true, source: 'crm-audit' });
 }
 
 async function proxyCcpEmailHistory(req, res) {
@@ -383,7 +390,8 @@ async function fetchCcp(path, key, req, res) {
       const normalized = normalizeCollection(payload, key);
       const usersByIdentity = await buildUsersByIdentity();
       const scope = await getVisibleUserScope(req.user);
-      const normalizedRows = normalizeRowsForCrm(cleanCcpRowsForCrm(normalized[key], key), key);
+      let normalizedRows = normalizeRowsForCrm(cleanCcpRowsForCrm(normalized[key], key), key);
+      if (key === 'leads') normalizedRows = await applySavedLeadAssignments(normalizedRows);
       const rows = normalizedRows.map((row) => attachAssignedUserByIdentity(row, usersByIdentity, key));
       normalized[key] = filterByScope(
         rows,

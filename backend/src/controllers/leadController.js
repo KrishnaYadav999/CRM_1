@@ -3,6 +3,15 @@ const mongoose = require('mongoose');
 const LeadActivity = require('../models/LeadActivity');
 const Quotation = require('../models/Quotation');
 const PendingApproval = require('../models/PendingApproval');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
+const { sendMail } = require('../utils/mailer');
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[character]));
+}
 const CalendarItem = require('../models/CalendarItem');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
@@ -14,6 +23,7 @@ function cleanBody(body) {
   const data = {};
   [
     'communicationMode',
+    'communicationModeNote',
     'sourceLeadId',
     'status',
     'company',
@@ -22,7 +32,13 @@ function cleanBody(body) {
     'piboParent',
     'piboCategoryParent',
     'piboCategory',
+    'applicantType',
+    'serviceSelections',
     'servicesOffered',
+    'firstAnnualReturnYearApplicable',
+    'addresses',
+    'contacts',
+    'assignments',
     'addressLine1',
     'addressLine2',
     'addressLine3',
@@ -46,6 +62,9 @@ function cleanBody(body) {
     'notes',
     'assignedTo',
     'assignedToText',
+    'assignedStaff',
+    'assignedStaffText',
+    'assignedStaffEmail',
     'assignedBy',
     'importedCreatedBy',
     'updatedBy',
@@ -60,16 +79,82 @@ function cleanBody(body) {
     'followUpHistory',
     'importedCreatedAt',
     'importedUpdatedAt',
-    'workflowStatus'
+    'workflowStatus',
+    'complianceHealthReport'
   ].forEach((key) => {
     if (body[key] !== undefined) {
       const value = typeof body[key] === 'string' ? body[key].trim() : body[key];
-      if (['assignedTo', 'closedBy'].includes(key) && !value) return;
+      if (['assignedTo', 'assignedStaff', 'closedBy'].includes(key) && !value) return;
+      if (key === 'complianceHealthReport') {
+        if (value && typeof value === 'object' && !Array.isArray(value)) data[key] = value;
+        return;
+      }
+      if (key === 'serviceSelections') {
+        data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          industryType: String(row?.industryType || '').trim(),
+          eprCategory: String(row?.eprCategory || '').trim(),
+          applicantType: String(row?.applicantType || '').trim(),
+          piboCategory: String(row?.piboCategory || '').trim(),
+          servicesOffered: String(row?.servicesOffered || '').trim()
+          ,firstAnnualReturnYearApplicable: String(row?.firstAnnualReturnYearApplicable || '').trim()
+        })) : [];
+        return;
+      }
+      if (key === 'addresses') {
+        data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          addressLine1: String(row?.addressLine1 || '').trim(),
+          addressLine2: String(row?.addressLine2 || '').trim(),
+          addressLine3: String(row?.addressLine3 || '').trim(),
+          landmark: String(row?.landmark || '').trim(),
+          state: String(row?.state || '').trim(),
+          city: String(row?.city || '').trim(),
+          pinCode: String(row?.pinCode || '').trim(),
+          existingClient: row?.existingClient === 'Yes' ? 'Yes' : 'No',
+          website: String(row?.website || '').trim()
+        })) : [];
+        return;
+      }
+      if (key === 'contacts') {
+        data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          salutation: String(row?.salutation || '').trim(),
+          contactPerson: String(row?.contactPerson || '').trim(),
+          designation: String(row?.designation || '').trim(),
+          emails: String(row?.emails || '').trim(),
+          mobileNo1: String(row?.mobileNo1 || '').replace(/\D/g, '').slice(0, 10),
+          mobileNo2: String(row?.mobileNo2 || '').replace(/\D/g, '').slice(0, 10),
+          referredBy: String(row?.referredBy || '').trim(),
+          source: String(row?.source || '').trim(),
+          businessCardUrl: String(row?.businessCardUrl || '').trim()
+        })) : [];
+        return;
+      }
+      if (key === 'assignments') {
+        data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          assignedTo: String(row?.assignedTo || '').trim(),
+          assignedToText: String(row?.assignedToText || '').trim(),
+          assignedToEmail: String(row?.assignedToEmail || '').trim(),
+          closedBy: String(row?.closedBy || '').trim(),
+          closedByText: String(row?.closedByText || '').trim(),
+          closedByEmail: String(row?.closedByEmail || '').trim(),
+          assignedStaff: String(row?.assignedStaff || '').trim(),
+          assignedStaffText: String(row?.assignedStaffText || '').trim(),
+          assignedStaffEmail: String(row?.assignedStaffEmail || '').trim()
+        })) : [];
+        return;
+      }
       data[key] = key === 'emailsSentCount' ? Number(value) || 0 : value;
       if (key === 'followUpHistory') data[key] = Array.isArray(value) ? value : [];
     }
   });
   data.piboParent = normalizeParent(data.piboParent || data.piboCategoryParent) || inferPiboParent(data.piboCategory) || undefined;
+  if (/\btyre\b/i.test(String(data.eprCategory || '')) && ['Producer', 'Recycler', 'Retreader'].includes(data.applicantType)) {
+    const compatibility = data.applicantType === 'Producer'
+      ? { piboParent: 'PIBO', piboCategory: 'Producer' }
+      : data.applicantType === 'Recycler'
+        ? { piboParent: 'PWP', piboCategory: 'Recycler' }
+        : { piboParent: 'PWP', piboCategory: 'PWP' };
+    Object.assign(data, compatibility);
+  }
   delete data.piboCategoryParent;
   return data;
 }
@@ -77,6 +162,12 @@ function cleanBody(body) {
 function validateSubmittedLead(data) {
   const missing = REQUIRED_FIELDS.filter((field) => !data[field]);
   if (missing.length) return `Missing required fields: ${missing.join(', ')}`;
+  const addresses = Array.isArray(data.addresses) && data.addresses.length ? data.addresses : [data];
+  if (addresses.some((row) => !/^\d{6}$/.test(String(row?.pinCode || '')))) return 'Every PIN code must contain exactly 6 digits';
+  const contacts = Array.isArray(data.contacts) && data.contacts.length ? data.contacts : [data];
+  if (contacts.some((row) => !row.salutation || !row.contactPerson || !row.designation || !row.emails || !row.mobileNo1 || !row.referredBy || !row.source)) return 'All contact fields except Mobile No. 2 and Business Card are required';
+  if (contacts.some((row) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.emails || '')))) return 'Every contact must have a valid email address';
+  if (contacts.some((row) => !/^\d{10}$/.test(String(row.mobileNo1 || '')))) return 'Every primary mobile number must contain exactly 10 digits';
   return '';
 }
 
@@ -236,4 +327,115 @@ exports.bulkCreateLeads = async (req, res) => {
     leads,
     failures
   });
+};
+
+exports.requestDuplicateLeadApproval = async (req, res) => {
+  try {
+    const existingLeadId = String(req.body.existingLeadId || '').trim();
+    const company = String(req.body.company || '').trim();
+    const reason = String(req.body.reason || '').trim();
+    const requesterEmail = String(req.body.requesterEmail || req.user?.email || '').trim().toLowerCase();
+    const screenshotUrl = String(req.body.screenshotUrl || '').trim();
+    const candidateUsers = Array.isArray(req.body.candidateUsers) ? req.body.candidateUsers.slice(0, 10).map((item) => ({ id: String(item?.id || '').trim(), name: String(item?.name || '').trim() })).filter((item) => item.id && item.name) : [];
+    if (!existingLeadId || !company) return res.status(400).json({ error: 'Existing lead and company are required.' });
+    if (reason.length < 10) return res.status(400).json({ error: 'Please enter a reason of at least 10 characters.' });
+    const requestedById = String(req.user?._id || req.user?.id || '');
+    if (requestedById && !candidateUsers.some((item) => item.id === requestedById)) candidateUsers.push({ id: requestedById, name: String(req.user?.name || req.user?.email || 'Requesting user') });
+    const companyIdentity = company.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/&/g, ' AND ').replace(/\bPRIVATE\s+LIMITED\b/g, ' PVT LTD ').replace(/\bLIMITED\b/g, ' LTD ').replace(/[^A-Z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+    const sourceClientId = `${existingLeadId}:${requestedById}`;
+    const now = new Date();
+    const approval = await PendingApproval.findOneAndUpdate(
+      { type: 'lead_duplicate', source: 'crm', sourceClientId },
+      {
+        $set: {
+          uniqueId: `DUP-${existingLeadId}`,
+          clientName: company,
+          approvalStatus: 'PENDING',
+          createdByName: req.user?.name || req.user?.email || 'CRM User',
+          requestDate: now.toISOString().slice(0, 10),
+          requestTime: now.toTimeString().slice(0, 8),
+          payload: { existingLeadId, company, companyIdentity, reason, requesterEmail, screenshotUrl, requestedById, candidateUsers },
+          remarks: reason,
+          actionBy: null,
+          actionAt: null
+        },
+        $setOnInsert: { type: 'lead_duplicate', source: 'crm', sourceClientId }
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    await Notification.create({
+      title: 'Duplicate lead special approval requested',
+      description: `${req.user?.name || requesterEmail} requested permission for ${company}.`,
+      tag: 'Lead Approval',
+      kind: 'lead_duplicate_approval',
+      createdBy: req.user?._id,
+      createdByName: req.user?.name || req.user?.email || '',
+      visibleToRoles: ['admin', 'superadmin'],
+      attachmentName: screenshotUrl ? 'Duplicate lead screenshot' : '',
+      attachmentUrl: screenshotUrl,
+      metadata: { approvalId: String(approval._id), company, existingLeadId }
+    });
+    const admins = await User.find({ role: { $in: ['admin', 'superadmin'] }, isActive: { $ne: false }, email: { $ne: '' } }).select('email').lean();
+    const approvalHtml = `<div style="font-family:Arial,sans-serif;color:#334155"><h2 style="color:#0f766e">Special approval requested</h2><p><strong>${escapeHtml(req.user?.name || requesterEmail || 'CRM User')}</strong> requested permission to create another lead for <strong>${escapeHtml(company)}</strong>.</p><p><strong>Reason:</strong> ${escapeHtml(reason)}</p><p><strong>Requester:</strong> ${escapeHtml(requesterEmail)}</p><p>Please review this request in Pending Approval.</p></div>`;
+    await Promise.allSettled(admins.map((admin) => sendMail(admin.email, `Special Approval - ${company}`, approvalHtml, { branded: false })));
+    return res.status(201).json({ ok: true, approval });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Unable to request special approval.' });
+  }
+};
+
+exports.listDuplicateLeadApprovals = async (req, res) => {
+  const admin = ['admin', 'superadmin'].includes(String(req.user?.role || '').toLowerCase());
+  const query = { type: { $in: ['lead_duplicate', 'lead_royalty'] } };
+  if (!admin) {
+    const userId = String(req.user?._id || req.user?.id || '');
+    query.$or = [{ 'payload.requestedById': userId }, { 'payload.claimantId': userId }, { 'payload.originalCreatorId': userId }];
+  }
+  const approvals = await PendingApproval.find(query).populate('actionBy', 'name email').sort({ createdAt: -1 }).lean();
+  res.json({ ok: true, approvals });
+};
+
+exports.updateDuplicateLeadApproval = async (req, res) => {
+  const status = String(req.body.status || '').toUpperCase();
+  if (!['APPROVED', 'REJECTED'].includes(status)) return res.status(400).json({ error: 'Status must be APPROVED or REJECTED.' });
+  const current = await PendingApproval.findOne({ _id: req.params.id, type: { $in: ['lead_duplicate', 'lead_royalty'] } }).lean();
+  if (!current) return res.status(404).json({ error: 'Lead approval request not found.' });
+  const selectedUserId = String(req.body.selectedUserId || '').trim();
+  const claimantRatio = Number(req.body.claimantRatio);
+  const originalCreatorRatio = Number(req.body.originalCreatorRatio);
+  if (current.type === 'lead_duplicate' && status === 'APPROVED' && !selectedUserId) return res.status(400).json({ error: 'Select the user who will own the approved lead.' });
+  if (current.type === 'lead_royalty' && status === 'APPROVED' && (!Number.isFinite(claimantRatio) || !Number.isFinite(originalCreatorRatio) || claimantRatio < 0 || originalCreatorRatio < 0 || claimantRatio + originalCreatorRatio !== 100)) {
+    return res.status(400).json({ error: 'Enter valid royalty ratios totaling exactly 100%.' });
+  }
+  const payload = {
+    ...(current.payload || {}),
+    ...(selectedUserId ? { selectedUserId } : {}),
+    ...(current.type === 'lead_royalty' && status === 'APPROVED' ? { claimantRatio, originalCreatorRatio } : {})
+  };
+  const approval = await PendingApproval.findOneAndUpdate(
+    { _id: req.params.id },
+    { $set: { approvalStatus: status, payload, actionBy: req.user?._id, actionAt: new Date(), remarks: String(req.body.remarks || `${status} by ${req.user?.name || req.user?.email || 'admin'}`).trim() } },
+    { new: true }
+  );
+  if (!approval) return res.status(404).json({ error: 'Lead approval request not found.' });
+  const requesterId = approval.payload?.requestedById;
+  const resultAudience = [requesterId, approval.payload?.originalCreatorId].filter((id, index, rows) => mongoose.isValidObjectId(id) && rows.indexOf(id) === index);
+  await Notification.create({
+    title: `${approval.type === 'lead_royalty' ? 'Royalty claim' : 'Duplicate lead request'} ${status.toLowerCase()}`,
+    description: `${approval.clientName} was ${status.toLowerCase()} by ${req.user?.name || req.user?.email || 'Admin'}${approval.type === 'lead_royalty' && status === 'APPROVED' ? `. Royalty split: ${claimantRatio}% / ${originalCreatorRatio}%.` : ''}`,
+    tag: 'Lead Approval',
+    kind: approval.type === 'lead_royalty' ? 'lead_royalty_claim_result' : 'lead_duplicate_approval_result',
+    createdBy: req.user?._id,
+    createdByName: req.user?.name || req.user?.email || '',
+    audience: resultAudience,
+    metadata: { approvalId: String(approval._id), company: approval.clientName, status, selectedUserId, claimantRatio, originalCreatorRatio }
+  });
+  const resultEmails = [approval.payload?.requesterEmail, approval.payload?.claimantEmail, approval.payload?.originalCreatorEmail].map((value) => String(value || '').trim()).filter((value, index, rows) => value && rows.indexOf(value) === index);
+  if (resultEmails.length) {
+    const detail = approval.type === 'lead_royalty' && status === 'APPROVED'
+      ? `<p><strong>Royalty ratio:</strong> ${claimantRatio}% claimant / ${originalCreatorRatio}% original creator</p>`
+      : selectedUserId ? `<p><strong>Selected lead owner:</strong> ${selectedUserId}</p>` : '';
+    await Promise.allSettled(resultEmails.map((email) => sendMail(email, `${approval.type === 'lead_royalty' ? 'Royalty Claim' : 'Special Approval'} ${status} - ${approval.clientName}`, `<div style="font-family:Arial,sans-serif;color:#334155"><h2 style="color:#0f766e">${status === 'APPROVED' ? 'Request approved' : 'Request rejected'}</h2><p>Your request for <strong>${escapeHtml(approval.clientName)}</strong> was ${status.toLowerCase()}.</p>${detail}<p>Please review the CRM Notification Center for complete details.</p></div>`, { branded: false })));
+  }
+  return res.json({ ok: true, approval });
 };

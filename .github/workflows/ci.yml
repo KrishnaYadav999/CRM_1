@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - "**"
@@ -32,6 +33,7 @@ jobs:
           node --check src/index.js
           node --check src/config/db.js
           node --check src/controllers/authController.js
+          node --check src/routes/ccpIntegrations.js
 
       - name: Run tests
         run: npm test

@@ -139,6 +139,9 @@ export default function PendingApproval() {
   const cachedApprovalData = useMemo(() => readPendingApprovalCache(), []);
   const [pendingClients, setPendingClients] = useState(() => cachedApprovalData?.pendingClients || []);
   const [pendingQuotations, setPendingQuotations] = useState(() => cachedApprovalData?.pendingQuotations || []);
+  const [duplicateLeadApprovals, setDuplicateLeadApprovals] = useState([]);
+  const [royaltyApprovals, setRoyaltyApprovals] = useState([]);
+  const [approvalInputs, setApprovalInputs] = useState({});
   const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
   const [profileSaving, setProfileSaving] = useState(false);
   const [savingId, setSavingId] = useState('');
@@ -156,7 +159,7 @@ export default function PendingApproval() {
   const location = useLocation();
   const canApprove = adminRoles.includes(currentUser?.role);
 
-  const allApprovalRows = useMemo(() => [...pendingClients, ...pendingQuotations], [pendingClients, pendingQuotations]);
+  const allApprovalRows = useMemo(() => [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...royaltyApprovals], [pendingClients, pendingQuotations, duplicateLeadApprovals, royaltyApprovals]);
   const piboOptions = useMemo(() => {
     const values = allApprovalRows
       .map((row) => formatApprovalValue(row?.piboCategory))
@@ -169,11 +172,13 @@ export default function PendingApproval() {
     return statusMatches && piboMatches && rowMatchesSearch(row, searchTerm);
   };
   const filteredClients = useMemo(() => (
-    typeFilter === 'quotations' ? [] : pendingClients.filter(filterRow)
+    !['all', 'clients'].includes(typeFilter) ? [] : pendingClients.filter(filterRow)
   ), [pendingClients, searchTerm, statusFilter, piboFilter, typeFilter]);
   const filteredQuotations = useMemo(() => (
-    typeFilter === 'clients' ? [] : pendingQuotations.filter(filterRow)
+    !['all', 'quotations'].includes(typeFilter) ? [] : pendingQuotations.filter(filterRow)
   ), [pendingQuotations, searchTerm, statusFilter, piboFilter, typeFilter]);
+  const filteredDuplicateLeads = useMemo(() => !['all', 'duplicates'].includes(typeFilter) ? [] : duplicateLeadApprovals.filter(filterRow), [duplicateLeadApprovals, searchTerm, statusFilter, typeFilter]);
+  const filteredRoyalty = useMemo(() => !['all', 'royalty'].includes(typeFilter) ? [] : royaltyApprovals.filter(filterRow), [royaltyApprovals, searchTerm, statusFilter, typeFilter]);
   const approvedTodayCount = useMemo(() => (
     allApprovalRows.filter((row) => getApprovalStatus(row) === 'APPROVED').length
   ), [allApprovalRows]);
@@ -198,7 +203,7 @@ export default function PendingApproval() {
 
   useEffect(() => {
     const tab = new URLSearchParams(location.search).get('tab');
-    if (tab === 'quotations' || tab === 'clients') setActiveTab(tab);
+    if (tab === 'quotations' || tab === 'clients' || tab === 'duplicates') setActiveTab(tab);
   }, [location.search]);
 
   useEffect(() => {
@@ -235,10 +240,11 @@ export default function PendingApproval() {
     setError('');
 
     try {
-      const [meResult, approvalsResult, leadsResult] = await Promise.allSettled([
+      const [meResult, approvalsResult, leadsResult, duplicateResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.auth.me, authRequestConfig),
         api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig),
-        api.get(API_ENDPOINTS.ccp.leads, dataRequestConfig)
+        api.get(API_ENDPOINTS.ccp.leads, dataRequestConfig),
+        api.get(API_ENDPOINTS.leads.duplicateApprovals, dataRequestConfig)
       ]);
 
       const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
@@ -262,6 +268,9 @@ export default function PendingApproval() {
       };
       setPendingClients(snapshot.pendingClients);
       setPendingQuotations(snapshot.pendingQuotations);
+      const leadApprovals = duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : [];
+      setDuplicateLeadApprovals(leadApprovals.filter((row) => row.type !== 'lead_royalty'));
+      setRoyaltyApprovals(leadApprovals.filter((row) => row.type === 'lead_royalty'));
       setDebugInfo(snapshot.debug);
       console.info('[PendingApproval:loaded]', {
         clients: snapshot.pendingClients.length,
@@ -347,6 +356,29 @@ export default function PendingApproval() {
       await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to update quotation approval.'));
+    } finally {
+      setSavingId('');
+    }
+  }
+
+  async function updateDuplicateLeadApproval(row, status) {
+    if (!canApprove) return;
+    const id = row?._id || row?.id;
+    setSavingId(`${id}-${status}`);
+    setError('');
+    try {
+      const values = approvalInputs[id] || {};
+      await api.patch(API_ENDPOINTS.leads.duplicateApproval(id), {
+        status,
+        selectedUserId: values.selectedUserId,
+        claimantRatio: values.claimantRatio,
+        originalCreatorRatio: values.originalCreatorRatio,
+        remarks: `${status === 'APPROVED' ? 'Approved' : 'Rejected'} from Pending Approval`
+      });
+      setNotice(`Duplicate lead request ${status.toLowerCase()} successfully.`);
+      await loadPage({ force: true, silent: true });
+    } catch (err) {
+      setError(readError(err, 'Unable to update duplicate lead approval.'));
     } finally {
       setSavingId('');
     }
@@ -486,6 +518,8 @@ export default function PendingApproval() {
           <div className="pending-metrics">
             <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />
             <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" />
+            <Metric icon={Users} label="Duplicate Leads" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Special approval" tone="mint" />
+            <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" />
             <Metric icon={CheckCircle2} label="Approved Today" value={approvedTodayCount} hint="Since midnight" tone="teal" />
             <Metric icon={XCircle} label="Rejected" value={rejectedCount} hint="Since midnight" tone="rose" />
           </div>
@@ -505,6 +539,8 @@ export default function PendingApproval() {
                 <option value="all">All Types</option>
                 <option value="clients">Clients</option>
                 <option value="quotations">Quotations</option>
+                <option value="duplicates">Duplicate Leads</option>
+                <option value="royalty">Royalty Claims</option>
               </select>
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter approval status">
                 <option value="all">All Status</option>
@@ -548,6 +584,20 @@ export default function PendingApproval() {
                   count={filteredQuotations.length}
                   onClick={() => setActiveTab('quotations')}
                 />
+                <ApprovalTab
+                  active={activeTab === 'royalty'}
+                  icon={Users}
+                  label="Royalty Claims"
+                  count={filteredRoyalty.length}
+                  onClick={() => setActiveTab('royalty')}
+                />
+                <ApprovalTab
+                  active={activeTab === 'duplicates'}
+                  icon={Users}
+                  label="Duplicate Lead Requests"
+                  count={filteredDuplicateLeads.length}
+                  onClick={() => setActiveTab('duplicates')}
+                />
               </div>
             </div>
 
@@ -587,6 +637,45 @@ export default function PendingApproval() {
                     <ActionCell row={client} savingId={savingId} onUpdate={updateApproval} canApprove={canApprove} />
                   </tr>
                 ))}
+              </ApprovalTable>
+            ) : activeTab === 'duplicates' ? (
+              <ApprovalTable
+                title="Duplicate Lead Special Approvals"
+                columns={['Company', 'Existing Lead', 'Requested By', 'Reason', 'Email', 'Evidence', 'Select Lead Owner', 'Status', 'Actions']}
+                emptyText="No duplicate lead approval requests found."
+                page={1}
+                totalPages={1}
+                showing={filteredDuplicateLeads.length}
+                total={filteredDuplicateLeads.length}
+                onPrev={() => {}}
+                onNext={() => {}}
+              >
+                {filteredDuplicateLeads.map((row) => (
+                  <tr key={row._id || row.id}>
+                    <Cell strong>{row.clientName}</Cell>
+                    <Cell>{row.payload?.existingLeadId}</Cell>
+                    <Cell>{row.createdByName}</Cell>
+                    <Cell>{row.payload?.reason}</Cell>
+                    <Cell>{row.payload?.requesterEmail}</Cell>
+                    <Cell>{row.payload?.screenshotUrl ? <a className="font-black text-emerald-700 underline" href={row.payload.screenshotUrl} target="_blank" rel="noreferrer">Open</a> : '-'}</Cell>
+                    <Cell><select className="form-input min-w-44" value={approvalInputs[row._id]?.selectedUserId || row.payload?.selectedUserId || ''} disabled={getApprovalStatus(row) !== 'PENDING'} onChange={(event) => setApprovalInputs((current) => ({ ...current, [row._id]: { ...(current[row._id] || {}), selectedUserId: event.target.value } }))}><option value="">Select user</option>{(row.payload?.candidateUsers || []).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></Cell>
+                    <Cell>{statusBadge(row.approvalStatus)}</Cell>
+                    <ActionCell row={{ ...row, id: row._id || row.id }} savingId={savingId} onUpdate={updateDuplicateLeadApproval} canApprove={canApprove} />
+                  </tr>
+                ))}
+              </ApprovalTable>
+            ) : activeTab === 'royalty' ? (
+              <ApprovalTable title="Claim Royalty Approvals" columns={['Company', 'FY', 'Original Creator', 'Claimed By', 'Original %', 'Claimant %', 'Status', 'Actions']} emptyText="No royalty claims found." page={1} totalPages={1} showing={filteredRoyalty.length} total={filteredRoyalty.length} onPrev={() => {}} onNext={() => {}}>
+                {filteredRoyalty.map((row) => {
+                  const id = row._id || row.id;
+                  const values = approvalInputs[id] || {};
+                  return <tr key={id}>
+                    <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.financialYear}</Cell><Cell>{row.payload?.originalCreator}</Cell><Cell>{row.payload?.claimantName}</Cell>
+                    <Cell><input className="form-input min-w-24" type="number" min="0" max="100" disabled={getApprovalStatus(row) !== 'PENDING'} value={values.originalCreatorRatio ?? row.payload?.originalCreatorRatio ?? ''} onChange={(event) => setApprovalInputs((current) => ({ ...current, [id]: { ...(current[id] || {}), originalCreatorRatio: event.target.value } }))} /></Cell>
+                    <Cell><input className="form-input min-w-24" type="number" min="0" max="100" disabled={getApprovalStatus(row) !== 'PENDING'} value={values.claimantRatio ?? row.payload?.claimantRatio ?? ''} onChange={(event) => setApprovalInputs((current) => ({ ...current, [id]: { ...(current[id] || {}), claimantRatio: event.target.value } }))} /></Cell>
+                    <Cell>{statusBadge(row.approvalStatus)}</Cell><ActionCell row={{ ...row, id }} savingId={savingId} onUpdate={updateDuplicateLeadApproval} canApprove={canApprove} />
+                  </tr>;
+                })}
               </ApprovalTable>
             ) : (
               <ApprovalTable

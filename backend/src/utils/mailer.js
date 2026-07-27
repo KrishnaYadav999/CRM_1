@@ -1,6 +1,10 @@
 const nodemailer = require('nodemailer');
 
-const DEFAULT_MAIL_LOGO_URL = 'https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg';
+let graphTokenCache = {
+  accessToken: '',
+  expiresAt: 0,
+  cacheKey: ''
+};
 
 function normalizeRecipients(to) {
   if (Array.isArray(to)) return to;
@@ -12,6 +16,27 @@ function normalizeRecipients(to) {
 
 function readMailUser() {
   return process.env.SMTP_USER || process.env.MAIL_USER || process.env.EMAIL_USER || process.env.GMAIL_USER;
+}
+
+function readGraphConfig() {
+  return {
+    tenantId: String(process.env.MS_TENANT_ID || '').trim(),
+    clientId: String(process.env.MS_CLIENT_ID || '').trim(),
+    clientSecret: String(process.env.MS_CLIENT_SECRET || '').trim(),
+    senderEmail: String(process.env.OTP_SENDER_EMAIL || process.env.MS_SENDER_EMAIL || '').trim()
+  };
+}
+
+function isGraphConfigured(config = readGraphConfig()) {
+  return Boolean(config.tenantId && config.clientId && config.clientSecret && config.senderEmail);
+}
+
+function readMailProvider() {
+  const configuredProvider = String(process.env.MAIL_PROVIDER || '').trim().toLowerCase();
+  if (configuredProvider === 'microsoft-graph' || configuredProvider === 'outlook' || configuredProvider === 'graph') {
+    return 'microsoft-graph';
+  }
+  return isGraphConfigured() ? 'microsoft-graph' : 'smtp';
 }
 
 function readMailPass() {
@@ -75,7 +100,15 @@ function summarizeMailInfo(info) {
 
 function getMailDebugConfig() {
   const mailUser = readMailUser();
+  const graphConfig = readGraphConfig();
+  const provider = readMailProvider();
   return {
+    provider,
+    sender: provider === 'microsoft-graph' ? graphConfig.senderEmail : formatFromAddress() || '',
+    graphConfigured: isGraphConfigured(graphConfig),
+    hasMicrosoftTenantId: Boolean(graphConfig.tenantId),
+    hasMicrosoftClientId: Boolean(graphConfig.clientId),
+    hasMicrosoftClientSecret: Boolean(graphConfig.clientSecret),
     host: process.env.SMTP_HOST || '',
     port: Number(process.env.SMTP_PORT) || 587,
     secure: process.env.SMTP_SECURE === 'true',
@@ -87,44 +120,158 @@ function getMailDebugConfig() {
   };
 }
 
-function escapeHtml(value) {
-  return String(value || '').replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[character]));
-}
-
-function buildMailBrandHeader() {
-  const logoUrl = String(process.env.MAIL_LOGO_URL || DEFAULT_MAIL_LOGO_URL).trim();
-  const brandName = String(process.env.MAIL_BRAND_NAME || 'ANANT TATTVA').trim();
-  return `
-    <table data-crm-mail-brand="true" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;background:#ffffff;">
-      <tr>
-        <td align="center" style="padding:22px 20px 18px;border-bottom:1px solid #e2e8f0;">
-          <img src="${escapeHtml(logoUrl)}" width="230" alt="${escapeHtml(brandName)}" style="display:block;width:230px;max-width:72%;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none;color:#f97316;font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;" />
-        </td>
-      </tr>
-    </table>`;
-}
-
 function buildBrandedEmail(html) {
   const source = String(html || '');
-  if (!source || source.includes('data-crm-mail-brand="true"')) return source;
-  const header = buildMailBrandHeader();
-  if (/<body\b[^>]*>/i.test(source)) return source.replace(/(<body\b[^>]*>)/i, `$1${header}`);
-  return `<div style="margin:0;background:#f4f7fb;padding:0;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">${header}${source}</div>`;
+  if (!source) return source;
+  if (/<html\b/i.test(source) || /<body\b/i.test(source)) return source;
+  return `<div style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">${source}</div>`;
 }
 
-async function sendMail(to, subject, html, options = {}) {
+async function readGraphError(response, fallbackMessage) {
+  try {
+    const payload = await response.json();
+    const message = payload?.error?.message || payload?.error_description;
+    return message ? `${fallbackMessage}: ${message}` : fallbackMessage;
+  } catch (_error) {
+    return fallbackMessage;
+  }
+}
+
+async function getGraphAccessToken(config = readGraphConfig()) {
+  if (!isGraphConfigured(config)) {
+    throw new Error('Microsoft Graph mail is not fully configured');
+  }
+
+  const cacheKey = `${config.tenantId}:${config.clientId}`;
+  if (
+    graphTokenCache.accessToken
+    && graphTokenCache.cacheKey === cacheKey
+    && graphTokenCache.expiresAt > Date.now() + 60_000
+  ) {
+    return graphTokenCache.accessToken;
+  }
+
+  const body = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials'
+  });
+  const response = await fetch(
+    `https://login.microsoftonline.com/${encodeURIComponent(config.tenantId)}/oauth2/v2.0/token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readGraphError(response, `Microsoft Graph authentication failed (${response.status})`));
+  }
+
+  const token = await response.json();
+  if (!token.access_token) throw new Error('Microsoft Graph authentication returned no access token');
+
+  graphTokenCache = {
+    accessToken: token.access_token,
+    expiresAt: Date.now() + (Number(token.expires_in) || 3600) * 1000,
+    cacheKey
+  };
+  return token.access_token;
+}
+
+function toGraphRecipients(recipients) {
+  return recipients.map((address) => ({ emailAddress: { address } }));
+}
+
+function toGraphAttachments(attachments = []) {
+  return attachments.map((attachment) => {
+    const content = attachment.content;
+    if (content === undefined || content === null) {
+      throw new Error(`Microsoft Graph attachment "${attachment.filename || attachment.name || 'attachment'}" has no content`);
+    }
+    return {
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: attachment.filename || attachment.name || 'attachment',
+      contentType: attachment.contentType || 'application/octet-stream',
+      contentBytes: Buffer.isBuffer(content)
+        ? content.toString('base64')
+        : Buffer.from(String(content)).toString('base64')
+    };
+  });
+}
+
+async function sendMicrosoftGraphMail(recipients, subject, messageHtml, options = {}) {
+  const config = readGraphConfig();
+  const accessToken = await getGraphAccessToken(config);
+  const replyTo = String(process.env.MAIL_REPLY_TO || config.senderEmail || '').trim();
+  const attachments = Array.isArray(options.attachments) ? toGraphAttachments(options.attachments) : [];
+  const message = {
+    subject: String(subject || ''),
+    body: { contentType: 'HTML', content: messageHtml },
+    toRecipients: toGraphRecipients(recipients)
+  };
+  if (replyTo) message.replyTo = toGraphRecipients([replyTo]);
+  if (attachments.length) message.attachments = attachments;
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(config.senderEmail)}/sendMail`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message, saveToSentItems: true })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readGraphError(response, `Microsoft Graph sendMail failed (${response.status})`));
+  }
+
+  return {
+    raw: { provider: 'microsoft-graph', status: response.status },
+    summary: {
+      provider: 'microsoft-graph',
+      sender: config.senderEmail,
+      accepted: recipients,
+      rejected: [],
+      response: 'Accepted by Microsoft Graph'
+    }
+  };
+}
+
+async function sendSmtpMail(recipients, subject, messageHtml, options = {}) {
   const mailUser = readMailUser();
   if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is not configured');
-  const recipients = normalizeRecipients(to);
-  if (!recipients.length) throw new Error('Email recipient is required');
 
   const from = formatFromAddress();
   const replyTo = process.env.MAIL_REPLY_TO || mailUser || undefined;
   const transporter = createTransporter();
-  const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html: buildBrandedEmail(html), attachments: Array.isArray(options.attachments) ? options.attachments : undefined });
+  const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html: messageHtml, attachments: Array.isArray(options.attachments) ? options.attachments : undefined });
   return { raw: info, summary: summarizeMailInfo(info) };
 }
 
-module.exports = { sendMail, getMailDebugConfig, summarizeMailInfo, buildBrandedEmail, buildMailBrandHeader };
+async function sendMail(to, subject, html, options = {}) {
+  const recipients = normalizeRecipients(to);
+  if (!recipients.length) throw new Error('Email recipient is required');
+  const messageHtml = options.branded === false ? String(html || '') : buildBrandedEmail(html);
+  if (readMailProvider() === 'microsoft-graph') {
+    return sendMicrosoftGraphMail(recipients, subject, messageHtml, options);
+  }
+  return sendSmtpMail(recipients, subject, messageHtml, options);
+}
+
+function resetGraphTokenCache() {
+  graphTokenCache = { accessToken: '', expiresAt: 0, cacheKey: '' };
+}
+
+module.exports = {
+  sendMail,
+  getMailDebugConfig,
+  summarizeMailInfo,
+  buildBrandedEmail,
+  resetGraphTokenCache
+};

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const PendingApprovalSchema = new mongoose.Schema({
-  type: { type: String, enum: ['client', 'quotation'], default: 'client', index: true },
+  type: { type: String, enum: ['client', 'quotation', 'lead_duplicate', 'lead_royalty'], default: 'client', index: true },
   source: { type: String, trim: true, default: 'crm', index: true },
   sourceClientId: { type: String, trim: true, index: true },
   uniqueId: { type: String, trim: true, index: true },

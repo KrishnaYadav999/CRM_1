@@ -23,6 +23,8 @@ const API_ENDPOINTS = {
     detail: (id) => `/leads/${encodePathValue(id)}`
     ,history: (id) => `/leads/${encodePathValue(id)}/history`
     ,emailHistory: (id) => `/leads/${encodePathValue(id)}/history/email`
+    ,duplicateApprovals: '/leads/duplicate-approvals'
+    ,duplicateApproval: (id) => `/leads/duplicate-approvals/${encodePathValue(id)}`
   },
   clients: {
     list: '/clients',
@@ -75,6 +77,7 @@ const API_ENDPOINTS = {
     createLead: '/integrations/ccp/leads',
     bulkCreateLeads: '/integrations/ccp/leads/bulk',
     updateLead: (id) => `/integrations/ccp/leads/${encodePathValue(id)}`,
+    claimLeadRoyalty: (id) => `/integrations/ccp/leads/${encodePathValue(id)}/royalty-claims`,
     createClient: '/integrations/ccp/clients',
     bulkCreateClients: '/integrations/ccp/clients/bulk',
     liveClientSyncPreview: '/integrations/ccp/clients/sync-live/preview',

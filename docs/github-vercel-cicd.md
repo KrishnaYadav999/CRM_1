@@ -13,6 +13,9 @@ Required GitHub repository secrets:
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
 
+Mail credentials are runtime secrets and belong in Vercel, not in the repository or
+GitHub Actions build environment.
+
 ## Vercel
 
 Root deployment uses `vercel.json`:
@@ -23,6 +26,31 @@ Root deployment uses `vercel.json`:
 - SPA rewrite: all frontend routes go to `/index.html`
 
 Backend API routes are exposed through the root `api/` folder and load `backend/src/index.js`.
+
+### Compliance Health Report CCP contract
+
+The CRM Compliance Health Report opens as a routed page at `/sales/compliance-health-report/:leadId`. Vercel's SPA rewrite must remain enabled so direct links and refreshes on this page resolve to `frontend/dist/index.html`.
+
+Report submission updates the CCP lead through the CRM backend proxy route:
+
+- frontend endpoint: `API_ENDPOINTS.ccp.updateLead(id)`
+- backend route: `PUT /api/integrations/ccp/leads/:id`
+- CCP resource: `PUT /api/ccp/leads/:id`
+- payload field: `complianceHealthReport`
+
+Because the save is proxied to CCP, production deploys must have `CCP_API_URL` plus `CCP_SHARED_SECRET` or `CCP_API_KEY` configured in Vercel. The frontend must not store CCP secrets.
+
+### CCP screenshot and document storage contract
+
+The CRM Client Master upload flow stores the document in Cloudinary through the backend's `/assets/cloudinary-signature` endpoint and forwards the saved rows to CCP as part of the client payload.
+
+For each uploaded document row, the payload shape must remain:
+
+- `id`: Cloudinary public ID
+- `name`: user-entered document label
+- `file`: full Cloudinary upload metadata object, including `secureUrl` and `url`
+
+This is the payload that is written through the CCP proxy route in `backend/src/routes/ccpIntegrations.js`, so the screenshot and process-diagram rows are expected to land in the CCP database as structured attachment records rather than as plain CRM-only local fields.
 
 ## Deployment Flow
 
@@ -40,6 +68,25 @@ Configure these in Vercel Project Settings:
 - `JWT_SECRET`
 - `CCP_API_URL`
 - `CCP_SHARED_SECRET` or `CCP_API_KEY`
-- mail/Cloudinary variables used by the backend, if enabled in production
+- `MAIL_PROVIDER=microsoft-graph`
+- `MS_TENANT_ID`
+- `MS_CLIENT_ID`
+- `MS_CLIENT_SECRET`
+- `OTP_SENDER_EMAIL=crm@ananttattva.com`
+- `MAIL_REPLY_TO=crm@ananttattva.com`
+- Cloudinary variables used by the backend, if enabled in production
 
 Keep CCP credentials only in backend/Vercel/GitHub secrets. Do not expose them as `VITE_*` frontend variables.
+
+### Outlook / Microsoft Graph mail
+
+All backend mail (OTP, lead assignment, reminders, approvals, and other notifications)
+goes through `backend/src/utils/mailer.js`. When the Microsoft variables above are
+configured, the shared mailer uses the Microsoft Graph `sendMail` endpoint and sends
+from `OTP_SENDER_EMAIL`. The Entra application needs the Microsoft Graph application
+permission `Mail.Send` with tenant admin consent, and the sender must be a valid
+Exchange Online mailbox.
+
+Never commit the client secret. If a secret is pasted into chat, logs, screenshots, or
+source code, revoke it in Microsoft Entra, create a replacement, and update only the
+Vercel encrypted environment value.
