@@ -20,7 +20,7 @@ const { startPendingApprovalReminderScheduler } = require('./services/pendingApp
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
-const { startLeadServiceApprovalReminderScheduler } = require('./services/leadServiceApprovalReminders');
+const { startLeadServiceApprovalReminderScheduler, runLeadServiceApprovalReminders } = require('./services/leadServiceApprovalReminders');
 const { requireCcpSecret } = require('./middleware/ccpSecret');
 const PendingApproval = require('./models/PendingApproval');
 
@@ -90,6 +90,14 @@ app.get('/api/internal/client-onboarding-reminders', async (req, res) => {
   if (authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized cron request' });
   try { return res.json({ ok: true, ...(await runClientOnboardingReminders()) }); }
   catch (error) { return res.status(500).json({ ok: false, error: error.message || 'Reminder run failed' }); }
+});
+app.get('/api/internal/lead-service-approval-reminders', async (req, res) => {
+  const cronSecret = String(process.env.CRON_SECRET || '').trim();
+  const authorization = String(req.get('authorization') || '').trim();
+  if (!cronSecret) return res.status(503).json({ ok: false, error: 'CRON_SECRET is not configured' });
+  if (authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized cron request' });
+  try { return res.json({ ok: true, ...(await runLeadServiceApprovalReminders()) }); }
+  catch (error) { return res.status(500).json({ ok: false, error: error.message || 'Service approval reminder run failed' }); }
 });
 app.post('/api/pending-approvals/ccp/sync', requireCcpSecret, async (req, res, next) => {
   try {
