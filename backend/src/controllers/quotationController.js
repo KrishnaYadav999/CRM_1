@@ -2,6 +2,7 @@ const Quotation = require('../models/Quotation');
 const PendingApproval = require('../models/PendingApproval');
 const QuotationServiceCategory = require('../models/QuotationServiceCategory');
 const QuotationPiboCategory = require('../models/QuotationPiboCategory');
+const QuotationDropdownOption = require('../models/QuotationDropdownOption');
 const QuotationSyncIssue = require('../models/QuotationSyncIssue');
 const { resolveCrmRelationships } = require('../services/crmRelationships');
 const Lead = require('../models/Lead');
@@ -71,6 +72,10 @@ function cleanItems(items) {
   return items
     .map((item) => ({
       id: cleanString(item.id),
+      sourceServiceIndex: Number.isInteger(Number(item.sourceServiceIndex)) && Number(item.sourceServiceIndex) >= 0
+        ? Number(item.sourceServiceIndex)
+        : undefined,
+      serviceAddedBy: cleanString(item.serviceAddedBy),
       industryType: cleanString(item.industryType),
       serviceCategory: cleanString(item.serviceCategory),
       servicesForYear: cleanString(item.servicesForYear),
@@ -119,6 +124,7 @@ function cleanBody(body) {
     leadDetails: cleanLeadDetails(body.leadDetails),
     validUntil: cleanString(body.validUntil),
     pricingMode,
+    serviceState: body.serviceState === 'closed' ? 'closed' : 'open',
     combinedBasicAmount,
     companyName: cleanString(body.companyName || body.leadDetails?.companyName),
     quotationDate: body.quotationDate || undefined,
@@ -991,4 +997,33 @@ exports._test = {
   mapCcpQuotation,
   comparableCcpFields,
   preserveTerminalApprovalStatus
+};
+
+exports.listDropdownOptions = async (req, res) => {
+  const options = await QuotationDropdownOption.find().sort({ field: 1, name: 1 }).lean();
+  return res.json({ options: options.map((option) => ({ field: option.field, name: option.name })) });
+};
+
+exports.createDropdownOption = async (req, res) => {
+  const field = cleanString(req.body.field);
+  if (!QuotationDropdownOption.ALLOWED_FIELDS.includes(field)) {
+    return res.status(400).json({ error: 'Unsupported quotation dropdown.' });
+  }
+  const rawName = cleanString(req.body.name).replace(/\s+/g, ' ');
+  const name = field === 'servicesForYear' ? rawName : rawName.toUpperCase();
+  if (!name) return res.status(400).json({ error: 'Option name is required.' });
+  if (name.length > 100) return res.status(400).json({ error: 'Option name must be 100 characters or fewer.' });
+
+  try {
+    const option = await QuotationDropdownOption.create({
+      field,
+      name,
+      normalizedName: name.toLowerCase(),
+      createdBy: req.user?._id
+    });
+    return res.status(201).json({ option: { field: option.field, name: option.name } });
+  } catch (error) {
+    if (error?.code === 11000) return res.status(409).json({ error: 'This option already exists.' });
+    throw error;
+  }
 };

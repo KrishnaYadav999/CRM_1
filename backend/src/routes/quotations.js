@@ -6,9 +6,11 @@ const { ADMIN_ROLES } = require('../constants/roles');
 
 router.get('/', requireAuth, quotationCtrl.listQuotations);
 router.get('/service-categories', requireAuth, quotationCtrl.listServiceCategories);
-router.post('/service-categories', requireAuth, quotationCtrl.createServiceCategory);
+router.post('/service-categories', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.createServiceCategory);
 router.get('/pibo-categories', requireAuth, quotationCtrl.listPiboCategories);
-router.post('/pibo-categories', requireAuth, quotationCtrl.createPiboCategory);
+router.post('/pibo-categories', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.createPiboCategory);
+router.get('/dropdown-options', requireAuth, quotationCtrl.listDropdownOptions);
+router.post('/dropdown-options', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.createDropdownOption);
 router.patch('/pending-approvals/approve-all', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.approveAllPendingQuotations);
 router.post('/sync-ccp', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.syncCcpQuotations);
 router.post('/bulk', requireAuth, quotationCtrl.bulkCreateQuotations);

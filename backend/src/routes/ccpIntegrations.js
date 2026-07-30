@@ -16,6 +16,7 @@ const PendingApproval = require('../models/PendingApproval');
 const User = require('../models/User');
 const { notifyLeadAssignment } = require('../services/leadAssignmentNotifications');
 const { notifyNewFinancialYear } = require('../services/leadFinancialYearNotifications');
+const { notifyAdditionalLeadServices } = require('../services/leadServiceContributorNotifications');
 const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { sendLeadClosureKickoffEmail } = require('../services/leadClosureKickoffEmail');
 const { externalId, persistCcpLead, persistCcpClient } = require('../services/crmRecordPersistence');
@@ -32,7 +33,7 @@ const LEAD_FIELDS = [
   'assignedToEmail', 'assignedToCrmUserId', 'assignedStaff', 'assignedStaffText', 'assignedStaffEmail', 'assignedBy', 'importedCreatedBy', 'leadDate',
   'updatedBy', 'updatedByEmail', 'updatedByCrmUserId', 'closedBy', 'closedByText',
   'closedByEmail', 'closedByCrmUserId', 'closedAt',
-  'nextFollowUpDate', 'nextFollowUpTime', 'followUpRemarks', 'importedCreatedAt',
+  'nextFollowUpDate', 'nextFollowUpTime', 'followUpRemarks', 'followUpHistory', 'importedCreatedAt',
   'importedUpdatedAt', 'workflowStatus', 'recordStatus', 'followUpFlag', 'followUpPriority', 'complianceHealthReport'
 ];
 
@@ -664,6 +665,16 @@ router.put('/leads/:id', requireAuth, async (req, res) => {
     }
     if (result.status >= 200 && result.status < 300 && savedLead && req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead, submittedPayload: req.body, actor: req.user });
+      await notifyAdditionalLeadServices({
+        beforeLead,
+        afterLead: {
+          ...(beforeLead || {}),
+          ...savedLead,
+          ...payload,
+          serviceSelections: payload.serviceSelections || savedLead.serviceSelections || []
+        },
+        actor: req.user
+      }).catch((error) => console.error('Additional lead service notification failed', error));
     }
     if (result.status >= 200 && result.status < 300 && savedLead) {
       // CCP may return legacy single-row arrays. The just-validated payload is the

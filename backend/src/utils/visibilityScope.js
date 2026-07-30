@@ -33,7 +33,7 @@ async function getVisibleUserScope(user) {
   const identities = new Set();
 
   if (ownId) ids.add(ownId);
-  [user.name, user.email, user.ccpUserId].forEach((value) => {
+  [user._id, user.name, user.email, user.ccpUserId].forEach((value) => {
     const normalized = cleanIdentity(value);
     if (normalized) identities.add(normalized);
   });

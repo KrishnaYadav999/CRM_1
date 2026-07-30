@@ -15,6 +15,12 @@ test('lead payload is whitelisted and creator identity is server-owned', () => {
   assert.equal(payload.unexpected, undefined);
 });
 
+test('lead follow-up history is preserved through the CCP proxy', () => {
+  const history = [{ id: 'previous-1', scheduledDate: '2026-07-30', remarks: 'Called client', status: 'superseded' }];
+  const payload = sanitizeLead({ company: 'Acme', followUpHistory: history }, user);
+  assert.deepEqual(payload.followUpHistory, history);
+});
+
 test('duplicate company identity is case, punctuation, and legal-suffix safe', () => {
   assert.equal(
     normalizeCompanyIdentity('20 Microns Nano Minerals Limited'),
@@ -152,6 +158,23 @@ test('frontend never contains the CCP shared API key', () => {
   walk(frontend);
   const source = files.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
   assert.doesNotMatch(source, /CCP_SHARED_API_KEY|x-ccp-api-key/i);
+});
+
+test('CCP lead visibility includes a user who contributed a service', () => {
+  const { filterByScope } = require('../src/routes/ccp')._test;
+  const lead = {
+    importedCreatedBy: 'Gaurav Chandra',
+    serviceSelections: [
+      { createdByCrmUserId: '64b000000000000000000022', createdByName: 'Kshitij Trimukhe', createdByEmail: 'kshitij@example.com' }
+    ]
+  };
+  const scope = {
+    ids: ['64b000000000000000000022'],
+    identities: ['64b000000000000000000022', 'Kshitij Trimukhe', 'kshitij@example.com']
+  };
+
+  assert.deepEqual(filterByScope([lead], scope), [lead]);
+  assert.deepEqual(filterByScope([lead], scope, { assignedOnly: true }), [lead]);
 });
 
 test('proxy module has no CRM Lead or Client persistence dependency', () => {

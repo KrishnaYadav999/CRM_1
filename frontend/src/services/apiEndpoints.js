@@ -42,6 +42,7 @@ const API_ENDPOINTS = {
     bulk: '/quotations/bulk',
     serviceCategories: '/quotations/service-categories',
     piboCategories: '/quotations/pibo-categories',
+    dropdownOptions: '/quotations/dropdown-options',
     approveAllPending: '/quotations/pending-approvals/approve-all',
     syncCcp: '/quotations/sync-ccp',
     detail: (id) => `/quotations/${encodePathValue(id)}`,

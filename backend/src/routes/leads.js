@@ -8,7 +8,7 @@ const quotationCtrl = require('../controllers/quotationController');
 router.get('/', requireAuth, leadCtrl.listLeads);
 router.get('/duplicate-approvals', requireAuth, leadCtrl.listDuplicateLeadApprovals);
 router.post('/duplicate-approvals', requireAuth, leadCtrl.requestDuplicateLeadApproval);
-router.patch('/duplicate-approvals/:id', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.updateDuplicateLeadApproval);
+router.patch('/duplicate-approvals/:id', requireAuth, leadCtrl.updateDuplicateLeadApproval);
 const ccpOwnedWrite = (req, res) => res.status(410).json({ error: 'Lead records are CCP-owned. Use /api/integrations/ccp/leads; no CRM record was created.' });
 router.post('/bulk', requireAuth, ccpOwnedWrite);
 router.post('/', requireAuth, ccpOwnedWrite);

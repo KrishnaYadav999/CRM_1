@@ -1047,6 +1047,17 @@ export default function LeadGeneration() {
       });
     });
 
+    (Array.isArray(item?.serviceSelections) ? item.serviceSelections : []).forEach((service) => {
+      [
+        service?.createdByCrmUserId,
+        service?.createdByName,
+        service?.createdByEmail
+      ].forEach((value) => {
+        const token = normalizePersonName(value);
+        if (token) candidates.push(token);
+      });
+    });
+
     return candidates.some((candidate) => userTokens.includes(candidate));
   }
 
@@ -1521,7 +1532,33 @@ export default function LeadGeneration() {
             }}
             onAddQuotation={(quotationId) => {
               if (quotationId) navigate('/sales/quotations', { state: { editQuotationId: quotationId } });
-              else navigate('/sales/quotations?mode=add', {
+              else {
+                const currentUserTokens = [
+                  currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId,
+                  currentUser?.ccpUserId, currentUser?.name, currentUser?.email
+                ].map(normalizePersonName).filter(Boolean);
+                const leadCreatorTokens = [
+                  viewLead.createdBy?._id, viewLead.createdBy?.id, viewLead.createdBy?.name,
+                  viewLead.createdBy?.email, viewLead.createdByCrmUserId, viewLead.createdByName,
+                  viewLead.createdByEmail, viewLead.importedCreatedBy
+                ].map(normalizePersonName).filter(Boolean);
+                const allServices = Array.isArray(viewLead.serviceSelections) && viewLead.serviceSelections.length
+                  ? viewLead.serviceSelections
+                  : [createServiceSelection(viewLead)];
+                const adminCanSeeAllServices = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+                const ownedServices = allServices.map((service, sourceServiceIndex) => ({
+                  ...service,
+                  sourceServiceIndex
+                })).filter((service) => {
+                  if (adminCanSeeAllServices) return true;
+                  const explicitOwnerTokens = [
+                    service.createdByCrmUserId, service.createdByName, service.createdByEmail
+                  ].map(normalizePersonName).filter(Boolean);
+                  const ownerTokens = explicitOwnerTokens.length ? explicitOwnerTokens : leadCreatorTokens;
+                  return ownerTokens.some((token) => currentUserTokens.includes(token));
+                });
+                const primaryOwnedService = ownedServices[0] || {};
+                navigate('/sales/quotations?mode=add', {
                 state: {
                   quotationContext: {
                     sourceType: 'lead',
@@ -1538,16 +1575,18 @@ export default function LeadGeneration() {
                     state: viewLead.state || '',
                     city: viewLead.city || '',
                     pinCode: viewLead.pinCode || '',
-                    industryType: viewLead.industryType || viewLead.serviceSelections?.[0]?.industryType || '',
-                    servicesOffered: viewLead.servicesOffered || viewLead.serviceSelections?.[0]?.servicesOffered || '',
-                    annualYear: viewLead.serviceSelections?.[0]?.firstAnnualReturnYearApplicable || viewLead.firstAnnualReturnYearApplicable || '',
-                    eprCategory: viewLead.serviceSelections?.[0]?.eprCategory || viewLead.eprCategory || '',
-                    applicantType: viewLead.serviceSelections?.[0]?.applicantType || viewLead.applicantType || '',
-                    piboParent: viewLead.serviceSelections?.[0]?.piboParent || viewLead.piboParent || '',
-                    piboCategory: viewLead.serviceSelections?.[0]?.piboCategory || viewLead.piboCategory || ''
+                    serviceSelections: ownedServices,
+                    industryType: primaryOwnedService.industryType || '',
+                    servicesOffered: primaryOwnedService.servicesOffered || '',
+                    annualYear: primaryOwnedService.firstAnnualReturnYearApplicable || '',
+                    eprCategory: primaryOwnedService.eprCategory || '',
+                    applicantType: primaryOwnedService.applicantType || '',
+                    piboParent: primaryOwnedService.piboParent || '',
+                    piboCategory: primaryOwnedService.piboCategory || ''
                   }
                 }
               });
+              }
             }}
             onEdit={() => {
               setLead({
@@ -1838,16 +1877,35 @@ export default function LeadGeneration() {
                   <div className="lead-assign-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>{assignmentApplicantLabel} <b className="text-red-500">*</b></span><span>Services Offered</span><span>Applicable Services</span><span>Lead Closed By</span><span>Assign To Manager</span><span>Manager Assigned to Staff</span><span>Claim Royalty</span><span>Action</span></div>
                   {assignmentRows.map((row, index) => {
                     const matchingService = serviceRows[index] || serviceRows[serviceRows.length - 1] || {};
-                    const rowFrozen = serviceOnlyMode && index < frozenAssignmentRowCount;
                     const currentUserIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.ccpUserId].filter(Boolean).map(String);
+                    const currentUserOwnerTokens = [
+                      ...currentUserIds,
+                      currentUser?.name,
+                      currentUser?.email
+                    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+                    const serviceOwnerTokens = [
+                      matchingService.createdByCrmUserId,
+                      matchingService.createdByName,
+                      matchingService.createdByEmail
+                    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+                    const leadOwnerTokens = [
+                      selectedSearchLead?.createdBy?._id,
+                      selectedSearchLead?.createdBy?.name,
+                      selectedSearchLead?.createdBy?.email,
+                      selectedSearchLead?.createdByCrmUserId,
+                      selectedSearchLead?.createdByName,
+                      selectedSearchLead?.createdByEmail,
+                      selectedSearchLead?.importedCreatedBy
+                    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+                    const effectiveOwnerTokens = serviceOwnerTokens.length ? serviceOwnerTokens : leadOwnerTokens;
+                    const ownsService = effectiveOwnerTokens.some((token) => currentUserOwnerTokens.includes(token));
+                    const rowFrozen = serviceOnlyMode && index < frozenAssignmentRowCount && !ownsService;
                     const leadClosed = Boolean(row.closedBy);
                     const canAssignStaff = String(currentUser?.role || '').toLowerCase() === 'manager' && currentUserIds.includes(String(row.assignedTo || ''));
                     const assignedManagerOptions = row.assignedTo && !managerOptions.some((option) => String(option.value) === String(row.assignedTo))
                       ? [{ value: String(row.assignedTo), label: row.assignedToText || lead.assignedToText || 'Previously assigned manager' }, ...managerOptions]
                       : managerOptions;
-                    const intendedCloser = generatedForMode === 'other' && selectedGeneratedForUser
-                      ? selectedGeneratedForUser
-                      : currentUser;
+                    const intendedCloser = currentUser;
                     const intendedCloserIds = [intendedCloser?._id, intendedCloser?.id, intendedCloser?.crmUserId, intendedCloser?.userId, intendedCloser?.ccpUserId].filter(Boolean);
                     const intendedCloserOption = intendedCloserIds.length ? [{
                       value: String(intendedCloserIds[0]),
@@ -2923,6 +2981,7 @@ function buildLeadFollowUpRows(lead = {}) {
   if (lead.nextFollowUpDate || lead.nextFollowUpTime || lead.followUpRemarks) {
     rows.push({
       id: 'current-follow-up',
+      isCurrent: true,
       scheduledDate: lead.nextFollowUpDate || '',
       scheduledTime: lead.nextFollowUpTime || '',
       remarks: lead.followUpRemarks || '',
@@ -2934,6 +2993,7 @@ function buildLeadFollowUpRows(lead = {}) {
   (Array.isArray(lead.followUpHistory) ? lead.followUpHistory : []).forEach((item, index) => {
     rows.push({
       id: item.id || `history-${index}`,
+      isCurrent: false,
       scheduledDate: item.scheduledDate || item.nextFollowUpDate || '',
       scheduledTime: item.scheduledTime || item.nextFollowUpTime || '',
       remarks: item.remarks || item.followUpRemarks || '',
@@ -3063,10 +3123,10 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const followUpRows = buildLeadFollowUpRows(activeLead);
   const todayKey = todayDateKey();
   const upcomingFollowUps = followUpRows
-    .filter((item) => item.scheduledDate && item.scheduledDate >= todayKey)
+    .filter((item) => item.isCurrent && item.scheduledDate && item.scheduledDate >= todayKey)
     .sort((a, b) => `${a.scheduledDate} ${a.scheduledTime}`.localeCompare(`${b.scheduledDate} ${b.scheduledTime}`));
   const previousFollowUps = followUpRows
-    .filter((item) => !item.scheduledDate || item.scheduledDate < todayKey)
+    .filter((item) => !item.isCurrent || !item.scheduledDate || item.scheduledDate < todayKey)
     .sort((a, b) => `${b.scheduledDate} ${b.scheduledTime}`.localeCompare(`${a.scheduledDate} ${a.scheduledTime}`));
   const basicInfoRows = [
     ['Lead ID', displayLeadId(activeLead), FileText],
@@ -3171,7 +3231,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
           scheduledDate: activeLead.nextFollowUpDate || '',
           scheduledTime: activeLead.nextFollowUpTime || '',
           remarks: activeLead.followUpRemarks || '',
-          reason: 'Previous current follow-up',
+          reason: followUpDraft.reason.trim() || 'Previous current follow-up',
+          status: 'superseded',
+          updatedAt: new Date().toISOString(),
           createdAt: new Date().toISOString()
         }]
       : [];
@@ -3191,7 +3253,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       nextFollowUpTime: newEntry.scheduledTime,
       followUpRemarks: newEntry.remarks,
       followUpPriority: newEntry.priority,
-      followUpHistory: [newEntry, ...previousCurrent, ...(Array.isArray(activeLead.followUpHistory) ? activeLead.followUpHistory : [])]
+      followUpHistory: [...previousCurrent, ...(Array.isArray(activeLead.followUpHistory) ? activeLead.followUpHistory : [])]
     };
     setFollowUpSaving(true);
     setFollowUpError('');

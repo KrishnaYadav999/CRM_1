@@ -16,6 +16,7 @@ function escapeHtml(value) {
 const CalendarItem = require('../models/CalendarItem');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
+const { ADMIN_ROLES } = require('../constants/roles');
 
 const REQUIRED_FIELDS = ['status', 'company', 'piboCategory', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
@@ -97,8 +98,11 @@ function cleanBody(body) {
           applicantType: String(row?.applicantType || '').trim(),
           piboCategory: String(row?.piboCategory || '').trim(),
           servicesOffered: String(row?.servicesOffered || '').trim(),
-          applicableService: String(row?.applicableService || '').trim()
-          ,firstAnnualReturnYearApplicable: String(row?.firstAnnualReturnYearApplicable || '').trim()
+          applicableService: String(row?.applicableService || '').trim(),
+          firstAnnualReturnYearApplicable: String(row?.firstAnnualReturnYearApplicable || '').trim(),
+          createdByCrmUserId: String(row?.createdByCrmUserId || '').trim(),
+          createdByName: String(row?.createdByName || '').trim(),
+          createdByEmail: String(row?.createdByEmail || '').trim().toLowerCase()
         })) : [];
         return;
       }
@@ -216,7 +220,19 @@ async function createLeadRecord(rawBody, userId) {
 exports.listLeads = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
   const leads = await Lead.find(ownerFilter(scope, 'createdBy', 'assignedTo', [
-    'assignedToText'
+    'assignedToText',
+    'assignedToEmail',
+    'assignedStaffText',
+    'assignedStaffEmail',
+    'assignments.assignedTo',
+    'assignments.assignedToText',
+    'assignments.assignedToEmail',
+    'assignments.assignedStaff',
+    'assignments.assignedStaffText',
+    'assignments.assignedStaffEmail',
+    'serviceSelections.createdByCrmUserId',
+    'serviceSelections.createdByName',
+    'serviceSelections.createdByEmail'
   ]))
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
@@ -401,7 +417,63 @@ exports.requestDuplicateLeadApproval = async (req, res) => {
 
 exports.listDuplicateLeadApprovals = async (req, res) => {
   const admin = ['admin', 'superadmin'].includes(String(req.user?.role || '').toLowerCase());
-  const query = { type: { $in: ['lead_duplicate', 'lead_royalty'] } };
+  if (!admin && req.user?._id) {
+    const legacyServiceNotifications = await Notification.find({
+      kind: 'lead_additional_services',
+      audience: req.user._id,
+      'metadata.eventKey': { $exists: true, $ne: '' }
+    }).select('metadata createdBy createdByName createdAt').populate('createdBy', 'name email').lean();
+    await Promise.all(legacyServiceNotifications.map(async (notification) => {
+      const metadata = notification.metadata || {};
+      const eventKey = String(metadata.eventKey || '').trim();
+      if (!eventKey) return null;
+      const contributorId = String(notification.createdBy?._id || notification.createdBy || '');
+      const contributorName = notification.createdBy?.name || metadata.actorName || notification.createdByName || 'CRM User';
+      const contributorEmail = notification.createdBy?.email || metadata.contributorEmail || '';
+      const approval = await PendingApproval.findOneAndUpdate(
+        { type: 'lead_service', source: 'crm', sourceClientId: eventKey },
+        {
+          $setOnInsert: {
+            type: 'lead_service',
+            source: 'crm',
+            sourceClientId: eventKey,
+            uniqueId: `SERVICE-${metadata.leadId || notification._id}`,
+            clientName: metadata.company || 'Company',
+            approvalStatus: 'PENDING',
+            createdByName: metadata.actorName || notification.createdByName || 'CRM User',
+            requestDate: new Date(notification.createdAt || Date.now()).toISOString().slice(0, 10),
+            requestTime: new Date(notification.createdAt || Date.now()).toTimeString().slice(0, 8),
+            nextReminderAt: new Date(Date.now() + 10 * 60 * 1000),
+            payload: {
+              eventKey,
+              leadId: metadata.leadId || '',
+              company: metadata.company || '',
+              contributorId,
+              contributorName,
+              contributorEmail,
+              originalCreatorId: String(req.user._id),
+              originalCreator: req.user.name || req.user.email || '',
+              originalCreatorEmail: req.user.email || '',
+              preliminaryStatus: 'PENDING',
+              finalStatus: 'PENDING',
+              groups: metadata.groups || []
+            },
+            remarks: 'Awaiting preliminary review by the original lead creator.'
+          }
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      const payload = {
+        ...(approval.payload || {}),
+        contributorId,
+        contributorName,
+        ...(contributorEmail ? { contributorEmail } : {})
+      };
+      await PendingApproval.updateOne({ _id: approval._id }, { $set: { payload } });
+      return approval;
+    }));
+  }
+  const query = { type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service'] } };
   if (!admin) {
     const userId = String(req.user?._id || req.user?.id || '');
     query.$or = [{ 'payload.requestedById': userId }, { 'payload.claimantId': userId }, { 'payload.originalCreatorId': userId }];
@@ -413,8 +485,74 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
 exports.updateDuplicateLeadApproval = async (req, res) => {
   const status = String(req.body.status || '').toUpperCase();
   if (!['APPROVED', 'REJECTED'].includes(status)) return res.status(400).json({ error: 'Status must be APPROVED or REJECTED.' });
-  const current = await PendingApproval.findOne({ _id: req.params.id, type: { $in: ['lead_duplicate', 'lead_royalty'] } }).lean();
+  const current = await PendingApproval.findOne({ _id: req.params.id, type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service'] } }).lean();
   if (!current) return res.status(404).json({ error: 'Lead approval request not found.' });
+  const isAdmin = ADMIN_ROLES.includes(String(req.user?.role || '').trim().toLowerCase());
+  const userId = String(req.user?._id || req.user?.id || '');
+  if (current.type !== 'lead_service' && !isAdmin) return res.status(403).json({ error: 'Admin access is required.' });
+  if (current.type === 'lead_service') {
+    const isCreator = userId && userId === String(current.payload?.originalCreatorId || '');
+    if (!isAdmin && !isCreator) return res.status(403).json({ error: 'Only the original lead creator or an Admin can review this request.' });
+    const payload = { ...(current.payload || {}) };
+    const actorName = req.user?.name || req.user?.email || (isAdmin ? 'Admin' : 'Original lead creator');
+    const decisionReason = String(req.body.remarks || '').trim();
+    if (status === 'REJECTED' && !decisionReason) {
+      return res.status(400).json({ error: 'A rejection reason is required.' });
+    }
+    if (isAdmin) {
+      if (!['APPROVED', 'REJECTED'].includes(String(payload.preliminaryStatus || '').toUpperCase())) {
+        return res.status(409).json({ error: 'The original lead creator must complete the preliminary review before final Admin action.' });
+      }
+      payload.finalStatus = status;
+      payload.finalActionBy = actorName;
+      payload.finalActionAt = new Date();
+      payload.finalReason = decisionReason;
+    } else {
+      payload.preliminaryStatus = status;
+      payload.preliminaryActionBy = actorName;
+      payload.preliminaryActionAt = new Date();
+      payload.preliminaryReason = decisionReason;
+    }
+    const approval = await PendingApproval.findOneAndUpdate(
+      { _id: req.params.id },
+      { $set: {
+        payload,
+        ...(isAdmin ? { approvalStatus: status } : {}),
+        ...(!isAdmin ? { nextReminderAt: null } : {}),
+        actionBy: req.user?._id,
+        actionAt: new Date(),
+        remarks: isAdmin
+          ? `Final ${status.toLowerCase()} by ${actorName}${decisionReason ? `: ${decisionReason}` : ''}`
+          : `Preliminary ${status.toLowerCase()} by ${actorName}${decisionReason ? `: ${decisionReason}` : ''}; awaiting final Admin review.`
+      } },
+      { new: true }
+    );
+    const admins = await User.find({ role: { $in: ADMIN_ROLES }, isActive: { $ne: false } }).select('email').lean();
+    const emails = [
+      approval.payload?.originalCreatorEmail,
+      approval.payload?.contributorEmail,
+      ...admins.map((admin) => admin.email)
+    ].map((email) => String(email || '').trim()).filter((email, index, rows) => email && rows.indexOf(email) === index);
+    const stage = isAdmin ? 'Final Legal Review' : 'Preliminary Review';
+    const decisionRows = `<tr><td style="padding:10px;font-weight:700">Original Creator Decision</td><td style="padding:10px">${escapeHtml(payload.preliminaryStatus || 'PENDING')}</td></tr>
+      <tr><td style="padding:10px;font-weight:700">Creator Reason</td><td style="padding:10px">${escapeHtml(payload.preliminaryReason || '-')}</td></tr>
+      <tr><td style="padding:10px;font-weight:700">Final Admin Decision</td><td style="padding:10px">${escapeHtml(payload.finalStatus || 'PENDING')}</td></tr>
+      <tr><td style="padding:10px;font-weight:700">Final Admin Reason</td><td style="padding:10px">${escapeHtml(payload.finalReason || '-')}</td></tr>`;
+    const preliminaryNote = '<div style="margin:20px 0;padding:14px 16px;background:#fff7ed;border-left:4px solid #f97316;border-radius:6px;color:#9a3412"><strong>This is a preliminary decision made by the assigned user. The final approval authority rests with the Admin/Super Admin.</strong></div>';
+    const html = `<div style="max-width:680px;font-family:Arial,sans-serif;color:#334155;line-height:1.6">
+      <h2 style="color:${status === 'REJECTED' ? '#b91c1c' : '#0f766e'}">${escapeHtml(stage)}: ${escapeHtml(status)}</h2>
+      <p>The additional service request for <strong>${escapeHtml(approval.clientName)}</strong> has been <strong>${status.toLowerCase()}</strong> by <strong>${escapeHtml(actorName)}</strong>.</p>
+      ${decisionReason ? `<p><strong>Reason:</strong><br>${escapeHtml(decisionReason)}</p>` : ''}
+      ${!isAdmin ? preliminaryNote : '<div style="margin:20px 0;padding:14px 16px;background:#ecfdf5;border-left:4px solid #059669;border-radius:6px;color:#065f46"><strong>This is the final decision recorded by the Admin/Super Admin.</strong></div>'}
+      <table style="width:100%;margin-top:18px;border-collapse:collapse;border:1px solid #e2e8f0">${decisionRows}</table>
+      <p style="margin-top:24px"><strong>Thanks &amp; Regards,</strong><br><strong>Team Ananttattva</strong></p>
+    </div>`;
+    const subject = isAdmin
+      ? `Final Service Request ${status} - ${approval.clientName}`
+      : `Preliminary Service Request ${status} - ${approval.clientName}`;
+    await Promise.allSettled(emails.map((email) => sendMail(email, subject, html, { branded: false })));
+    return res.json({ ok: true, approval });
+  }
   const selectedUserId = String(req.body.selectedUserId || '').trim();
   const claimantRatio = Number(req.body.claimantRatio);
   const originalCreatorRatio = Number(req.body.originalCreatorRatio);

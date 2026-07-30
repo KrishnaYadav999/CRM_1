@@ -75,9 +75,19 @@ export const navSections = [
         children: [
           { label: 'Lead Generation', icon: ClipboardList, path: '/sales/lead-generation' },
           { label: 'Client Master', icon: UserRound, path: '/sales/client-master' },
-          { label: 'Add Quotation', icon: FileText, path: '/sales/quotations?mode=add' }
-          ,{ label: 'Proforma Invoice', icon: FileText, path: '/sales/proforma-invoices' }
+          { label: 'Add Quotation', icon: FileText, path: '/sales/quotations?mode=add' },
+          { label: 'Proforma Invoice', icon: FileText, path: '/sales/proforma-invoices' }
         ]
+      }
+    ]
+  },
+  {
+    label: 'Help',
+    items: [
+      {
+        label: 'Help Yourself',
+        icon: FileText,
+        path: '/help-yourself'
       }
     ]
   }

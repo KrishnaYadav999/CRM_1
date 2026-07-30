@@ -11,6 +11,7 @@ import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { fetchCcpLeads } from '../services/ccpApi';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
+import { adminRoles } from '../constants/dashboard';
 
 const ANANT_LOGO_SOURCE_URL = '/anant-tattva-logo-chroma.png';
 const CCP_QUOTATION_AUTO_SYNC_COOLDOWN_MS = 30000;
@@ -137,6 +138,32 @@ function normalizeSearchValue(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function normalizeOwnerIdentity(value) {
+  return normalizeSearchValue(value)
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function ownerIdentityTokens(...values) {
+  return [...new Set(values.flatMap((value) => {
+    if (!value) return [];
+    if (typeof value === 'object') {
+      return ownerIdentityTokens(
+        value._id,
+        value.id,
+        value.crmUserId,
+        value.userId,
+        value.ccpUserId,
+        value.name,
+        value.email
+      );
+    }
+    const normalized = normalizeOwnerIdentity(value);
+    return normalized ? [normalized] : [];
+  }))];
+}
+
 function quotationApplicantSelection(row = {}) {
   if (row.piboCategory) return { parent: row.piboParent || row.applicantType || inferPiboParent(row.piboCategory), child: row.piboCategory };
   const applicant = String(row.applicantType || '').trim();
@@ -149,7 +176,59 @@ function quotationApplicantSelection(row = {}) {
   return applicant ? { parent: 'SIMP', child: 'Seller' } : { parent: '', child: '' };
 }
 
-function mapLeadServiceRows(lead = {}, savedItems = []) {
+function leadServiceIsClosed(lead = {}, index = 0) {
+  const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
+  const assignments = Array.isArray(lead.assignments) && lead.assignments.length ? lead.assignments : [lead];
+  const service = services[index] || {};
+  const assignment = assignments[index] || {};
+  return Boolean(
+    service.closedBy || service.closedByText
+    || assignment.closedBy || assignment.closedByText
+    || (services.length === 1 && (lead.closedBy || lead.closedByText))
+  );
+}
+
+function quotationItemIdentity(row = {}) {
+  return [
+    row.industryType,
+    row.servicesOffered || row.serviceCategory,
+    row.firstAnnualReturnYearApplicable || row.servicesForYear,
+    row.eprCategory,
+    row.piboCategory || row.applicantType
+  ].map(normalizeSearchValue).join('|');
+}
+
+function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
+  if (adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase())) return true;
+  const userTokens = ownerIdentityTokens(
+    currentUser?._id,
+    currentUser?.id,
+    currentUser?.crmUserId,
+    currentUser?.userId,
+    currentUser?.ccpUserId,
+    currentUser?.name,
+    currentUser?.email
+  );
+  if (!userTokens.length) return false;
+  const ownerTokens = ownerIdentityTokens(
+    row.createdByCrmUserId,
+    row.createdByName,
+    row.createdByEmail
+  );
+  const effectiveOwnerTokens = ownerTokens.length ? ownerTokens : ownerIdentityTokens(
+    lead.createdBy?._id,
+    lead.createdBy?.id,
+    lead.createdBy?.name,
+    lead.createdBy?.email,
+    lead.createdByCrmUserId,
+    lead.createdByName,
+    lead.createdByEmail,
+    lead.importedCreatedBy
+  );
+  return effectiveOwnerTokens.some((token) => userTokens.includes(token));
+}
+
+function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', currentUser = null) {
   const rows = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length
     ? lead.serviceSelections
     : [{
@@ -160,12 +239,24 @@ function mapLeadServiceRows(lead = {}, savedItems = []) {
         servicesOffered: lead.servicesOffered,
         firstAnnualReturnYearApplicable: lead.firstAnnualReturnYearApplicable
       }];
-  return rows.map((row, index) => {
-    const saved = savedItems[index] || {};
+  return rows.map((row, index) => ({
+    row,
+    index,
+    closed: leadServiceIsClosed(lead, index),
+    owned: serviceBelongsToUser(row, lead, currentUser)
+  }))
+    .filter(({ owned }) => owned)
+    .filter(({ closed }) => serviceState === 'closed' ? closed : !closed)
+    .map(({ row, index }) => {
+    const saved = savedItems.find((item) => Number(item.sourceServiceIndex) === index)
+      || savedItems.find((item) => quotationItemIdentity(item) === quotationItemIdentity(row))
+      || {};
     const applicant = quotationApplicantSelection(row);
     return {
       ...emptyItem,
       ...saved,
+      sourceServiceIndex: index,
+      serviceAddedBy: row.createdByName || row.createdByEmail || currentUser?.name || currentUser?.email || '',
       industryType: row.industryType || saved.industryType || '',
       serviceCategory: row.servicesOffered || saved.serviceCategory || '',
       servicesForYear: row.firstAnnualReturnYearApplicable || saved.servicesForYear || '',
@@ -223,6 +314,9 @@ function contextMatchesQuotation(row, context) {
 function buildQuotationFromContext(context) {
   if (!context) return { ...emptyQuotation, leadDetails: { ...emptyLeadDetails }, items: [], terms: [], scopeOfWork: [] };
   const isClientContext = context.sourceType === 'client' || Boolean(context.clientId && context.clientName);
+  const contextServices = Array.isArray(context.serviceSelections) && context.serviceSelections.length
+    ? context.serviceSelections
+    : [context];
   return {
     ...emptyQuotation,
     leadId: isClientContext ? (context.clientId || '') : (context.leadId || ''),
@@ -242,15 +336,22 @@ function buildQuotationFromContext(context) {
       pinCode: context.pinCode || '',
       gstNumber: context.gstNumber || ''
     },
-    items: [{
-      ...emptyItem,
-      industryType: context.industryType || '',
-      serviceCategory: context.servicesOffered || '',
-      servicesForYear: context.annualYear || '',
-      eprCategory: context.eprCategory || '',
-      piboParent: context.piboParent || context.applicantType || '',
-      piboCategory: context.piboCategory || ''
-    }],
+    items: contextServices.map((service, sourceServiceIndex) => {
+      const applicant = quotationApplicantSelection(service);
+      return {
+        ...emptyItem,
+        sourceServiceIndex: Number.isInteger(Number(service.sourceServiceIndex))
+          ? Number(service.sourceServiceIndex)
+          : sourceServiceIndex,
+        serviceAddedBy: service.createdByName || service.createdByEmail || '',
+        industryType: service.industryType || '',
+        serviceCategory: service.servicesOffered || '',
+        servicesForYear: service.firstAnnualReturnYearApplicable || service.annualYear || '',
+        eprCategory: service.eprCategory || '',
+        piboParent: applicant.parent,
+        piboCategory: applicant.child
+      };
+    }),
     terms: [],
     scopeOfWork: []
   };
@@ -311,6 +412,18 @@ function quotationUserNames(row = {}) {
     row.leadGeneratedBy,
     row.leadDetails?.referredBy
   ].map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function quotationBelongsToUser(row = {}, currentUser = null) {
+  const userTokens = [
+    currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId,
+    currentUser?.ccpUserId, currentUser?.name, currentUser?.email
+  ].map(normalizeSearchValue).filter(Boolean);
+  const creatorTokens = [
+    row.createdBy?._id, row.createdBy?.id, row.createdBy?.name, row.createdBy?.email,
+    row.createdByName, row.createdByEmail
+  ].map(normalizeSearchValue).filter(Boolean);
+  return creatorTokens.some((token) => userTokens.includes(token));
 }
 
 function getLeadMergeKey(lead = {}) {
@@ -414,6 +527,7 @@ export default function Quotations() {
   const [leads, setLeads] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [customServiceCategories, setCustomServiceCategories] = useState([]);
+  const [customDropdownOptions, setCustomDropdownOptions] = useState([]);
   const [piboCategories, setPiboCategories] = useState([]);
   const [piboCategoriesLoading, setPiboCategoriesLoading] = useState(true);
   const [quotation, setQuotation] = useState(emptyQuotation);
@@ -455,6 +569,14 @@ export default function Quotations() {
     && fetchedQuoteDetailsLocked
     && hasFetchedQuotationValue(quotation.leadDetails[field]);
   const allServiceCategoryOptions = useMemo(() => [...new Set([...serviceCategoryOptions, ...customServiceCategories])].sort(), [customServiceCategories]);
+  const canManageDropdownOptions = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+  const optionsFor = (field, builtIn) => [...new Set([
+    ...builtIn,
+    ...customDropdownOptions.filter((option) => option.field === field).map((option) => option.name)
+  ])].sort((left, right) => left.localeCompare(right));
+  const allIndustryTypeOptions = optionsFor('industryType', industryTypeOptions);
+  const allYearOptions = optionsFor('servicesForYear', yearOptions);
+  const allEprCategoryOptions = optionsFor('eprCategory', eprCategoryOptions);
 
   const userOptions = useMemo(() => {
     return [...new Set(quotations.flatMap(quotationUserNames))]
@@ -501,6 +623,22 @@ export default function Quotations() {
   }, [location.search, quotationContext]);
 
   useEffect(() => {
+    if (
+      viewMode !== 'form'
+      || editingId
+      || quotationContext?.sourceType !== 'lead'
+      || !selectedLead
+      || !currentUser
+    ) return;
+    const ownedItems = mapLeadServiceRows(selectedLead, [], 'open', currentUser);
+    setQuotation((current) => ({
+      ...current,
+      leadDetails: mapLeadToDetails(selectedLead),
+      items: ownedItems
+    }));
+  }, [currentUser, editingId, quotationContext?.sourceType, selectedLead, viewMode]);
+
+  useEffect(() => {
     const editQuotationId = location.state?.editQuotationId;
     const previewQuotationId = location.state?.previewQuotationId;
     const quotationSnapshot = normalizeQuotationSnapshot(location.state?.quotationSnapshot);
@@ -534,6 +672,7 @@ export default function Quotations() {
     if (!quotationContext || viewMode !== 'form' || editingId || quotation.pricingMode || !quotations.length) return;
     const savedQuotation = [...quotations]
       .filter((row) => contextMatchesQuotation(row, quotationContext)
+        && quotationBelongsToUser(row, currentUser)
         && ['combined', 'individual'].includes(row.pricingMode)
         && !['approved', 'rejected'].includes(String(row.status || '').toLowerCase()))
       .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0];
@@ -553,7 +692,7 @@ export default function Quotations() {
       status: savedQuotation.status || current.status
     }));
     setEditingId(savedQuotation._id || savedQuotation.id || '');
-  }, [editingId, quotation.pricingMode, quotationContext, quotations, viewMode]);
+  }, [currentUser, editingId, quotation.pricingMode, quotationContext, quotations, viewMode]);
 
   async function loadPage({ syncCcp = true } = {}) {
     setLoading(true);
@@ -581,18 +720,20 @@ export default function Quotations() {
           }
         }
       }
-      const [crmLeadsResult, ccpLeadsResult, quotationsResponse, categoriesResponse, piboCategoriesResponse] = await Promise.all([
+      const [crmLeadsResult, ccpLeadsResult, quotationsResponse, categoriesResponse, piboCategoriesResponse, dropdownOptionsResponse] = await Promise.all([
         api.get(API_ENDPOINTS.leads.list).catch(() => ({ data: { leads: [] } })),
         fetchCcpLeads(),
         api.get(API_ENDPOINTS.quotations.list),
         api.get(API_ENDPOINTS.quotations.serviceCategories).catch(() => ({ data: { categories: [] } })),
-        api.get(API_ENDPOINTS.quotations.piboCategories).catch(() => ({ data: { categories: [] } }))
+        api.get(API_ENDPOINTS.quotations.piboCategories).catch(() => ({ data: { categories: [] } })),
+        api.get(API_ENDPOINTS.quotations.dropdownOptions).catch(() => ({ data: { options: [] } }))
       ]);
       setCurrentUser(me);
       setLeads(mergeLeadLists(crmLeadsResult.data.leads || [], ccpLeadsResult.data.leads || []));
       setQuotations(quotationsResponse.data.quotations || []);
       setCustomServiceCategories(categoriesResponse.data.categories || []);
       setPiboCategories(piboCategoriesResponse.data.categories || []);
+      setCustomDropdownOptions(dropdownOptionsResponse.data.options || []);
       setPiboCategoriesLoading(false);
       if (autoSyncSummary?.created || autoSyncSummary?.updated) {
         setNotice(`CCP quotations updated automatically: ${autoSyncSummary.created || 0} new, ${autoSyncSummary.updated || 0} updated.`);
@@ -717,6 +858,7 @@ export default function Quotations() {
     const businessLeadCode = displayLeadCode(lead, leadIndex);
     const savedQuotation = [...quotations]
       .filter((row) => String(row.leadId || '') === String(leadId || '')
+        && quotationBelongsToUser(row, currentUser)
         && ['combined', 'individual'].includes(row.pricingMode)
         && !['approved', 'rejected'].includes(String(row.status || '').toLowerCase()))
       .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0];
@@ -728,7 +870,7 @@ export default function Quotations() {
       pricingMode: savedQuotation?.pricingMode || current.pricingMode || '',
       combinedBasicAmount: savedQuotation?.pricingMode === 'combined' ? (savedQuotation.combinedBasicAmount ?? '') : '',
       validUntil: savedQuotation?.validUntil || '',
-      items: mapLeadServiceRows(lead, Array.isArray(savedQuotation?.items) ? savedQuotation.items : []),
+      items: mapLeadServiceRows(lead, Array.isArray(savedQuotation?.items) ? savedQuotation.items : [], 'open', currentUser),
       terms: Array.isArray(savedQuotation?.terms)
         ? savedQuotation.terms.map((term) => String(term ?? ''))
         : [],
@@ -738,6 +880,16 @@ export default function Quotations() {
     setEditingId(savedQuotation?._id || savedQuotation?.id || '');
     setEditingItemIndex(null);
     setItemDrafts({});
+  }
+
+  async function addDropdownOption(field, name) {
+    if (!canManageDropdownOptions) throw new Error('Only Admin or Superadmin can add dropdown options.');
+    const normalized = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!normalized) throw new Error('Enter an option name.');
+    const response = await api.post(API_ENDPOINTS.quotations.dropdownOptions, { field, name: normalized });
+    const saved = response.data.option;
+    setCustomDropdownOptions((current) => [...current, saved]);
+    return saved.name;
   }
 
   function setLeadDetail(field, value) {
@@ -915,6 +1067,7 @@ export default function Quotations() {
     try {
       const payload = {
         ...quotation,
+        serviceState: quotation.serviceState || 'open',
         combinedBasicAmount: quotation.pricingMode === 'combined' ? quotation.combinedBasicAmount : 0,
         leadDetails: { ...quotation.leadDetails, gstNumber },
         items: quotation.items.map((item) => ({
@@ -1204,7 +1357,7 @@ export default function Quotations() {
           <div className="mt-8 rounded-lg border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div><h3 className="font-black text-slate-900">Quotation Items</h3><p className="mt-0.5 text-xs font-bold text-slate-500">{quotation.pricingMode ? `${quotation.pricingMode === 'combined' ? 'Combined' : 'Individual'} pricing selected` : 'Choose the pricing type first.'}</p></div>
-              {quotation.pricingMode && <button type="button" onClick={addItem} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 font-black text-white">
+              {quotation.pricingMode && !fetchedQuoteDetailsLocked && <button type="button" onClick={addItem} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 font-black text-white">
                 <Plus className="h-4 w-4" /> Add Row
               </button>}
             </div>
@@ -1219,7 +1372,7 @@ export default function Quotations() {
                 <table className="w-full min-w-[980px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
-                      {['Sr.No', 'Industry Type', 'Service Category', 'Services for the Year', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
+                      {['Sr.No', 'Industry Type', 'Service Category', 'Services for the Year', 'EPR Category', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
                         <th key={header} className="px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -1236,12 +1389,14 @@ export default function Quotations() {
                               <td className="px-3 py-4 font-black text-slate-700">{item.servicesForYear || '-'}</td>
                               <td className="px-3 py-4 font-black text-slate-700">{item.eprCategory || '-'}</td>
                               <td className="px-3 py-4 font-black text-slate-700">{displayPiboChild(item)}</td>
+                              <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </> : <>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.industryType || ''} options={industryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.serviceCategory || ''} options={allServiceCategoryOptions} placeholder="CONSULTANCY FEE" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={addServiceCategory} /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.servicesForYear || ''} options={yearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.eprCategory || ''} options={eprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} /></td>
-                              <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={itemDrafts[index]?.piboParent || itemDrafts[index]?.piboCategoryParent || inferPiboParent(itemDrafts[index]?.piboCategory)} value={itemDrafts[index]?.piboCategory || ''} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={addPiboCategory} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.industryType || ''} options={allIndustryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('industryType', name) : undefined} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.serviceCategory || ''} options={allServiceCategoryOptions} placeholder="CONSULTANCY FEE" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.servicesForYear || ''} options={allYearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} categoryLabel="Financial Year" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('servicesForYear', name) : undefined} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.eprCategory || ''} options={allEprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} categoryLabel="EPR Category" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('eprCategory', name) : undefined} /></td>
+                              <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={itemDrafts[index]?.piboParent || itemDrafts[index]?.piboCategoryParent || inferPiboParent(itemDrafts[index]?.piboCategory)} value={itemDrafts[index]?.piboCategory || ''} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={canManageDropdownOptions ? addPiboCategory : undefined} /></td>
+                              <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </>}
                             <td className="px-3 py-4"><input value={itemDrafts[index]?.unit || ''} onChange={(event) => setItemDraft(index, 'unit', event.target.value)} className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1" /></td>
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4">
@@ -1265,6 +1420,7 @@ export default function Quotations() {
                             <td className="px-3 py-4 font-black">{item.servicesForYear || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.eprCategory || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{displayPiboChild(item)}</td>
+                            <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.unit || '-'}</td>
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4 font-black text-orange-600">{formatInr(item.basicAmount)}</td>}
                             {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="border-l border-slate-100 bg-emerald-50/60 px-3 py-4 text-center align-middle font-black text-emerald-700">{formatInr(quotation.combinedBasicAmount)}</td>}
@@ -1395,7 +1551,7 @@ function QuotationItemsPanel({ quotation, items }) {
       <table className="w-full min-w-[920px] text-left text-sm">
         <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
           <tr>
-            {['Service Category', 'Services for the Year', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)', 'Line Total'].map((header) => (
+            {['Service Category', 'Financial Years', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
               <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
             ))}
           </tr>
@@ -1407,10 +1563,10 @@ function QuotationItemsPanel({ quotation, items }) {
             <tr key={index} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.serviceCategory || '-'}</td>
               <td className="px-4 py-4">{item.servicesForYear || '-'}</td>
+              {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
               <td className="px-4 py-4">{item.eprCategory || '-'}</td>
               <td className="px-4 py-4">{displayPiboChild(item)}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
-              {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="px-4 py-4 align-middle text-center font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)))}</td>}
             </tr>
           ))}
@@ -1547,7 +1703,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
               <table className="w-full min-w-[980px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-black text-slate-600">
                   <tr>
-                    {['Sr.No', 'Service Category', 'Services for the Year', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)', 'Line Total'].map((header) => (
+                    {['Sr.No', 'Service Category', 'Financial Years', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
                       <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                     ))}
                   </tr>
@@ -1558,10 +1714,10 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.servicesForYear || '-'}</td>
+                      {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{displayPiboChild(item)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
-                      {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)))}</td>}
                     </tr>
                   )) : (
@@ -1652,7 +1808,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-600">
               <tr>
-                {['Sr.No', 'Service Category', 'Services for the Year', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => (
+                {['Sr.No', 'Service Category', 'Financial Years', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit'].map((header) => (
                   <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                 ))}
               </tr>
@@ -1663,10 +1819,10 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                   <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.servicesForYear || '-'}</td>
+                  {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{displayPiboChild(item)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
-                  {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                 </tr>
               )) : (
                 <tr><td colSpan={7} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>

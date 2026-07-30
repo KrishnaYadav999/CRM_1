@@ -18,6 +18,7 @@ import AssistantPage from './pages/AssistantPage'
 import ProformaInvoices from './pages/ProformaInvoices'
 import ComplianceHealthDashboard from './pages/ComplianceHealthDashboard'
 import PendingLeads from './pages/PendingLeads'
+import HelpYourself from './pages/HelpYourself'
 
 function App(){
   return (
@@ -48,6 +49,7 @@ function App(){
         <Route path="/sales/annual-returns" element={<ProtectedRoute><AnnualReturns/></ProtectedRoute>} />
         <Route path="/sales/quotations" element={<ProtectedRoute><Quotations/></ProtectedRoute>} />
         <Route path="/sales/proforma-invoices" element={<ProtectedRoute><ProformaInvoices/></ProtectedRoute>} />
+        <Route path="/help-yourself" element={<ProtectedRoute><HelpYourself/></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>

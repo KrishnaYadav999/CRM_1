@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowLeft, Home, SearchX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const notFoundGif = '/From Klickpin.com- Love these cozy digital planning ideas that bring style function and personality together designed to feel inspiring useful and easy to save-pin-id-28851253859629411.gif';
+const notFoundGif = '/not-found-planner.gif';
 
 export default function NotFound() {
   const navigate = useNavigate();

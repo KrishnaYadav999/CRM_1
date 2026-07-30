@@ -73,7 +73,7 @@ export default function PiboDependentSelect({ parent = '', value = '', categorie
           <select value={value} onChange={(event) => changeChild(event.target.value)} disabled={loading} className={inputClass}>
             <option value="">{loading ? 'Loading categories…' : `Select ${parent} category`}</option>
             {childOptions.map((category) => <option key={`${category.parent}:${category.name.toLowerCase()}`} value={category.name}>{category.name}</option>)}
-            <option value={ADD_NEW_VALUE}>＋ Add New Category</option>
+            {onAddCategory && <option value={ADD_NEW_VALUE}>＋ Add New Category</option>}
           </select>
         </label>
       )}

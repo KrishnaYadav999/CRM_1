@@ -394,6 +394,12 @@ function filterByScope(rows, scope, { assignedOnly = false } = {}) {
       assignment?.assignedStaff?.email,
       assignment?.assignedStaff?.name
     ]).map(normalizeName).filter(Boolean);
+    const serviceContributorValues = (Array.isArray(row?.serviceSelections) ? row.serviceSelections : []).flatMap((service) => [
+      service?.createdByCrmUserId,
+      service?.createdByName,
+      service?.createdByEmail
+    ]).map(normalizeName).filter(Boolean);
+    if (serviceContributorValues.some((value) => identities.has(value) || ids.has(value))) return true;
     if (assignedOnly) {
       return assignmentManagerValues.some((value) => identities.has(value) || ids.has(value));
     }
@@ -514,7 +520,15 @@ router.patch('/clients/:id/approval', requireAuth, (req, res) => proxyCcpEndpoin
 router.get('/leads/:id/history', requireAuth, proxyCcpLeadHistory);
 router.post('/leads/:id/history/email', requireAuth, proxyCcpEmailHistory);
 
-router._test = { nonEmptyQuery, ccpHistoryBaseUrls, ccpApiHeaders, ccpCollectionHeaders, isQuotationOnlyClientRecord, cleanCcpRowsForCrm };
+router._test = {
+  nonEmptyQuery,
+  ccpHistoryBaseUrls,
+  ccpApiHeaders,
+  ccpCollectionHeaders,
+  isQuotationOnlyClientRecord,
+  cleanCcpRowsForCrm,
+  filterByScope
+};
 
 module.exports = router;
 

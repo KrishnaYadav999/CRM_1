@@ -20,6 +20,7 @@ const { startPendingApprovalReminderScheduler } = require('./services/pendingApp
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
+const { startLeadServiceApprovalReminderScheduler } = require('./services/leadServiceApprovalReminders');
 const { requireCcpSecret } = require('./middleware/ccpSecret');
 const PendingApproval = require('./models/PendingApproval');
 
@@ -55,6 +56,7 @@ function connectAndStartServices() {
       startClientOnboardingReminderScheduler();
       startLeadWorkflowReminderScheduler();
       startStaffOnboardingWorkflowScheduler();
+      startLeadServiceApprovalReminderScheduler();
       schedulerStarted = true;
     }
   });

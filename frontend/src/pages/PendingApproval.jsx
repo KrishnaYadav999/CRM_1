@@ -140,6 +140,9 @@ export default function PendingApproval() {
   const [pendingClients, setPendingClients] = useState(() => cachedApprovalData?.pendingClients || []);
   const [pendingQuotations, setPendingQuotations] = useState(() => cachedApprovalData?.pendingQuotations || []);
   const [duplicateLeadApprovals, setDuplicateLeadApprovals] = useState([]);
+  const [serviceApprovals, setServiceApprovals] = useState([]);
+  const [serviceApprovalDetail, setServiceApprovalDetail] = useState(null);
+  const [serviceRejection, setServiceRejection] = useState(null);
   const [royaltyApprovals, setRoyaltyApprovals] = useState([]);
   const [approvalInputs, setApprovalInputs] = useState({});
   const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
@@ -160,7 +163,7 @@ export default function PendingApproval() {
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const canApprove = adminRoles.includes(normalizedRole);
 
-  const allApprovalRows = useMemo(() => [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...royaltyApprovals], [pendingClients, pendingQuotations, duplicateLeadApprovals, royaltyApprovals]);
+  const allApprovalRows = useMemo(() => [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals], [pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals]);
   const piboOptions = useMemo(() => {
     const values = allApprovalRows
       .map((row) => formatApprovalValue(row?.piboCategory))
@@ -180,6 +183,7 @@ export default function PendingApproval() {
   ), [pendingQuotations, searchTerm, statusFilter, piboFilter, typeFilter]);
   const filteredDuplicateLeads = useMemo(() => !['all', 'duplicates'].includes(typeFilter) ? [] : duplicateLeadApprovals.filter(filterRow), [duplicateLeadApprovals, searchTerm, statusFilter, typeFilter]);
   const filteredRoyalty = useMemo(() => !['all', 'royalty'].includes(typeFilter) ? [] : royaltyApprovals.filter(filterRow), [royaltyApprovals, searchTerm, statusFilter, typeFilter]);
+  const filteredServices = useMemo(() => !['all', 'services'].includes(typeFilter) ? [] : serviceApprovals.filter(filterRow), [serviceApprovals, searchTerm, statusFilter, typeFilter]);
   const approvedTodayCount = useMemo(() => (
     allApprovalRows.filter((row) => getApprovalStatus(row) === 'APPROVED').length
   ), [allApprovalRows]);
@@ -204,7 +208,7 @@ export default function PendingApproval() {
 
   useEffect(() => {
     const tab = new URLSearchParams(location.search).get('tab');
-    if (tab === 'quotations' || tab === 'clients' || tab === 'duplicates' || tab === 'royalty') setActiveTab(tab);
+    if (tab === 'quotations' || tab === 'clients' || tab === 'duplicates' || tab === 'royalty' || tab === 'services') setActiveTab(tab);
   }, [location.search]);
 
   useEffect(() => {
@@ -270,6 +274,31 @@ export default function PendingApproval() {
       setPendingClients(snapshot.pendingClients);
       setPendingQuotations(snapshot.pendingQuotations);
       const leadApprovals = (duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : []).map((approval) => {
+        if (approval.type === 'lead_service') {
+          const leadId = String(approval.payload?.leadId || '');
+          const matchingLead = ccpLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode]
+            .some((id) => String(id || '') === leadId));
+          const grouped = new Map();
+          (matchingLead?.serviceSelections || []).forEach((service) => {
+            const owner = String(
+              service.createdByName
+              || service.createdByEmail
+              || matchingLead.importedCreatedBy
+              || approval.payload?.originalCreator
+              || 'CRM User'
+            ).trim();
+            if (!grouped.has(owner)) grouped.set(owner, []);
+            grouped.get(owner).push(service);
+          });
+          const serviceGroups = [...grouped.entries()].map(([user, services]) => ({ user, count: services.length, services }));
+          return {
+            ...approval,
+            payload: {
+              ...(approval.payload || {}),
+              serviceGroups: serviceGroups.length ? serviceGroups : (approval.payload?.groups || [])
+            }
+          };
+        }
         if (approval.type === 'lead_royalty' || approval.payload?.leadAssignedTo) return approval;
         const existingId = String(approval.payload?.existingLeadId || '');
         const matchingLead = ccpLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode].some((id) => String(id || '') === existingId));
@@ -282,7 +311,8 @@ export default function PendingApproval() {
           || '';
         return leadAssignedTo ? { ...approval, payload: { ...approval.payload, leadAssignedTo } } : approval;
       });
-      setDuplicateLeadApprovals(leadApprovals.filter((row) => row.type !== 'lead_royalty'));
+      setDuplicateLeadApprovals(leadApprovals.filter((row) => !['lead_royalty', 'lead_service'].includes(row.type)));
+      setServiceApprovals(leadApprovals.filter((row) => row.type === 'lead_service'));
       setRoyaltyApprovals(leadApprovals.filter((row) => row.type === 'lead_royalty'));
       setDebugInfo(snapshot.debug);
       console.info('[PendingApproval:loaded]', {
@@ -375,7 +405,8 @@ export default function PendingApproval() {
   }
 
   async function updateDuplicateLeadApproval(row, status) {
-    if (!canApprove) return;
+    const isOriginalCreator = String(row?.payload?.originalCreatorId || '') === String(currentUser?._id || currentUser?.id || '');
+    if (!canApprove && !(row?.type === 'lead_service' && isOriginalCreator)) return;
     const id = row?._id || row?.id;
     setSavingId(`${id}-${status}`);
     setError('');
@@ -386,12 +417,41 @@ export default function PendingApproval() {
         selectedUserId: values.selectedUserId,
         claimantRatio: values.claimantRatio,
         originalCreatorRatio: values.originalCreatorRatio,
-        remarks: `${status === 'APPROVED' ? 'Approved' : 'Rejected'} from Pending Approval`
+        remarks: values.decisionReason || `${status === 'APPROVED' ? 'Approved' : 'Rejected'} from Pending Approval`
       });
-      setNotice(`${row?.type === 'lead_royalty' ? 'Royalty claim' : 'Special approval request'} ${status.toLowerCase()} successfully.`);
+      setNotice(`${row?.type === 'lead_royalty' ? 'Royalty claim' : row?.type === 'lead_service' ? (canApprove ? 'Final additional-service review' : 'Preliminary additional-service review') : 'Special approval request'} ${status.toLowerCase()} successfully.`);
       await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to update duplicate lead approval.'));
+    } finally {
+      setSavingId('');
+    }
+  }
+
+  function requestServiceDecision(row, status) {
+    if (status === 'REJECTED') {
+      setServiceRejection({ row, reason: '' });
+      return;
+    }
+    updateDuplicateLeadApproval(row, status);
+  }
+
+  async function submitServiceRejection(event) {
+    event.preventDefault();
+    const reason = String(serviceRejection?.reason || '').trim();
+    if (!reason) return;
+    const row = serviceRejection.row;
+    const id = row._id || row.id;
+    setApprovalInputs((current) => ({ ...current, [id]: { ...(current[id] || {}), decisionReason: reason } }));
+    setServiceRejection(null);
+    setSavingId(`${id}-REJECTED`);
+    setError('');
+    try {
+      await api.patch(API_ENDPOINTS.leads.duplicateApproval(id), { status: 'REJECTED', remarks: reason });
+      setNotice(`${canApprove ? 'Final' : 'Preliminary'} service rejection saved successfully.`);
+      await loadPage({ force: true, silent: true });
+    } catch (err) {
+      setError(readError(err, 'Unable to reject this service approval.'));
     } finally {
       setSavingId('');
     }
@@ -553,6 +613,7 @@ export default function PendingApproval() {
                 <option value="clients">Clients</option>
                 <option value="quotations">Quotations</option>
                 <option value="duplicates">Special Approvals</option>
+                <option value="services">Service Pending</option>
                 <option value="royalty">Royalty Claims</option>
               </select>
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter approval status">
@@ -605,6 +666,13 @@ export default function PendingApproval() {
                   onClick={() => setActiveTab('royalty')}
                 />
                 <ApprovalTab
+                  active={activeTab === 'services'}
+                  icon={FileText}
+                  label="Service Pending"
+                  count={filteredServices.length}
+                  onClick={() => setActiveTab('services')}
+                />
+                <ApprovalTab
                   active={activeTab === 'duplicates'}
                   icon={Users}
                   label="Special Approvals"
@@ -651,6 +719,47 @@ export default function PendingApproval() {
                   </tr>
                 ))}
               </ApprovalTable>
+            ) : activeTab === 'services' ? (
+              <div className="grid gap-4">
+                <div className="rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-5 py-4 text-sm font-bold leading-6 text-orange-900 shadow-sm">
+                  <span className="mr-2 inline-flex rounded-full bg-orange-600 px-3 py-1 text-xs font-black uppercase tracking-wider text-white">Important</span>
+                  This is a preliminary decision made by the assigned user. The final approval authority rests with the Admin/Super Admin.
+                </div>
+                <ApprovalTable
+                title="Service Pending Approvals"
+                columns={['Company', 'Service Added By', 'Original Creator', 'Services Added', 'Creator Decision', 'Final Decision', 'Actions']}
+                emptyText="No service approval requests found."
+                page={1}
+                totalPages={1}
+                showing={filteredServices.length}
+                total={filteredServices.length}
+                onPrev={() => {}}
+                onNext={() => {}}
+              >
+                {filteredServices.map((row) => {
+                  const id = row._id || row.id;
+                  const isCreator = String(row.payload?.originalCreatorId || '') === String(currentUser?._id || currentUser?.id || '');
+                  return <tr key={id}>
+                    <Cell strong><button type="button" onClick={() => setServiceApprovalDetail(row)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{row.clientName}</button></Cell>
+                    <Cell>{row.payload?.contributorName || row.createdByName}</Cell>
+                    <Cell>{row.payload?.originalCreator || currentUser?.name || '-'}</Cell>
+                    <Cell>{row.payload?.addedServices?.length || row.payload?.groups?.reduce((sum, group) => sum + Number(group.count || 0), 0) || '-'}</Cell>
+                    <Cell><div className="grid gap-1">
+                      {statusBadge(row.payload?.preliminaryStatus)}
+                      {Number(row.reminderCount || 0) > 0 && row.payload?.preliminaryStatus === 'PENDING' && (
+                        <small className={`max-w-64 font-black ${Number(row.reminderCount) >= 2 ? 'text-red-600' : 'text-amber-600'}`}>
+                          {Number(row.reminderCount) >= 2 ? '🚩 RED FLAG — Final reminder sent' : 'Reminder 1 of 2 sent'}
+                        </small>
+                      )}
+                      {row.payload?.autoApproved && <small className="max-w-64 font-black text-blue-700">System preliminary approval after two unanswered reminders</small>}
+                      {row.payload?.preliminaryReason && <small className="max-w-64 font-bold text-red-600">{row.payload.preliminaryReason}</small>}
+                    </div></Cell>
+                    <Cell><div className="grid gap-1">{statusBadge(row.payload?.finalStatus)}{row.payload?.finalReason && <small className="max-w-64 font-bold text-red-600">{row.payload.finalReason}</small>}</div></Cell>
+                    <ActionCell row={{ ...row, id }} savingId={savingId} onUpdate={requestServiceDecision} canApprove={canApprove || isCreator} />
+                  </tr>;
+                })}
+                </ApprovalTable>
+              </div>
             ) : activeTab === 'duplicates' ? (
               <ApprovalTable
                 title="Special Approvals"
@@ -667,12 +776,12 @@ export default function PendingApproval() {
                   <tr key={row._id || row.id}>
                     <Cell strong>{row.clientName}</Cell>
                     <Cell>{row.createdByName}</Cell>
-                    <Cell>{row.payload?.reason}</Cell>
-                    <Cell>{row.payload?.requesterEmail}</Cell>
+                    <Cell>{row.type === 'lead_service' ? `Additional services by ${row.payload?.contributorName || row.createdByName}` : row.payload?.reason}</Cell>
+                    <Cell>{row.type === 'lead_service' ? row.payload?.contributorEmail : row.payload?.requesterEmail}</Cell>
                     <Cell>{row.payload?.screenshotUrl ? <a className="font-black text-emerald-700 underline" href={row.payload.screenshotUrl} target="_blank" rel="noreferrer">Open</a> : '-'}</Cell>
-                    <Cell><select className="form-input min-w-44" value={approvalInputs[row._id]?.selectedUserId || row.payload?.selectedUserId || ''} disabled={getApprovalStatus(row) !== 'PENDING'} onChange={(event) => setApprovalInputs((current) => ({ ...current, [row._id]: { ...(current[row._id] || {}), selectedUserId: event.target.value } }))}><option value="">Select user</option>{(row.payload?.candidateUsers || []).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></Cell>
-                    <Cell>{statusBadge(row.approvalStatus)}</Cell>
-                    <ActionCell row={{ ...row, id: row._id || row.id }} savingId={savingId} onUpdate={updateDuplicateLeadApproval} canApprove={canApprove} />
+                    <Cell>{row.type === 'lead_service' ? `Creator: ${row.payload?.preliminaryStatus || 'PENDING'} / Final: ${row.payload?.finalStatus || 'PENDING'}` : <select className="form-input min-w-44" value={approvalInputs[row._id]?.selectedUserId || row.payload?.selectedUserId || ''} disabled={getApprovalStatus(row) !== 'PENDING'} onChange={(event) => setApprovalInputs((current) => ({ ...current, [row._id]: { ...(current[row._id] || {}), selectedUserId: event.target.value } }))}><option value="">Select user</option>{(row.payload?.candidateUsers || []).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>}</Cell>
+                    <Cell>{statusBadge(row.type === 'lead_service' && !canApprove ? row.payload?.preliminaryStatus : row.approvalStatus)}</Cell>
+                    <ActionCell row={{ ...row, id: row._id || row.id }} savingId={savingId} onUpdate={updateDuplicateLeadApproval} canApprove={canApprove || (row.type === 'lead_service' && String(row.payload?.originalCreatorId || '') === String(currentUser?._id || currentUser?.id || ''))} />
                   </tr>
                 ))}
               </ApprovalTable>
@@ -744,6 +853,36 @@ export default function PendingApproval() {
           </section>
         </div>
       </div>
+
+      {serviceApprovalDetail && (
+        <div className="fixed inset-0 z-[10000] grid place-items-center bg-slate-950/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setServiceApprovalDetail(null); }}>
+          <div className="max-h-[88vh] w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <header className="flex items-start justify-between gap-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-orange-50 p-5">
+              <div><p className="text-xs font-black uppercase tracking-widest text-emerald-700">Service contribution details</p><h2 className="mt-1 text-2xl font-black text-slate-950">{serviceApprovalDetail.clientName}</h2><p className="mt-1 text-sm font-bold text-slate-500">Lead creator: {serviceApprovalDetail.payload?.originalCreator || '-'}</p></div>
+              <button type="button" onClick={() => setServiceApprovalDetail(null)} className="grid h-10 w-10 place-items-center rounded-xl bg-white text-slate-600 shadow"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="max-h-[70vh] overflow-auto p-5">
+              {(serviceApprovalDetail.payload?.serviceGroups || []).length ? <div className="space-y-5">{serviceApprovalDetail.payload.serviceGroups.map((group) => (
+                <section key={group.user} className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="flex items-center justify-between bg-slate-50 px-4 py-3"><strong>{group.user}</strong><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">{group.count ?? group.services?.length ?? 0} Services</span></div>
+                  <div className="overflow-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-emerald-50 text-xs uppercase text-emerald-800"><tr>{['#', 'Industry', 'EPR Category', 'Applicant Type', 'Service', 'Applicable Service', 'Financial Year'].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody>{(group.services || []).map((service, index) => <tr key={`${group.user}-${index}`} className="border-t"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{service.industryType || '-'}</td><td className="px-4 py-3">{service.eprCategory || '-'}</td><td className="px-4 py-3">{service.applicantType || service.piboCategory || '-'}</td><td className="px-4 py-3 font-bold">{service.servicesOffered || '-'}</td><td className="px-4 py-3">{service.applicableService || '-'}</td><td className="px-4 py-3">{service.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody></table>{!(group.services || []).length && <p className="p-5 text-sm font-bold text-slate-500">Detailed rows are unavailable for this older approval; total count is {group.count || 0}.</p>}</div>
+                </section>
+              ))}</div> : <div className="p-10 text-center font-bold text-slate-500">No service contribution details are available.</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {serviceRejection && (
+        <div className="fixed inset-0 z-[10001] grid place-items-center bg-slate-950/55 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setServiceRejection(null); }}>
+          <form onSubmit={submitServiceRejection} className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-red-600">Rejection reason required</p><h2 className="mt-1 text-xl font-black text-slate-950">{serviceRejection.row.clientName}</h2></div><button type="button" onClick={() => setServiceRejection(null)} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100"><X className="h-5 w-5" /></button></div>
+            <label className="mt-5 grid gap-2"><span className="text-sm font-black text-slate-700">Reason for rejection</span><textarea autoFocus required rows={5} value={serviceRejection.reason} onChange={(event) => setServiceRejection((current) => ({ ...current, reason: event.target.value }))} className="rounded-xl border border-slate-300 p-4 text-sm font-semibold outline-none focus:border-red-400 focus:ring-4 focus:ring-red-100" placeholder="Explain clearly why these additional services are being rejected..." /></label>
+            <p className="mt-2 text-xs font-bold text-slate-500">This reason will be visible in Pending Approval and emailed to the contributor, Admin and Superadmin.</p>
+            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setServiceRejection(null)} className="min-h-11 rounded-xl border px-5 font-black text-slate-700">Cancel</button><button type="submit" disabled={!serviceRejection.reason.trim()} className="min-h-11 rounded-xl bg-red-600 px-5 font-black text-white disabled:opacity-50">Reject with Reason</button></div>
+          </form>
+        </div>
+      )}
 
       {profileOpen && (
         <ProfileModal
