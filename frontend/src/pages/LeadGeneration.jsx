@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, BadgeIndianRupee, Building2, Check, CheckCircle2, ChevronDown, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
+import { ArrowLeft, BadgeIndianRupee, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
@@ -12,7 +12,7 @@ import PiboDependentSelect from '../components/form/PiboDependentSelect';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
-import { fetchCcpLeadHistory, fetchCcpLeads } from '../services/ccpApi';
+import { fetchCcpLeadHistory, fetchCcpLeads, searchCcpLeadsByCompany } from '../services/ccpApi';
 import { mergeLeadSources } from '../features/clientMaster/clientMaster.utils';
 import { inferPiboParent, normalizeLegacyPiboCategory, normalizePiboCategories, PIBO_PARENTS } from '../constants/piboCategories';
 import { uploadMedia } from '../services/mediaUpload';
@@ -188,7 +188,7 @@ const options = {
   status: ['Potential - Registered', 'Potential - Unregistered', 'Existing Client', 'Existing Client - Not Renewed'],
   industryType: ["Automotive", "Chemicals", "Construction", "Consumer Goods", "E-commerce" , "Electronics" , "Energy" , "FMCG","Financial Services" , "Healthcare" , "Hospitality", "IT & Software" , "Logistics" , "Manufacturing","Pharmaceuticals", "Renewables", "Retail", "Telecom", "Waste Management", "Other" , "Food Manufacturing" , "Mechinical Industry" ,"Petrochemical", "Packaging Manufacture" , "Plastic Recycling" , "E-Waste Recycler" , "E-Waste Recycling"],
   eprCategory:  ["EPR - Plastic Waste", "EPR - E-Waste", "EPR - Battery Waste", "EPR - Paper Waste", "EPR - Water Waste", "EPR - C&D Waste", "EPR - Tyre Waste" , "EPR - Used Oil Waste" , "EPR - End of Life Vehicles" , "EPR - Non Ferrous"],
-  servicesOffered:["EPR - Plastic Compliance", "Monthly Patraka", "ISO Certification", "N/A" , "CTE-CTO/CCA" , "EPR - E-Waste Compliance", "EPR - Battery Waste Compliance" , "C & D WASTE CONSULTANCY" , "EPR DIGITAL CREDIT" , "EPR - Used Oil Compliance" , "EPR - Waster Waste Compliance" , "EPR ETP Portal handling" , "Registration for Compositable Plastic"],
+  servicesOffered:["EPR - Plastic Compliance", "Monthly Patraka", "ISO Certification", "N/A" , "CTE-CTO/CCA" , "EPR - E-Waste Compliance", "EPR - Battery Waste Compliance", "EPR - Waste Tyre Compliance" , "C & D WASTE CONSULTANCY" , "EPR DIGITAL CREDIT" , "EPR - Used Oil Compliance" , "EPR - Waster Waste Compliance" , "EPR ETP Portal handling" , "Registration for Compositable Plastic"],
   states: [
   "Andhra Pradesh",
   "Arunachal Pradesh",
@@ -307,11 +307,30 @@ function isTyreWasteCategory(value) {
 
 function directApplicantOptions(value) {
   const category = String(value || '').toLowerCase();
+  if (category.includes('plastic')) return null;
   if (category.includes('e-waste')) return ['Producer', 'Manufacturer', 'Recycler', 'Refurbisher'];
   if (category.includes('battery')) return ['Producer', 'Recycler', 'Refurbisher'];
   if (category.includes('tyre')) return ['Producer', 'Recycler', 'Retreader'];
   if (category.includes('used oil')) return ['Producers', 'Collection Agents', 'Recyclers', 'Used Oil Importers'];
-  return null;
+  if (category) return ['Producer', 'Manufacturer', 'Importer', 'Recycler', 'Refurbisher', 'Service Provider'];
+  return [];
+}
+
+function applicableServiceOptions(value) {
+  const service = String(value || '').toLowerCase();
+  if (service.includes('plastic') && service.includes('compliance')) {
+    return ['Registration', 'Annual Return Filing', 'Audits - Producer / PWP', 'Credit Procurement'];
+  }
+  if (service.includes('e-waste') && service.includes('compliance')) {
+    return ['Registration', 'Quarterly Filing', 'Annual Filing', 'Training & Awareness', 'Credit Procurements', 'Audit Support'];
+  }
+  if (service.includes('battery') && service.includes('compliance')) {
+    return ['Registration', 'Quarterly Filing', 'Annual Filing', 'Credit Procurements', 'Audit Support'];
+  }
+  if (service.includes('tyre') && service.includes('compliance')) {
+    return ['Registration', 'Quarterly Filing', 'Annual Filing', 'Credit Procurements', 'Audit Support'];
+  }
+  return [];
 }
 
 function createServiceSelection(source = {}) {
@@ -321,6 +340,7 @@ function createServiceSelection(source = {}) {
     applicantType: source.applicantType || source.piboParent || source.piboCategoryParent || '',
     piboCategory: source.piboCategory || '',
     servicesOffered: source.servicesOffered || '',
+    applicableService: source.applicableService || '',
     firstAnnualReturnYearApplicable: source.firstAnnualReturnYearApplicable || '',
     createdByCrmUserId: source.createdByCrmUserId || '',
     createdByName: source.createdByName || source.leadGeneratedBy || '',
@@ -340,6 +360,16 @@ function createAddressRow(source = {}) {
     existingClient: source.existingClient || 'No',
     website: source.website || ''
   };
+}
+
+function uniqueDataRows(rows = []) {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = JSON.stringify(Object.entries(row || {}).filter(([field]) => !['_id', 'id', 'createdAt', 'updatedAt'].includes(field)).sort(([left], [right]) => left.localeCompare(right)));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function createContactRow(source = {}) {
@@ -399,6 +429,7 @@ export default function LeadGeneration() {
   const [healthReportError, setHealthReportError] = useState('');
   const [companySearch, setCompanySearch] = useState('');
   const [companySearchTouched, setCompanySearchTouched] = useState(false);
+  const [companySearchLoading, setCompanySearchLoading] = useState(false);
   const [selectedSearchLead, setSelectedSearchLead] = useState(null);
   const [duplicateDecisionOpen, setDuplicateDecisionOpen] = useState(false);
   const [generatedForOpen, setGeneratedForOpen] = useState(false);
@@ -474,12 +505,17 @@ export default function LeadGeneration() {
     ? currentUser
     : staff.find((user) => [user._id, user.id, user.crmUserId, user.ccpUserId].some((id) => String(id || '') === String(generatedForUserId)));
   const cityOptions = lead.state ? stateCities[lead.state] || [] : [];
-  const addressRows = Array.isArray(lead.addresses) && lead.addresses.length ? lead.addresses : [createAddressRow(lead)];
-  const contactRows = Array.isArray(lead.contacts) && lead.contacts.length ? lead.contacts : [createContactRow(lead)];
+  const addressRows = uniqueDataRows(Array.isArray(lead.addresses) && lead.addresses.length ? lead.addresses : [createAddressRow(lead)]);
+  const contactRows = uniqueDataRows(Array.isArray(lead.contacts) && lead.contacts.length ? lead.contacts : [createContactRow(lead)]);
   const assignmentRows = Array.isArray(lead.assignments) && lead.assignments.length ? lead.assignments : [createAssignmentRow(lead)];
   const serviceRows = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length
     ? lead.serviceSelections
     : [createServiceSelection(lead)];
+  const assignmentHasPlastic = serviceRows.some((row) => /plastic\s+waste/i.test(String(row?.eprCategory || '')));
+  const assignmentHasNonPlastic = serviceRows.some((row) => row?.eprCategory && !/plastic\s+waste/i.test(String(row.eprCategory)));
+  const assignmentApplicantLabel = assignmentHasPlastic && assignmentHasNonPlastic
+    ? 'Applicant / Sub Applicant Type'
+    : assignmentHasPlastic ? 'Sub Applicant Type' : 'Applicant Type';
   const normalizedCompanySearch = normalizeCompanyIdentity(companySearch);
   const companySearchMatches = useMemo(() => {
     if (normalizedCompanySearch.length < 2) return [];
@@ -540,6 +576,7 @@ export default function LeadGeneration() {
       next[index].piboCategory = '';
     }
     if (field === 'applicantType') next[index].piboCategory = '';
+    if (field === 'servicesOffered') next[index].applicableService = '';
     const first = next[0];
     const direct = Boolean(directApplicantOptions(first.eprCategory));
     setLead((current) => ({
@@ -584,6 +621,27 @@ export default function LeadGeneration() {
     setDuplicateNoOptions(false);
     setDuplicateApproval({ reason: '', requesterEmail: currentUser?.email || '', screenshotUrl: '', screenshotName: '' });
     setDuplicateDecisionOpen(true);
+  }
+
+  async function runCompanySearch() {
+    const query = companySearch.trim();
+    if (query.length < 2 || companySearchLoading) return;
+    setCompanySearchLoading(true);
+    setCompanySearchTouched(false);
+    try {
+      const response = await searchCcpLeadsByCompany(query);
+      const matches = response.data?.leads || [];
+      setAllCcpLeads((current) => {
+        const merged = new Map(current.map((item) => [leadRecordId(item), item]));
+        matches.forEach((item) => merged.set(leadRecordId(item), item));
+        return [...merged.values()];
+      });
+      setCompanySearchTouched(true);
+    } catch (requestError) {
+      showToast(requestError?.response?.data?.error || 'Company search could not be completed. Please retry.', 'error');
+    } finally {
+      setCompanySearchLoading(false);
+    }
   }
 
   function continueWithDuplicateTemplate() {
@@ -711,7 +769,13 @@ export default function LeadGeneration() {
       ? { ...next[index], assignedTo: value, assignedToText: user?.name || user?.email || '', assignedToEmail: user?.email || '' }
       : field === 'assignedStaff'
         ? { ...next[index], assignedStaff: value, assignedStaffText: user?.name || user?.email || '', assignedStaffEmail: user?.email || '' }
-        : { ...next[index], closedBy: value, closedByText: user?.name || user?.email || '', closedByEmail: user?.email || '' };
+        : {
+            ...next[index],
+            closedBy: value,
+            closedByText: user?.name || user?.email || '',
+            closedByEmail: user?.email || '',
+            ...(!value ? { assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '' } : {})
+          };
     setLead((current) => ({
       ...current,
       assignments: next,
@@ -740,6 +804,10 @@ export default function LeadGeneration() {
     const latestFinancialYear = [...serviceRows].reverse().find((row) => row.firstAnnualReturnYearApplicable)?.firstAnnualReturnYearApplicable || '';
     setRoyaltyClaiming(true);
     try {
+      const leadPayload = buildLeadPayload('draft');
+      const saveResponse = await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), leadPayload);
+      const savedLead = saveResponse.data.lead || saveResponse.data.data?.lead || saveResponse.data.data;
+      if (!savedLead || typeof savedLead !== 'object') throw new Error('The added service could not be saved before claiming royalty.');
       await api.post(API_ENDPOINTS.ccp.claimLeadRoyalty(editingLeadId), { financialYear: latestFinancialYear });
       setRoyaltyClaimed(true);
       showToast('Royalty claim sent to Admin and Super Admin by email and notification.', 'success');
@@ -806,6 +874,7 @@ export default function LeadGeneration() {
     try {
       await api.post(API_ENDPOINTS.leads.duplicateApprovals, {
         existingLeadId: leadRecordId(selectedSearchLead),
+        leadAssignedTo: selectedSearchLead.assignedToText || selectedSearchLead.assignedTo?.name || selectedSearchLead.assignedStaffText || selectedSearchLead.importedCreatedBy || '',
         company: selectedSearchLead.company,
         reason: duplicateApproval.reason.trim(),
         requesterEmail: duplicateApproval.requesterEmail.trim(),
@@ -1062,7 +1131,7 @@ export default function LeadGeneration() {
       return;
     }
     if (tabId !== 'basic' && !isFirstStepReady) {
-      showToast('First complete Company, Status, PIBO Category and Services Offered.', 'warning');
+      showToast('First complete Company, Status, Applicant Type and Services Offered.', 'warning');
       return;
     }
     setActiveTab(tabId);
@@ -1077,7 +1146,7 @@ export default function LeadGeneration() {
       return;
     }
     if (!isFirstStepReady) {
-      setError('Complete Company, Status, PIBO Category, and Services Offered before moving ahead.');
+      setError('Complete Company, Status, Applicant Type, and Services Offered before moving ahead.');
       showToast('Complete required first-step fields before next step.', 'warning');
       return;
     }
@@ -1189,8 +1258,8 @@ export default function LeadGeneration() {
     const missing = required.find((field) => !String(lead[field] ?? '').trim());
     if (missing) return `${missing.replace(/([A-Z])/g, ' $1')} is required before submit.`;
     if (workflowStatus === 'submitted') {
-      const incompleteRow = serviceRows.findIndex((row) => !row.applicantType || !row.servicesOffered || (!directApplicantOptions(row.eprCategory) && !row.piboCategory));
-      if (incompleteRow >= 0) return `Complete Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Category, '}and Services Offered in service row ${incompleteRow + 1}.`;
+      const incompleteRow = serviceRows.findIndex((row) => !row.applicantType || !row.servicesOffered || (!directApplicantOptions(row.eprCategory) && !row.piboCategory) || (applicableServiceOptions(row.servicesOffered).length && !row.applicableService));
+      if (incompleteRow >= 0) return `Complete Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Category, '}Services Offered${applicableServiceOptions(serviceRows[incompleteRow].servicesOffered).length ? ', and Applicable Services' : ''} in service row ${incompleteRow + 1}.`;
       const incompleteAddress = addressRows.findIndex((row) => !row.addressLine1 || !row.state || !row.city || !row.pinCode);
       if (incompleteAddress >= 0) return `Complete Address Line 1, State, City, and PIN in address row ${incompleteAddress + 1}.`;
       const invalidPin = addressRows.findIndex((row) => !/^\d{6}$/.test(String(row.pinCode || '')));
@@ -1219,45 +1288,54 @@ export default function LeadGeneration() {
     setHealthPromptOpen(true);
   }
 
+  function buildLeadPayload(workflowStatus) {
+    const {
+      assignedStaff: _legacyAssignedStaff,
+      assignedStaffText: _legacyAssignedStaffText,
+      assignedStaffEmail: _legacyAssignedStaffEmail,
+      ...leadWithoutLegacyStaff
+    } = lead;
+    const primaryService = serviceRows[0] || {};
+    return {
+      ...leadWithoutLegacyStaff,
+      generatedForUserId: generatedForUserId || currentUser?._id || currentUser?.id || '',
+      serviceSelections: serviceRows.map((row) => ({
+        ...row,
+        createdByCrmUserId: row.createdByCrmUserId || currentUser?._id || currentUser?.id || '',
+        createdByName: row.createdByName || currentUser?.name || currentUser?.email || '',
+        createdByEmail: row.createdByEmail || currentUser?.email || ''
+      })),
+      addresses: addressRows,
+      contacts: contactRows,
+      assignments: assignmentRows,
+      addServicesMode: serviceOnlyMode,
+      industryType: primaryService.industryType || lead.industryType || '',
+      eprCategory: primaryService.eprCategory || lead.eprCategory || '',
+      applicantType: primaryService.applicantType || lead.applicantType || '',
+      piboCategory: primaryService.piboCategory || lead.piboCategory || '',
+      piboParent: primaryService.piboParent || lead.piboParent || lead.piboCategoryParent || inferPiboParent(primaryService.piboCategory || lead.piboCategory),
+      servicesOffered: primaryService.servicesOffered || lead.servicesOffered || '',
+      firstAnnualReturnYearApplicable: primaryService.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable || '',
+      workflowStatus
+    };
+  }
+
   async function saveLead(workflowStatus, { openHealthReport = false } = {}) {
     if (saving) return;
     const validationError = validateLeadForSubmit(workflowStatus);
     if (validationError) { setError(validationError); showToast(validationError, 'error'); return null; }
+    const invalidAssignmentIndex = assignmentRows.findIndex((row) => row.assignedTo && !row.closedBy);
+    if (invalidAssignmentIndex >= 0) {
+      const message = `Assignment row ${invalidAssignmentIndex + 1}: close the lead before assigning it to a manager.`;
+      setError(message);
+      showToast(message, 'error');
+      return null;
+    }
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const {
-        assignedStaff: _legacyAssignedStaff,
-        assignedStaffText: _legacyAssignedStaffText,
-        assignedStaffEmail: _legacyAssignedStaffEmail,
-        ...leadWithoutLegacyStaff
-      } = lead;
-      const leadPayload = {
-        ...leadWithoutLegacyStaff,
-        generatedForUserId: generatedForUserId || currentUser?._id || currentUser?.id || '',
-        serviceSelections: serviceRows.map((row) => ({
-          ...row,
-          createdByCrmUserId: row.createdByCrmUserId || currentUser?._id || currentUser?.id || '',
-          createdByName: row.createdByName || currentUser?.name || currentUser?.email || '',
-          createdByEmail: row.createdByEmail || currentUser?.email || ''
-        })),
-        addresses: addressRows,
-        contacts: contactRows,
-        assignments: assignmentRows,
-        addServicesMode: serviceOnlyMode,
-        applicantType: serviceRows[0]?.applicantType || lead.applicantType || '',
-        piboParent: lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory),
-        workflowStatus
-      };
-      if (editingLeadId) {
-        delete leadPayload.industryType;
-        delete leadPayload.eprCategory;
-        delete leadPayload.applicantType;
-        delete leadPayload.piboCategory;
-        delete leadPayload.servicesOffered;
-        delete leadPayload.firstAnnualReturnYearApplicable;
-      }
+      const leadPayload = buildLeadPayload(workflowStatus);
       const response = editingLeadId ? await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), leadPayload) : await api.post(API_ENDPOINTS.ccp.createLead, leadPayload);
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('CCP did not return the saved lead.');
@@ -1462,8 +1540,11 @@ export default function LeadGeneration() {
                     pinCode: viewLead.pinCode || '',
                     industryType: viewLead.industryType || viewLead.serviceSelections?.[0]?.industryType || '',
                     servicesOffered: viewLead.servicesOffered || viewLead.serviceSelections?.[0]?.servicesOffered || '',
-                    eprCategory: viewLead.eprCategory || '',
-                    piboCategory: viewLead.piboCategory || ''
+                    annualYear: viewLead.serviceSelections?.[0]?.firstAnnualReturnYearApplicable || viewLead.firstAnnualReturnYearApplicable || '',
+                    eprCategory: viewLead.serviceSelections?.[0]?.eprCategory || viewLead.eprCategory || '',
+                    applicantType: viewLead.serviceSelections?.[0]?.applicantType || viewLead.applicantType || '',
+                    piboParent: viewLead.serviceSelections?.[0]?.piboParent || viewLead.piboParent || '',
+                    piboCategory: viewLead.serviceSelections?.[0]?.piboCategory || viewLead.piboCategory || ''
                   }
                 }
               });
@@ -1619,10 +1700,10 @@ export default function LeadGeneration() {
                     <Field label="Lead Search Company" className="min-w-[260px] flex-1">
                       <div className="relative">
                         <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input className="form-input pl-11" value={companySearch} onChange={(event) => { setCompanySearch(event.target.value); setCompanySearchTouched(false); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); setCompanySearchTouched(true); } }} placeholder="For example: 20 MICRONS NANO MINERALS LIMITED" />
+                        <input className="form-input pl-11" value={companySearch} onChange={(event) => { setCompanySearch(event.target.value); setCompanySearchTouched(false); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); runCompanySearch(); } }} placeholder="For example: 20 MICRONS NANO MINERALS LIMITED" />
                       </div>
                     </Field>
-                    <button type="button" disabled={companySearch.trim().length < 2} onClick={() => setCompanySearchTouched(true)} className="min-h-[50px] rounded-xl bg-emerald-700 px-7 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50"><Search className="mr-2 inline h-4 w-4" />Search</button>
+                    <button type="button" disabled={companySearch.trim().length < 2 || companySearchLoading} onClick={runCompanySearch} className="min-h-[50px] rounded-xl bg-emerald-700 px-7 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50"><Search className="mr-2 inline h-4 w-4" />{companySearchLoading ? 'Searching...' : 'Search'}</button>
                   </div>
                   {companySearchTouched && (
                     <div className="mt-4">
@@ -1666,11 +1747,14 @@ export default function LeadGeneration() {
                 <div className={`lead-service-matrix ${ownershipRequired ? 'pointer-events-none select-none opacity-45' : ''}`} aria-disabled={ownershipRequired}>
                   <div className="lead-service-matrix-title"><div><p>Service &amp; Applicant</p><span>Add one or more EPR service combinations for this lead.</span></div><button type="button" onClick={addServiceRow}><Plus className="h-4 w-4" />Add</button></div>
                   <div className="overflow-x-auto">
-                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>Applicant Type <b>*</b></span><span>SIMP Category <b>*</b></span><span>Services Offered <b>*</b></span><span>First Annual Return Year Applicable</span><span>Action</span></div>
+                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>Applicant Type <b>*</b></span><span>Sub Applicant Type <b>*</b></span><span>Services Offered <b>*</b></span><span>Applicable Services</span><span>Financial Year</span><span>Action</span></div>
                     {serviceRows.map((row, index) => {
                       const currentIds = [currentUser?._id, currentUser?.id, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
                       const rowOwners = [row.createdByCrmUserId, row.createdByEmail, row.createdByName, (!row.createdByCrmUserId && index < frozenServiceRowCount) ? selectedSearchLead?.createdByCrmUserId : '', (!row.createdByName && index < frozenServiceRowCount) ? selectedSearchLead?.importedCreatedBy : ''].filter(Boolean).map((value) => String(value).toLowerCase());
-                      const ownedByAnotherUser = rowOwners.length > 0 && !rowOwners.some((value) => currentIds.includes(value));
+                      // Ownership protection applies only to rows that were already
+                      // persisted. A newly added row must remain editable even when
+                      // the lead is being generated on behalf of another user.
+                      const ownedByAnotherUser = index < frozenServiceRowCount && rowOwners.length > 0 && !rowOwners.some((value) => currentIds.includes(value));
                       const rowFrozen = (serviceOnlyMode && index < frozenServiceRowCount) || ownedByAnotherUser;
                       const directOptions = directApplicantOptions(row.eprCategory);
                       const direct = Boolean(directOptions);
@@ -1680,9 +1764,10 @@ export default function LeadGeneration() {
                         <span className="lead-service-row-number">{index + 1}</span>
                         <SearchableSelect disabled={rowFrozen} value={row.industryType} options={options.industryType} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" />
                         <SearchableSelect disabled={rowFrozen} value={row.eprCategory} options={options.eprCategory} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select EPR category" />
-                        <SearchableSelect disabled={rowFrozen} value={row.applicantType} options={applicantOptions} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder={direct ? applicantOptions.join(' / ') : 'PIBO / SIMP / PWP'} />
-                        {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />Not applicable for {row.eprCategory.replace(/^EPR\s*-\s*/i, '')}</div> : <div className="flex gap-2"><div className="min-w-0 flex-1"><SearchableSelect value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} /></div><button type="button" disabled={rowFrozen || !row.applicantType} onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: `${row.applicantType} category` }); }} className="lead-matrix-inline-add" title="Add category"><Plus className="h-4 w-4" /></button></div>}
+                        <SearchableSelect disabled={rowFrozen} value={row.applicantType} options={applicantOptions} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder="Select or type Applicant Type" />
+                        {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />No separate SIMP category required</div> : <div className="flex gap-2"><div className="min-w-0 flex-1"><SearchableSelect value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} /></div><button type="button" disabled={rowFrozen || !row.applicantType} onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: `${row.applicantType} category` }); }} className="lead-matrix-inline-add" title="Add category"><Plus className="h-4 w-4" /></button></div>}
                         <SearchableSelect disabled={rowFrozen} value={row.servicesOffered} options={options.servicesOffered} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder="Select service" />
+                        <SearchableSelect disabled={rowFrozen || !applicableServiceOptions(row.servicesOffered).length} value={row.applicableService || ''} options={applicableServiceOptions(row.servicesOffered)} onChange={(value) => updateServiceRow(index, 'applicableService', value)} placeholder={applicableServiceOptions(row.servicesOffered).length ? 'Select applicable service' : 'Not applicable'} />
                         <SearchableSelect disabled={rowFrozen} value={row.firstAnnualReturnYearApplicable || ''} options={annualReturnYearOptions} onChange={(value) => updateServiceRow(index, 'firstAnnualReturnYearApplicable', value)} placeholder="Select FY" />
                         <button type="button" disabled={rowFrozen || serviceRows.length === 1} onClick={() => removeServiceRow(index)} className="lead-matrix-remove" title="Remove row"><X className="h-4 w-4" /></button>
                       </div>;
@@ -1699,7 +1784,7 @@ export default function LeadGeneration() {
                 {locationError && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800" role="status">{locationError}</div>}
                 <fieldset className="mt-5 min-w-0 max-w-full">
                   <div className="lead-address-matrix">
-                    <div className="lead-address-head"><span>#</span><span>Address Line 1 *</span><span>Address Line 2</span><span>Address Line 3</span><span>Landmark</span><span>State *</span><span>City *</span><span>PIN *</span><span>Existing Client?</span><span>Website</span><span>Action</span></div>
+                    <div className="lead-address-head"><span>#</span><span>Address Line 1 *</span><span>Address Line 2</span><span>Address Line 3</span><span>Landmark</span><span>State *</span><span>City *</span><span>PIN *</span><span>Website</span><span>Action</span></div>
                     {addressRows.map((row, index) => {
                       const rowCities = row.state ? citiesByState[row.state] || stateCities[row.state] || [] : [];
                       const citiesLoading = Boolean(row.state && locationLoading.cities[row.state]);
@@ -1713,7 +1798,6 @@ export default function LeadGeneration() {
                         <SearchableSelect value={row.state} options={countryStates.length ? countryStates : options.states} disabled={rowFrozen || (locationLoading.states && !countryStates.length && !options.states.length)} onChange={(value) => updateAddressRow(index, 'state', value)} placeholder={locationLoading.states ? 'Loading states...' : 'Select state'} />
                         <SearchableSelect value={row.city} options={rowCities} disabled={rowFrozen || !row.state || citiesLoading} onChange={(value) => updateAddressRow(index, 'city', value)} placeholder={!row.state ? 'State first' : citiesLoading ? 'Loading cities...' : 'Select city'} />
                         <input disabled={rowFrozen} className="form-input" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={row.pinCode} onChange={(event) => updateAddressRow(index, 'pinCode', event.target.value)} placeholder="6-digit PIN" />
-                        <SearchableSelect disabled={rowFrozen} value={row.existingClient} options={['No', 'Yes']} onChange={(value) => updateAddressRow(index, 'existingClient', value)} placeholder="Select" />
                         <input disabled={rowFrozen} className="form-input" value={row.website} onChange={(event) => updateAddressRow(index, 'website', event.target.value)} placeholder="https://" />
                         <button type="button" disabled={rowFrozen || addressRows.length === 1} onClick={() => removeAddressRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
                       </div>;
@@ -1750,19 +1834,28 @@ export default function LeadGeneration() {
             {activeTab === 'assign' && (
               <fieldset className="min-w-0 max-w-full">
                 <div className="lead-address-title"><div><h2>Assign Lead</h2><p>Add one or more responsible staff and closure owners.</p></div><button type="button" onClick={addAssignmentRow}><Plus className="h-4 w-4" />Add Assignment</button></div>
-                <div className="lead-assign-matrix mt-5">
-                  <div className="lead-assign-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>Services Offered</span><span>Assign To Manager</span><span>Lead Closed By</span><span>Manager Assigned to Staff</span><span>Claim Royalty</span><span>Action</span></div>
+                <div className="lead-assign-matrix lead-assign-with-sub-applicant mt-5">
+                  <div className="lead-assign-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>{assignmentApplicantLabel} <b className="text-red-500">*</b></span><span>Services Offered</span><span>Applicable Services</span><span>Lead Closed By</span><span>Assign To Manager</span><span>Manager Assigned to Staff</span><span>Claim Royalty</span><span>Action</span></div>
                   {assignmentRows.map((row, index) => {
                     const matchingService = serviceRows[index] || serviceRows[serviceRows.length - 1] || {};
                     const rowFrozen = serviceOnlyMode && index < frozenAssignmentRowCount;
                     const currentUserIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.ccpUserId].filter(Boolean).map(String);
+                    const leadClosed = Boolean(row.closedBy);
                     const canAssignStaff = String(currentUser?.role || '').toLowerCase() === 'manager' && currentUserIds.includes(String(row.assignedTo || ''));
                     const assignedManagerOptions = row.assignedTo && !managerOptions.some((option) => String(option.value) === String(row.assignedTo))
                       ? [{ value: String(row.assignedTo), label: row.assignedToText || lead.assignedToText || 'Previously assigned manager' }, ...managerOptions]
                       : managerOptions;
-                    const closedByOptions = row.closedBy && !staffOptions.some((option) => String(option.value) === String(row.closedBy))
-                      ? [{ value: String(row.closedBy), label: row.closedByText || lead.closedByText || 'Previously selected user' }, ...staffOptions]
-                      : staffOptions;
+                    const intendedCloser = generatedForMode === 'other' && selectedGeneratedForUser
+                      ? selectedGeneratedForUser
+                      : currentUser;
+                    const intendedCloserIds = [intendedCloser?._id, intendedCloser?.id, intendedCloser?.crmUserId, intendedCloser?.userId, intendedCloser?.ccpUserId].filter(Boolean);
+                    const intendedCloserOption = intendedCloserIds.length ? [{
+                      value: String(intendedCloserIds[0]),
+                      label: `${intendedCloser?.name || intendedCloser?.email}${intendedCloser?.team ? ` (${intendedCloser.team})` : ' (No team assigned)'}`
+                    }] : [];
+                    const closedByOptions = row.closedBy && !intendedCloserIds.some((id) => String(id) === String(row.closedBy))
+                      ? [{ value: String(row.closedBy), label: row.closedByText || lead.closedByText || 'Previously selected user' }, ...intendedCloserOption]
+                      : intendedCloserOption;
                     const assignedStaffOptions = row.assignedStaff && !staffOptions.some((option) => String(option.value) === String(row.assignedStaff))
                       ? [{ value: String(row.assignedStaff), label: row.assignedStaffText || 'Previously assigned staff' }, ...staffOptions]
                       : staffOptions;
@@ -1770,9 +1863,11 @@ export default function LeadGeneration() {
                     <span className="lead-service-row-number">{index + 1}</span>
                     <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.industryType || '-'}</div>
                     <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.eprCategory || '-'}</div>
+                    <div className="form-input flex min-h-11 items-center bg-violet-50 font-black text-violet-800">{/plastic\s+waste/i.test(String(matchingService.eprCategory || '')) ? (matchingService.piboCategory || '-') : (matchingService.applicantType || '-')}</div>
                     <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.servicesOffered || '-'}</div>
-                    <SearchableSelect disabled={rowFrozen} value={row.assignedTo} options={assignedManagerOptions} placeholder="Select manager" onChange={(value) => updateAssignmentRow(index, 'assignedTo', value)} />
+                    <div className="form-input flex min-h-11 items-center bg-emerald-50 font-black text-emerald-800">{matchingService.applicableService || '-'}</div>
                     <SearchableSelect disabled={rowFrozen} value={row.closedBy} options={closedByOptions} placeholder="Select user who closed the lead" onChange={(value) => updateAssignmentRow(index, 'closedBy', value)} />
+                    <SearchableSelect disabled={rowFrozen || !leadClosed} value={row.assignedTo} options={assignedManagerOptions} placeholder={leadClosed ? 'Select manager' : 'Close lead first'} onChange={(value) => updateAssignmentRow(index, 'assignedTo', value)} />
                     <SearchableSelect disabled={!canAssignStaff} value={row.assignedStaff} options={assignedStaffOptions} placeholder={canAssignStaff ? 'Select staff member' : 'Assigned manager only'} onChange={(value) => updateAssignmentRow(index, 'assignedStaff', value)} />
                     <div className="flex justify-center">
                       {approvedRoyalty && index === assignmentRows.length - 1 ? (
@@ -2580,7 +2675,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     ['City', 'w-[130px]'],
                     ['PIN', 'w-[95px]'],
                     ['State', 'w-[130px]'],
-                    ['PIBO Category', 'w-[150px]'],
+                    ['Applicant Type', 'w-[150px]'],
                     ['EPR Category', 'w-[170px]'],
                     ['Contact Person', 'w-[170px]'],
                     ['Mobile 1', 'w-[130px]'],
@@ -2832,6 +2927,7 @@ function buildLeadFollowUpRows(lead = {}) {
       scheduledTime: lead.nextFollowUpTime || '',
       remarks: lead.followUpRemarks || '',
       reason: 'Current follow-up',
+      priority: lead.followUpPriority || 'Medium',
       createdAt: lead.updatedAt || lead.createdAt || ''
     });
   }
@@ -2842,6 +2938,7 @@ function buildLeadFollowUpRows(lead = {}) {
       scheduledTime: item.scheduledTime || item.nextFollowUpTime || '',
       remarks: item.remarks || item.followUpRemarks || '',
       reason: item.reason || item.updateReason || '',
+      priority: item.priority || item.followUpPriority || 'Medium',
       createdAt: item.createdAt || ''
     });
   });
@@ -2852,6 +2949,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const [activeTab, setActiveTab] = useState('overview');
   const [detailLead, setDetailLead] = useState(lead);
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
+  const [followUpEditing, setFollowUpEditing] = useState(false);
+  const [viewFollowUp, setViewFollowUp] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [followUpError, setFollowUpError] = useState('');
   const [assignmentSavingIndex, setAssignmentSavingIndex] = useState(-1);
@@ -2870,9 +2969,21 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     setDetailLead(lead);
   }, [lead]);
   const activeLead = detailLead || lead;
+  const leadIsClosed = Boolean(
+    activeLead.closedBy
+    || activeLead.closedByText
+    || activeLead.closedAt
+    || (Array.isArray(activeLead.assignments) && activeLead.assignments.some((row) => row?.closedBy || row?.closedByText))
+  );
   const detailAssignments = Array.isArray(activeLead.assignments) && activeLead.assignments.length
     ? activeLead.assignments
     : [createAssignmentRow(activeLead)];
+  const detailServices = activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)];
+  const detailHasPlastic = detailServices.some((row) => /plastic\s+waste/i.test(String(row?.eprCategory || '')));
+  const detailHasNonPlastic = detailServices.some((row) => row?.eprCategory && !/plastic\s+waste/i.test(String(row.eprCategory)));
+  const detailApplicantLabel = detailHasPlastic && detailHasNonPlastic
+    ? 'Applicant / Sub Applicant Type'
+    : detailHasPlastic ? 'Sub Applicant Type' : 'Applicant Type';
   const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.ccpUserId]
     .filter(Boolean).map(String);
   const isManager = String(currentUser?.role || '').toLowerCase() === 'manager';
@@ -2963,7 +3074,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     ['Industry', activeLead.industryType, Building2],
     ['Status', activeLead.status, CheckCircle2, 'pill'],
     ['EPR Category', activeLead.eprCategory, FileText],
-    ['PIBO Category', activeLead.piboCategory, FileText],
+    ['Applicant Type', activeLead.piboCategory, FileText],
     ['Services Offered', activeLead.servicesOffered, CheckCircle2],
     ['Source', activeLead.source, FileText]
   ];
@@ -3027,13 +3138,14 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     }
   }
 
-  function openFollowUpModal() {
+  function openFollowUpModal(item = null) {
+    setFollowUpEditing(Boolean(item));
     setFollowUpDraft({
-      scheduledDate: activeLead.nextFollowUpDate || todayDateKey(),
-      scheduledTime: activeLead.nextFollowUpTime || '',
-      remarks: '',
-      reason: ''
-      ,priority: 'Medium'
+      scheduledDate: item?.scheduledDate || activeLead.nextFollowUpDate || todayDateKey(),
+      scheduledTime: item?.scheduledTime || activeLead.nextFollowUpTime || '',
+      remarks: item?.remarks || '',
+      reason: '',
+      priority: item?.priority || activeLead.followUpPriority || 'Medium'
     });
     setFollowUpError('');
     setFollowUpModalOpen(true);
@@ -3042,6 +3154,10 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   async function saveFollowUp() {
     if (!followUpDraft.scheduledDate || !followUpDraft.remarks.trim()) {
       setFollowUpError('Scheduled date and follow-up remarks are required.');
+      return;
+    }
+    if (followUpEditing && !followUpDraft.reason.trim()) {
+      setFollowUpError('Please provide a reason for updating this follow-up.');
       return;
     }
     const leadId = activeLead._id || activeLead.id;
@@ -3118,7 +3234,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>
+          {(!leadIsClosed || canEdit) && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
+          {(!leadIsClosed || canEdit) && <button type="button" onClick={() => onAddQuotation?.('')} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Plus className="h-4 w-4" />Add Quotation</button>}
           <button type="button" onClick={openHistory} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-600/20"><RefreshCw className="h-4 w-4" />View History</button>
           {canEdit && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-5 text-sm font-black text-white shadow-lg shadow-orange-500/20"><Edit3 className="h-4 w-4" />Edit</button>}
         </div>
@@ -3165,8 +3282,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   <div className="overflow-auto rounded-xl border border-slate-200">
                   <div className="border-b border-slate-200 bg-emerald-50 px-5 py-4"><h3 className="font-black text-slate-900">Service &amp; Applicant</h3></div>
                   <table className="w-full min-w-[980px] text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'EPR Category', 'Applicant Type', 'SIMP Category', 'Services Offered', 'FY Year'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
-                    <tbody>{(activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)]).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3">{row.piboCategory || 'Not applicable'}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody>
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'EPR Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Applicable Services', 'Financial Year'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+                    <tbody>{(activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)]).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3">{row.piboCategory || 'No separate sub applicant type'}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-bold text-emerald-700">{row.applicableService || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody>
                   </table>
                   </div>
                 </>
@@ -3177,9 +3294,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                     <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#30737B] shadow-sm"><UserCheck className="h-4 w-4" /></span>
                     <div><h3 className="font-black text-slate-900">Assign Lead</h3><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{detailAssignments.length} assignment row{detailAssignments.length === 1 ? '' : 's'}</p></div>
                   </div>
-                  <table className="w-full min-w-[1650px] text-left text-sm">
+                  <table className="w-full min-w-[1850px] text-left text-sm">
                     <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                      <tr>{['#', 'Industry Type', 'Services Offered', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By', 'Lead Closed By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
+                      <tr>{['#', 'Industry Type', 'EPR Category', detailApplicantLabel, 'Services Offered', 'Applicable Services', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
                     </thead>
                     <tbody>
                       {detailAssignments.map((row, index) => {
@@ -3195,7 +3312,11 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                         return <tr key={index} className="border-t border-slate-100">
                           <td className="px-4 py-3 font-black">{index + 1}</td>
                           <td className="px-4 py-3 font-black">{matchingService.industryType || '-'}</td>
+                          <td className="px-4 py-3">{matchingService.eprCategory || '-'}</td>
+                          <td className="px-4 py-3 font-black text-violet-700">{/plastic\s+waste/i.test(String(matchingService.eprCategory || '')) ? (matchingService.piboCategory || '-') : (matchingService.applicantType || '-')}</td>
                           <td className="px-4 py-3">{matchingService.servicesOffered || '-'}</td>
+                          <td className="px-4 py-3 font-bold text-emerald-700">{matchingService.applicableService || '-'}</td>
+                          <td className="px-4 py-3 font-black">{row.closedBy?.name || row.closedByText || '-'}</td>
                           <td className="px-4 py-3 font-black">{row.assignedTo?.name || row.assignedToText || '-'}</td>
                           <td className="px-4 py-3">{row.assignedTo?.email || row.assignedToEmail || '-'}</td>
                           <td className="min-w-[270px] px-4 py-3">
@@ -3205,7 +3326,6 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                           </td>
                           <td className="px-4 py-3">{row.assignedStaff?.email || row.assignedStaffEmail || '-'}</td>
                           <td className="px-4 py-3">{row.assignedBy || activeLead.assignedBy || '-'}</td>
-                          <td className="px-4 py-3 font-black">{row.closedBy?.name || row.closedByText || '-'}</td>
                         </tr>;
                       })}
                     </tbody>
@@ -3216,21 +3336,49 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
           )}
           {activeTab === 'followup' && (
             <div className="p-6">
-              <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-orange-600">Lead follow-up workflow</p><h2 className="text-2xl font-black">Follow-Up Tracker</h2></div><button type="button" onClick={openFollowUpModal} className="rounded-xl bg-orange-500 px-5 py-3 font-black text-white">Add Follow-Up</button></div>
-              <div className="grid gap-5 lg:grid-cols-2"><FollowUpBox title="Upcoming Follow-Ups" tone="orange" items={upcomingFollowUps} emptyMessage="No upcoming follow-ups." /><FollowUpBox title="Previous Follow-Ups" tone="slate" items={previousFollowUps} emptyMessage="No past follow-ups." /></div>
+              <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-orange-600">Lead follow-up workflow</p><h2 className="text-2xl font-black">Follow-Up Tracker</h2></div><button type="button" onClick={() => openFollowUpModal()} className="flex items-center gap-2 rounded-xl bg-orange-500 px-5 py-3 font-black text-white"><Plus className="h-4 w-4" /> Add Follow-Up</button></div>
+              <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <FollowUpMetric icon={CalendarDays} label="Upcoming" value={upcomingFollowUps.length} tone="orange" />
+                <FollowUpMetric icon={History} label="Previous" value={previousFollowUps.length} tone="slate" />
+                <FollowUpMetric icon={Clock3} label="Next Time" value={upcomingFollowUps[0]?.scheduledTime || '-'} tone="teal" />
+                <FollowUpMetric icon={CircleAlert} label="Priority" value={upcomingFollowUps[0]?.priority || 'Medium'} tone="violet" />
+              </div>
+              <div className="grid gap-5 lg:grid-cols-2">
+                <FollowUpBox title="Upcoming Follow-Ups" tone="orange" items={upcomingFollowUps} emptyMessage="No upcoming follow-ups." onView={setViewFollowUp} onEdit={openFollowUpModal} onAssignment={() => setActiveTab('overview')} onHistory={openHistory} />
+                <FollowUpBox title="Previous Follow-Ups" tone="slate" items={previousFollowUps} emptyMessage="No past follow-ups." onView={setViewFollowUp} onEdit={openFollowUpModal} onAssignment={() => setActiveTab('overview')} onHistory={openHistory} />
+              </div>
             </div>
           )}
         </section>
         </div>
       </div>
       {historyOpen && <LeadHistoryDrawer data={historyData} loading={historyLoading} filter={historyFilter} onFilter={setHistoryFilter} onRefresh={openHistory} onClose={() => setHistoryOpen(false)} />}
+      {viewFollowUp && (
+        <div className="fixed inset-0 z-[125] grid place-items-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm" onClick={() => setViewFollowUp(null)}>
+          <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-orange-50 to-white px-6 py-5">
+              <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600"><CalendarDays className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-widest text-orange-600">Follow-Up Details</p><h3 className="text-xl font-black text-slate-950">{formatFollowUpDate(viewFollowUp.scheduledDate)}</h3></div></div>
+              <button type="button" onClick={() => setViewFollowUp(null)} className="grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 shadow-sm"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-4 p-6">
+              <div className="grid grid-cols-2 gap-3"><FollowUpDetail label="Scheduled Time" value={viewFollowUp.scheduledTime || 'Not set'} /><FollowUpDetail label="Priority" value={viewFollowUp.priority || 'Medium'} /></div>
+              <FollowUpDetail label="Remarks" value={viewFollowUp.remarks || 'No remarks added.'} />
+              <FollowUpDetail label="Update Reason" value={viewFollowUp.reason || 'Not provided'} />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <button type="button" onClick={() => setViewFollowUp(null)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 font-black text-slate-600">Close</button>
+              {viewFollowUp.id === 'current-follow-up' && <button type="button" onClick={() => { const item = viewFollowUp; setViewFollowUp(null); openFollowUpModal(item); }} className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 font-black text-white"><Edit3 className="h-4 w-4" /> Update</button>}
+            </div>
+          </section>
+        </div>
+      )}
       {followUpModalOpen && (
         <div className="fixed inset-0 z-[120] grid place-items-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm" onClick={() => !followUpSaving && setFollowUpModalOpen(false)}>
           <section className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/25" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-600">Follow-Up</p>
-                <h3 className="mt-1 text-2xl font-black text-slate-950">Add Lead Follow-Up</h3>
+                <h3 className="mt-1 text-2xl font-black text-slate-950">{followUpEditing ? 'Update Lead Follow-Up' : 'Add Lead Follow-Up'}</h3>
               </div>
               <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-50 text-slate-600 hover:bg-slate-100"><X className="h-5 w-5" /></button>
             </div>
@@ -3239,12 +3387,12 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
               <Field label="Scheduled Time"><input type="time" className="form-input" value={followUpDraft.scheduledTime} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
               <Field label="Priority"><select className="form-input" value={followUpDraft.priority} onChange={(event) => setFollowUpDraft((current) => ({ ...current, priority: event.target.value }))}><option>Low</option><option>Medium</option><option>High</option></select></Field>
               <Field label="Follow-Up Remarks" required className="sm:col-span-2"><textarea className="form-input min-h-28 resize-y" value={followUpDraft.remarks} onChange={(event) => setFollowUpDraft((current) => ({ ...current, remarks: event.target.value }))} placeholder="Enter follow-up note or outcome" /></Field>
-              <Field label="Update Reason" className="sm:col-span-2"><textarea className="form-input min-h-20 resize-y" value={followUpDraft.reason} onChange={(event) => setFollowUpDraft((current) => ({ ...current, reason: event.target.value }))} placeholder="Why is this follow-up being added?" /></Field>
+              <Field label="Update Reason" required={followUpEditing} className="sm:col-span-2"><textarea className="form-input min-h-20 resize-y" value={followUpDraft.reason} onChange={(event) => setFollowUpDraft((current) => ({ ...current, reason: event.target.value }))} placeholder={followUpEditing ? 'Why is this follow-up being updated?' : 'Why is this follow-up being added?'} /></Field>
               {followUpError && <p className="sm:col-span-2 rounded-lg bg-red-50 px-4 py-3 text-sm font-black text-red-600">{followUpError}</p>}
             </div>
             <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
               <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Cancel</button>
-              <button type="button" disabled={followUpSaving || !followUpDraft.scheduledDate || !followUpDraft.remarks.trim()} onClick={saveFollowUp} className="min-h-10 rounded-lg bg-orange-500 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Saving...' : 'Save Follow-Up'}</button>
+              <button type="button" disabled={followUpSaving || !followUpDraft.scheduledDate || !followUpDraft.remarks.trim() || (followUpEditing && !followUpDraft.reason.trim())} onClick={saveFollowUp} className="min-h-10 rounded-lg bg-orange-500 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Saving...' : followUpEditing ? 'Update Follow-Up' : 'Save Follow-Up'}</button>
             </div>
           </section>
         </div>
@@ -3464,7 +3612,7 @@ function formatInr(value) {
   });
 }
 
-function FollowUpBox({ title, tone, items = [], emptyMessage }) {
+function FollowUpBox({ title, tone, items = [], emptyMessage, onView, onEdit, onAssignment, onHistory }) {
   const colors = tone === 'orange'
     ? 'border-orange-200 bg-orange-50 text-orange-900'
     : 'border-slate-200 bg-slate-50 text-slate-900';
@@ -3484,6 +3632,12 @@ function FollowUpBox({ title, tone, items = [], emptyMessage }) {
                   {item.reason && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-500">{item.reason}</span>}
                 </div>
                 <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6 text-slate-600">{item.remarks || 'No remarks added.'}</p>
+                <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3">
+                  <FollowUpAction icon={Eye} label="View follow-up" tone="blue" onClick={() => onView?.(item)} />
+                  <FollowUpAction icon={Edit3} label={item.id === 'current-follow-up' ? 'Update follow-up' : 'Past follow-ups are read-only'} tone="teal" disabled={item.id !== 'current-follow-up'} onClick={() => onEdit?.(item)} />
+                  <FollowUpAction icon={UserPlus} label="View lead assignment" tone="violet" onClick={() => onAssignment?.(item)} />
+                  <FollowUpAction icon={History} label="View complete history" tone="slate" onClick={() => onHistory?.()} />
+                </div>
               </article>
             ))}
           </div>
@@ -3494,6 +3648,47 @@ function FollowUpBox({ title, tone, items = [], emptyMessage }) {
         )}
       </div>
     </section>
+  );
+}
+
+function FollowUpAction({ icon: Icon, label, tone, disabled = false, onClick }) {
+  const tones = {
+    blue: 'text-blue-600 hover:border-blue-200 hover:bg-blue-50',
+    teal: 'text-teal-600 hover:border-teal-200 hover:bg-teal-50',
+    violet: 'text-violet-600 hover:border-violet-200 hover:bg-violet-50',
+    slate: 'text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+  };
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} title={label} aria-label={label} className={`grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white transition ${tones[tone] || tones.slate} disabled:cursor-not-allowed disabled:opacity-35`}>
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
+function FollowUpDetail({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="mt-1 whitespace-pre-wrap text-sm font-black leading-6 text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+function FollowUpMetric({ icon: Icon, label, value, tone }) {
+  const tones = {
+    orange: 'border-orange-200 bg-orange-50 text-orange-600',
+    slate: 'border-slate-200 bg-slate-50 text-slate-600',
+    teal: 'border-teal-200 bg-teal-50 text-teal-600',
+    violet: 'border-violet-200 bg-violet-50 text-violet-600'
+  };
+  return (
+    <div className="flex min-h-20 items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${tones[tone] || tones.slate}`}><Icon className="h-5 w-5" /></span>
+      <div className="min-w-0">
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+        <p className="truncate text-base font-black text-slate-900">{value}</p>
+      </div>
+    </div>
   );
 }
 

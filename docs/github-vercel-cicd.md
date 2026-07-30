@@ -5,7 +5,8 @@
 This repo has two workflows:
 
 - `.github/workflows/ci.yml`: runs on every branch push and pull request.
-- `.github/workflows/vercel-deploy.yml`: runs tests, builds the frontend, then deploys to Vercel.
+- `.github/workflows/vercel-deploy.yml`: runs tests, builds the frontend, creates a
+  Vercel prebuilt output, then deploys that exact verified output.
 
 Required GitHub repository secrets:
 
@@ -59,6 +60,10 @@ This is the payload that is written through the CCP proxy route in `backend/src/
 3. Merge to `main`.
 4. `Vercel Deploy` runs and deploys production.
 5. Manual preview deploy can be started from GitHub Actions with `workflow_dispatch` and `environment=preview`.
+
+The deploy workflow pins the Vercel CLI version and writes the deployment URL to the
+GitHub Actions job summary. Production and preview deployments use separate
+concurrency groups so an older run cannot overwrite a newer deployment.
 
 ## Required Vercel Environment Variables
 

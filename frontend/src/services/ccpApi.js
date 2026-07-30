@@ -130,6 +130,10 @@ export function fetchCcpLeads() {
   return fetchCcpCollection('leads', 'leads')
 }
 
+export function searchCcpLeadsByCompany(company) {
+  return api.get(API_ENDPOINTS.ccp.leadCompanySearch, { params: { company } })
+}
+
 export function fetchCcpClients() {
   return fetchCcpCollection('clients', 'clients')
 }

@@ -32,8 +32,11 @@ function App(){
         <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/dashboard/users" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />
-        <Route path="/pending-leads" element={<ProtectedRoute><PendingLeads/></ProtectedRoute>} />
+        <Route path="/pending-leads" element={<Navigate to="/pending-leads/open" replace />} />
+        <Route path="/pending-leads/open" element={<ProtectedRoute><PendingLeads mode="open"/></ProtectedRoute>} />
+        <Route path="/pending-leads/closed" element={<ProtectedRoute><PendingLeads mode="closed"/></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications/></ProtectedRoute>} />
+        <Route path="/announcements" element={<ProtectedRoute><Notifications mode="announcements"/></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarTodo/></ProtectedRoute>} />
         <Route path="/assistant" element={<ProtectedRoute><AssistantPage/></ProtectedRoute>} />
         <Route path="/sales/lead-generation" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />

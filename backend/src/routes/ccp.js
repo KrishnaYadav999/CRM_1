@@ -1,7 +1,7 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const User = require('../models/User');
-const { ROLES } = require('../constants/roles');
+const { ADMIN_ROLES } = require('../constants/roles');
 const { getVisibleUserScope } = require('../utils/visibilityScope');
 const { ccpApiBaseUrl, ccpApiUrl, ccpHeaders } = require('../utils/ccpConfig');
 const { applySavedLeadAssignments } = require('../services/leadAssignmentPersistence');
@@ -10,7 +10,7 @@ const { getLeadActivities } = require('../services/leadAssignmentPersistence');
 const router = express.Router();
 
 const CCP_FETCH_TIMEOUT_MS = Number(process.env.CCP_FETCH_TIMEOUT_MS) || 15000;
-const CCP_FULL_ACCESS_ROLES = ROLES;
+const CCP_FULL_ACCESS_ROLES = ADMIN_ROLES;
 
 function ccpBaseUrls() {
   return [ccpApiBaseUrl()]
@@ -310,6 +310,13 @@ function visibleTextValues(row) {
     row?.assignedTo?.userId,
     row?.assignedTo?._id,
     row?.assignedTo?.id,
+    row?.assignedStaffText,
+    typeof row?.assignedStaff === 'string' ? row.assignedStaff : row?.assignedStaff?.name,
+    row?.assignedStaff?.email,
+    row?.assignedStaff?.ccpUserId,
+    row?.assignedStaff?.crmUserId,
+    row?.assignedStaff?._id,
+    row?.assignedStaff?.id,
     row?.assignedBy,
     row?.createdBy,
     row?.importedCreatedBy,
@@ -341,7 +348,7 @@ function visibleTextValues(row) {
   ].map(normalizeName).filter(Boolean);
 }
 
-function filterByScope(rows, scope) {
+function filterByScope(rows, scope, { assignedOnly = false } = {}) {
   if (scope === null) return rows;
 
   const identities = new Set((scope?.identities || []).map(normalizeName).filter(Boolean));
@@ -363,6 +370,34 @@ function filterByScope(rows, scope) {
       || ''
     ).trim();
     if (assignedId && ids.has(assignedId)) return true;
+    const assignmentManagerValues = (Array.isArray(row?.assignments) ? row.assignments : []).flatMap((assignment) => [
+      assignment?.assignedTo,
+      assignment?.assignedToText,
+      assignment?.assignedToEmail,
+      assignment?.assignedToCrmUserId,
+      assignment?.assignedTo?._id,
+      assignment?.assignedTo?.id,
+      assignment?.assignedTo?.crmUserId,
+      assignment?.assignedTo?.ccpUserId,
+      assignment?.assignedTo?.email,
+      assignment?.assignedTo?.name
+    ]).map(normalizeName).filter(Boolean);
+    const assignmentStaffValues = (Array.isArray(row?.assignments) ? row.assignments : []).flatMap((assignment) => [
+      assignment?.assignedStaff,
+      assignment?.assignedStaffText,
+      assignment?.assignedStaffEmail,
+      assignment?.assignedStaffCrmUserId,
+      assignment?.assignedStaff?._id,
+      assignment?.assignedStaff?.id,
+      assignment?.assignedStaff?.crmUserId,
+      assignment?.assignedStaff?.ccpUserId,
+      assignment?.assignedStaff?.email,
+      assignment?.assignedStaff?.name
+    ]).map(normalizeName).filter(Boolean);
+    if (assignedOnly) {
+      return assignmentManagerValues.some((value) => identities.has(value) || ids.has(value));
+    }
+    if (assignmentStaffValues.some((value) => identities.has(value) || ids.has(value))) return true;
     return visibleTextValues(row).some((value) => identities.has(value));
   });
 }
@@ -395,7 +430,8 @@ async function fetchCcp(path, key, req, res) {
       const rows = normalizedRows.map((row) => attachAssignedUserByIdentity(row, usersByIdentity, key));
       normalized[key] = filterByScope(
         rows,
-        canReadAllCcpRows(req.user) ? null : scope
+        canReadAllCcpRows(req.user) ? null : scope,
+        { assignedOnly: key === 'leads' && String(req.user?.role || '').toLowerCase() === 'manager' }
       );
       normalized.sourceBaseUrl = baseUrl;
       return res.json(normalized);
@@ -413,6 +449,62 @@ async function fetchCcp(path, key, req, res) {
   });
 }
 
+function normalizeCompanyIdentity(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(private|pvt|limited|ltd|llp|incorporated|inc)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function searchCcpLeadsByCompany(req, res) {
+  const companyIdentity = normalizeCompanyIdentity(req.query.company);
+  if (companyIdentity.length < 2) {
+    return res.status(400).json({ ok: false, error: 'Enter at least 2 characters to search for a company.' });
+  }
+
+  const baseUrls = ccpBaseUrls();
+  let lastError = '';
+  for (const baseUrl of baseUrls) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${baseUrl}/ccp/leads`, { headers: ccpCollectionHeaders(), signal: controller.signal });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        lastError = payload.error || payload.message || `CCP leads returned ${response.status}`;
+        continue;
+      }
+
+      const normalized = normalizeCollection(payload, 'leads');
+      const normalizedRows = await applySavedLeadAssignments(
+        normalizeRowsForCrm(cleanCcpRowsForCrm(normalized.leads), 'leads')
+      );
+      const usersByIdentity = await buildUsersByIdentity();
+      const matches = normalizedRows
+        .filter((row) => normalizeCompanyIdentity(row.company).includes(companyIdentity))
+        .slice(0, 6)
+        .map((row) => attachAssignedUserByIdentity(row, usersByIdentity, 'leads'));
+      return res.json({ ok: true, leads: matches, sourceBaseUrl: baseUrl });
+    } catch (err) {
+      lastError = err.message || `CCP backend is not reachable at ${baseUrl}`;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return res.status(502).json({
+    ok: false,
+    error: `CCP backend is not reachable. Checked: ${baseUrls.join(', ')}.`,
+    detail: lastError
+  });
+}
+
+router.get('/leads/company-search', requireAuth, searchCcpLeadsByCompany);
 router.get('/leads', requireAuth, (req, res) => fetchCcp('leads', 'leads', req, res));
 router.get('/clients', requireAuth, (req, res) => fetchCcp('clients', 'clients', req, res));
 router.get('/health', requireAuth, (req, res) => proxyCcpEndpoint(req, res, 'GET', 'ccp/health'));

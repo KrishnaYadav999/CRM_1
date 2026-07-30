@@ -7,6 +7,7 @@ import {
   FileText,
   Gauge,
   Home,
+  Megaphone,
   UserRound,
   Users
 } from 'lucide-react'
@@ -49,8 +50,16 @@ export const navSections = [
         children: [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard' },
           { label: 'Pending Approval', icon: Clock3, path: '/pending-approval' },
-          { label: 'Pending Leads', icon: ClipboardList, path: '/pending-leads', roles: ['superadmin'] },
+          {
+            label: 'Pending Leads',
+            icon: ClipboardList,
+            children: [
+              { label: 'Lead Open', icon: Clock3, path: '/pending-leads/open' },
+              { label: 'Lead Close', icon: ClipboardList, path: '/pending-leads/closed' }
+            ]
+          },
           { label: 'Notifications', icon: Bell, path: '/notifications' },
+          { label: 'Announcements', icon: Megaphone, path: '/announcements' },
           { label: 'Calendar', icon: CalendarDays, path: '/calendar' },
           { label: 'User Management', icon: Users, path: '/dashboard/users' }
         ]

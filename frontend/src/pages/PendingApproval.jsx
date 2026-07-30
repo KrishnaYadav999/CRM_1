@@ -157,7 +157,8 @@ export default function PendingApproval() {
   const [piboFilter, setPiboFilter] = useState('all');
   const navigate = useNavigate();
   const location = useLocation();
-  const canApprove = adminRoles.includes(currentUser?.role);
+  const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const canApprove = adminRoles.includes(normalizedRole);
 
   const allApprovalRows = useMemo(() => [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...royaltyApprovals], [pendingClients, pendingQuotations, duplicateLeadApprovals, royaltyApprovals]);
   const piboOptions = useMemo(() => {
@@ -203,7 +204,7 @@ export default function PendingApproval() {
 
   useEffect(() => {
     const tab = new URLSearchParams(location.search).get('tab');
-    if (tab === 'quotations' || tab === 'clients' || tab === 'duplicates') setActiveTab(tab);
+    if (tab === 'quotations' || tab === 'clients' || tab === 'duplicates' || tab === 'royalty') setActiveTab(tab);
   }, [location.search]);
 
   useEffect(() => {
@@ -268,7 +269,19 @@ export default function PendingApproval() {
       };
       setPendingClients(snapshot.pendingClients);
       setPendingQuotations(snapshot.pendingQuotations);
-      const leadApprovals = duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : [];
+      const leadApprovals = (duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : []).map((approval) => {
+        if (approval.type === 'lead_royalty' || approval.payload?.leadAssignedTo) return approval;
+        const existingId = String(approval.payload?.existingLeadId || '');
+        const matchingLead = ccpLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode].some((id) => String(id || '') === existingId));
+        const leadAssignedTo = matchingLead?.assignedTo?.name
+          || matchingLead?.assignedToText
+          || matchingLead?.assignedStaff?.name
+          || matchingLead?.assignedStaffText
+          || matchingLead?.assignments?.find((item) => item?.assignedToText || item?.assignedStaffText)?.assignedToText
+          || matchingLead?.assignments?.find((item) => item?.assignedStaffText)?.assignedStaffText
+          || '';
+        return leadAssignedTo ? { ...approval, payload: { ...approval.payload, leadAssignedTo } } : approval;
+      });
       setDuplicateLeadApprovals(leadApprovals.filter((row) => row.type !== 'lead_royalty'));
       setRoyaltyApprovals(leadApprovals.filter((row) => row.type === 'lead_royalty'));
       setDebugInfo(snapshot.debug);
@@ -375,7 +388,7 @@ export default function PendingApproval() {
         originalCreatorRatio: values.originalCreatorRatio,
         remarks: `${status === 'APPROVED' ? 'Approved' : 'Rejected'} from Pending Approval`
       });
-      setNotice(`Duplicate lead request ${status.toLowerCase()} successfully.`);
+      setNotice(`${row?.type === 'lead_royalty' ? 'Royalty claim' : 'Special approval request'} ${status.toLowerCase()} successfully.`);
       await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to update duplicate lead approval.'));
@@ -518,7 +531,7 @@ export default function PendingApproval() {
           <div className="pending-metrics">
             <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />
             <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" />
-            <Metric icon={Users} label="Duplicate Leads" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Special approval" tone="mint" />
+            <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" />
             <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" />
             <Metric icon={CheckCircle2} label="Approved Today" value={approvedTodayCount} hint="Since midnight" tone="teal" />
             <Metric icon={XCircle} label="Rejected" value={rejectedCount} hint="Since midnight" tone="rose" />
@@ -539,7 +552,7 @@ export default function PendingApproval() {
                 <option value="all">All Types</option>
                 <option value="clients">Clients</option>
                 <option value="quotations">Quotations</option>
-                <option value="duplicates">Duplicate Leads</option>
+                <option value="duplicates">Special Approvals</option>
                 <option value="royalty">Royalty Claims</option>
               </select>
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter approval status">
@@ -549,7 +562,7 @@ export default function PendingApproval() {
                 <option value="REJECTED">Rejected</option>
               </select>
               <select value={piboFilter} onChange={(event) => setPiboFilter(event.target.value)} aria-label="Filter PIBO category">
-                <option value="all">All PIBO Category</option>
+                <option value="all">All Applicant Types</option>
                 {piboOptions.map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
@@ -594,7 +607,7 @@ export default function PendingApproval() {
                 <ApprovalTab
                   active={activeTab === 'duplicates'}
                   icon={Users}
-                  label="Duplicate Lead Requests"
+                  label="Special Approvals"
                   count={filteredDuplicateLeads.length}
                   onClick={() => setActiveTab('duplicates')}
                 />
@@ -604,7 +617,7 @@ export default function PendingApproval() {
             {activeTab === 'clients' ? (
               <ApprovalTable
                 title="Pending Clients"
-                columns={['Client Name', 'Approval Status', 'PIBO Category', 'EPR Category', 'Created By', 'Request Date', 'Actions']}
+                columns={['Client Name', 'Approval Status', 'Applicant Type', 'EPR Category', 'Created By', 'Request Date', 'Actions']}
                 emptyText="No pending clients found."
                 page={clientPage}
                 totalPages={clientTotalPages}
@@ -640,9 +653,9 @@ export default function PendingApproval() {
               </ApprovalTable>
             ) : activeTab === 'duplicates' ? (
               <ApprovalTable
-                title="Duplicate Lead Special Approvals"
-                columns={['Company', 'Existing Lead', 'Requested By', 'Reason', 'Email', 'Evidence', 'Select Lead Owner', 'Status', 'Actions']}
-                emptyText="No duplicate lead approval requests found."
+                title="Special Approvals"
+                columns={['Company', 'Requested By', 'Reason', 'Email', 'Evidence', 'Select Lead Owner', 'Status', 'Actions']}
+                emptyText="No special approval requests found."
                 page={1}
                 totalPages={1}
                 showing={filteredDuplicateLeads.length}
@@ -653,7 +666,6 @@ export default function PendingApproval() {
                 {filteredDuplicateLeads.map((row) => (
                   <tr key={row._id || row.id}>
                     <Cell strong>{row.clientName}</Cell>
-                    <Cell>{row.payload?.existingLeadId}</Cell>
                     <Cell>{row.createdByName}</Cell>
                     <Cell>{row.payload?.reason}</Cell>
                     <Cell>{row.payload?.requesterEmail}</Cell>
@@ -680,7 +692,7 @@ export default function PendingApproval() {
             ) : (
               <ApprovalTable
                 title="Pending Quotations"
-                columns={['User Name', 'Lead Generated By', 'Company Name', 'Contact Person', 'Mobile No.1', 'Quotation Date', 'Service', 'Category', 'PIBO Category', 'Basic Amount', 'Approval Status', 'Approval Type', 'Created By', 'Actions']}
+                columns={['User Name', 'Lead Generated By', 'Company Name', 'Contact Person', 'Mobile No.1', 'Quotation Date', 'Service', 'Category', 'Applicant Type', 'Basic Amount', 'Approval Status', 'Approval Type', 'Created By', 'Actions']}
                 emptyText="No pending quotations found."
                 page={quotePage}
                 totalPages={quoteTotalPages}
@@ -864,9 +876,13 @@ function ActionCell({ row, savingId, onUpdate, savingPrefix = '', canApprove = f
   const id = row?.id;
   const approving = savingId === `${savingPrefix}${id}-APPROVED`;
   const rejecting = savingId === `${savingPrefix}${id}-REJECTED`;
+  const pending = getApprovalStatus(row) === 'PENDING';
 
   if (!canApprove) {
-    return <td aria-label="Approval actions unavailable" />;
+    return <td aria-label="Approval actions unavailable"><span className="pending-admin-only">Admin only</span></td>;
+  }
+  if (!pending) {
+    return <td><span className="pending-admin-only">Completed</span></td>;
   }
 
   return (
@@ -919,7 +935,7 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
           <Edit3 className="h-3.5 w-3.5" />
           Revise
         </button>
-        {canApprove ? (
+        {canApprove && getApprovalStatus(row) === 'PENDING' ? (
           <>
             <button
               type="button"

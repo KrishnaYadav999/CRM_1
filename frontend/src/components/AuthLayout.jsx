@@ -25,8 +25,8 @@ export default function AuthLayout({ eyebrow, title, subtitle, children }) {
       <div className="grid min-h-screen lg:grid-cols-[1.08fr_0.92fr]">
         <section ref={visualRef} className="relative hidden min-h-screen overflow-hidden bg-[#f5fbf8] px-8 py-8 lg:block">
           <div className="relative z-10 flex h-full flex-col">
-            <div className="flex items-center gap-4">
-              <div className="grid h-16 w-16 place-items-center rounded-2xl border border-emerald-100 bg-white p-2 shadow-lg shadow-emerald-900/10">
+            <div className="flex items-center gap-5">
+              <div className="grid h-24 w-24 place-items-center rounded-3xl border border-emerald-100 bg-white p-2 shadow-xl shadow-emerald-900/10">
                 <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
               </div>
               <div>

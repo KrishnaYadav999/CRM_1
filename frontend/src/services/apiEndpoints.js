@@ -73,6 +73,7 @@ const API_ENDPOINTS = {
   },
   ccp: {
     leads: '/ccp/leads',
+    leadCompanySearch: '/ccp/leads/company-search',
     clients: '/ccp/clients',
     createLead: '/integrations/ccp/leads',
     bulkCreateLeads: '/integrations/ccp/leads/bulk',

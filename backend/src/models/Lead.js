@@ -3,8 +3,9 @@ const mongoose = require('mongoose');
 const LeadSchema = new mongoose.Schema({
   leadCode: { type: String, trim: true, unique: true, sparse: true },
   sourceLeadId: { type: String, trim: true },
-  ccpLeadId: { type: String, trim: true, index: true },
+  ccpLeadId: { type: String, trim: true, unique: true, sparse: true, index: true },
   externalLeadId: { type: String, trim: true, index: true },
+  companyIdentity: { type: String, trim: true, index: true },
   communicationMode: { type: String, trim: true },
   communicationModeNote: { type: String, trim: true },
   status: { type: String, trim: true },
@@ -63,7 +64,16 @@ const LeadSchema = new mongoose.Schema({
   importedUpdatedAt: { type: String, trim: true },
   complianceHealthReport: { type: mongoose.Schema.Types.Mixed },
   workflowStatus: { type: String, enum: ['draft', 'submitted'], default: 'draft' },
-  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  sync: {
+    source: { type: String, enum: ['crm', 'ccp', 'crm+ccp'], default: 'crm' },
+    status: { type: String, enum: ['synced', 'pending', 'failed'], default: 'synced', index: true },
+    lastSyncedAt: { type: Date },
+    lastError: { type: String, trim: true }
+  },
+  ccpSnapshot: { type: mongoose.Schema.Types.Mixed, default: undefined }
 }, { timestamps: true });
+
+LeadSchema.index({ companyIdentity: 1, workflowStatus: 1 });
 
 module.exports = mongoose.model('Lead', LeadSchema);

@@ -125,6 +125,7 @@ const tabProgressFields = {
     ['communicationAddress', 'pincode']
   ],
   cpcb: [
+    ['cpcb', 'linkedToCommonPortal'],
     ['cpcb', 'status'],
     ['cpcb', 'remark'],
     ['cpcb', 'homePageFile'],
@@ -135,7 +136,8 @@ const tabProgressFields = {
     ['cpcb', 'ceprUserId'],
     ['cpcb', 'ceprPassword'],
     ['cpcb', 'loginId'],
-    ['cpcb', 'loginPassword']
+    ['cpcb', 'loginPassword'],
+    ['cpcb', 'unitId']
   ],
   contacts: [
     ['otp', 'mobile'],
@@ -520,7 +522,7 @@ const emptyClient = {
   compliance: {},
   msmeRows: [],
   cte: { numberOfPlantsLocations: '', plantWiseDetails: [] },
-  cpcb: {},
+  cpcb: { linkedToCommonPortal: '' },
   cpcbScreenshots: [],
   processDiagrams: [],
   otp: {},
@@ -1263,7 +1265,9 @@ export default function ClientMaster() {
         ['Choose Existing Lead', normalizedClient.selectedLead], ['Client Legal Name', normalizedClient.basic?.clientLegalName],
         ['Registered Address', normalizedClient.registeredAddress?.address1], ['Registered State', normalizedClient.registeredAddress?.state], ['Registered City', normalizedClient.registeredAddress?.city], ['Registered Pincode', normalizedClient.registeredAddress?.pincode],
         ['Communication Address', normalizedClient.communicationAddress?.address1], ['Communication State', normalizedClient.communicationAddress?.state], ['Communication City', normalizedClient.communicationAddress?.city], ['Communication Pincode', normalizedClient.communicationAddress?.pincode],
-        ['CPCB Status', normalizedClient.cpcb?.status], ['OTP Mobile', normalizedClient.otp?.mobile], ['Authorised Mobile', normalizedClient.authorised?.mobile], ['Authorised Email', normalizedClient.authorised?.email], ['Coordinating Mobile', normalizedClient.coordinating?.mobile], ['Coordinating Email', normalizedClient.coordinating?.email]
+        ['CPCB Common Portal Link', normalizedClient.cpcb?.linkedToCommonPortal],
+        ...(normalizedClient.cpcb?.linkedToCommonPortal === 'Yes' ? [['CPCB Status', normalizedClient.cpcb?.status]] : []),
+        ['OTP Mobile', normalizedClient.otp?.mobile], ['Authorised Mobile', normalizedClient.authorised?.mobile], ['Authorised Email', normalizedClient.authorised?.email], ['Coordinating Mobile', normalizedClient.coordinating?.mobile], ['Coordinating Email', normalizedClient.coordinating?.email]
       ];
       const missing = workflowStatus === 'submitted' ? submittedRequired.find(([, value]) => !String(value || '').trim()) : null;
       if (missing) {
@@ -1415,13 +1419,26 @@ export default function ClientMaster() {
                   <p className="mt-1 text-sm font-bold text-slate-500">Select the assigned service you want to onboard in Client Master.</p>
                 </header>
                 <div className="grid gap-3 p-6 sm:grid-cols-2">
-                  {pendingLeadServices.services.map((service, index) => (
+                  {pendingLeadServices.services.map((service, index) => {
+                    const hasSubApplicantType = Boolean(String(service.piboCategory || '').trim());
+                    const applicantLabel = hasSubApplicantType ? 'Sub Applicant Type' : 'Applicant Type';
+                    const applicantValue = hasSubApplicantType ? service.piboCategory : service.applicantType;
+                    return (
                     <button key={`${service.industryType}-${service.servicesOffered}-${index}`} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
-                      <strong className="block text-lg font-black text-slate-950">{service.industryType || `Service ${index + 1}`}</strong>
+                      <strong className="block text-base font-black text-slate-950">{service.eprCategory || `Service ${index + 1}`} · {applicantValue || '-'}</strong>
                       <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
-                      <span className="mt-1 block text-xs font-bold text-slate-500">{service.eprCategory || '-'}{service.piboCategory ? ` · ${service.piboCategory}` : ''}</span>
+                      {service.applicableService && <span className="mt-1 block rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">Applicable: {service.applicableService}</span>}
+                      <span className="mt-2 block text-xs font-bold text-slate-500">Industry Type: {service.industryType || '-'}</span>
+                      <span className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-black text-orange-700 shadow-sm">
+                          EPR Category: {service.eprCategory || '-'}
+                        </span>
+                        <span className="rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-1.5 text-xs font-black text-cyan-800 shadow-sm">
+                          {applicantLabel}: {applicantValue || '-'}
+                        </span>
+                      </span>
                     </button>
-                  ))}
+                  )})}
                 </div>
               </section>
             </div>

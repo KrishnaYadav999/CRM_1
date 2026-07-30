@@ -34,6 +34,8 @@ const QuoteItemSchema = new mongoose.Schema({
 const QuotationSchema = new mongoose.Schema({
   quotationNumber: { type: String, trim: true, index: true },
   leadId: { type: String, trim: true, index: true },
+  leadRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true },
+  clientRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', index: true },
   ccpQuotationId: { type: String, trim: true, unique: true, sparse: true },
   ccpLeadId: { type: String, trim: true, index: true },
   leadCode: { type: String, trim: true },
@@ -46,6 +48,7 @@ const QuotationSchema = new mongoose.Schema({
   combinedBasicAmount: { type: Number, default: 0 },
   items: { type: [QuoteItemSchema], default: [] },
   terms: { type: [String], default: [] },
+  scopeOfWork: { type: [String], default: [] },
   subtotal: { type: Number, default: 0 },
   grandTotal: { type: Number, default: 0 },
   status: { type: String, enum: ['draft', 'submitted', 'sent', 'approved', 'rejected'], default: 'draft', index: true },

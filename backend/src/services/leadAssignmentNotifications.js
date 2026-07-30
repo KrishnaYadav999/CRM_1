@@ -105,7 +105,7 @@ async function notifyLeadAssignment({ lead, managerId, assignedBy }) {
                 <th style="padding:11px;text-align:left">Industry Type</th>
                 <th style="padding:11px;text-align:left">EPR Category</th>
                 <th style="padding:11px;text-align:left">Applicant Type</th>
-                ${fyRow.piboCategory && fyRow.piboCategory !== 'Not applicable' ? '<th style="padding:11px;text-align:left">SIMP Category</th>' : ''}
+                ${fyRow.piboCategory && fyRow.piboCategory !== 'Not applicable' ? '<th style="padding:11px;text-align:left">Sub Applicant Type</th>' : ''}
                 <th style="padding:11px;text-align:left">Services Offered</th>
                 <th style="padding:11px;text-align:left">FY Year</th>
               </tr></thead>

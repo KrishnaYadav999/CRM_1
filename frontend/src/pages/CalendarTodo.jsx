@@ -204,6 +204,7 @@ export default function CalendarTodo() {
   const [viewDate, setViewDate] = useState(today);
   const [modalDate, setModalDate] = useState(null);
   const [todoDraft, setTodoDraft] = useState(() => emptyTodo(today));
+  const [editingTodoId, setEditingTodoId] = useState('');
   const [query, setQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -490,8 +491,21 @@ export default function CalendarTodo() {
   }
 
   function openAddTodo(date = selectedDate) {
+    setEditingTodoId('');
     setModalDate(date);
     setTodoDraft(emptyTodo(date));
+  }
+
+  function openEditTodo(item) {
+    if (item.status === 'completed') return;
+    const scheduledDate = item.scheduledDate || dateKey(selectedDate);
+    setEditingTodoId(String(item.id || item._id));
+    setTodoDraft({
+      ...emptyTodo(new Date(`${scheduledDate}T00:00:00`)),
+      ...item,
+      updateReason: ''
+    });
+    setModalDate(new Date(`${scheduledDate}T00:00:00`));
   }
 
   function saveTodo() {
@@ -499,9 +513,13 @@ export default function CalendarTodo() {
     const selectedClient = clientOptions.find((option) => option.value === todoDraft.clientNumber);
     const selectedLead = leadOptions.find((option) => option.value === todoDraft.leadNumber);
     const assignedUser = userLookup.get(String(todoDraft.assignedTo || '').trim().toLowerCase());
+    const existingItem = editingTodoId
+      ? items.find((item) => String(item.id || item._id) === editingTodoId)
+      : null;
     const newItem = {
+        ...(existingItem || {}),
         ...todoDraft,
-        id: `todo-${Date.now()}`,
+        id: existingItem?.id || existingItem?._id || `todo-${Date.now()}`,
         title: todoDraft.title.trim(),
         updateReason: todoDraft.updateReason.trim(),
         clientName: selectedClient?.company || todoDraft.clientName,
@@ -509,10 +527,24 @@ export default function CalendarTodo() {
         assignedToName: assignedUser?.name || todoDraft.assignedTo,
         assignedToEmail: assignedUser?.email || '',
         assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
-        createdAt: new Date().toISOString(),
-        createdBy: storedUser?.name || storedUser?.email || ''
+        createdAt: existingItem?.createdAt || new Date().toISOString(),
+        createdBy: existingItem?.createdBy || storedUser?.name || storedUser?.email || '',
+        updatedAt: existingItem ? new Date().toISOString() : '',
+        updatedBy: existingItem ? (storedUser?.name || storedUser?.email || '') : '',
+        updateHistory: existingItem ? [
+          {
+            reason: todoDraft.updateReason.trim(),
+            updatedAt: new Date().toISOString(),
+            updatedBy: storedUser?.name || storedUser?.email || 'Current User'
+          },
+          ...(existingItem.updateHistory || [])
+        ] : []
       };
-    persist([newItem, ...items], newItem, 'create');
+    const nextItems = existingItem
+      ? items.map((item) => String(item.id || item._id) === editingTodoId ? newItem : item)
+      : [newItem, ...items];
+    persist(nextItems, newItem, existingItem ? 'update' : 'create');
+    setEditingTodoId('');
     setModalDate(null);
   }
 
@@ -882,6 +914,7 @@ export default function CalendarTodo() {
                     <td>
                       <div className="calendar-action-buttons">
                         <button type="button" onClick={() => setDetailItem(item)} title="View details" aria-label="View details"><Eye className="h-4 w-4" /></button>
+                        <button type="button" disabled={item.status === 'completed'} onClick={() => openEditTodo(item)} title={item.status === 'completed' ? 'Completed tasks are locked' : 'Update todo'} aria-label="Update todo"><Edit3 className="h-4 w-4" /></button>
                         <button type="button" disabled={item.status === 'completed'} onClick={() => openAssignModal(item)} title={item.status === 'completed' ? 'Completed tasks are locked' : 'Assign todo'} aria-label="Assign todo"><UserPlus className="h-4 w-4" /></button>
                         <button type="button" onClick={() => setHistoryTarget(item)} title="Assignment history" aria-label="Assignment history"><History className="h-4 w-4" /></button>
                       </div>
@@ -1033,14 +1066,14 @@ export default function CalendarTodo() {
         )}
 
         {modalDate && (
-          <motion.div className="calendar-modal-backdrop" variants={modalBackdropMotion} initial="hidden" animate="show" onClick={() => setModalDate(null)}>
+          <motion.div className="calendar-modal-backdrop" variants={modalBackdropMotion} initial="hidden" animate="show" onClick={() => { setModalDate(null); setEditingTodoId(''); }}>
             <motion.div className="calendar-modal calendar-todo-modal" variants={modalPanelMotion} initial="hidden" animate="show" onClick={(event) => event.stopPropagation()}>
               <div className="calendar-modal-head">
                 <div>
                   <span>Date: {new Intl.DateTimeFormat('en', { month: 'long', day: '2-digit', year: 'numeric' }).format(modalDate)}</span>
-                  <strong><Plus className="h-5 w-5" /> Add New Todo</strong>
+                  <strong>{editingTodoId ? <Edit3 className="h-5 w-5" /> : <Plus className="h-5 w-5" />} {editingTodoId ? 'Update Todo' : 'Add New Todo'}</strong>
                 </div>
-                <button type="button" className="calendar-modal-close" onClick={() => setModalDate(null)} aria-label="Close add todo popup"><X className="h-5 w-5" /></button>
+                <button type="button" className="calendar-modal-close" onClick={() => { setModalDate(null); setEditingTodoId(''); }} aria-label="Close todo popup"><X className="h-5 w-5" /></button>
               </div>
               <div className="calendar-form-grid">
                 <Field label="Todo Title" required><input value={todoDraft.title} onChange={(event) => setTodoDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Enter todo title" /></Field>
@@ -1074,7 +1107,7 @@ export default function CalendarTodo() {
                     maxLength={500}
                     value={todoDraft.updateReason}
                     onChange={(event) => setTodoDraft((current) => ({ ...current, updateReason: event.target.value }))}
-                    placeholder="Please provide a reason for this update"
+                    placeholder={editingTodoId ? 'Why are you updating this todo?' : 'Please provide a reason for this update'}
                   />
                   <em className="calendar-field-count">{todoDraft.updateReason.length} / 500</em>
                 </Field>
@@ -1093,8 +1126,8 @@ export default function CalendarTodo() {
                 </Field>
               </div>
               <div className="calendar-modal-actions">
-                <button type="button" onClick={() => setModalDate(null)}>Cancel</button>
-                <button type="button" disabled={!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate} onClick={saveTodo}>Add Todo</button>
+                <button type="button" onClick={() => { setModalDate(null); setEditingTodoId(''); }}>Cancel</button>
+                <button type="button" disabled={!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate} onClick={saveTodo}>{editingTodoId ? 'Update Todo' : 'Add Todo'}</button>
               </div>
             </motion.div>
           </motion.div>

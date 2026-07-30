@@ -3,7 +3,11 @@ const PendingApproval = require('../models/PendingApproval');
 const QuotationServiceCategory = require('../models/QuotationServiceCategory');
 const QuotationPiboCategory = require('../models/QuotationPiboCategory');
 const QuotationSyncIssue = require('../models/QuotationSyncIssue');
+const { resolveCrmRelationships } = require('../services/crmRelationships');
 const Lead = require('../models/Lead');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
+const { sendQuotationLifecycleEmail } = require('../services/quotationLifecycleEmails');
 const {
   PIBO_PARENTS,
   BUILT_IN_PIBO_CATEGORIES,
@@ -106,8 +110,8 @@ async function validateQuotationPiboItems(items = []) {
 function cleanBody(body) {
   const items = cleanItems(body.items);
   const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
-  const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(body.combinedBasicAmount) : 0;
   const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
+  const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(body.combinedBasicAmount) : 0;
   const calculatedTotal = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
   return {
     leadId: cleanString(body.leadId),
@@ -120,6 +124,7 @@ function cleanBody(body) {
     quotationDate: body.quotationDate || undefined,
     items,
     terms: cleanTerms(body.terms),
+    scopeOfWork: cleanTerms(body.scopeOfWork),
     subtotal: roundMoney(body.subtotal || calculatedTotal),
     grandTotal: roundMoney(body.grandTotal || calculatedTotal),
     status: ['draft', 'submitted', 'sent', 'approved', 'rejected'].includes(body.status) ? body.status : 'draft'
@@ -293,7 +298,10 @@ function mapCcpQuotation(row, lead) {
   );
   const assignedUserName = cleanString(selectedLead.assignedTo?.name || selectedLead.assignedToText || selectedLead.assignedToEmail || lead?.assignedTo?.name || lead?.assignedToText || lead?.assignedToEmail);
   const items = cleanItems(row.items);
-  const calculatedTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
+  const pricingMode = row.pricingMode === 'combined' ? 'combined' : 'individual';
+  const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
+  const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(row.combinedBasicAmount || row.grandTotal || row.subtotal) : 0;
+  const calculatedTotal = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
   return {
     ccpQuotationId: cleanString(row._id || row.id),
     leadId: lead?._id ? String(lead._id) : undefined,
@@ -304,6 +312,8 @@ function mapCcpQuotation(row, lead) {
     quotationNumber: cleanString(row.quotationNumber),
     quotationDate: row.quotationDate || row.createdAt || undefined,
     validUntil: cleanString(row.validUntil),
+    pricingMode,
+    combinedBasicAmount,
     leadDetails: cleanLeadDetails({
       companyName: row.companyName || selectedLead.company || lead?.company,
       contactPerson: selectedLead.contactPerson || lead?.contactPerson,
@@ -314,6 +324,7 @@ function mapCcpQuotation(row, lead) {
     }),
     items,
     terms: cleanTerms(row.terms),
+    scopeOfWork: cleanTerms(row.scopeOfWork),
     subtotal: roundMoney(row.subtotal || calculatedTotal),
     grandTotal: roundMoney(row.grandTotal || row.subtotal || calculatedTotal),
     status: ['draft', 'submitted'].includes(row.status) ? row.status : 'draft',
@@ -335,7 +346,7 @@ function comparableCcpFields(record) {
     leadId: record.leadId || '', ccpLeadId: record.ccpLeadId, leadCode: record.leadCode, businessLeadCode: record.businessLeadCode || '',
     companyName: record.companyName, quotationNumber: record.quotationNumber,
     quotationDate: record.quotationDate ? new Date(record.quotationDate).toISOString() : '',
-    validUntil: record.validUntil, items: record.items, terms: record.terms,
+    validUntil: record.validUntil, pricingMode: record.pricingMode, combinedBasicAmount: record.combinedBasicAmount, items: record.items, terms: record.terms, scopeOfWork: record.scopeOfWork,
     subtotal: record.subtotal, grandTotal: record.grandTotal, status: record.status,
     source: record.source, ccpSource: record.ccpSource,
     createdByName: record.createdByName || '', leadGeneratedBy: record.leadGeneratedBy || '', assignedUserName: record.assignedUserName || '',
@@ -377,7 +388,10 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
   const parts = approvalDateParts(quotation.createdAt || new Date());
   const details = quotation.leadDetails || {};
   const firstItem = Array.isArray(quotation.items) ? quotation.items[0] || {} : {};
-  const totalBasicAmount = roundMoney((quotation.items || []).reduce((sum, item) => sum + (Number(item.basicAmount) || 0), 0));
+  const itemBasicAmount = roundMoney((quotation.items || []).reduce((sum, item) => sum + (Number(item.basicAmount) || 0), 0));
+  const totalBasicAmount = quotation.pricingMode === 'combined'
+    ? roundMoney(quotation.combinedBasicAmount || quotation.grandTotal)
+    : itemBasicAmount;
   const isBulkCcp = quotationApprovalSource(quotation) === 'ccp' && String(quotation.ccpSource || '').toLowerCase() === 'bulk';
   const leadCreator = quotation.leadGeneratedBy || readCreatedBy(quotation);
   const displayUser = isBulkCcp ? (quotation.assignedUserName || leadCreator) : readCreatedBy(quotation);
@@ -394,8 +408,11 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     ccpSource: quotation.ccpSource || '',
     leadDetails: details,
     validUntil: quotation.validUntil || '',
+    pricingMode: quotation.pricingMode || 'individual',
+    combinedBasicAmount: quotation.combinedBasicAmount || 0,
     items: Array.isArray(quotation.items) ? quotation.items : [],
     terms: Array.isArray(quotation.terms) ? quotation.terms : [],
+    scopeOfWork: Array.isArray(quotation.scopeOfWork) ? quotation.scopeOfWork : [],
     status: quotation.status || 'draft',
     createdAt: quotation.createdAt,
     updatedAt: quotation.updatedAt,
@@ -449,6 +466,23 @@ async function upsertQuotationPendingApproval(quotation, approvalType = 'CREATE'
     },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
+
+  if (approvalType === 'UPDATE') {
+    const reviewers = await User.find({ role: { $in: ['admin', 'superadmin'] }, isActive: { $ne: false } }).select('_id').lean();
+    const notification = await Notification.create({
+      title: 'Quotation updated — re-approval required',
+      description: `${row.quotationNumber || 'Quotation'} for ${row.companyName || 'a client'} was updated and returned to Pending Approval.`,
+      tag: 'Quotation Approval',
+      kind: 'quotation_reapproval_required',
+      audience: reviewers.map((user) => user._id),
+      visibleToRoles: ['admin', 'superadmin'],
+      createdBy: quotation.createdBy?._id || quotation.createdBy,
+      createdByName: row.createdBy || 'CRM User',
+      metadata: { quotationId: String(quotation._id), approvalRecordId: String(record._id), approvalType: 'UPDATE' }
+    });
+    notification.crmNotificationId = String(notification._id);
+    await notification.save();
+  }
 
   return record;
 }
@@ -680,12 +714,15 @@ exports.createQuotation = async (req, res) => {
   }
   const quotation = await Quotation.create({
     ...data,
+    ...await resolveCrmRelationships(data),
     status: 'draft',
     quotationNumber: await nextQuotationNumber(),
     createdBy: req.user?._id
   });
   await quotation.populate('createdBy', 'name email');
   await upsertQuotationPendingApproval(quotation, 'CREATE');
+  await sendQuotationLifecycleEmail({ quotation, event: 'created', actor: req.user })
+    .catch((error) => console.error('[Quotation lifecycle email] create failed', error));
   res.status(201).json({ ok: true, quotation });
 };
 
@@ -706,7 +743,7 @@ exports.updateQuotation = async (req, res) => {
   const previous = quotation.toObject();
   const labels = {
     leadId: 'Lead', leadCode: 'Lead Code', companyName: 'Company', leadDetails: 'Lead Details',
-    quotationDate: 'Quotation Date', validUntil: 'Valid Until', items: 'Quotation Items', terms: 'Terms',
+    quotationDate: 'Quotation Date', validUntil: 'Valid Until', items: 'Quotation Items', terms: 'Terms', scopeOfWork: 'Scope of Work',
     subtotal: 'Subtotal', grandTotal: 'Grand Total'
   };
   const changes = Object.keys(labels).filter((field) => JSON.stringify(previous[field] ?? null) !== JSON.stringify(data[field] ?? null)).map((field) => ({
@@ -716,6 +753,7 @@ exports.updateQuotation = async (req, res) => {
     after: data[field] ?? null
   }));
   Object.assign(quotation, data);
+  Object.assign(quotation, await resolveCrmRelationships(data));
   quotation.status = 'draft';
   quotation.revisionHistory = [
     ...(Array.isArray(quotation.revisionHistory) ? quotation.revisionHistory : []),
@@ -732,6 +770,8 @@ exports.updateQuotation = async (req, res) => {
   await quotation.save();
   await quotation.populate('createdBy', 'name email');
   await upsertQuotationPendingApproval(quotation, 'UPDATE');
+  await sendQuotationLifecycleEmail({ quotation, event: 'revised', actor: req.user })
+    .catch((error) => console.error('[Quotation lifecycle email] revision failed', error));
   res.json({ ok: true, quotation });
 };
 
@@ -780,6 +820,12 @@ exports.updateQuotationApproval = async (req, res) => {
     { $set: update }
   );
 
+  await sendQuotationLifecycleEmail({
+    quotation,
+    event: status === 'APPROVED' ? 'approved' : 'rejected',
+    actor: req.user
+  }).catch((error) => console.error('[Quotation lifecycle email] decision failed', error));
+
   res.json({ ok: true, approvalStatus: status, quotation });
 };
 
@@ -803,12 +849,13 @@ exports.bulkCreateQuotations = async (req, res) => {
       const existing = await Quotation.findOne({ quotationNumber });
       let quotation;
       if (existing) {
-        Object.assign(existing, data, { source: 'bulk', status: 'draft' });
+        Object.assign(existing, data, await resolveCrmRelationships(data), { source: 'bulk', status: 'draft' });
         quotation = await existing.save();
         summary.updated += 1;
       } else {
         quotation = await Quotation.create({
           ...data,
+          ...await resolveCrmRelationships(data),
           quotationNumber,
           source: 'bulk',
           status: 'draft',
@@ -817,6 +864,12 @@ exports.bulkCreateQuotations = async (req, res) => {
         summary.created += 1;
       }
       await upsertQuotationPendingApproval(quotation, existing ? 'UPDATE' : 'CREATE');
+      await quotation.populate('createdBy', 'name email');
+      await sendQuotationLifecycleEmail({
+        quotation,
+        event: existing ? 'revised' : 'created',
+        actor: req.user
+      }).catch((error) => console.error('[Quotation lifecycle email] bulk row failed', error));
     } catch (error) {
       summary.failed += 1;
       failures.push({
@@ -846,6 +899,7 @@ exports.approveAllPendingQuotations = async (req, res) => {
       if (quotation) {
         quotation.status = 'approved';
         await quotation.save();
+        await quotation.populate('createdBy', 'name email');
       }
       record.approvalStatus = 'APPROVED';
       record.nextReminderAt = null;
@@ -853,6 +907,13 @@ exports.approveAllPendingQuotations = async (req, res) => {
       record.actionAt = new Date();
       record.remarks = remarks;
       await record.save();
+      if (quotation) {
+        await sendQuotationLifecycleEmail({
+          quotation,
+          event: 'approved',
+          actor: req.user
+        }).catch((error) => console.error('[Quotation lifecycle email] bulk approval failed', error));
+      }
       approved += 1;
     } catch (err) {
       failures.push({

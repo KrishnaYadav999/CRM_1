@@ -22,6 +22,8 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
   Clock3,
@@ -375,6 +377,18 @@ function getClientCategory(client = {}) {
   const data = readClientData(client)
   const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
   return formatPiboCategory(data.basic?.piboCategory || client.piboCategory || lead.piboCategory)
+}
+
+function getClientApplicantGroup(client = {}) {
+  const data = readClientData(client)
+  const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
+  const explicit = data.basic?.applicantType || data.basic?.piboParent || data.piboParent || lead.applicantType || lead.piboParent
+  if (['PIBO', 'SIMP', 'PWP'].includes(String(explicit || '').toUpperCase())) return String(explicit).toUpperCase()
+  const child = normalizeKey(data.basic?.piboCategory || client.piboCategory || lead.piboCategory)
+  if (['producer', 'importer', 'brand owner'].includes(child)) return 'PIBO'
+  if (['seller', 'importer of raw material', 'importer of plastic packaging'].includes(child) || child.includes('simp')) return 'SIMP'
+  if (['recycler', 'refurbisher', 'retreader', 'pwp'].includes(child)) return 'PWP'
+  return explicit || 'Unassigned'
 }
 
 function isOperationsUser(user = {}) {
@@ -1466,7 +1480,9 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
       clientKey: client._id || client.id || client.clientKey || getClientCode(client),
       atplCode: formatAtplCode(resolvedClientCode) || '-',
       companyName: getClientName(client),
-      category: getClientCategory(client) !== 'Unassigned' ? getClientCategory(client) : formatPiboCategory(pendingClient.piboCategory),
+      eprCategory: data.basic?.eprCategory || data.eprCategory || '-',
+      category: getClientApplicantGroup(client),
+      subApplicantType: data.basic?.subApplicantType || data.basic?.piboSubcategory || (getClientCategory(client) !== 'Unassigned' ? getClientCategory(client) : formatPiboCategory(pendingClient.piboCategory)),
       quotations: clientQuotations,
       quoteCount: clientQuotations.length,
       hasQuotation: clientQuotations.length > 0,
@@ -2821,6 +2837,130 @@ function PoDetailsModal({ row, onClose }) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function financialYearStart(value) {
+  const match = String(value || '').match(/(20\d{2})/)
+  return match ? Number(match[1]) : 0
+}
+
+function currentFinancialYear() {
+  const today = new Date()
+  const start = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
+  return `${start}-${String(start + 1).slice(-2)}`
+}
+
+function rowAppliesToFinancialYear(row, financialYear) {
+  const selectedStart = financialYearStart(financialYear)
+  const firstStart = financialYearStart(row.firstAnnualReturnYear)
+  const explicitYears = (row.annualReturns || []).flatMap((item) => [item.annualYear, item.financialYear, item.year]).filter(Boolean)
+  if (explicitYears.some((year) => financialYearStart(year) === selectedStart)) return true
+  if (firstStart) return selectedStart >= firstStart
+  return !row.annualYear || financialYearStart(row.annualYear) === selectedStart
+}
+
+function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
+  const availableYears = useMemo(() => {
+    const years = new Set([currentFinancialYear()])
+    rows.forEach((row) => {
+      ;[row.annualYear, row.firstAnnualReturnYear, ...(row.annualReturns || []).flatMap((item) => [item.annualYear, item.financialYear, item.year])]
+        .filter(Boolean).forEach((year) => {
+          const start = financialYearStart(year)
+          if (start) years.add(`${start}-${String(start + 1).slice(-2)}`)
+        })
+    })
+    return [...years].sort((a, b) => financialYearStart(b) - financialYearStart(a))
+  }, [rows])
+  const [financialYear, setFinancialYear] = useState(currentFinancialYear())
+  const [search, setSearch] = useState('')
+  const [expandedUser, setExpandedUser] = useState('')
+  const [expandedYear, setExpandedYear] = useState('')
+  const selectedRows = useMemo(
+    () => rows.filter((row) => rowAppliesToFinancialYear(row, financialYear)),
+    [financialYear, rows]
+  )
+  const groups = useMemo(() => {
+    const byUser = new Map()
+    selectedRows.forEach((row) => {
+      const name = row.userName || 'Unassigned'
+      const current = byUser.get(name) || { name, role: row.user?.role || 'Operation', rows: [] }
+      current.rows.push(row)
+      byUser.set(name, current)
+    })
+    const needle = search.trim().toLowerCase()
+    return [...byUser.values()]
+      .filter((group) => !needle || [
+        group.name,
+        financialYear,
+        ...group.rows.flatMap((row) => [row.companyName, row.atplCode, row.poDetails?.poNo, row.eprCategory, row.category, row.subApplicantType])
+      ].some((value) => String(value || '').toLowerCase().includes(needle)))
+      .sort((a, b) => b.rows.length - a.rows.length || a.name.localeCompare(b.name))
+  }, [financialYear, search, selectedRows])
+  const poReceived = selectedRows.filter((row) => row.hasPo).length
+  const poPending = Math.max(0, selectedRows.length - poReceived)
+
+  return (
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[.22em] text-violet-600">PO Dashboard</p>
+            <h1 className="mt-1 text-2xl font-black text-slate-950">User Wise PO Status</h1>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Expand a user to see financial-year PO counts and complete client details.</p>
+          </div>
+          <div className="flex items-end gap-3">
+            <label className="grid gap-1 text-xs font-black uppercase tracking-wider text-slate-500">
+              Financial Year
+              <select className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 outline-none focus:border-violet-300" value={financialYear} onChange={(event) => { setFinancialYear(event.target.value); setExpandedYear('') }}>
+                {availableYears.map((year) => <option key={year}>{year}</option>)}
+              </select>
+            </label>
+            <button type="button" onClick={onRefresh} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50"><RefreshCw className="h-4 w-4" />Refresh</button>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          {[
+            ['Total Clients', selectedRows.length, 'border-blue-100 bg-blue-50 text-blue-700'],
+            ['PO Received', poReceived, 'border-emerald-100 bg-emerald-50 text-emerald-700'],
+            ['PO Pending', poPending, 'border-red-100 bg-red-50 text-red-700']
+          ].map(([label, count, tone]) => <div key={label} className={`rounded-xl border p-4 ${tone}`}><p className="text-xs font-black uppercase tracking-widest">{label} · {financialYear}</p><strong className="mt-2 block text-2xl">{count}</strong></div>)}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+        <header className="flex flex-col gap-4 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div><h2 className="font-black text-slate-950">PO Status By User</h2><p className="text-xs font-semibold text-slate-500">Click a user row, then expand a financial year to see clients.</p></div>
+          <label className="flex h-11 min-w-[320px] items-center gap-3 rounded-xl border border-slate-200 px-4 text-slate-400 focus-within:border-violet-300"><Search className="h-4 w-4" /><input className="w-full bg-transparent text-sm font-semibold text-slate-800 outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search user, FY, client, PO..." /></label>
+        </header>
+        <div>
+          {groups.length ? groups.map((group) => {
+            const userOpen = expandedUser === group.name
+            const received = group.rows.filter((row) => row.hasPo).length
+            const yearKey = `${group.name}:${financialYear}`
+            const clientsOpen = expandedYear === yearKey
+            return <div key={group.name} className="border-b border-slate-100 last:border-0">
+              <button type="button" onClick={() => { setExpandedUser(userOpen ? '' : group.name); if (userOpen) setExpandedYear('') }} className={`grid w-full gap-4 px-4 py-5 text-left transition hover:bg-slate-50 md:grid-cols-[1.7fr_1fr_1fr_1fr_auto] md:items-center ${userOpen ? 'bg-slate-50' : ''}`}>
+                <span className="flex items-center gap-3"><i className="grid h-11 w-11 place-items-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700"><Users className="h-5 w-5" /></i><span><strong className="block text-sm text-slate-950">{group.name}</strong><small className="font-semibold text-slate-500">{group.role}</small></span></span>
+                <span><small className="block text-[10px] font-black uppercase tracking-wider text-slate-400">Total Clients · {financialYear}</small><strong className="text-lg text-slate-900">{group.rows.length}</strong></span>
+                <span><small className="block text-[10px] font-black uppercase tracking-wider text-slate-400">PO Received · {financialYear}</small><strong className="text-lg text-emerald-700">{received}</strong></span>
+                <span><small className="block text-[10px] font-black uppercase tracking-wider text-slate-400">PO Pending · {financialYear}</small><strong className="text-lg text-red-600">{group.rows.length - received}</strong></span>
+                <span className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">{userOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}{userOpen ? 'Collapse' : 'Expand'}</span>
+              </button>
+              {userOpen && <div className="bg-slate-50 px-4 pb-5">
+                <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+                  <table className="w-full min-w-[900px] text-left text-sm">
+                    <thead className="bg-slate-100 text-xs uppercase tracking-wider text-slate-500"><tr>{['Financial Year', 'Total Clients', 'PO Received', 'PO Pending', 'Action'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+                    <tbody><tr className="border-t"><td className="px-4 py-4 font-black">{financialYear}</td><td className="px-4 py-4">{group.rows.length}</td><td className="px-4 py-4 font-black text-emerald-700">{received}</td><td className="px-4 py-4 font-black text-red-600">{group.rows.length - received}</td><td className="px-4 py-4"><button type="button" onClick={() => setExpandedYear(clientsOpen ? '' : yearKey)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-700">{clientsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}View Clients</button></td></tr></tbody>
+                  </table>
+                  {clientsOpen && <div className="border-t border-slate-200 p-3"><div className="overflow-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1500px] text-left text-sm"><thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500"><tr>{['Client Name', 'Client Code', 'EPR Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number', 'Uploaded File'].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{group.rows.map((row) => <tr key={row.id} className="border-t"><td className="px-3 py-3 font-black">{row.companyName}</td><td className="px-3 py-3">{row.atplCode}</td><td className="px-3 py-3">{row.eprCategory}</td><td className="px-3 py-3 font-bold">{row.category}</td><td className="px-3 py-3">{row.subApplicantType}</td><td className="px-3 py-3">{financialYear}</td><td className="px-3 py-3"><button type="button" onClick={() => onOpenPo(row)} className={`rounded-full px-3 py-1 text-xs font-black ${row.hasPo ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{row.hasPo ? 'Received' : 'Pending'}</button></td><td className="px-3 py-3 font-bold">{row.poDetails?.poNo || '-'}</td><td className="px-3 py-3">{row.poDetails?.fileUrl ? <a className="font-black text-blue-600 hover:underline" href={row.poDetails.fileUrl} target="_blank" rel="noreferrer">View File</a> : '-'}</td></tr>)}</tbody></table></div></div>}
+                </div>
+              </div>}
+            </div>
+          }) : <div className="p-12 text-center font-black text-slate-400">No PO status records match this filter.</div>}
+        </div>
+      </section>
     </div>
   )
 }
@@ -4633,7 +4773,12 @@ export default function AdminDashboard() {
                   />
                 ) : (
                   <>
-              <div className="operations-hero">
+              <UserWisePoStatus
+                rows={scopedOperationsRows}
+                onRefresh={() => loadDashboard({ force: true })}
+                onOpenPo={openPoDetails}
+              />
+              <div className="operations-hero" style={{ display: 'none' }}>
                 <div className="flex min-w-0 items-center gap-4">
                   <span className="operations-hero-icon"><Activity className="h-6 w-6" /></span>
                   <div className="min-w-0">
@@ -4668,7 +4813,7 @@ export default function AdminDashboard() {
               {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
               {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
 
-              <div className="operations-legacy-layout">
+              <div className="operations-legacy-layout" style={{ display: 'none' }}>
               <section className="operations-panel operations-snapshot-panel">
                 <PanelHeader icon={PieChart} title="Operations Snapshot" note="Lead, conversion and annual return overview" />
                 <div className="operations-snapshot-grid">
@@ -4831,7 +4976,7 @@ export default function AdminDashboard() {
               )}
               </div>
 
-              <section className="operations-panel">
+              <section className="operations-panel" style={{ display: 'none' }}>
                 <div className="operations-table-head">
                   <PanelHeader icon={ListChecks} title={selectedOperationsTitle} note={selectedOperationsNote} />
                   <div className="operations-table-controls">
@@ -4866,19 +5011,26 @@ export default function AdminDashboard() {
                   <table className="operations-table">
                     <thead>
                       <tr>
-                        {['ATPL Code', 'Company Name', 'EPR Year', 'PIBO', 'Quotation', 'PO', 'Annual Return', 'Compliance', 'Action'].map((header) => <th key={header}>{header}</th>)}
+                        {['User', 'Clients', 'Company', 'EPR Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number'].map((header) => <th key={header}>{header}</th>)}
                       </tr>
                     </thead>
                     <tbody>
                       {visibleOperationsRows.length ? visibleOperationsRows.map((row) => (
                         <tr key={row.id}>
-                          <td><strong>{row.atplCode}</strong></td>
                           <td>
-                            <div className="operations-company-cell">
-                              <strong>{row.companyName}</strong>
-                              <span>{row.userName}</span>
-                            </div>
+                            <button type="button" className="operations-inline-view" onClick={() => {
+                              const card = userPerformanceCards.find((item) => normalizeKey(item.name) === normalizeKey(row.userName));
+                              if (card) {
+                                setSelectedPiboCategory('');
+                                setSelectedPerformanceUserId(card.id);
+                              }
+                            }}><UserRound className="h-3.5 w-3.5" /> {row.userName}</button>
                           </td>
+                          <td><strong>{scopedOperationsRows.filter((item) => normalizeKey(item.userName) === normalizeKey(row.userName)).length}</strong></td>
+                          <td><div className="operations-company-cell"><strong>{row.companyName}</strong><span>{row.atplCode}</span></div></td>
+                          <td>{row.eprCategory}</td>
+                          <td>{row.category}</td>
+                          <td>{row.subApplicantType}</td>
                           <td>
                             <div className="operations-epr-year-cell">
                               <span><CalendarDays className="h-3.5 w-3.5" /></span>
@@ -4887,21 +5039,6 @@ export default function AdminDashboard() {
                                 <small>April - March</small>
                               </div>
                             </div>
-                          </td>
-                          <td>{row.category}</td>
-                          <td>
-                            <span className={`operations-status-pill ${row.hasQuotation ? 'operations-status-yes' : 'operations-status-no'}`}>
-                              {row.hasQuotation ? 'Yes' : 'No'}{row.quoteCount ? ` (${row.quoteCount})` : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => openQuotation(row)}
-                              disabled={!row.hasQuotation}
-                              className={`operations-inline-view ${!row.hasQuotation ? 'operations-inline-view-muted' : ''}`}
-                              title={row.hasQuotation ? 'View mapped quotation' : 'No quotation found for this client'}
-                            >
-                              <Eye className="h-3.5 w-3.5" /> View
-                            </button>
                           </td>
                           <td>
                             <div className="operations-po-cell">
@@ -4914,35 +5051,14 @@ export default function AdminDashboard() {
                                 className={`operations-inline-view ${!row.hasPo ? 'operations-inline-view-muted' : ''}`}
                                 title="View Compliance PO details"
                               >
-                                <Eye className="h-3.5 w-3.5" /> View
+                                <Eye className="h-3.5 w-3.5" /> Details
                               </button>
                             </div>
                           </td>
-                          <td>
-                            <div className={`operations-annual-cell operations-performance-${getPerformanceTone(row.annualPercent)}`}>
-                              <strong>{row.annualDone}/{row.annualTotal}</strong>
-                              <span>{row.annualPercent}%</span>
-                              <i><em style={{ width: `${row.annualPercent}%` }} /></i>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`operations-status-pill ${row.compliancePending ? 'operations-status-no' : 'operations-status-yes'}`}>
-                              {row.compliancePending ? 'Pending' : 'Clear'}
-                            </span>
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              onClick={() => openAnnualReturn(row)}
-                              className="operations-view-button"
-                              title="View Annual Return"
-                            >
-                              <Eye className="h-3.5 w-3.5" /> Annual Return
-                            </button>
-                          </td>
+                          <td><strong>{row.poDetails?.poNo || '-'}</strong></td>
                         </tr>
                       )) : (
-                        <tr><td colSpan={9}><EmptyOperationState label="No operation data found for this selection" /></td></tr>
+                        <tr><td colSpan={9}><EmptyOperationState label="No PO status data found for this selection" /></td></tr>
                       )}
                     </tbody>
                   </table>

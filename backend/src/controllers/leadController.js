@@ -6,6 +6,7 @@ const PendingApproval = require('../models/PendingApproval');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
+const { sendLeadClosureKickoffEmail } = require('../services/leadClosureKickoffEmail');
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
@@ -95,7 +96,8 @@ function cleanBody(body) {
           eprCategory: String(row?.eprCategory || '').trim(),
           applicantType: String(row?.applicantType || '').trim(),
           piboCategory: String(row?.piboCategory || '').trim(),
-          servicesOffered: String(row?.servicesOffered || '').trim()
+          servicesOffered: String(row?.servicesOffered || '').trim(),
+          applicableService: String(row?.applicableService || '').trim()
           ,firstAnnualReturnYearApplicable: String(row?.firstAnnualReturnYearApplicable || '').trim()
         })) : [];
         return;
@@ -146,6 +148,15 @@ function cleanBody(body) {
       if (key === 'followUpHistory') data[key] = Array.isArray(value) ? value : [];
     }
   });
+  const primaryService = Array.isArray(data.serviceSelections) ? data.serviceSelections[0] : null;
+  if (primaryService) {
+    data.industryType = primaryService.industryType || data.industryType;
+    data.eprCategory = primaryService.eprCategory || data.eprCategory;
+    data.applicantType = primaryService.applicantType || data.applicantType;
+    data.piboCategory = primaryService.piboCategory || data.piboCategory;
+    data.servicesOffered = primaryService.servicesOffered || data.servicesOffered;
+    data.firstAnnualReturnYearApplicable = primaryService.firstAnnualReturnYearApplicable || data.firstAnnualReturnYearApplicable;
+  }
   data.piboParent = normalizeParent(data.piboParent || data.piboCategoryParent) || inferPiboParent(data.piboCategory) || undefined;
   if (/\btyre\b/i.test(String(data.eprCategory || '')) && ['Producer', 'Recycler', 'Retreader'].includes(data.applicantType)) {
     const compatibility = data.applicantType === 'Producer'
@@ -227,6 +238,7 @@ exports.updateLead = async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    const beforeLead = lead.toObject();
 
     const data = cleanBody(req.body);
     data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : (data.workflowStatus || lead.workflowStatus || 'draft');
@@ -251,6 +263,8 @@ exports.updateLead = async (req, res) => {
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
     await lead.save();
+    await sendLeadClosureKickoffEmail({ beforeLead, lead: lead.toObject() })
+      .catch((error) => console.error('Lead closure kick-off email failed', error));
     const changedFields = Object.keys(data).filter((key) => key !== 'followUpHistory');
     await LeadActivity.create({ lead: lead._id, type: 'lead_updated', title: 'Lead updated', description: changedFields.length ? `Updated ${changedFields.join(', ')}` : 'Lead details updated', actor: req.user?._id, metadata: { changedFields } });
     res.json({ ok: true, lead });
@@ -332,6 +346,7 @@ exports.bulkCreateLeads = async (req, res) => {
 exports.requestDuplicateLeadApproval = async (req, res) => {
   try {
     const existingLeadId = String(req.body.existingLeadId || '').trim();
+    const leadAssignedTo = String(req.body.leadAssignedTo || '').trim();
     const company = String(req.body.company || '').trim();
     const reason = String(req.body.reason || '').trim();
     const requesterEmail = String(req.body.requesterEmail || req.user?.email || '').trim().toLowerCase();
@@ -354,7 +369,7 @@ exports.requestDuplicateLeadApproval = async (req, res) => {
           createdByName: req.user?.name || req.user?.email || 'CRM User',
           requestDate: now.toISOString().slice(0, 10),
           requestTime: now.toTimeString().slice(0, 8),
-          payload: { existingLeadId, company, companyIdentity, reason, requesterEmail, screenshotUrl, requestedById, candidateUsers },
+          payload: { existingLeadId, leadAssignedTo, company, companyIdentity, reason, requesterEmail, screenshotUrl, requestedById, candidateUsers },
           remarks: reason,
           actionBy: null,
           actionAt: null

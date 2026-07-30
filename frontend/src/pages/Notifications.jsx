@@ -127,16 +127,29 @@ function isUsableAttachmentUrl(url = '') {
   return Boolean(value && !value.startsWith('blob:'));
 }
 
-export default function Notifications() {
+function notificationSection(item = {}) {
+  const text = `${item.kind || ''} ${item.tag || ''} ${item.title || ''}`.toLowerCase();
+  if (text.includes('quotation')) return 'Quotations';
+  if (text.includes('client')) return 'Clients';
+  if (text.includes('lead')) return 'Leads';
+  if (text.includes('reminder') || text.includes('follow-up') || text.includes('followup') || text.includes('overdue')) return 'Reminders';
+  if (text.includes('approval') || text.includes('royalty') || text.includes('special')) return 'Approvals';
+  if (text.includes('assignment') || text.includes('user')) return 'Assignments';
+  return 'System';
+}
+
+export default function Notifications({ mode = 'notifications' }) {
+  const isAnnouncements = mode === 'announcements';
   const pageRef = useRef(null);
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   });
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
-  const [notifications, setNotifications] = useState(() => readNotifications());
+  const [notifications, setNotifications] = useState(() => isAnnouncements ? readNotifications() : []);
   const [query, setQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('');
+  const [sectionFilter, setSectionFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('Active');
   const [selectedIds, setSelectedIds] = useState([]);
   const [density, setDensity] = useState('comfortable');
@@ -150,6 +163,11 @@ export default function Notifications() {
       .filter((tag) => tag && !tags.includes(tag));
     return [...new Set([...tags, ...customTags])];
   }, [notifications]);
+  const pageNotifications = useMemo(() => notifications.filter((item) => {
+    const announcement = item.kind === 'announcement' || item.kind === 'announcement-local';
+    return isAnnouncements ? announcement : !announcement;
+  }), [isAnnouncements, notifications]);
+  const sectionOptions = useMemo(() => [...new Set(pageNotifications.map(notificationSection))].sort(), [pageNotifications]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,15 +185,16 @@ export default function Notifications() {
 
   const filteredNotifications = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return notifications
+    return pageNotifications
       .filter((item) => {
         const haystack = [item.title, item.description, item.tag, item.createdBy].filter(Boolean).join(' ').toLowerCase();
         return (!term || haystack.includes(term))
           && (!tagFilter || item.tag === tagFilter)
+          && (!sectionFilter || notificationSection(item) === sectionFilter)
           && (!statusFilter || item.status === statusFilter);
       })
       .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || new Date(b.createdAt) - new Date(a.createdAt));
-  }, [notifications, query, statusFilter, tagFilter]);
+  }, [pageNotifications, query, sectionFilter, statusFilter, tagFilter]);
 
 
   useEffect(() => {
@@ -392,16 +411,17 @@ export default function Notifications() {
 
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)}>
-      <main ref={pageRef} className="notifications-page">
+      <main ref={pageRef} className={`notifications-page ${isAnnouncements ? 'announcements-mode' : 'notification-feed-mode'}`}>
         <section className="notifications-hero">
           <div>
-            <span className="notifications-kicker"><Bell className="h-4 w-4" /> Notification Center</span>
-            <h1>Announcements that stay organized.</h1>
+            <span className="notifications-kicker"><Bell className="h-4 w-4" /> {isAnnouncements ? 'Announcements' : 'Notification Center'}</span>
+            <h1>{isAnnouncements ? 'Announcements that stay organized.' : 'Notification types'}</h1>
+            {!isAnnouncements && <p className="mt-2 font-bold text-slate-500">Workflow updates organized by business section.</p>}
           </div>
-          <div className="notifications-hero-actions">
+          {isAnnouncements && <div className="notifications-hero-actions">
             <button type="button" onClick={openCreate}><Plus className="h-4 w-4" /> Add Notification</button>
             <button type="button" onClick={() => setStatusFilter((value) => value === 'Inactive' ? 'Active' : 'Inactive')}><Archive className="h-4 w-4" /> {statusFilter === 'Inactive' ? 'Show Active' : 'Show Inactive'}</button>
-          </div>
+          </div>}
         </section>
 
         <div className="mt-4 grid gap-4">
@@ -409,10 +429,10 @@ export default function Notifications() {
           <div className="notifications-panel-head">
             <div className="notifications-panel-titlebar">
               <div>
-                <strong>Notification Library</strong>
+                <strong>{isAnnouncements ? 'Announcement Library' : 'Notification Feed'}</strong>
                 <span>{serverLoading ? 'Syncing...' : `${filteredNotifications.length} record${filteredNotifications.length === 1 ? '' : 's'} found`}</span>
               </div>
-              <div className="notifications-status-tabs" aria-label="Notification status filters">
+              {isAnnouncements && <div className="notifications-status-tabs" aria-label="Announcement status filters">
                 {['Active', 'Inactive', ''].map((status) => (
                   <button
                     type="button"
@@ -421,27 +441,30 @@ export default function Notifications() {
                     onClick={() => setStatusFilter(status)}
                   >
                     {status || 'All'}
-                    <i>{status ? notifications.filter((item) => item.status === status).length : notifications.length}</i>
+                    <i>{status ? pageNotifications.filter((item) => item.status === status).length : pageNotifications.length}</i>
                   </button>
                 ))}
-              </div>
+              </div>}
             </div>
             <div className="notifications-filter-row">
               <label>
                 <Search className="h-4 w-4" />
                 <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, tag, creator..." />
               </label>
-              <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+              {isAnnouncements ? <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
                 <option value="">All Tags</option>
                 {tagOptions.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-              </select>
-              <button type="button" className={density === 'compact' ? 'notifications-density active' : 'notifications-density'} onClick={() => setDensity((value) => value === 'compact' ? 'comfortable' : 'compact')} title="Toggle density">
+              </select> : <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}>
+                <option value="">All Sections</option>
+                {sectionOptions.map((section) => <option key={section} value={section}>{section}</option>)}
+              </select>}
+              {isAnnouncements && <button type="button" className={density === 'compact' ? 'notifications-density active' : 'notifications-density'} onClick={() => setDensity((value) => value === 'compact' ? 'comfortable' : 'compact')} title="Toggle density">
                 {density === 'compact' ? <LayoutGrid className="h-4 w-4" /> : <ListChecks className="h-4 w-4" />}
-              </button>
+              </button>}
             </div>
           </div>
 
-          <div className="notifications-bulkbar">
+          {isAnnouncements && <div className="notifications-bulkbar">
             <button type="button" onClick={toggleSelectAllVisible}>
               <span className={filteredNotifications.length && filteredNotifications.every((item) => selectedIds.includes(item.id)) ? 'checked' : ''} />
               Select visible
@@ -452,12 +475,12 @@ export default function Notifications() {
               <button type="button" disabled={!selectedIds.length} onClick={() => bulkSetStatus('Inactive')}>Archive</button>
               <button type="button" disabled={!selectedIds.length} onClick={bulkDelete}>Delete</button>
             </div>
-          </div>
+          </div>}
 
           <div className={`notifications-list notifications-list-${density}`}>
             {filteredNotifications.length ? filteredNotifications.map((item) => (
               <article key={item.id} className={`notification-card notification-card-${tagClass(item.tag)} ${item.status === 'Inactive' ? 'notification-card-muted' : ''}`}>
-                <button type="button" className={`notification-select ${selectedIds.includes(item.id) ? 'selected' : ''}`} onClick={() => toggleSelect(item.id)} aria-label="Select notification" />
+                {isAnnouncements && <button type="button" className={`notification-select ${selectedIds.includes(item.id) ? 'selected' : ''}`} onClick={() => toggleSelect(item.id)} aria-label="Select announcement" />}
                 <div className="notification-card-icon">{item.pinned ? <Pin className="h-5 w-5" /> : <FileText className="h-5 w-5" />}</div>
                 <div className="notification-card-main">
                   <div className="notification-card-title">
@@ -466,25 +489,25 @@ export default function Notifications() {
                   </div>
                   <p>{item.description}</p>
                   <div className="notification-card-meta">
-                    <em className={`notification-tag notification-tag-${tagClass(item.tag)}`}>{item.tag || 'General'}</em>
+                    <em className={`notification-tag notification-tag-${tagClass(item.tag)}`}>{isAnnouncements ? (item.tag || 'General') : notificationSection(item)}</em>
                     <span>By {item.createdBy || 'User'}</span>
                     <span>{formatDate(item.createdAt)}</span>
                     <i className={item.status === 'Active' ? 'active' : 'inactive'}>{item.status}</i>
                   </div>
                 </div>
                 <div className="notification-card-actions">
-                  <button type="button" onClick={() => togglePin(item.id)}>{item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />} {item.pinned ? 'Unpin' : 'Pin'}</button>
+                  {isAnnouncements && <button type="button" onClick={() => togglePin(item.id)}>{item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />} {item.pinned ? 'Unpin' : 'Pin'}</button>}
                   <button type="button" onClick={() => setSelected(item)}><Eye className="h-4 w-4" /> View</button>
                   <button type="button" disabled={!item.attachmentName} onClick={() => downloadAttachment(item)}><Download className="h-4 w-4" /> Download</button>
-                  <button type="button" onClick={() => openEdit(item)}><Edit3 className="h-4 w-4" /> Edit</button>
-                  <button type="button" onClick={() => deleteNotification(item.id)}><Trash2 className="h-4 w-4" /> Delete</button>
+                  {isAnnouncements && <button type="button" onClick={() => openEdit(item)}><Edit3 className="h-4 w-4" /> Edit</button>}
+                  {isAnnouncements && <button type="button" onClick={() => deleteNotification(item.id)}><Trash2 className="h-4 w-4" /> Delete</button>}
                 </div>
               </article>
             )) : (
               <div className="notifications-empty">
                 <Filter className="h-12 w-12" />
                 <strong>No notifications found</strong>
-                <span>Adjust filters or add a new notification.</span>
+                <span>{isAnnouncements ? 'Adjust filters or add a new announcement.' : 'No workflow updates match this section.'}</span>
               </div>
             )}
           </div>
@@ -492,7 +515,7 @@ export default function Notifications() {
 
         </div>
 
-        {modalMode && (
+        {isAnnouncements && modalMode && (
           <div className="notifications-modal-backdrop" onClick={() => setModalMode('')}>
             <section className="notifications-modal" onClick={(event) => event.stopPropagation()}>
               <div className="notifications-modal-head">

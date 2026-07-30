@@ -1,5 +1,10 @@
 const express = require('express');
-const { appendLeadActivity, saveLeadAssignments, saveLeadServiceSelections } = require('../services/leadAssignmentPersistence');
+const {
+  applySavedLeadAssignments,
+  appendLeadActivity,
+  saveLeadAssignments,
+  saveLeadServiceSelections
+} = require('../services/leadAssignmentPersistence');
 const { registerStaffOnboardingAssignments } = require('../services/staffOnboardingWorkflow');
 const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES } = require('../constants/roles');
@@ -12,6 +17,8 @@ const User = require('../models/User');
 const { notifyLeadAssignment } = require('../services/leadAssignmentNotifications');
 const { notifyNewFinancialYear } = require('../services/leadFinancialYearNotifications');
 const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
+const { sendLeadClosureKickoffEmail } = require('../services/leadClosureKickoffEmail');
+const { externalId, persistCcpLead, persistCcpClient } = require('../services/crmRecordPersistence');
 
 const router = express.Router();
 const TIMEOUT_MS = Number(process.env.CCP_FETCH_TIMEOUT_MS) || 15000;
@@ -35,7 +42,7 @@ const CLIENT_SECTIONS = {
   registeredAddress: ['address1', 'address2', 'address3', 'state', 'city', 'pincode'],
   communicationAddress: ['address1', 'address2', 'address3', 'state', 'city', 'pincode'],
   compliance: ['gstNumber', 'gstDate', 'gstFile', 'cinNumber', 'cinDate', 'cinFile', 'panNumber', 'panDate', 'panFile', 'factoryLicenseNumber', 'factoryLicenseDate', 'factoryLicenseFile', 'eprCertificateNumber', 'eprCertificateDate', 'eprCertificateFile', 'iecNumber', 'iecDate', 'iecFile', 'dicDcssiNumber', 'dicDcssiDate', 'dicDcssiFile'],
-  cpcb: ['status', 'remark', 'homePageFile', 'registrationNumber', 'applicationDate', 'approvalDate', 'applicationNumber', 'ceprUserId', 'ceprPassword', 'loginId', 'loginPassword'],
+  cpcb: ['linkedToCommonPortal', 'status', 'remark', 'homePageFile', 'registrationNumber', 'applicationDate', 'approvalDate', 'applicationNumber', 'ceprUserId', 'ceprPassword', 'loginId', 'loginPassword', 'unitId'],
   validation: ['quotationNumber', 'quotationDate', 'quotationFile', 'initialPurchaseOrderNumber', 'initialPurchaseOrderDate', 'initialPurchaseOrderFile'],
   otp: ['mobile', 'personName', 'designation'],
   authorised: ['name', 'designation', 'department', 'reportingPersonDetails', 'mobile', 'email', 'panNumber', 'panFile'],
@@ -85,6 +92,86 @@ function leadOwnerName(lead = {}) {
 
 function leadIdentity(lead = {}) {
   return String(lead._id || lead.id || lead.sourceLeadId || lead.ccpLeadId || lead.externalLeadId || '').trim();
+}
+
+function royaltyIdentityTokens(...values) {
+  const identity = (value) => String(value || '').trim().toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+/g, ' ');
+  return [...new Set(values.flatMap((value) => value && typeof value === 'object'
+    ? [value._id, value.id, value.crmUserId, value.ccpUserId, value.email, value.name]
+    : [value]).filter(Boolean).map(identity).filter(Boolean))];
+}
+
+function royaltyContributorEligibility(lead = {}, claimant = {}) {
+  const originalIds = royaltyIdentityTokens(lead.createdBy, lead.createdByCrmUserId, lead.createdByEmail, lead.createdByName, lead.importedCreatedBy);
+  const claimantIds = royaltyIdentityTokens(claimant._id, claimant.id, claimant.crmUserId, claimant.ccpUserId, claimant.email, claimant.name);
+  if (originalIds.some((value) => claimantIds.includes(value))) {
+    return { eligible: false, reason: 'same-user', originalIds, claimantIds, distinctContributors: [] };
+  }
+
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const contributorGroups = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [])
+    .map((row, index) => {
+      const assignment = assignments[index] || {};
+      return royaltyIdentityTokens(
+        row?.createdByCrmUserId, row?.createdByEmail, row?.createdByName,
+        assignment?.closedBy, assignment?.closedByEmail, assignment?.closedByText
+      );
+    })
+    .filter((tokens) => tokens.length);
+  if (originalIds.length && !contributorGroups.some((tokens) => tokens.some((token) => originalIds.includes(token)))) {
+    contributorGroups.unshift(originalIds);
+  }
+  const distinctContributors = [];
+  contributorGroups.forEach((tokens) => {
+    if (!distinctContributors.some((known) => known.some((token) => tokens.includes(token)))) distinctContributors.push(tokens);
+  });
+  const claimantContributed = distinctContributors.some((tokens) => tokens.some((token) => claimantIds.includes(token)));
+  return {
+    eligible: distinctContributors.length >= 2 && claimantContributed,
+    reason: distinctContributors.length < 2 ? 'insufficient-contributors' : claimantContributed ? '' : 'claimant-not-contributor',
+    originalIds,
+    claimantIds,
+    distinctContributors
+  };
+}
+
+function enforceAssignmentPermissions(assignments = [], existingAssignments = [], user = {}) {
+  const role = String(user?.role || '').trim().toLowerCase();
+  if (['admin', 'superadmin'].includes(role)) return assignments;
+  const userIds = [user?._id, user?.id, user?.crmUserId, user?.ccpUserId].filter(Boolean).map(String);
+
+  return assignments.map((row = {}, index) => {
+    const existing = existingAssignments[index] || {};
+    if (role === 'manager') {
+      const managerId = String(row.assignedTo || existing.assignedTo || '');
+      if (row.assignedStaff && !userIds.includes(managerId)) {
+        const error = new Error(`Assignment row ${index + 1}: a manager can assign staff only for leads assigned to that manager.`);
+        error.statusCode = 403;
+        throw error;
+      }
+      return row;
+    }
+
+    // Sales and other non-manager roles may close a service row and assign its
+    // manager. They cannot create or alter manager-to-staff assignments. Frozen
+    // staff values from an older row must still round-trip unchanged.
+    return {
+      ...row,
+      ...(existing.closedBy ? {
+        closedBy: existing.closedBy,
+        closedByText: existing.closedByText || '',
+        closedByEmail: existing.closedByEmail || ''
+      } : {}),
+      ...(existing.assignedTo ? {
+        assignedTo: existing.assignedTo,
+        assignedToText: existing.assignedToText || '',
+        assignedToEmail: existing.assignedToEmail || ''
+      } : {}),
+      assignedStaff: existing.assignedStaff || '',
+      assignedStaffText: existing.assignedStaffText || '',
+      assignedStaffEmail: existing.assignedStaffEmail || ''
+    };
+  });
 }
 
 async function findDuplicateCompany(company, excludeId = '') {
@@ -170,7 +257,16 @@ function stripInvalidObjectId(payload, field) {
 function sanitizeLead(body, user, { isUpdate = false } = {}) {
   const payload = pick(body, LEAD_FIELDS);
   if (Array.isArray(payload.serviceSelections)) {
-    payload.serviceSelections = payload.serviceSelections.slice(0, 25).map((row) => pick(row, ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'firstAnnualReturnYearApplicable', 'createdByCrmUserId', 'createdByName', 'createdByEmail']));
+    payload.serviceSelections = payload.serviceSelections.slice(0, 25).map((row) => pick(row, ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable', 'createdByCrmUserId', 'createdByName', 'createdByEmail']));
+  }
+  const primaryService = payload.serviceSelections?.[0];
+  if (primaryService) {
+    payload.industryType = primaryService.industryType || payload.industryType;
+    payload.eprCategory = primaryService.eprCategory || payload.eprCategory;
+    payload.applicantType = primaryService.applicantType || payload.applicantType;
+    payload.piboCategory = primaryService.piboCategory || payload.piboCategory;
+    payload.servicesOffered = primaryService.servicesOffered || payload.servicesOffered;
+    payload.firstAnnualReturnYearApplicable = primaryService.firstAnnualReturnYearApplicable || payload.firstAnnualReturnYearApplicable;
   }
   if (Array.isArray(payload.addresses)) {
     payload.addresses = payload.addresses.slice(0, 25).map((row) => pick(row, ['addressLine1', 'addressLine2', 'addressLine3', 'landmark', 'state', 'city', 'pinCode', 'existingClient', 'website']));
@@ -242,17 +338,25 @@ async function validatedLeadPayload(body, user, options) {
       });
     }
   }
+  const invalidManagerAssignmentIndex = Array.isArray(payload.assignments)
+    ? payload.assignments.findIndex((row) => row?.assignedTo && !row?.closedBy)
+    : -1;
+  if (invalidManagerAssignmentIndex >= 0 || (payload.assignedTo && !payload.closedBy)) {
+    const error = new Error(`Assignment row ${Math.max(0, invalidManagerAssignmentIndex) + 1}: close the lead before assigning it to a manager.`);
+    error.statusCode = 400;
+    throw error;
+  }
   const managerIds = [user?._id, user?.id, user?.crmUserId, user?.ccpUserId].filter(Boolean).map(String);
   const staffAssignments = Array.isArray(payload.assignments) ? payload.assignments.filter((row) => row?.assignedStaff) : [];
   const role = String(user?.role || '').toLowerCase();
   const canAssignAnyStaff = ['admin', 'superadmin'].includes(role);
-  if ((payload.assignedStaff || staffAssignments.length) && role !== 'manager' && !canAssignAnyStaff) {
+  if (!options?.isUpdate && (payload.assignedStaff || staffAssignments.length) && role !== 'manager' && !canAssignAnyStaff) {
     delete payload.assignedStaff;
     delete payload.assignedStaffText;
     delete payload.assignedStaffEmail;
     delete payload.assignments;
   }
-  if (!canAssignAnyStaff && staffAssignments.some((row) => !managerIds.includes(String(row.assignedTo || '')))) {
+  if (!options?.isUpdate && role === 'manager' && !canAssignAnyStaff && staffAssignments.some((row) => !managerIds.includes(String(row.assignedTo || '')))) {
     const error = new Error('A manager can assign staff only for leads assigned to that manager.');
     error.statusCode = 403;
     throw error;
@@ -273,8 +377,8 @@ async function validatedLeadPayload(body, user, options) {
           ? ['Producers', 'Collection Agents', 'Recyclers', 'Used Oil Importers']
         : null;
   if (allowedApplicants) {
-    if (!allowedApplicants.includes(applicant)) {
-      const error = new Error(`${category.replace(/^EPR\s*-\s*/i, '')} Applicant Type must be ${allowedApplicants.join(', ')}.`);
+    if (!applicant) {
+      const error = new Error(`Applicant Type is required for ${category.replace(/^EPR\s*-\s*/i, '')}.`);
       error.statusCode = 400;
       throw error;
     }
@@ -291,7 +395,7 @@ async function validatedLeadPayload(body, user, options) {
           ? { piboParent: 'SIMP', piboCategory: 'Importer of Raw Material' }
         : applicant === 'Refurbisher'
           ? { piboParent: 'PWP', piboCategory: 'Refurbisher' }
-        : { piboParent: 'PWP', piboCategory: 'PWP' };
+        : { piboParent: 'SIMP', piboCategory: 'Seller' };
     Object.assign(payload, compatibility);
   }
   if (payload.workflowStatus === 'submitted' || payload.piboParent || payload.piboCategory) {
@@ -358,6 +462,49 @@ async function requestCcp(method, resource, body) {
 }
 
 router.get('/leads', requireAuth, (req, res) => forward(req, res, 'GET', 'leads'));
+router.post('/sync-to-crm', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
+  const [leadResult, clientResult] = await Promise.all([
+    requestCcp('GET', 'leads'),
+    requestCcp('GET', 'clients')
+  ]);
+  if (leadResult.status < 200 || leadResult.status >= 300 || clientResult.status < 200 || clientResult.status >= 300) {
+    return res.status(502).json({
+      ok: false,
+      error: 'CCP data could not be read completely; CRM backfill was not started.',
+      leadsError: leadResult.payload?.error,
+      clientsError: clientResult.payload?.error
+    });
+  }
+
+  const sourceLeads = ccpLeadList(leadResult.payload);
+  const sourceClients = Array.isArray(clientResult.payload?.clients)
+    ? clientResult.payload.clients
+    : Array.isArray(clientResult.payload?.data?.clients)
+      ? clientResult.payload.data.clients
+      : Array.isArray(clientResult.payload) ? clientResult.payload : [];
+  const summary = { leads: { total: sourceLeads.length, saved: 0, failed: 0 }, clients: { total: sourceClients.length, saved: 0, failed: 0 } };
+  const failures = [];
+
+  for (const lead of sourceLeads) {
+    try {
+      await persistCcpLead({ requestPayload: lead, responsePayload: { lead }, user: req.user });
+      summary.leads.saved += 1;
+    } catch (error) {
+      summary.leads.failed += 1;
+      failures.push({ type: 'lead', id: leadIdentity(lead), error: error.message });
+    }
+  }
+  for (const client of sourceClients) {
+    try {
+      await persistCcpClient({ requestPayload: client, responsePayload: { client }, user: req.user });
+      summary.clients.saved += 1;
+    } catch (error) {
+      summary.clients.failed += 1;
+      failures.push({ type: 'client', id: externalId(client), error: error.message });
+    }
+  }
+  return res.status(failures.length ? 207 : 200).json({ ok: failures.length === 0, summary, failures });
+});
 router.post('/leads', requireAuth, async (req, res) => {
   try {
     const duplicate = await findDuplicateCompany(req.body?.company);
@@ -375,6 +522,8 @@ router.post('/leads', requireAuth, async (req, res) => {
     const savedLead = result.payload?.lead || result.payload?.data?.lead || result.payload?.data;
     if (result.status >= 200 && result.status < 300 && savedLead) {
       const savedKey = String(savedLead._id || savedLead.id || savedLead.sourceLeadId || payload.leadCode || '');
+      if (Array.isArray(payload.assignments)) await saveLeadAssignments(savedKey, payload.assignments, req.user);
+      if (Array.isArray(payload.serviceSelections)) await saveLeadServiceSelections(savedKey, payload.serviceSelections, req.user);
       await appendLeadActivity(savedKey, {
         type: 'lead_created',
         title: 'Lead created',
@@ -384,6 +533,21 @@ router.post('/leads', requireAuth, async (req, res) => {
     }
     if (result.status >= 200 && result.status < 300 && savedLead && payload.assignedToCrmUserId) {
       await notifyLeadAssignment({ lead: savedLead, managerId: payload.assignedToCrmUserId, assignedBy: req.user });
+    }
+    if (result.status >= 200 && result.status < 300 && savedLead) {
+      const authoritativeLead = {
+        ...savedLead,
+        ...(Array.isArray(payload.serviceSelections) ? { serviceSelections: payload.serviceSelections } : {}),
+        ...(Array.isArray(payload.assignments) ? { assignments: payload.assignments } : {})
+      };
+      await sendLeadClosureKickoffEmail({ beforeLead: {}, lead: authoritativeLead })
+        .catch((error) => console.error('Lead closure kick-off email failed', error));
+      const crmLead = await persistCcpLead({
+        requestPayload: payload,
+        responsePayload: { lead: authoritativeLead },
+        user: req.user
+      });
+      return res.status(result.status).json({ ...result.payload, lead: authoritativeLead, crmRecordId: crmLead._id });
     }
     return res.status(result.status).json(result.payload);
   }
@@ -418,6 +582,12 @@ router.post('/leads/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, r
       }
       if (result.status < 200 || result.status >= 300) throw new Error(result.payload?.error || 'CCP write failed');
       if (!lead || typeof lead !== 'object') throw new Error('CCP did not return the saved lead');
+      const crmLead = await persistCcpLead({
+        requestPayload: body,
+        responsePayload: { lead },
+        user: req.user
+      });
+      lead.crmRecordId = crmLead._id;
       leads.push(lead);
     } catch (error) {
       failures.push({ row: index + 1, error: error.message || 'CCP write failed' });
@@ -434,12 +604,22 @@ router.post('/leads/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, r
 });
 router.put('/leads/:id', requireAuth, async (req, res) => {
   try {
-    const beforeLead = await findCcpLeadById(req.params.id);
+    const ccpBeforeLead = await findCcpLeadById(req.params.id);
+    const [beforeLead] = ccpBeforeLead
+      ? await applySavedLeadAssignments([ccpBeforeLead])
+      : [{}];
     if (req.body?.company) {
       const duplicate = await findDuplicateCompany(req.body.company, req.params.id);
       if (duplicate) return duplicateLeadResponse(res, duplicate);
     }
     const payload = await validatedLeadPayload(req.body, req.user, { isUpdate: true });
+    if (Array.isArray(payload.assignments)) {
+      payload.assignments = enforceAssignmentPermissions(
+        payload.assignments,
+        Array.isArray(beforeLead?.assignments) ? beforeLead.assignments : [],
+        req.user
+      );
+    }
     if (beforeLead && Array.isArray(payload.serviceSelections) && Array.isArray(beforeLead.serviceSelections)) {
       const actorIds = [req.user?._id, req.user?.id, req.user?.email, req.user?.name].filter(Boolean).map((value) => String(value).trim().toLowerCase());
       payload.serviceSelections = payload.serviceSelections.map((row, index) => {
@@ -485,32 +665,39 @@ router.put('/leads/:id', requireAuth, async (req, res) => {
     if (result.status >= 200 && result.status < 300 && savedLead && req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead, submittedPayload: req.body, actor: req.user });
     }
+    if (result.status >= 200 && result.status < 300 && savedLead) {
+      // CCP may return legacy single-row arrays. The just-validated payload is the
+      // authoritative source for the row collections saved in the CRM override.
+      const authoritativeLead = {
+        ...(beforeLead || {}),
+        ...savedLead,
+        ...payload,
+        ...(Array.isArray(payload.serviceSelections) ? { serviceSelections: payload.serviceSelections } : {}),
+        ...(Array.isArray(payload.assignments) ? { assignments: payload.assignments } : {})
+      };
+      await sendLeadClosureKickoffEmail({ beforeLead: beforeLead || {}, lead: authoritativeLead })
+        .catch((error) => console.error('Lead closure kick-off email failed', error));
+      const crmLead = await persistCcpLead({
+        requestPayload: payload,
+        responsePayload: { lead: authoritativeLead },
+        fallbackId: req.params.id,
+        user: req.user
+      });
+      return res.status(result.status).json({ ...result.payload, lead: authoritativeLead, crmRecordId: crmLead._id });
+    }
     return res.status(result.status).json(result.payload);
   }
   catch (error) { return res.status(error.statusCode || 400).json({ error: error.message }); }
 });
 router.post('/leads/:id/royalty-claims', requireAuth, async (req, res) => {
-  const lead = await findCcpLeadById(req.params.id);
-  if (!lead) return res.status(404).json({ error: 'CCP lead not found.' });
-  const originalIds = [lead.createdByCrmUserId, lead.createdByEmail, lead.importedCreatedBy].filter(Boolean).map((value) => String(value).trim().toLowerCase());
-  const claimantIds = [req.user?._id, req.user?.id, req.user?.email, req.user?.name].filter(Boolean).map((value) => String(value).trim().toLowerCase());
-  if (originalIds.some((value) => claimantIds.includes(value))) {
+  const ccpLead = await findCcpLeadById(req.params.id);
+  if (!ccpLead) return res.status(404).json({ error: 'CCP lead not found.' });
+  const [lead] = await applySavedLeadAssignments([ccpLead]);
+  const eligibility = royaltyContributorEligibility(lead, req.user);
+  if (eligibility.reason === 'same-user') {
     return res.status(400).json({ error: 'Royalty cannot be claimed when the original lead and added service were created by the same user.' });
   }
-  const contributorGroups = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [])
-    .map((row) => [row?.createdByCrmUserId, row?.createdByEmail, row?.createdByName]
-      .filter(Boolean)
-      .map((value) => String(value).trim().toLowerCase()))
-    .filter((tokens) => tokens.length);
-  if (originalIds.length && !contributorGroups.some((tokens) => tokens.some((token) => originalIds.includes(token)))) {
-    contributorGroups.unshift(originalIds);
-  }
-  const distinctContributors = [];
-  contributorGroups.forEach((tokens) => {
-    if (!distinctContributors.some((known) => known.some((token) => tokens.includes(token)))) distinctContributors.push(tokens);
-  });
-  const claimantContributed = distinctContributors.some((tokens) => tokens.some((token) => claimantIds.includes(token)));
-  if (distinctContributors.length < 2 || !claimantContributed) {
+  if (!eligibility.eligible) {
     return res.status(400).json({ error: 'Claim Royalty is available only after two different users contribute service rows to the same lead.' });
   }
   const financialYear = String(req.body?.financialYear || '').trim();
@@ -524,7 +711,11 @@ router.post('/clients/sync-live/reconciliation', requireAuth, requireRoles(ADMIN
 router.post('/clients', requireAuth, async (req, res) => {
   const body = sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role));
   const result = await requestCcp('POST', 'clients', body);
-  if (result.status >= 200 && result.status < 300) await trackManualClientSave({ payload: body, ccpPayload: result.payload, user: req.user }).catch(() => null);
+  if (result.status >= 200 && result.status < 300) {
+    await trackManualClientSave({ payload: body, ccpPayload: result.payload, user: req.user }).catch(() => null);
+    const crmClient = await persistCcpClient({ requestPayload: body, responsePayload: result.payload, user: req.user });
+    return res.status(result.status).json({ ...result.payload, crmRecordId: crmClient._id });
+  }
   return res.status(result.status).json(result.payload);
 });
 router.post('/clients/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
@@ -544,6 +735,23 @@ router.post('/clients/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req,
       error: 'CCP client bulk write endpoint is not installed. Add POST /api/ccp/clients/bulk in CCP; no CRM client was created.'
     });
   }
+  if (result.status >= 200 && result.status < 300) {
+    const savedClients = Array.isArray(result.payload?.clients)
+      ? result.payload.clients
+      : Array.isArray(result.payload?.data?.clients) ? result.payload.data.clients : [];
+    const crmRecords = [];
+    for (let index = 0; index < clients.length; index += 1) {
+      const saved = savedClients[index];
+      if (!saved) continue;
+      const crmClient = await persistCcpClient({
+        requestPayload: clients[index],
+        responsePayload: { client: saved },
+        user: req.user
+      });
+      crmRecords.push(String(crmClient._id));
+    }
+    return res.status(result.status).json({ ...result.payload, crmRecordIds: crmRecords });
+  }
   return res.status(result.status).json(result.payload);
 });
 router.post('/clients/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), async (req, res) => {
@@ -559,9 +767,18 @@ router.post('/clients/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), async
 router.put('/clients/:id', requireAuth, async (req, res) => {
   const body = sanitizeClient(req.body, req.user, ['admin', 'superadmin'].includes(req.user.role));
   const result = await requestCcp('PUT', `clients/${encodeURIComponent(req.params.id)}`, body);
-  if (result.status >= 200 && result.status < 300) await trackManualClientSave({ payload: body, ccpPayload: { ...result.payload, id: req.params.id }, user: req.user }).catch(() => null);
+  if (result.status >= 200 && result.status < 300) {
+    await trackManualClientSave({ payload: body, ccpPayload: { ...result.payload, id: req.params.id }, user: req.user }).catch(() => null);
+    const crmClient = await persistCcpClient({
+      requestPayload: body,
+      responsePayload: result.payload,
+      fallbackId: req.params.id,
+      user: req.user
+    });
+    return res.status(result.status).json({ ...result.payload, crmRecordId: crmClient._id });
+  }
   return res.status(result.status).json(result.payload);
 });
 
-router._test = { LEAD_FIELDS, CLIENT_SECTIONS, pick, creatorIdentity, sanitizeLead, sanitizeClient, validatedLeadPayload, normalizeCompanyIdentity, ccpLeadList, leadOwnerName };
+router._test = { LEAD_FIELDS, CLIENT_SECTIONS, pick, creatorIdentity, sanitizeLead, sanitizeClient, validatedLeadPayload, normalizeCompanyIdentity, ccpLeadList, leadOwnerName, royaltyContributorEligibility, enforceAssignmentPermissions };
 module.exports = router;

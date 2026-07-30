@@ -6,7 +6,6 @@ import { roleLabels } from '../../constants/dashboard'
 import api from '../../services/api'
 import { API_ENDPOINTS } from '../../services/apiEndpoints'
 
-const NOTIFICATIONS_STORAGE_KEY = 'crm.notifications.v1'
 const CALENDAR_STORAGE_KEY = 'crm.calendar.todos.v1'
 const notificationSoundUrl = '/audio/Notifications%20sound.wav'
 const clickSoundUrl = '/audio/click%20scound.wav'
@@ -76,10 +75,7 @@ function readBellData(currentUser) {
     })
     .slice(0, 8)
     .map((item) => ({ ...item, reminderTone: getReminderTone(item, todayKey) }))
-  const announcements = readStorageArray(NOTIFICATIONS_STORAGE_KEY)
-    .filter((item) => item.status !== 'Inactive')
-    .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
-    .slice(0, 3)
+  const announcements = []
   return { reminders, announcements, count: reminders.length + announcements.length }
 }
 
@@ -176,7 +172,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
         const response = await api.get(API_ENDPOINTS.notifications.list)
         if (cancelled) return
         const serverAnnouncements = (response.data?.notifications || [])
-          .filter((item) => item.status !== 'Inactive')
+          .filter((item) => item.status !== 'Inactive' && item.kind !== 'announcement' && item.kind !== 'announcement-local')
           .slice(0, 5)
         setBellData((current) => {
           const mergedAnnouncements = [...serverAnnouncements, ...current.announcements]
@@ -240,7 +236,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
             className="btn-lift flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1 transition hover:bg-teal-50"
             aria-label="Go to dashboard"
           >
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm shadow-slate-950/5">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white p-1 shadow-md shadow-slate-950/5">
               <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
             </span>
             <span className="min-w-0 text-left">

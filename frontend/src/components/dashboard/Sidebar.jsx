@@ -12,6 +12,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   const [activeFlyout, setActiveFlyout] = useState(null)
   const [activeItem, setActiveItem] = useState('User Management')
   const [dashboardChoicesOpen, setDashboardChoicesOpen] = useState(false)
+  const [nestedChoicesOpen, setNestedChoicesOpen] = useState(() => location.pathname.startsWith('/pending-leads'))
 
   function toggleGroup(item, hasChildren) {
     const label = item.label
@@ -87,7 +88,11 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                 const isPrimaryActive =
                   activeItem === item.label ||
                   pathMatches(item.path) ||
-                  Boolean(item.children?.some((child) => child.label === activeItem || pathMatches(child.path)))
+                  Boolean(item.children?.some((child) =>
+                    child.label === activeItem ||
+                    pathMatches(child.path) ||
+                    child.children?.some((entry) => entry.label === activeItem || pathMatches(entry.path))
+                  ))
                 return (
                   <div key={item.label} className="relative">
                     <button
@@ -120,6 +125,18 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                               const ChildIcon = child.icon
                               const isDashboardChild = child.label === 'Dashboard' && canChooseDashboard
                               const isChildActive = child.path ? pathMatches(child.path) : activeItem === child.label
+                              if (child.children?.length) {
+                                const nestedActive = child.children.some((entry) => pathMatches(entry.path))
+                                return (
+                                  <div key={child.label}>
+                                    <button type="button" onClick={() => setNestedChoicesOpen((value) => !value)} className={`sidebar-child-button flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm font-black transition ${nestedActive ? 'bg-white/14 text-white' : 'text-emerald-50/78 hover:bg-white/10 hover:text-white'}`}>
+                                      <span className="flex items-center gap-3"><ChildIcon className="h-4 w-4 shrink-0" />{child.label}</span>
+                                      <ChevronDown className={`h-4 w-4 transition ${nestedChoicesOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    {nestedChoicesOpen && <div className="mt-1 grid gap-1 pl-6">{child.children.map((entry) => { const EntryIcon = entry.icon; return <button type="button" key={entry.label} onClick={() => { setActiveItem(entry.label); navigate(entry.path); onClose?.() }} className={`flex min-h-9 items-center gap-2 rounded-xl px-3 text-left text-xs font-black ${pathMatches(entry.path) ? 'bg-[#f45b0b] text-white' : 'text-emerald-50/75 hover:bg-white/10'}`}><EntryIcon className="h-3.5 w-3.5" />{entry.label}</button> })}</div>}
+                                  </div>
+                                )
+                              }
                               if (isDashboardChild) {
                                 return (
                                   <div key={child.label}>
@@ -204,6 +221,34 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                           const ChildIcon = child.icon
                           const isDashboardChild = child.label === 'Dashboard' && canChooseDashboard
                           const isChildActive = child.path ? pathMatches(child.path) : activeItem === child.label
+                          if (child.children?.length) {
+                            return (
+                              <div key={child.label} className="rounded-lg bg-slate-50 p-1">
+                                <div className="px-2 py-1 text-xs font-black uppercase tracking-[0.12em] text-slate-400">{child.label}</div>
+                                {child.children.map((entry) => {
+                                  const EntryIcon = entry.icon
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={entry.label}
+                                      onClick={() => {
+                                        setActiveItem(entry.label)
+                                        navigate(entry.path)
+                                        setActiveFlyout(null)
+                                        onClose?.()
+                                      }}
+                                      className={`mt-1 flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-black ${
+                                        pathMatches(entry.path) ? 'bg-[#f45b0b] text-white' : 'text-slate-600 hover:bg-white'
+                                      }`}
+                                    >
+                                      <EntryIcon className="h-4 w-4" />
+                                      {entry.label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )
+                          }
                           if (isDashboardChild) {
                             return (
                               <div key={child.label} className="rounded-lg bg-slate-50 p-1">

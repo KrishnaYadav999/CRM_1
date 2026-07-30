@@ -14,6 +14,73 @@ function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 }
 
+function buildFollowUpReminderEmail({ company, description, date, time, priority, isRedFlag }) {
+  const accent = isRedFlag ? '#dc2626' : '#0f766e';
+  const accentSoft = isRedFlag ? '#fef2f2' : '#f0fdfa';
+  const accentBorder = isRedFlag ? '#fecaca' : '#99f6e4';
+  const title = isRedFlag ? 'Lead follow-up overdue' : 'Upcoming lead follow-up';
+  const eyebrow = isRedFlag ? 'ACTION REQUIRED' : 'FOLLOW-UP REMINDER';
+  const safeCompany = escapeHtml(company);
+  const safeDescription = escapeHtml(description);
+  const safeSchedule = `${escapeHtml(date)}${time ? ` &nbsp;&bull;&nbsp; ${escapeHtml(time)}` : ''}`;
+  const safePriority = escapeHtml(priority || 'Medium');
+
+  return `
+    <div style="margin:0;padding:32px 16px;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,0.08);">
+              <tr>
+                <td style="height:6px;background-color:${accent};font-size:0;line-height:0;">&nbsp;</td>
+              </tr>
+              <tr>
+                <td style="padding:34px 36px 22px;">
+                  <span style="display:inline-block;padding:6px 10px;border:1px solid ${accentBorder};border-radius:999px;background-color:${accentSoft};color:${accent};font-size:11px;font-weight:700;letter-spacing:1px;">${eyebrow}</span>
+                  <h1 style="margin:18px 0 8px;color:#0f172a;font-size:28px;line-height:36px;font-weight:700;">${title}</h1>
+                  <p style="margin:0;color:#64748b;font-size:15px;line-height:24px;">A quick reminder from your CRM workspace</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:0 36px 28px;">
+                  <div style="padding:20px 22px;background-color:${accentSoft};border-left:4px solid ${accent};border-radius:8px;">
+                    <p style="margin:0 0 6px;color:#64748b;font-size:12px;line-height:18px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;">Lead</p>
+                    <p style="margin:0 0 8px;color:#0f172a;font-size:20px;line-height:28px;font-weight:700;">${safeCompany}</p>
+                    <p style="margin:0;color:#334155;font-size:15px;line-height:24px;">${safeDescription}</p>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:0 36px;">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;">
+                    <tr>
+                      <td style="padding:15px 0;border-top:1px solid #e2e8f0;color:#64748b;font-size:14px;line-height:22px;">Scheduled for</td>
+                      <td align="right" style="padding:15px 0;border-top:1px solid #e2e8f0;color:#0f172a;font-size:14px;line-height:22px;font-weight:700;">${safeSchedule}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:15px 0;border-top:1px solid #e2e8f0;color:#64748b;font-size:14px;line-height:22px;">Priority</td>
+                      <td align="right" style="padding:15px 0;border-top:1px solid #e2e8f0;color:${accent};font-size:14px;line-height:22px;font-weight:700;">${safePriority}</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:24px 36px 34px;">
+                  <p style="margin:0;padding:16px 18px;border-radius:8px;background-color:#f8fafc;color:#475569;font-size:14px;line-height:22px;text-align:center;">Please update the follow-up or close this lead in CRM.</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:18px 36px;background-color:#0f172a;color:#94a3b8;font-size:12px;line-height:18px;text-align:center;">
+                  This is an automated CRM notification. No reply is required.
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </div>`;
+}
+
 function leadId(lead = {}) {
   return String(lead._id || lead.id || lead.sourceLeadId || lead.leadCode || '').trim();
 }
@@ -24,9 +91,14 @@ function listFrom(payload) {
 }
 
 async function getCcpLeads() {
-  const response = await fetch(ccpApiUrl('ccp/leads'), { headers: ccpHeaders() });
-  if (!response.ok) throw new Error(`CCP lead reminder read returned ${response.status}`);
-  return listFrom(await response.json());
+  try {
+    const response = await fetch(ccpApiUrl('ccp/leads'), { headers: ccpHeaders() });
+    if (!response.ok) throw new Error(`CCP lead reminder read returned ${response.status}`);
+    return listFrom(await response.json());
+  } catch (error) {
+    console.warn('CCP lead reminder fetch failed, continuing with local reminders only', error.message);
+    return [];
+  }
 }
 
 async function admins(roles = ['superadmin']) {
@@ -43,14 +115,17 @@ async function resolveManager(value) {
 
 async function resolveLeadUser(lead) {
   const assignment = [...(Array.isArray(lead.assignments) ? lead.assignments : [])].reverse().find((row) => row?.assignedStaff || row?.assignedTo) || lead;
-  const id = String(assignment.assignedStaff || assignment.assignedTo || lead.createdByCrmUserId || '').trim();
-  const email = String(assignment.assignedStaffEmail || assignment.assignedToEmail || lead.createdByEmail || '').trim().toLowerCase();
+  const creatorRow = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : []).find((row) => row?.createdByCrmUserId || row?.createdByEmail || row?.createdByName) || {};
+  const id = String(assignment.assignedStaff || assignment.assignedTo || lead.createdByCrmUserId || creatorRow.createdByCrmUserId || '').trim();
+  const email = String(assignment.assignedStaffEmail || assignment.assignedToEmail || lead.createdByEmail || creatorRow.createdByEmail || '').trim().toLowerCase();
+  const name = String(creatorRow.createdByName || lead.createdByName || lead.importedCreatedBy || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
   const options = [];
   if (id) {
     options.push({ crmUserId: id }, { ccpUserId: id });
     if (mongoose.isValidObjectId(id)) options.unshift({ _id: id });
   }
   if (email) options.push({ email });
+  if (name) options.push({ name });
   return options.length ? User.findOne({ $or: options, isActive: { $ne: false } }).select('_id name email').lean() : null;
 }
 
@@ -79,7 +154,17 @@ async function remindFollowUps(leads, now) {
     const description = `${company} follow-up ${labels[stage]}. The lead is still not closed.`;
     const item = await Notification.create({ title: stage === 'RED_FLAG_24H' ? 'RED FLAG: Lead follow-up overdue' : 'Lead follow-up reminder', description, tag: stage === 'RED_FLAG_24H' ? 'Red Flag' : 'Follow-Up', kind: 'lead_followup_escalation', audience: [recipient._id], metadata: { key, stage, leadId: leadId(lead), dueAt: due.toISOString(), priority: lead.followUpPriority || 'Medium' } });
     item.crmNotificationId = String(item._id); await item.save();
-    if (recipient.email) await sendMail(recipient.email, `${stage === 'RED_FLAG_24H' ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, `<div style="font-family:Arial,sans-serif;color:#334155"><h2 style="color:${stage === 'RED_FLAG_24H' ? '#dc2626' : '#0f766e'}">${stage === 'RED_FLAG_24H' ? 'Lead Follow-Up Red Flag' : 'Lead Follow-Up Reminder'}</h2><p>${escapeHtml(description)}</p><p><strong>Scheduled:</strong> ${escapeHtml(lead.nextFollowUpDate)} ${escapeHtml(lead.nextFollowUpTime || '')}</p><p><strong>Priority:</strong> ${escapeHtml(lead.followUpPriority || 'Medium')}</p><p>Please update or close the lead in CRM.</p></div>`, { branded: false }).catch(() => null);
+    if (recipient.email) {
+      const html = buildFollowUpReminderEmail({
+        company,
+        description,
+        date: lead.nextFollowUpDate,
+        time: lead.nextFollowUpTime || '',
+        priority: lead.followUpPriority || 'Medium',
+        isRedFlag: stage === 'RED_FLAG_24H',
+      });
+      await sendMail(recipient.email, `${stage === 'RED_FLAG_24H' ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false }).catch(() => null);
+    }
     if (stage === 'RED_FLAG_24H') await updateCcpLead(leadId(lead), { followUpFlag: 'RED' }).catch(() => false);
   }
 }
@@ -120,9 +205,45 @@ async function remindApprovals(now) {
 async function remindOldDrafts(leads, now) {
   const rows = leads.filter((lead) => {
     const created = new Date(lead.createdAt || lead.importedCreatedAt || lead.leadDate || 0);
-    return created.getTime() && now - created.getTime() >= 30 * DAY && String(lead.workflowStatus || '').toLowerCase() === 'draft' && !lead.closedBy && !lead.closedByText;
+    const assignmentClosed = (Array.isArray(lead.assignments) ? lead.assignments : []).some((row) => row?.closedBy || row?.closedByText);
+    return created.getTime() && now - created.getTime() >= 15 * 60 * 1000 && !lead.closedBy && !lead.closedByText && !assignmentClosed;
   });
   if (!rows.length) return;
+  for (const lead of rows) {
+    const superAdmins = await admins(['superadmin']);
+    const recipient = await resolveLeadUser(lead) || superAdmins.find((user) => user.email);
+    if (!recipient) continue;
+    const key = `${leadId(lead)}:15m`;
+    if (await Notification.exists({ kind: 'unclosed_lead_15m', 'metadata.key': key })) continue;
+    const company = lead.company || 'Lead';
+    const description = `${company} has remained unclosed for at least 15 minutes. Please review and close the lead or update its status.`;
+    const audience = [...new Set([recipient._id, ...superAdmins.map((user) => user._id)].map(String))];
+    const item = await Notification.create({ title: 'Lead pending for 15 minutes', description, tag: 'Pending Leads', kind: 'unclosed_lead_15m', audience, visibleToRoles: ['superadmin'], metadata: { key, leadId: leadId(lead), company } });
+    item.crmNotificationId = String(item._id); await item.save();
+    if (recipient.email) {
+      const services = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [lead])
+        .map((row) => [row?.servicesOffered, row?.applicableService].filter(Boolean).join(' — '))
+        .filter(Boolean).join(', ') || '-';
+      const html = `<div style="margin:0;padding:30px 14px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#334155">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
+          <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;overflow:hidden;border:1px solid #dbe5e7;border-radius:16px;background:#fff">
+            <tr><td style="height:7px;background:#0f766e"></td></tr>
+            <tr><td style="padding:30px 34px 18px"><span style="display:inline-block;border-radius:99px;background:#fff7ed;padding:7px 11px;color:#c2410c;font-size:11px;font-weight:700;letter-spacing:.8px">ACTION REQUIRED</span><h1 style="margin:16px 0 8px;color:#0f766e;font-size:27px">Lead pending for 15 minutes</h1><p style="margin:0;color:#64748b;line-height:1.6">${escapeHtml(description)}</p></td></tr>
+            <tr><td style="padding:0 34px 30px"><table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
+              <tr style="background:#f8fafc"><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0;font-weight:700">Company</td><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0">${escapeHtml(company)}</td></tr>
+              <tr><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0;font-weight:700">Lead ID</td><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0">${escapeHtml(lead.leadCode || leadId(lead) || '-')}</td></tr>
+              <tr style="background:#f8fafc"><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0;font-weight:700">Lead Date</td><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0">${escapeHtml(lead.createdAt || lead.importedCreatedAt || lead.leadDate || '-')}</td></tr>
+              <tr><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0;font-weight:700">Generated By</td><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0">${escapeHtml(lead.importedCreatedBy || lead.createdByName || lead.createdByEmail || '-')}</td></tr>
+              <tr style="background:#f8fafc"><td style="padding:13px 15px;font-weight:700">Services</td><td style="padding:13px 15px">${escapeHtml(services)}</td></tr>
+            </table><p style="margin:22px 0 0;text-align:center;color:#64748b;font-size:13px">Please open CRM and close the lead or update its status.</p></td></tr>
+          </table>
+        </td></tr></table></div>`;
+      const cc = [...new Set(superAdmins.map((user) => String(user.email || '').trim().toLowerCase()).filter((email) => email && email !== recipient.email.toLowerCase()))];
+      await sendMail(recipient.email, `Pending Lead Reminder - ${company}`, html, { branded: false, cc })
+        .catch((error) => console.error(`Pending lead email failed for ${recipient.email}`, error));
+    }
+  }
+  return;
   const dayKey = new Date(now).toISOString().slice(0, 10);
   if (await Notification.exists({ kind: 'unclosed_leads_30d_digest', 'metadata.dayKey': dayKey })) return;
   const recipients = await admins(['superadmin']);
@@ -152,7 +273,13 @@ function startLeadWorkflowReminderScheduler() {
   if (started) return;
   started = true;
   setTimeout(() => runLeadWorkflowReminders().catch((error) => console.error('Lead workflow reminders failed', error)), 10000);
-  setInterval(() => runLeadWorkflowReminders().catch((error) => console.error('Lead workflow reminders failed', error)), 5 * 60 * 1000);
+  // Check every minute so the 15-minute pending reminder is not delayed by an
+  // additional five-minute scheduler window.
+  setInterval(() => runLeadWorkflowReminders().catch((error) => console.error('Lead workflow reminders failed', error)), 60 * 1000);
 }
 
-module.exports = { runLeadWorkflowReminders, startLeadWorkflowReminderScheduler };
+module.exports = {
+  runLeadWorkflowReminders,
+  startLeadWorkflowReminderScheduler,
+  __test: { getCcpLeads }
+};

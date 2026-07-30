@@ -352,9 +352,29 @@ function CteTab({ client, setValue, selectOptions }) {
 }
 
 function CpcbTab({ client, setValue, selectOptions }) {
+  const linked = client.cpcb.linkedToCommonPortal || '';
   return (
     <Card title="CPCB Login Credential">
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="mb-6 rounded-2xl border border-teal-100 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
+        <p className="text-sm font-black text-slate-900">Have you linked your CPCB account to the Common Portal?</p>
+        <div className="mt-4 flex gap-3">
+          {['Yes', 'No'].map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setValue('cpcb', 'linkedToCommonPortal', option)}
+              className={`min-w-24 rounded-xl border px-5 py-3 text-sm font-black transition ${
+                linked === option
+                  ? 'border-teal-700 bg-teal-700 text-white shadow-lg shadow-teal-900/15'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-teal-300'
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      </div>
+      {linked === 'Yes' && <div className="grid gap-5 md:grid-cols-2">
         <SelectLike required label="CPCB Status" value={client.cpcb.status || ''} options={selectOptions.cpcbStatus} onChange={(value) => setValue('cpcb', 'status', value)} />
         <Field label="Remark"><textarea className="form-input min-h-[92px] resize-y py-3" value={client.cpcb.remark || ''} onChange={(event) => setValue('cpcb', 'remark', event.target.value)} /></Field>
         <Field label="CPCB Home page"><UploadButton value={client.cpcb.homePageFile} onChange={(value) => setValue('cpcb', 'homePageFile', value)} /></Field>
@@ -366,7 +386,14 @@ function CpcbTab({ client, setValue, selectOptions }) {
         <Field label="CEPR Password"><input type="password" className="form-input" value={client.cpcb.ceprPassword || ''} onChange={(event) => setValue('cpcb', 'ceprPassword', event.target.value)} /></Field>
         <Field label="CPCB Login ID"><input className="form-input" value={client.cpcb.loginId || ''} onChange={(event) => setValue('cpcb', 'loginId', event.target.value)} /></Field>
         <Field label="CPCB Login Password"><input type="password" className="form-input" value={client.cpcb.loginPassword || ''} onChange={(event) => setValue('cpcb', 'loginPassword', event.target.value)} /></Field>
-      </div>
+        <Field label="Unit ID"><input className="form-input" value={client.cpcb.unitId || ''} onChange={(event) => setValue('cpcb', 'unitId', event.target.value)} placeholder="Enter Unit ID" /></Field>
+      </div>}
+      {linked === 'No' && (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+          <p className="font-black text-slate-700">CPCB account is not linked to the Common Portal.</p>
+          <p className="mt-1 text-sm font-semibold text-slate-500">Login credentials and CPCB processing fields are not required.</p>
+        </div>
+      )}
     </Card>
   );
 }

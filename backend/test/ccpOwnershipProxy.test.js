@@ -111,9 +111,10 @@ test('lead update does not send CRM user names as CCP updatedBy ObjectIds', () =
 });
 
 test('client payload remains nested and non-admin cannot spoof approval', () => {
-  const payload = sanitizeClient({ selectedLead: '64b000000000000000000099', workflowStatus: 'submitted', adminControls: { approvalStatus: 'APPROVED' }, data: { basic: { clientLegalName: 'Acme', evil: true }, registeredAddress: { address1: 'One' } } }, user, false);
+  const payload = sanitizeClient({ selectedLead: '64b000000000000000000099', workflowStatus: 'submitted', adminControls: { approvalStatus: 'APPROVED' }, data: { basic: { clientLegalName: 'Acme', evil: true }, registeredAddress: { address1: 'One' }, cpcb: { linkedToCommonPortal: 'Yes', status: 'Approved', unitId: 'UNIT-42', evil: true } } }, user, false);
   assert.equal(payload.data.basic.clientLegalName, 'Acme');
   assert.equal(payload.data.basic.evil, undefined);
+  assert.deepEqual(payload.data.cpcb, { linkedToCommonPortal: 'Yes', status: 'Approved', unitId: 'UNIT-42' });
   assert.equal(payload.adminControls.approvalStatus, 'PENDING');
   assert.equal(payload.createdByEmail, 'user@example.com');
 });

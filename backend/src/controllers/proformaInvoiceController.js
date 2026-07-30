@@ -1,5 +1,6 @@
 const ProformaInvoice = require('../models/ProformaInvoice');
 const Quotation = require('../models/Quotation');
+const { resolveCrmRelationships } = require('../services/crmRelationships');
 
 const text = (value) => String(value || '').trim();
 const money = (value) => Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : 0;
@@ -21,12 +22,16 @@ function cleanPayload(body = {}) {
     eprCategory: text(item.eprCategory), piboParent: text(item.piboParent),
     piboCategory: text(item.piboCategory), unit: text(item.unit), basicAmount: money(item.basicAmount)
   })).filter((item) => item.serviceCategory || item.piboCategory || item.basicAmount);
-  const calculated = items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * item.basicAmount), 0);
+  const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
+  const individualTotal = items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * item.basicAmount), 0);
+  const combinedBasicAmount = pricingMode === 'combined' ? money(body.combinedBasicAmount) : 0;
+  const calculated = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
   return {
     quotationId: body.quotationId || undefined, quotationNumber: text(body.quotationNumber), poNumber: text(body.poNumber),
     leadId: text(body.leadId), leadCode: text(body.leadCode), companyName: text(body.companyName || leadDetails.companyName),
-    leadDetails, invoiceDate: body.invoiceDate || new Date(), validUntil: text(body.validUntil), items,
+    leadDetails, invoiceDate: body.invoiceDate || new Date(), validUntil: text(body.validUntil), pricingMode, combinedBasicAmount, items,
     terms: (Array.isArray(body.terms) ? body.terms : String(body.terms || '').split(/\r?\n/)).map(text).filter(Boolean),
+    scopeOfWork: (Array.isArray(body.scopeOfWork) ? body.scopeOfWork : String(body.scopeOfWork || '').split(/\r?\n/)).map(text).filter(Boolean),
     subtotal: money(body.subtotal || calculated), grandTotal: money(body.grandTotal || calculated),
     status: ['draft', 'issued', 'cancelled'].includes(body.status) ? body.status : 'issued'
   };
@@ -44,10 +49,13 @@ exports.create = async (req, res) => {
   if (!payload.quotationNumber) return res.status(400).json({ error: 'Quotation Number is required.' });
   if (!payload.items.length) return res.status(400).json({ error: 'At least one invoice item is required.' });
   if (payload.quotationId) {
-    const quotation = await Quotation.findById(payload.quotationId).select('_id quotationNumber').lean();
+    const quotation = await Quotation.findById(payload.quotationId).select('_id quotationNumber leadRef clientRef').lean();
     if (!quotation) return res.status(400).json({ error: 'Selected quotation was not found.' });
     payload.quotationNumber = quotation.quotationNumber;
+    if (quotation.leadRef) payload.leadRef = quotation.leadRef;
+    if (quotation.clientRef) payload.clientRef = quotation.clientRef;
   }
+  Object.assign(payload, await resolveCrmRelationships(payload));
   const row = await ProformaInvoice.create({ ...payload, proformaNumber: await nextProformaNumber(), createdBy: req.user?._id });
   await row.populate('createdBy', 'name email');
   return res.status(201).json({ ok: true, proformaInvoice: row });
@@ -60,6 +68,7 @@ exports.update = async (req, res) => {
   if (!payload.companyName || !payload.poNumber || !payload.quotationNumber || !payload.items.length) {
     return res.status(400).json({ error: 'Company, PO Number, Quotation Number and at least one item are required.' });
   }
+  Object.assign(payload, await resolveCrmRelationships(payload));
   Object.assign(row, payload);
   await row.save();
   return res.json({ ok: true, proformaInvoice: row });

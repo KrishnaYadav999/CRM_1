@@ -207,11 +207,13 @@ async function sendMicrosoftGraphMail(recipients, subject, messageHtml, options 
   const accessToken = await getGraphAccessToken(config);
   const replyTo = String(process.env.MAIL_REPLY_TO || config.senderEmail || '').trim();
   const attachments = Array.isArray(options.attachments) ? toGraphAttachments(options.attachments) : [];
+  const ccRecipients = normalizeRecipients(options.cc);
   const message = {
     subject: String(subject || ''),
     body: { contentType: 'HTML', content: messageHtml },
     toRecipients: toGraphRecipients(recipients)
   };
+  if (ccRecipients.length) message.ccRecipients = toGraphRecipients(ccRecipients);
   if (replyTo) message.replyTo = toGraphRecipients([replyTo]);
   if (attachments.length) message.attachments = attachments;
 
@@ -250,7 +252,8 @@ async function sendSmtpMail(recipients, subject, messageHtml, options = {}) {
   const from = formatFromAddress();
   const replyTo = process.env.MAIL_REPLY_TO || mailUser || undefined;
   const transporter = createTransporter();
-  const info = await transporter.sendMail({ from, to: recipients, replyTo, subject, html: messageHtml, attachments: Array.isArray(options.attachments) ? options.attachments : undefined });
+  const cc = normalizeRecipients(options.cc);
+  const info = await transporter.sendMail({ from, to: recipients, cc: cc.length ? cc : undefined, replyTo, subject, html: messageHtml, attachments: Array.isArray(options.attachments) ? options.attachments : undefined });
   return { raw: info, summary: summarizeMailInfo(info) };
 }
 
