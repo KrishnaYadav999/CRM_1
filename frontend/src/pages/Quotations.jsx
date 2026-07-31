@@ -11,6 +11,7 @@ import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
 import { adminRoles } from '../constants/dashboard';
+import { QUOTATION_SCOPE_PRESET_OPTIONS, QUOTATION_SCOPE_PRESETS } from '../constants/quotationScopePresets';
 
 const ANANT_LOGO_SOURCE_URL = '/anant-tattva-logo-chroma.png';
 
@@ -74,37 +75,6 @@ const emptyQuotation = {
   scopeOfWork: [],
   status: 'draft'
 };
-
-const serviceCategoryOptions = [
-  'CASE REPRESENTATION',
-  'CAT-1-EOL CREDIT',
-  'CAT-1-RECYCLING CREDIT',
-  'CAT-2-EOL CREDIT',
-  'CAT-2-RECYCLING CREDIT',
-  'CAT-3-EOL CREDIT',
-  'CAT-3-RECYCLING CREDIT',
-  'CATEGORY 1',
-  'CATEGORY 2',
-  'CATEGORY 3',
-  'CGWA NOC FRESH',
-  'CONSULTANCY FEE',
-  'CPCB NOTICE REPLY',
-  'CTE & CTO NEW REGISTRATION',
-  'CTE-CONSENT TO ESTABLISH',
-  'CTO-CONSENT TO OPERATE',
-  'CTO-RENEWAL',
-  'E-WASTE CREDIT',
-  'ENVIRONMENT STATEMENT',
-  'EPR CREDIT RE',
-  'EPR CREDIT REVERSE',
-  'EPR ETP PORTAL HANDLING',
-  'EPR LOGIN SURRENDER',
-  'GOVT. REPRESENTATION',
-  'KAVACH AUDIT',
-  'MATERIAL WASTE MANAGEMENT',
-  'PLANT AUDIT',
-  'PORTAL HEALTH REPORT'
-];
 
 const yearOptions = ['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30'];
 const salutationOptions = ['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.', 'Er.', 'CA', 'Adv.'];
@@ -252,7 +222,7 @@ function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', c
       sourceServiceIndex: index,
       serviceAddedBy: row.createdByName || row.createdByEmail || currentUser?.name || currentUser?.email || '',
       industryType: row.industryType || saved.industryType || '',
-      serviceCategory: row.servicesOffered || saved.serviceCategory || '',
+      serviceCategory: saved.serviceCategory || '',
       servicesForYear: row.firstAnnualReturnYearApplicable || saved.servicesForYear || '',
       eprCategory: row.eprCategory || saved.eprCategory || '',
       piboParent: applicant.parent || saved.piboParent || '',
@@ -339,7 +309,7 @@ function buildQuotationFromContext(context) {
           : sourceServiceIndex,
         serviceAddedBy: service.createdByName || service.createdByEmail || '',
         industryType: service.industryType || '',
-        serviceCategory: service.servicesOffered || '',
+        serviceCategory: '',
         servicesForYear: service.firstAnnualReturnYearApplicable || service.annualYear || '',
         eprCategory: service.eprCategory || '',
         piboParent: applicant.parent,
@@ -572,7 +542,14 @@ export default function Quotations() {
   const isFetchedLeadDetailLocked = (field) => field !== 'gstNumber'
     && fetchedQuoteDetailsLocked
     && hasFetchedQuotationValue(quotation.leadDetails[field]);
-  const allServiceCategoryOptions = useMemo(() => [...new Set([...serviceCategoryOptions, ...customServiceCategories])].sort(), [customServiceCategories]);
+  const currentQuotationServiceCategories = useMemo(
+    () => (quotation.items || []).map((item) => String(item?.serviceCategory || '').trim()).filter(Boolean),
+    [quotation.items]
+  );
+  const allServiceCategoryOptions = useMemo(
+    () => [...new Set([...customServiceCategories, ...currentQuotationServiceCategories])].sort((left, right) => left.localeCompare(right)),
+    [currentQuotationServiceCategories, customServiceCategories]
+  );
   const canManageDropdownOptions = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
   const optionsFor = (field, builtIn) => [...new Set([
     ...builtIn,
@@ -979,6 +956,11 @@ export default function Quotations() {
     }));
   }
 
+  function readItemDraftValue(index, field, fallback = '') {
+    const draft = itemDrafts[index];
+    return draft && Object.prototype.hasOwnProperty.call(draft, field) ? draft[field] : fallback;
+  }
+
   function saveItem(index) {
     const draft = { ...emptyItem, ...(itemDrafts[index] || {}) };
     const parent = draft.piboParent || draft.piboCategoryParent || inferPiboParent(draft.piboCategory);
@@ -1024,15 +1006,30 @@ export default function Quotations() {
   }
 
   function addScopeItem() {
+    setNotice('');
     setQuotation((current) => ({ ...current, scopeOfWork: [...(current.scopeOfWork || []), ''] }));
   }
 
   function setScopeItem(index, value) {
+    setNotice('');
     setQuotation((current) => ({ ...current, scopeOfWork: (current.scopeOfWork || []).map((item, itemIndex) => itemIndex === index ? value : item) }));
   }
 
   function removeScopeItem(index) {
+    setNotice('');
     setQuotation((current) => ({ ...current, scopeOfWork: (current.scopeOfWork || []).filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
+  function applyScopePreset(presetKey) {
+    const preset = QUOTATION_SCOPE_PRESETS[presetKey];
+    const presetLabel = QUOTATION_SCOPE_PRESET_OPTIONS.find((option) => option.key === presetKey)?.label || 'Selected';
+    if (!Array.isArray(preset) || !preset.length) {
+      setError('This scope preset is not available.');
+      return;
+    }
+    setError('');
+    setNotice(`${presetLabel} package scope of work applied. You can still edit the lines below.`);
+    setQuotation((current) => ({ ...current, scopeOfWork: [...preset] }));
   }
 
   async function saveQuotation(status = quotation.status) {
@@ -1396,24 +1393,24 @@ export default function Quotations() {
                           <>
                             {selectedLead ? <>
                               <td className="px-3 py-4 font-black text-slate-700">{item.industryType || '-'}</td>
-                              <td className="px-3 py-4 font-black text-slate-700">{item.serviceCategory || '-'}</td>
+                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'serviceCategory', item.serviceCategory || '')} options={allServiceCategoryOptions} placeholder="Select service category" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
                               <td className="px-3 py-4 font-black text-slate-700">{item.servicesForYear || '-'}</td>
                               <td className="px-3 py-4 font-black text-slate-700">{item.eprCategory || '-'}</td>
                               <td className="px-3 py-4 font-black text-slate-700">{displayPiboChild(item)}</td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </> : <>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.industryType || ''} options={allIndustryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('industryType', name) : undefined} /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.serviceCategory || ''} options={allServiceCategoryOptions} placeholder="CONSULTANCY FEE" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.servicesForYear || ''} options={allYearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} categoryLabel="Financial Year" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('servicesForYear', name) : undefined} /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={itemDrafts[index]?.eprCategory || ''} options={allEprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} categoryLabel="EPR Category" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('eprCategory', name) : undefined} /></td>
-                              <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={itemDrafts[index]?.piboParent || itemDrafts[index]?.piboCategoryParent || inferPiboParent(itemDrafts[index]?.piboCategory)} value={itemDrafts[index]?.piboCategory || ''} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={canManageDropdownOptions ? addPiboCategory : undefined} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'industryType', item.industryType || '')} options={allIndustryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('industryType', name) : undefined} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'serviceCategory', item.serviceCategory || '')} options={allServiceCategoryOptions} placeholder="Select service category" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'servicesForYear', item.servicesForYear || '')} options={allYearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} categoryLabel="Financial Year" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('servicesForYear', name) : undefined} /></td>
+                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'eprCategory', item.eprCategory || '')} options={allEprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} categoryLabel="EPR Category" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('eprCategory', name) : undefined} /></td>
+                              <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={readItemDraftValue(index, 'piboParent', item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory))} value={readItemDraftValue(index, 'piboCategory', item.piboCategory || '')} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={canManageDropdownOptions ? addPiboCategory : undefined} /></td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </>}
-                            <td className="px-3 py-4"><input value={itemDrafts[index]?.unit || ''} onChange={(event) => setItemDraft(index, 'unit', event.target.value)} className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1" /></td>
+                            <td className="px-3 py-4"><input value={readItemDraftValue(index, 'unit', item.unit || '')} onChange={(event) => setItemDraft(index, 'unit', event.target.value)} className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1" /></td>
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
                                 <span className="grid w-10 place-items-center border-r border-slate-200 font-black text-slate-800">₹</span>
-                                <input type="number" value={itemDrafts[index]?.basicAmount || ''} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
+                                <input type="number" value={readItemDraftValue(index, 'basicAmount', item.basicAmount || '')} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
                               </div>
                             </td>}
                             {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="min-w-56 border-l border-slate-100 bg-emerald-50/60 px-3 py-4 align-middle"><label className="block text-[11px] font-black uppercase tracking-wider text-emerald-700">Combined Basic Amount</label><div className="mt-2 flex h-11 overflow-hidden rounded-lg border border-emerald-300 bg-white focus-within:ring-4 focus-within:ring-emerald-100"><span className="grid w-10 place-items-center border-r border-emerald-100 font-black">₹</span><input type="number" min="0" value={quotation.combinedBasicAmount ?? ''} onChange={(event) => setQuotation((current) => ({ ...current, combinedBasicAmount: event.target.value }))} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="50000" /></div></td>}
@@ -1474,7 +1471,26 @@ export default function Quotations() {
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">Scope of Work</h2>
-          <p className="mt-1 text-sm font-bold text-slate-500">Add each deliverable or activity as a separate line.</p>
+          <p className="mt-1 text-sm font-bold text-slate-500">Add each deliverable or activity as a separate line, or load a package preset.</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {QUOTATION_SCOPE_PRESET_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => applyScopePreset(option.key)}
+                className={`inline-flex min-h-11 items-center rounded-lg px-4 font-black shadow-sm transition ${
+                  option.key === 'basic'
+                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : option.key === 'premium'
+                      ? 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      : 'border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs font-bold text-slate-500">Selecting a package replaces the current scope list with the standard package deliverables from your EPR package matrix.</p>
           <div className="mt-4 space-y-3">
             {(quotation.scopeOfWork || []).map((item, index) => <div key={index} className="flex items-center gap-3"><span className="w-8 text-right font-black">{index + 1}.</span><input value={item} onChange={(event) => setScopeItem(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter scope of work" /><button type="button" onClick={() => removeScopeItem(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50"><X className="h-4 w-4" /> Remove</button></div>)}
             {!(quotation.scopeOfWork || []).length && <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No scope of work added.</div>}
@@ -2381,17 +2397,35 @@ function QuoteSelect({ value, options, placeholder, onChange, onAddOption, categ
 function LeadSelect({ value, options, onChange, disabled }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const rootRef = useRef(null);
+  const [menuPosition, setMenuPosition] = useState(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
   const selected = options.find((option) => String(option.value) === String(value));
   const filtered = options.filter((option) => `${option.code} ${option.company}`.toLowerCase().includes(search.trim().toLowerCase()));
 
   useEffect(() => {
-    function closeOnOutsideClick(event) {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    if (!open) return undefined;
+    function positionMenu() {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.max(rect.width, 420);
+      const left = Math.min(rect.left, window.innerWidth - width - 12);
+      setMenuPosition({ left: Math.max(12, left), top: rect.bottom + 7, width });
     }
+    positionMenu();
+    function closeOnOutsideClick(event) {
+      if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setOpen(false);
+    }
+    function reposition() { positionMenu(); }
     document.addEventListener('mousedown', closeOnOutsideClick);
-    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
-  }, []);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [open]);
 
   function choose(nextValue) {
     onChange(nextValue);
@@ -2400,8 +2434,8 @@ function LeadSelect({ value, options, onChange, disabled }) {
   }
 
   return (
-    <div ref={rootRef} className={`quotation-lead-select ${open ? 'is-open' : ''} ${disabled ? 'is-disabled' : ''}`}>
-      <button type="button" className="quotation-lead-trigger" disabled={disabled} onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
+    <div className={`quotation-lead-select ${open ? 'is-open' : ''} ${disabled ? 'is-disabled' : ''}`}>
+      <button ref={triggerRef} type="button" className="quotation-lead-trigger" disabled={disabled} onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
         <span className="quotation-lead-trigger-icon"><FileText className="h-4 w-4" /></span>
         <span className="quotation-lead-trigger-copy">
           <small>{selected ? selected.code : 'Choose a lead'}</small>
@@ -2409,8 +2443,8 @@ function LeadSelect({ value, options, onChange, disabled }) {
         </span>
         <ChevronDown className="quotation-lead-trigger-chevron h-5 w-5" />
       </button>
-      {open && !disabled && (
-        <div className="quotation-lead-menu">
+      {open && !disabled && menuPosition && createPortal(
+        <div ref={menuRef} className="quotation-lead-menu" style={{ position: 'fixed', zIndex: 10000, ...menuPosition }}>
           <div className="quotation-lead-search">
             <Search className="h-4 w-4" />
             <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search lead code or company..." />
@@ -2425,7 +2459,8 @@ function LeadSelect({ value, options, onChange, disabled }) {
             )) : <div className="quotation-lead-empty">No matching lead found</div>}
           </div>
           <div className="quotation-lead-menu-foot">{filtered.length} lead{filtered.length === 1 ? '' : 's'} available</div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

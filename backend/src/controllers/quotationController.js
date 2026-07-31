@@ -9,6 +9,10 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendQuotationLifecycleEmail } = require('../services/quotationLifecycleEmails');
 const {
+  BUILT_IN_SERVICE_CATEGORIES,
+  normalizeServiceCategoryName
+} = require('../constants/quotationServiceCategories');
+const {
   PIBO_PARENTS,
   BUILT_IN_PIBO_CATEGORIES,
   cleanCategoryName,
@@ -44,6 +48,20 @@ const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
 function cleanString(value) {
   return String(value || '').trim();
+}
+
+async function ensureBuiltInServiceCategories() {
+  if (!BUILT_IN_SERVICE_CATEGORIES.length) return;
+  await QuotationServiceCategory.bulkWrite(
+    BUILT_IN_SERVICE_CATEGORIES.map((name) => ({
+      updateOne: {
+        filter: { name },
+        update: { $setOnInsert: { name } },
+        upsert: true
+      }
+    })),
+    { ordered: false }
+  );
 }
 
 function cleanLeadDetails(value = {}) {
@@ -561,12 +579,14 @@ exports.mapQuotationPendingApprovalRow = mapQuotationPendingApprovalRow;
 exports.upsertQuotationPendingApproval = upsertQuotationPendingApproval;
 
 exports.listServiceCategories = async (req, res) => {
+  await ensureBuiltInServiceCategories();
   const categories = await QuotationServiceCategory.find().sort({ name: 1 }).lean();
   res.json({ categories: categories.map((category) => category.name) });
 };
 
 exports.createServiceCategory = async (req, res) => {
-  const name = String(req.body.name || '').trim().replace(/\s+/g, ' ').toUpperCase();
+  await ensureBuiltInServiceCategories();
+  const name = normalizeServiceCategoryName(req.body.name);
   if (!name) return res.status(400).json({ error: 'Category name is required' });
   if (name.length > 100) return res.status(400).json({ error: 'Category name must be under 100 characters' });
 

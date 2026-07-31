@@ -1,9 +1,107 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, Loader2, Plus, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, Loader2, Plus, Search, X } from 'lucide-react';
 import { PIBO_PARENTS, normalizePiboCategories } from '../../constants/piboCategories';
 
 const ADD_NEW_VALUE = '__add_new_category__';
+
+function PopupSelect({ value = '', options = [], placeholder = 'Select option', disabled = false, onChange, onAddNew, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [menuPosition, setMenuPosition] = useState(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const selected = options.find((option) => String(option.value) === String(value));
+  const filteredOptions = useMemo(
+    () => options.filter((option) => option.label.toLowerCase().includes(search.trim().toLowerCase())),
+    [options, search]
+  );
+
+  function positionMenu() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.max(rect.width, compact ? 260 : 320);
+    const left = Math.min(rect.left, window.innerWidth - width - 12);
+    setMenuPosition({ left: Math.max(12, left), top: rect.bottom + 7, width });
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+    positionMenu();
+    function closeOnOutside(event) {
+      if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setOpen(false);
+    }
+    function reposition() { positionMenu(); }
+    document.addEventListener('mousedown', closeOnOutside);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [open]);
+
+  function choose(nextValue) {
+    onChange(nextValue);
+    setOpen(false);
+    setSearch('');
+  }
+
+  const triggerClass = compact
+    ? `flex h-10 w-full min-w-44 items-center justify-between rounded-lg border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 outline-none transition ${disabled ? 'cursor-not-allowed opacity-60' : 'hover:border-emerald-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100'}`
+    : `flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 outline-none transition ${disabled ? 'cursor-not-allowed opacity-60' : 'hover:border-emerald-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100'}`;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        className={triggerClass}
+        onClick={() => !disabled && setOpen((current) => !current)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={`truncate text-left ${selected ? 'text-slate-800' : 'text-slate-400'}`}>{selected?.label || placeholder}</span>
+        <ChevronDown className="ml-3 h-4 w-4 shrink-0 text-slate-500" />
+      </button>
+      {open && menuPosition && createPortal(
+        <div ref={menuRef} className="z-[10000] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15" style={{ position: 'fixed', ...menuPosition }}>
+          <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search..."
+              className="w-full bg-transparent text-sm font-bold text-slate-700 outline-none"
+            />
+            {search && <button type="button" onClick={() => setSearch('')} className="text-slate-400"><X className="h-4 w-4" /></button>}
+          </div>
+          <div className="max-h-64 overflow-auto py-1" role="listbox">
+            {filteredOptions.length ? filteredOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={String(option.value) === String(value)}
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-bold text-slate-700 hover:bg-emerald-50"
+                onClick={() => choose(option.value)}
+              >
+                <span>{option.label}</span>
+                {String(option.value) === String(value) && <Check className="h-4 w-4 text-emerald-600" />}
+              </button>
+            )) : <div className="px-3 py-3 text-sm font-bold text-slate-400">No matching option</div>}
+          </div>
+          {onAddNew && <button type="button" className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-3 text-left text-sm font-black text-emerald-700 hover:bg-emerald-50" onClick={() => { setOpen(false); setSearch(''); onAddNew(); }}><Plus className="h-4 w-4" />Add New Category</button>}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
 
 export default function PiboDependentSelect({ parent = '', value = '', categories = [], loading = false, onChange, onAddCategory, required = false, compact = false }) {
   const [adding, setAdding] = useState(false);
@@ -12,9 +110,6 @@ export default function PiboDependentSelect({ parent = '', value = '', categorie
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const childOptions = normalizePiboCategories(categories).filter((category) => category.parent === parent);
-  const inputClass = compact
-    ? 'h-10 w-full min-w-44 rounded-lg border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100'
-    : 'min-h-12 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100';
 
   function changeParent(nextParent) {
     onChange(nextParent, '');
@@ -62,19 +157,26 @@ export default function PiboDependentSelect({ parent = '', value = '', categorie
     <div className={`grid ${compact ? 'gap-2' : 'gap-4 sm:grid-cols-2'}`}>
       <label className="grid gap-2">
         <span className={`${compact ? 'text-[10px]' : 'text-xs'} font-black text-slate-700`}>Applicant Type{required && <b className="text-red-500"> *</b>}</span>
-        <select value={parent} onChange={(event) => changeParent(event.target.value)} className={inputClass}>
-          <option value="">Select PIBO / SIMP / PWP</option>
-          {PIBO_PARENTS.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
+        <PopupSelect
+          value={parent}
+          options={PIBO_PARENTS.map((option) => ({ value: option, label: option }))}
+          placeholder="Select PIBO / SIMP / PWP"
+          onChange={changeParent}
+          compact={compact}
+        />
       </label>
       {parent && (
         <label className="grid gap-2">
           <span className={`${compact ? 'text-[10px]' : 'text-xs'} font-black text-slate-700`}>{parent} Category{required && <b className="text-red-500"> *</b>}</span>
-          <select value={value} onChange={(event) => changeChild(event.target.value)} disabled={loading} className={inputClass}>
-            <option value="">{loading ? 'Loading categories…' : `Select ${parent} category`}</option>
-            {childOptions.map((category) => <option key={`${category.parent}:${category.name.toLowerCase()}`} value={category.name}>{category.name}</option>)}
-            {onAddCategory && <option value={ADD_NEW_VALUE}>＋ Add New Category</option>}
-          </select>
+          <PopupSelect
+            value={value}
+            options={childOptions.map((category) => ({ value: category.name, label: category.name }))}
+            placeholder={loading ? 'Loading categories…' : `Select ${parent} category`}
+            disabled={loading}
+            onChange={changeChild}
+            onAddNew={onAddCategory ? () => changeChild(ADD_NEW_VALUE) : undefined}
+            compact={compact}
+          />
         </label>
       )}
       {success && <p className={`flex items-center gap-2 text-xs font-bold text-emerald-700 ${compact ? '' : 'sm:col-span-2'}`}><CheckCircle2 className="h-4 w-4" />{success}</p>}
