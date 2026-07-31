@@ -33,7 +33,7 @@ async function getVisibleUserScope(user) {
   const identities = new Set();
 
   if (ownId) ids.add(ownId);
-  [user._id, user.name, user.email, user.ccpUserId].forEach((value) => {
+  [user._id, user.name, user.email, user.crmUserId].forEach((value) => {
     const normalized = cleanIdentity(value);
     if (normalized) identities.add(normalized);
   });
@@ -44,12 +44,12 @@ async function getVisibleUserScope(user) {
       { managerId: user._id },
       { operationHeadId: user._id }
     ]
-  }).select('_id name email ccpUserId').lean();
+  }).select('_id name email crmUserId').lean();
 
   subordinateUsers.forEach((member) => {
     const memberId = asObjectId(member._id);
     if (memberId) ids.add(memberId);
-    [member.name, member.email, member.ccpUserId].forEach((value) => {
+    [member.name, member.email, member.crmUserId].forEach((value) => {
       const normalized = cleanIdentity(value);
       if (normalized) identities.add(normalized);
     });

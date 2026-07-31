@@ -158,7 +158,7 @@ export default function ProfileModal({ user, saving, onClose, onLogout, onSave, 
               </span>
             </div>
             <div className="profile-id-meta">
-              <div><i>ID</i><small>ID NO.</small><strong>{user?.employeeId || user?.ccpUserId || `ATPL/${String(user?._id || user?.id || 'CRM').slice(-6).toUpperCase()}`}</strong></div>
+              <div><i>ID</i><small>ID NO.</small><strong>{user?.employeeId || user?.crmUserId || user?.userId || `ATPL/${String(user?._id || user?.id || 'CRM').slice(-6).toUpperCase()}`}</strong></div>
               <div><i>D</i><small>DEPT.</small><strong>{user?.department || 'CRM Operations'}</strong></div>
               <div><i>@</i><small>EMAIL</small><strong>{user?.email || '-'}</strong></div>
             </div>

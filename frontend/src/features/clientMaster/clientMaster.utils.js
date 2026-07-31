@@ -277,7 +277,6 @@ function getClientAliases(item) {
   const leadValue = hasMeaningfulIdentity(data.importMeta?.leadNumber) ? data.importMeta.leadNumber : item?.selectedLead?.leadCode;
   const aliases = [
     hasMeaningfulIdentity(data.importMeta?.uniqueId) && `uid:${normalizeClientIdentity(data.importMeta.uniqueId)}`,
-    hasMeaningfulIdentity(data.importMeta?.ccpClientId) && `ccp:${normalizeClientIdentity(data.importMeta.ccpClientId)}`,
     hasMeaningfulIdentity(leadValue) && `lead:${normalizeClientIdentity(leadValue)}`,
     data.authorised?.email && `email:${String(data.authorised.email).toLowerCase().trim()}`,
     data.coordinating?.email && `email:${String(data.coordinating.email).toLowerCase().trim()}`,
@@ -289,7 +288,7 @@ function getClientAliases(item) {
 }
 
 function getClientStrongAliases(item) {
-  return getClientAliases(item).filter((alias) => /^(uid|ccp|lead):/.test(alias));
+  return getClientAliases(item).filter((alias) => /^(uid|lead):/.test(alias));
 }
 
 function getClientWeakAliases(item) {
@@ -310,7 +309,6 @@ function findClientByRouteKey(clients, routeKey) {
     const directKeys = [
       item?._id,
       item?.id,
-      data.importMeta?.ccpClientId,
       data.importMeta?.uniqueId,
       data.importMeta?.leadNumber,
       item?.selectedLead?.leadCode,
@@ -627,7 +625,7 @@ function getClientQuotationContext(client) {
   const lead = typeof client?.selectedLead === 'object' ? client.selectedLead : {};
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || '';
   const clientId = client?._id || client?.id || '';
-  const clientUniqueId = data.importMeta?.uniqueId || data.importMeta?.ccpClientId || getClientUniqueId(client);
+  const clientUniqueId = data.importMeta?.uniqueId || getClientUniqueId(client);
   return {
     sourceType: 'client',
     clientId,
@@ -778,22 +776,6 @@ function buildAnnualReturnYears(firstAnnualReturnYear) {
   }
 
   return years;
-}
-
-function buildCcpClientEditUrl(item) {
-  const data = readClientData(item);
-  const template = import.meta.env.VITE_CCP_CLIENT_EDIT_URL || 'https://ccp-henna.vercel.app/client-master?edit={id}&uniqueId={uniqueId}&name={name}';
-  const id = item?._id || item?.id || data.importMeta?.uniqueId || data.importMeta?.leadNumber || '';
-  const uniqueId = getClientUniqueId(item).replace(/^-$/, '');
-  const name = data.basic?.clientLegalName || data.basic?.tradeName || '';
-  return template
-    .replaceAll('{id}', encodeURIComponent(id))
-    .replaceAll('{uniqueId}', encodeURIComponent(uniqueId))
-    .replaceAll('{name}', encodeURIComponent(name));
-}
-
-function openCcpClientEdit(item) {
-  window.open(buildCcpClientEditUrl(item), '_blank', 'noopener,noreferrer');
 }
 
 function matchesAssignedStaff(item, staff, staffFilter) {
@@ -1062,8 +1044,6 @@ export {
   getLatestCompletedFinancialYearStart,
   buildAnnualReturnYearOptions,
   buildAnnualReturnYears,
-  buildCcpClientEditUrl,
-  openCcpClientEdit,
   matchesAssignedStaff,
   normalizeApproval,
   mapExcelRowToClient

@@ -5,7 +5,6 @@ import DashboardShell from '../components/dashboard/DashboardShell'
 import { buildAnswer } from '../components/dashboard/SidebarChatbot'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
-import { fetchCcpClients } from '../services/ccpApi'
 import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
 import { useNavigate } from 'react-router-dom'
 import { piboOperationsFaq } from '../components/dashboard/piboOperationsFaq'
@@ -100,9 +99,9 @@ export default function AssistantPage() {
   }, [storedUser])
 
   useEffect(() => {
-    fetchCcpClients().then((response) => {
-      const rows = response.data?.ok === false ? [] : (response.data?.clients || [])
-      setClients(mergeClientSources([], rows))
+    api.get(API_ENDPOINTS.clients.list).then((response) => {
+      const rows = response.data?.clients || []
+      setClients(mergeClientSources(rows, []))
     }).catch(() => setClients([]))
   }, [])
 

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const ClientOnboardingReminderSchema = new mongoose.Schema({
-  ccpClientId: { type: String, required: true, unique: true, index: true, trim: true },
+  clientKey: { type: String, required: true, unique: true, index: true, trim: true },
   sourceLeadId: { type: String, trim: true, index: true },
   uniqueId: { type: String, trim: true, index: true },
   clientName: { type: String, trim: true },

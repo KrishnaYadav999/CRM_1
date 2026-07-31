@@ -96,8 +96,7 @@ function applyBulkQuotationOwners(quotations = [], leads = []) {
     });
   });
   return quotations.map((row) => {
-    if (String(row.source || '').toLowerCase() !== 'ccp') return row;
-    const lead = [row.ccpLeadId, row.businessLeadCode, row.leadCode]
+    const lead = [row.leadId, row.sourceLeadId, row.businessLeadCode, row.leadCode]
       .map((value) => byKey.get(String(value || '').trim().toLowerCase()))
       .find(Boolean);
     if (!lead?.sourceLeadId) return row;
@@ -248,13 +247,13 @@ export default function PendingApproval() {
       const [meResult, approvalsResult, leadsResult, duplicateResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.auth.me, authRequestConfig),
         api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig),
-        api.get(API_ENDPOINTS.ccp.leads, dataRequestConfig),
+        api.get(API_ENDPOINTS.leads.list, dataRequestConfig),
         api.get(API_ENDPOINTS.leads.duplicateApprovals, dataRequestConfig)
       ]);
 
       const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
       const approvalsResponse = approvalsResult.status === 'fulfilled' ? approvalsResult.value : null;
-      const ccpLeads = leadsResult.status === 'fulfilled' ? (leadsResult.value.data?.leads || []) : [];
+      const crmLeads = leadsResult.status === 'fulfilled' ? (leadsResult.value.data?.leads || []) : [];
 
       if (meResponse?.data?.user) {
         setCurrentUser(meResponse.data.user);
@@ -267,8 +266,8 @@ export default function PendingApproval() {
 
       const snapshot = {
         currentUser: meResponse?.data?.user || currentUser || cached?.currentUser || cachedApprovalData?.currentUser || null,
-        pendingClients: applyBulkLeadCreators(approvalsResponse.data.pendingClients || [], ccpLeads),
-        pendingQuotations: applyBulkQuotationOwners(approvalsResponse.data.pendingQuotations || [], ccpLeads),
+        pendingClients: applyBulkLeadCreators(approvalsResponse.data.pendingClients || [], crmLeads),
+        pendingQuotations: applyBulkQuotationOwners(approvalsResponse.data.pendingQuotations || [], crmLeads),
         debug: approvalsResponse.data.debug || null
       };
       setPendingClients(snapshot.pendingClients);
@@ -276,7 +275,7 @@ export default function PendingApproval() {
       const leadApprovals = (duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : []).map((approval) => {
         if (approval.type === 'lead_service') {
           const leadId = String(approval.payload?.leadId || '');
-          const matchingLead = ccpLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode]
+          const matchingLead = crmLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode]
             .some((id) => String(id || '') === leadId));
           const grouped = new Map();
           (matchingLead?.serviceSelections || []).forEach((service) => {
@@ -301,7 +300,7 @@ export default function PendingApproval() {
         }
         if (approval.type === 'lead_royalty' || approval.payload?.leadAssignedTo) return approval;
         const existingId = String(approval.payload?.existingLeadId || '');
-        const matchingLead = ccpLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode].some((id) => String(id || '') === existingId));
+        const matchingLead = crmLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode].some((id) => String(id || '') === existingId));
         const leadAssignedTo = matchingLead?.assignedTo?.name
           || matchingLead?.assignedToText
           || matchingLead?.assignedStaff?.name
@@ -470,6 +469,11 @@ export default function PendingApproval() {
   }
 
   function reviseQuotation(row) {
+    if (getApprovalStatus(row) === 'PENDING') {
+      setNotice('Quotation can be revised only after it is approved or rejected.');
+      setError('');
+      return;
+    }
     const quotationId = row?._id || row?.quotationId || row?.id;
     if (!quotationId) return;
     navigate('/sales/quotations', {
@@ -1054,6 +1058,7 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
   const id = row?.id;
   const approving = savingId === `quote-${id}-APPROVED`;
   const rejecting = savingId === `quote-${id}-REJECTED`;
+  const revisable = getApprovalStatus(row) !== 'PENDING';
 
   return (
     <td className="pending-quotation-actions-cell">
@@ -1068,8 +1073,10 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
         </button>
         <button
           type="button"
+          disabled={!revisable}
           onClick={() => onRevise(row)}
-          className="pending-action pending-action-revise"
+          title={revisable ? 'Revise quotation' : 'Approve or reject this quotation first'}
+          className={`pending-action pending-action-revise ${revisable ? '' : 'cursor-not-allowed opacity-50'}`}
         >
           <Edit3 className="h-3.5 w-3.5" />
           Revise

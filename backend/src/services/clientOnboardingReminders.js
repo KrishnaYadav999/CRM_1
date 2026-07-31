@@ -26,15 +26,15 @@ function hasBasicInfo(data = {}) {
   return Object.values(data.basic || {}).some(filled);
 }
 
-async function trackManualClientSave({ payload, ccpPayload, user }) {
+async function trackManualClientSave({ payload, savedClient, user }) {
   if (!hasBasicInfo(payload.data) || !payload.selectedLead || !user?._id) return null;
-  const client = ccpPayload?.client || ccpPayload?.data?.client || ccpPayload?.data || ccpPayload;
-  const ccpClientId = String(client?._id || client?.id || client?.ccpClientId || payload.data?.importMeta?.ccpClientId || '').trim();
-  if (!ccpClientId) return null;
+  const client = savedClient?.client || savedClient?.data?.client || savedClient?.data || savedClient;
+  const clientKey = String(client?._id || client?.id || payload.data?.importMeta?.uniqueId || '').trim();
+  if (!clientKey) return null;
   const owner = await User.findById(user._id).select('managerId').lean();
   const status = completeness(payload.data);
   return ClientOnboardingReminder.findOneAndUpdate(
-    { ccpClientId },
+    { clientKey },
     {
       $set: {
         sourceLeadId: String(payload.selectedLead),
@@ -60,7 +60,7 @@ async function notifyRecipient(recipient, rows, audienceLabel) {
   const summary = rows.map((row) => `${row.clientName}: ${row.filledCount}/${row.totalCount} fields complete`).join('; ');
   await Notification.create({
     title: `Client Master incomplete for 7 days (${rows.length})`, description: summary, tag: 'Client Master', kind: 'client_onboarding_reminder',
-    createdByName: 'CRM Reminder', audience: [recipient._id], visibleToRoles: [], metadata: { clientIds: rows.map((row) => row.ccpClientId), audienceLabel, count: rows.length }
+    createdByName: 'CRM Reminder', audience: [recipient._id], visibleToRoles: [], metadata: { clientIds: rows.map((row) => row.clientKey), audienceLabel, count: rows.length }
   });
   if (recipient.email) {
     const csv = buildCsv(rows);

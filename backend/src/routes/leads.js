@@ -6,15 +6,16 @@ const { ADMIN_ROLES } = require('../constants/roles');
 const quotationCtrl = require('../controllers/quotationController');
 
 router.get('/', requireAuth, leadCtrl.listLeads);
+router.get('/search/company', requireAuth, leadCtrl.searchCompanies);
 router.get('/duplicate-approvals', requireAuth, leadCtrl.listDuplicateLeadApprovals);
 router.post('/duplicate-approvals', requireAuth, leadCtrl.requestDuplicateLeadApproval);
 router.patch('/duplicate-approvals/:id', requireAuth, leadCtrl.updateDuplicateLeadApproval);
-const ccpOwnedWrite = (req, res) => res.status(410).json({ error: 'Lead records are CCP-owned. Use /api/integrations/ccp/leads; no CRM record was created.' });
-router.post('/bulk', requireAuth, ccpOwnedWrite);
-router.post('/', requireAuth, ccpOwnedWrite);
+router.post('/bulk', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.bulkCreateLeads);
+router.post('/', requireAuth, leadCtrl.createLead);
 router.get('/:id/history', requireAuth, leadCtrl.getLeadHistory);
 router.post('/:id/history/email', requireAuth, leadCtrl.recordIntroductionEmail);
+router.post('/:id/royalty-claims', requireAuth, leadCtrl.claimLeadRoyalty);
 router.get('/:leadId/quotations', requireAuth, quotationCtrl.listLeadQuotations);
-router.put('/:id', requireAuth, ccpOwnedWrite);
+router.put('/:id', requireAuth, leadCtrl.updateLead);
 
 module.exports = router;

@@ -33,7 +33,7 @@ function readAppBaseUrl() {
     process.env.APP_URL,
     process.env.FRONTEND_URL,
     process.env.CLIENT_ORIGIN,
-    'http://localhost:6173'
+    'http://localhost:4173'
   ];
 
   for (const candidate of candidates) {
@@ -46,7 +46,7 @@ function readAppBaseUrl() {
     }
   }
 
-  return 'http://localhost:6173';
+  return 'http://localhost:4173';
 }
 
 const APP_BASE_URL = readAppBaseUrl();

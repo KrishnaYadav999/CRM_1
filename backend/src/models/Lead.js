@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const LeadSchema = new mongoose.Schema({
   leadCode: { type: String, trim: true, unique: true, sparse: true },
   sourceLeadId: { type: String, trim: true },
-  ccpLeadId: { type: String, trim: true, unique: true, sparse: true, index: true },
   externalLeadId: { type: String, trim: true, index: true },
   companyIdentity: { type: String, trim: true, index: true },
   communicationMode: { type: String, trim: true },
@@ -59,19 +58,21 @@ const LeadSchema = new mongoose.Schema({
   nextFollowUpDate: { type: String, trim: true },
   nextFollowUpTime: { type: String, trim: true },
   followUpRemarks: { type: String, trim: true },
+  followUpPriority: { type: String, trim: true, default: 'Medium' },
+  followUpFlag: { type: String, trim: true },
   followUpHistory: { type: Array, default: [] },
   importedCreatedAt: { type: String, trim: true },
   importedUpdatedAt: { type: String, trim: true },
+  recordStatus: { type: String, trim: true, default: 'ACTIVE' },
   complianceHealthReport: { type: mongoose.Schema.Types.Mixed },
   workflowStatus: { type: String, enum: ['draft', 'submitted'], default: 'draft' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   sync: {
-    source: { type: String, enum: ['crm', 'ccp', 'crm+ccp'], default: 'crm' },
+    source: { type: String, trim: true, default: 'crm' },
     status: { type: String, enum: ['synced', 'pending', 'failed'], default: 'synced', index: true },
     lastSyncedAt: { type: Date },
     lastError: { type: String, trim: true }
-  },
-  ccpSnapshot: { type: mongoose.Schema.Types.Mixed, default: undefined }
+  }
 }, { timestamps: true });
 
 LeadSchema.index({ companyIdentity: 1, workflowStatus: 1 });

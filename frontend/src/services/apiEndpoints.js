@@ -18,11 +18,13 @@ const API_ENDPOINTS = {
   },
   leads: {
     list: '/leads',
+    companySearch: '/leads/search/company',
     create: '/leads',
     bulk: '/leads/bulk',
     detail: (id) => `/leads/${encodePathValue(id)}`
     ,history: (id) => `/leads/${encodePathValue(id)}/history`
     ,emailHistory: (id) => `/leads/${encodePathValue(id)}/history/email`
+    ,claimRoyalty: (id) => `/leads/${encodePathValue(id)}/royalty-claims`
     ,duplicateApprovals: '/leads/duplicate-approvals'
     ,duplicateApproval: (id) => `/leads/duplicate-approvals/${encodePathValue(id)}`
   },
@@ -30,6 +32,7 @@ const API_ENDPOINTS = {
     list: '/clients',
     create: '/clients',
     bulk: '/clients/bulk',
+    bulkUpdateYears: '/clients/years/bulk',
     pendingApprovals: '/clients/pending-approvals',
     approveAllPendingClients: '/clients/pending-approvals/clients/approve-all',
     detail: (id) => `/clients/${encodePathValue(id)}`,
@@ -44,7 +47,6 @@ const API_ENDPOINTS = {
     piboCategories: '/quotations/pibo-categories',
     dropdownOptions: '/quotations/dropdown-options',
     approveAllPending: '/quotations/pending-approvals/approve-all',
-    syncCcp: '/quotations/sync-ccp',
     detail: (id) => `/quotations/${encodePathValue(id)}`,
     approval: (id) => `/quotations/${encodePathValue(id)}/approval`,
     byLead: (leadId) => `/leads/${encodePathValue(leadId)}/quotations`
@@ -71,25 +73,6 @@ const API_ENDPOINTS = {
     list: '/teams',
     create: '/teams',
     detail: (id) => `/teams/${encodePathValue(id)}`
-  },
-  ccp: {
-    leads: '/ccp/leads',
-    leadCompanySearch: '/ccp/leads/company-search',
-    clients: '/ccp/clients',
-    createLead: '/integrations/ccp/leads',
-    bulkCreateLeads: '/integrations/ccp/leads/bulk',
-    updateLead: (id) => `/integrations/ccp/leads/${encodePathValue(id)}`,
-    claimLeadRoyalty: (id) => `/integrations/ccp/leads/${encodePathValue(id)}/royalty-claims`,
-    createClient: '/integrations/ccp/clients',
-    bulkCreateClients: '/integrations/ccp/clients/bulk',
-    liveClientSyncPreview: '/integrations/ccp/clients/sync-live/preview',
-    liveClientSyncBatch: '/integrations/ccp/clients/sync-live/batch',
-    liveClientSyncReconciliation: '/integrations/ccp/clients/sync-live/reconciliation',
-    bulkUpdateClientYears: '/integrations/ccp/clients/years/bulk',
-    updateClient: (id) => `/integrations/ccp/clients/${encodePathValue(id)}`,
-    leadHistory: (id) => `/ccp/leads/${encodePathValue(id)}/history`,
-    emailHistory: (id) => `/ccp/leads/${encodePathValue(id)}/history/email`,
-    collection: (path) => `/ccp/${encodePathValue(path)}`
   }
 };
 

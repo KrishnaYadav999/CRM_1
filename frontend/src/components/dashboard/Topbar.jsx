@@ -25,7 +25,7 @@ function normalizeToken(value) {
 
 function getUserTokens(user = {}) {
   const safeUser = user || {}
-  return [safeUser._id, safeUser.id, safeUser.crmUserId, safeUser.userId, safeUser.ccpUserId, safeUser.email, safeUser.name]
+  return [safeUser._id, safeUser.id, safeUser.crmUserId, safeUser.userId, safeUser.email, safeUser.name]
     .map(normalizeToken)
     .filter(Boolean)
 }

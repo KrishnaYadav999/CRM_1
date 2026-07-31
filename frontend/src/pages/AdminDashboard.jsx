@@ -61,7 +61,6 @@ import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
 import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
-import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi'
 import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
@@ -437,28 +436,20 @@ function splitName(name = '') {
   }
 }
 
-function buildUserSyncNotice(ccpSync, successMessage) {
-  if (!ccpSync) return successMessage
-  if (ccpSync.ok) return `${successMessage} CCP sync completed.`
-
-  const reason = ccpSync.error || ccpSync.message || 'CCP sync failed'
-  if (ccpSync.status === 409) {
-    return `${successMessage} CCP sync duplicate email issue: ${reason}`
-  }
-  return `${successMessage} CCP sync pending: ${reason}`
-}
-
 function readClientData(client = {}) {
-  return client.data && typeof client.data === 'object' ? client.data : client
+  const safeClient = asRecord(client)
+  return safeClient.data && typeof safeClient.data === 'object' ? safeClient.data : safeClient
 }
 
 function getVisibilityStatus(client = {}) {
-  return String(client.adminControls?.visibilityStatus || readClientData(client).adminControls?.visibilityStatus || '').trim().toUpperCase()
+  const safeClient = asRecord(client)
+  return String(safeClient.adminControls?.visibilityStatus || readClientData(safeClient).adminControls?.visibilityStatus || '').trim().toUpperCase()
 }
 
 function getClientName(client = {}) {
-  const data = readClientData(client)
-  return data.basic?.clientLegalName || data.basic?.tradeName || client.clientName || client.companyName || 'Untitled client'
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  return data.basic?.clientLegalName || data.basic?.tradeName || safeClient.clientName || safeClient.companyName || 'Untitled client'
 }
 
 function formatAtplCode(value) {
@@ -484,17 +475,19 @@ function formatPiboCategory(value) {
 }
 
 function getClientCategory(client = {}) {
-  const data = readClientData(client)
-  const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
-  return formatPiboCategory(data.basic?.piboCategory || client.piboCategory || lead.piboCategory)
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  const lead = safeClient.selectedLead && typeof safeClient.selectedLead === 'object' ? safeClient.selectedLead : {}
+  return formatPiboCategory(data.basic?.piboCategory || safeClient.piboCategory || lead.piboCategory)
 }
 
 function getClientApplicantGroup(client = {}) {
-  const data = readClientData(client)
-  const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  const lead = safeClient.selectedLead && typeof safeClient.selectedLead === 'object' ? safeClient.selectedLead : {}
   const explicit = data.basic?.applicantType || data.basic?.piboParent || data.piboParent || lead.applicantType || lead.piboParent
   if (['PIBO', 'SIMP', 'PWP'].includes(String(explicit || '').toUpperCase())) return String(explicit).toUpperCase()
-  const child = normalizeKey(data.basic?.piboCategory || client.piboCategory || lead.piboCategory)
+  const child = normalizeKey(data.basic?.piboCategory || safeClient.piboCategory || lead.piboCategory)
   if (['producer', 'importer', 'brand owner'].includes(child)) return 'PIBO'
   if (['seller', 'importer of raw material', 'importer of plastic packaging'].includes(child) || child.includes('simp')) return 'SIMP'
   if (['recycler', 'refurbisher', 'retreader', 'pwp'].includes(child)) return 'PWP'
@@ -992,6 +985,14 @@ function displayValue(value, fallback = '') {
   return fallback
 }
 
+function asRecord(value) {
+  return value && typeof value === 'object' ? value : {}
+}
+
+function asRecordList(value) {
+  return Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : []
+}
+
 function normalizeBusinessKey(value = '') {
   return normalizeText(value)
     .replace(/\b(m\s*s|ms|m\/s|shree|shri|sri)\b/g, ' ')
@@ -1048,42 +1049,44 @@ function getUserMatchKeys(user = {}) {
     safeUser._id,
     safeUser.id,
     safeUser.userId,
-    safeUser.ccpUserId,
+    safeUser.crmUserId,
     safeUser.email,
     safeUser.name
   ].map(normalizeKey).filter(Boolean)
 }
 
 function getClientCode(client = {}) {
-  const data = readClientData(client)
-  const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
-  const code = data.importMeta?.uniqueId || client.clientCode || client.code || lead.sourceLeadId || data.importMeta?.leadNumber || client.leadCode || lead.leadCode || data.importMeta?.ccpClientId
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  const lead = safeClient.selectedLead && typeof safeClient.selectedLead === 'object' ? safeClient.selectedLead : {}
+  const code = data.importMeta?.uniqueId || safeClient.clientCode || safeClient.code || lead.sourceLeadId || data.importMeta?.leadNumber || safeClient.leadCode || lead.leadCode
   return formatAtplCode(code) || '-'
 }
 
 function getClientFirstAnnualYear(client = {}) {
-  const data = readClientData(client)
-  return data.basic?.firstAnnualReturnYear || data.firstAnnualReturnYear || client.firstAnnualReturnYear || ''
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  return data.basic?.firstAnnualReturnYear || data.firstAnnualReturnYear || safeClient.firstAnnualReturnYear || ''
 }
 
 function getClientMatchKeys(client = {}) {
-  const data = readClientData(client)
-  const lead = typeof client.selectedLead === 'object' ? client.selectedLead : {}
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  const lead = asRecord(safeClient.selectedLead)
   const companyKeys = [
-    getClientName(client),
+    getClientName(safeClient),
     data.basic?.clientLegalName,
     data.basic?.tradeName
   ].map(normalizeBusinessKey).filter(Boolean).map((value) => `company:${value}`)
   return [
-    client._id,
-    client.id,
-    client.clientKey,
-    client.client,
-    getClientCode(client),
-    getClientName(client),
+    safeClient._id,
+    safeClient.id,
+    safeClient.clientKey,
+    safeClient.client,
+    getClientCode(safeClient),
+    getClientName(safeClient),
     data.importMeta?.uniqueId,
     data.importMeta?.leadNumber,
-    data.importMeta?.ccpClientId,
     lead._id,
     lead.id,
     lead.leadCode,
@@ -1092,21 +1095,23 @@ function getClientMatchKeys(client = {}) {
 }
 
 function getClientDedupeKey(client = {}) {
-  const data = readClientData(client)
-  const strongCode = normalizeKey(data.importMeta?.uniqueId || data.importMeta?.leadNumber || data.importMeta?.ccpClientId || client.clientCode || client.code || '')
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  const strongCode = normalizeKey(data.importMeta?.uniqueId || data.importMeta?.leadNumber || safeClient.clientCode || safeClient.code || '')
   if (strongCode) return `client:${strongCode}`
-  const company = normalizeKey(getClientName(client))
-  const category = normalizeKey(getClientCategory(client))
-  const assigned = getAssignedUserKeysFromClient(client).join('|')
+  const company = normalizeKey(getClientName(safeClient))
+  const category = normalizeKey(getClientCategory(safeClient))
+  const assigned = getAssignedUserKeysFromClient(safeClient).join('|')
   if (company && company !== 'untitled client') return [company, category, assigned].filter(Boolean).join('::')
-  return normalizeKey(client._id || client.id || getClientCode(client))
+  return normalizeKey(safeClient._id || safeClient.id || getClientCode(safeClient))
 }
 
 function getAssignedUserKeysFromClient(client = {}) {
-  const data = readClientData(client)
-  const admin = client.adminControls || data.adminControls || {}
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  const admin = safeClient.adminControls || data.adminControls || {}
   const importMeta = data.importMeta || {}
-  const assigned = admin.assignedTo && typeof admin.assignedTo === 'object' ? admin.assignedTo : {}
+  const assigned = asRecord(admin.assignedTo)
   return [
     admin.assignedTo,
     assigned._id,
@@ -1120,12 +1125,12 @@ function getAssignedUserKeysFromClient(client = {}) {
     importMeta.assignedTo,
     importMeta.user,
     importMeta.userName,
-    client.assignedTo,
-    client.assignedUser,
-    client.userName,
-    client.user?.name,
-    client.user?.email,
-    client.user?._id
+    safeClient.assignedTo,
+    safeClient.assignedUser,
+    safeClient.userName,
+    safeClient.user?.name,
+    safeClient.user?.email,
+    safeClient.user?._id
   ].map(normalizeKey).filter(Boolean)
 }
 
@@ -1154,7 +1159,6 @@ function getAnnualReturnClientKeys(row = {}) {
     client.clientName,
     clientData.importMeta?.uniqueId,
     clientData.importMeta?.leadNumber,
-    clientData.importMeta?.ccpClientId
   ].map(normalizeKey).filter(Boolean)
 }
 
@@ -1192,7 +1196,8 @@ function getQuotationClientKeys(row = {}) {
 }
 
 function quotationMatchesClientLoose(quote = {}, client = {}) {
-  const data = readClientData(client)
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
   const details = quote.leadDetails || {}
   const quoteNames = [
     quote.companyName,
@@ -1201,7 +1206,7 @@ function quotationMatchesClientLoose(quote = {}, client = {}) {
     quote.leadName
   ].filter(Boolean)
   const clientNames = [
-    getClientName(client),
+    getClientName(safeClient),
     data.basic?.clientLegalName,
     data.basic?.tradeName
   ].filter(Boolean)
@@ -1224,10 +1229,10 @@ function quotationMatchesClientLoose(quote = {}, client = {}) {
     data.authorised?.mobileNo,
     data.coordinating?.mobile,
     data.coordinating?.mobileNo,
-    client.mobileNo1,
-    client.mobileNo2,
-    client.mobile,
-    client.phone
+    safeClient.mobileNo1,
+    safeClient.mobileNo2,
+    safeClient.mobile,
+    safeClient.phone
   ].map(normalizeDigits).filter((value) => value.length >= 8)
   if (quotePhones.some((phone) => clientPhones.some((clientPhone) => phone.endsWith(clientPhone) || clientPhone.endsWith(phone)))) return true
 
@@ -1241,13 +1246,13 @@ function quotationMatchesClientLoose(quote = {}, client = {}) {
     data.otp?.email,
     data.authorised?.email,
     data.coordinating?.email,
-    client.email,
-    client.emailId
+    safeClient.email,
+    safeClient.emailId
   ].map(normalizeEmail).filter(Boolean)
   if (quoteEmails.some((email) => clientEmails.includes(email))) return true
 
   const quoteTokens = getQuotationClientKeys(quote)
-  const clientTokens = getClientMatchKeys(client)
+  const clientTokens = getClientMatchKeys(safeClient)
   return quoteTokens.some((key) => clientTokens.includes(key))
 }
 
@@ -1509,7 +1514,7 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
   })
   const pendingClientById = new Map()
   pendingClients.forEach((client) => {
-    ;[client.id, client.sourceClientId, client.ccpClientId, client.payload?.id]
+    ;[client.id, client.sourceClientId, client.payload?.id]
       .map(normalizeKey).filter(Boolean)
       .forEach((key) => pendingClientById.set(key, client))
   })
@@ -1550,7 +1555,7 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
       .forEach((value) => addQuotationContactKey(`phone:${value.slice(-10)}`, quote))
   })
 
-  const rows = clients.map((client) => {
+  const rows = clients.filter((client) => client && typeof client === 'object').map((client) => {
     const data = readClientData(client)
     const keys = getClientMatchKeys(client)
     const clientAnnualReturns = [...new Map(keys.flatMap((key) => annualByClientKey.get(key) || []).map((row) => [row._id || `${row.clientKey}-${row.annualYear}`, row])).values()]
@@ -1571,7 +1576,7 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
     const annualDone = displayAnnualReturn ? getAnnualTabCompletedCount(displayAnnualReturn) : 0
     const compliancePending = clientAnnualReturns.some(isAnnualCompliancePending)
     const poDetails = getCompliancePoDetails(client, clientQuotations, clientAnnualReturns)
-    const pendingClient = [client._id, client.id, data.importMeta?.ccpClientId]
+    const pendingClient = [client._id, client.id, data.importMeta?.uniqueId]
       .map(normalizeKey).filter(Boolean)
       .map((key) => pendingClientById.get(key)).find(Boolean) || {}
     const directClientCode = getClientCode(client)
@@ -1864,8 +1869,9 @@ function hasClientValue(value) {
 }
 
 function getClientDataCompleteness(client = {}) {
-  const data = readClientData(client)
-  const checks = CLIENT_DATA_CHECKS.map((check) => ({ ...check, filled: check.paths.some((path) => hasClientValue(readPath(data, path)) || hasClientValue(readPath(client, path))) }))
+  const safeClient = asRecord(client)
+  const data = readClientData(safeClient)
+  const checks = CLIENT_DATA_CHECKS.map((check) => ({ ...check, filled: check.paths.some((path) => hasClientValue(readPath(data, path)) || hasClientValue(readPath(safeClient, path))) }))
   const filled = checks.filter((item) => item.filled).length
   const total = checks.length
   const completeness = percent(filled, total)
@@ -4510,7 +4516,7 @@ export default function AdminDashboard() {
     if (snapshot.currentUser) setCurrentUser(snapshot.currentUser)
     setUsers(snapshot.users || [])
     setTeams(snapshot.teams || [])
-    setClients(snapshot.clients || [])
+    setClients(asRecordList(snapshot.clients))
     setLeads(snapshot.leads || [])
     setQuotations(snapshot.quotations || [])
     setAnnualReturns(snapshot.annualReturns || [])
@@ -4575,30 +4581,21 @@ export default function AdminDashboard() {
         return
       }
 
-      const [clientsResult, ccpClientsResult, leadsResult, ccpLeadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
+      const [clientsResult, leadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.clients.list, requestConfig),
-        fetchCcpClients(),
         api.get(API_ENDPOINTS.leads.list, requestConfig),
-        fetchCcpLeads(),
         api.get(API_ENDPOINTS.quotations.list, requestConfig),
         api.get(API_ENDPOINTS.annualReturns.list, requestConfig),
         api.get(API_ENDPOINTS.clients.pendingApprovals, requestConfig)
       ])
 
       const crmClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
-      const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
-        ? (ccpClientsResult.value.data.clients || [])
-        : []
-      // Client Master uses CCP as its canonical converted-client universe. Mixing
-      // legacy CRM rows back into this list inflated dashboard conversion totals.
-      const mergedClients = ccpClients.length
-        ? mergeClientSources([], ccpClients)
-        : mergeClientSources(crmClients, [])
-      const clientRequestsSucceeded = clientsResult.status === 'fulfilled' || ccpClientsResult.status === 'fulfilled'
-      const nextClients = clientRequestsSucceeded ? mergedClients : (cached?.clients || [])
+      const mergedClients = mergeClientSources(crmClients, [])
+      const clientRequestsSucceeded = clientsResult.status === 'fulfilled'
+      const nextClients = asRecordList(clientRequestsSucceeded ? mergedClients : (cached?.clients || []))
       const freshLeads = mergeLeadSources(
         leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [],
-        ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false ? (ccpLeadsResult.value.data.leads || []) : []
+        []
       )
       const nextLeads = freshLeads.length ? freshLeads : (cached?.leads || [])
       const nextQuotations = quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []
@@ -4665,7 +4662,7 @@ export default function AdminDashboard() {
       setUsers((prevUsers) => [response.data.user, ...prevUsers])
       setForm(defaultUserForm)
       setModalOpen(false)
-      setNotice(buildUserSyncNotice(response.data.ccpSync, 'New user added successfully. They can login with OTP from the sign-in page.'))
+      setNotice('New user added successfully. They can login with OTP from the sign-in page.')
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to create user')
     } finally {
@@ -4719,7 +4716,7 @@ export default function AdminDashboard() {
       )
       setEditingUser(null)
       setEditForm(defaultUserForm)
-      setNotice(buildUserSyncNotice(response.data.ccpSync, 'User updated successfully.'))
+      setNotice('User updated successfully.')
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to update user')
     } finally {

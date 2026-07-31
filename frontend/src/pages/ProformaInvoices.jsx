@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronDown, Download, Eye, FileCheck2, Plus, Printer, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import api, { readApiError, storeSessionUser } from '../services/api'
@@ -15,6 +15,47 @@ function amount(items = []) { return items.reduce((sum, item) => sum + ((Number(
 function invoiceTotal(row = {}) { return row.pricingMode === 'combined' ? (Number(row.combinedBasicAmount) || Number(row.grandTotal) || 0) : amount(row.items) }
 function money(value) { return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` }
 function displayDate(value) { if (!value) return '-'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB') }
+function normalizeLeadContextValue(value) { return String(value || '').trim().toLowerCase() }
+function matchesLeadContext(row = {}, context = {}) {
+  if (!context) return true
+  const companyName = row.companyName || row.leadDetails?.companyName || ''
+  const rowLeadId = normalizeLeadContextValue(row.leadId)
+  const rowLeadCode = normalizeLeadContextValue(row.leadCode)
+  const rowCompany = normalizeLeadContextValue(companyName)
+  const contextLeadId = normalizeLeadContextValue(context.leadId)
+  const contextLeadCode = normalizeLeadContextValue(context.leadCode)
+  const contextCompany = normalizeLeadContextValue(context.clientName || context.company)
+  return Boolean(
+    (contextLeadId && rowLeadId && contextLeadId === rowLeadId)
+    || (contextLeadCode && rowLeadCode && contextLeadCode === rowLeadCode)
+    || (contextCompany && rowCompany && contextCompany === rowCompany)
+  )
+}
+function buildFormFromLeadContext(context = {}) {
+  return {
+    ...blankForm,
+    leadId: context.leadId || '',
+    leadCode: context.leadCode || '',
+    leadDetails: {
+      ...blankLead,
+      referredBy: context.referredBy || '',
+      salutation: context.salutation || '',
+      contactPerson: context.contactPerson || '',
+      designation: context.designation || '',
+      mobileNo1: context.mobileNo1 || '',
+      mobileNo2: context.mobileNo2 || '',
+      companyName: context.clientName || context.company || '',
+      addressLine1: context.addressLine1 || '',
+      addressLine2: context.addressLine2 || '',
+      addressLine3: context.addressLine3 || '',
+      state: context.state || '',
+      city: context.city || '',
+      pinCode: context.pinCode || '',
+      gstNumber: context.gstNumber || ''
+    },
+    items: [{ ...blankItem }]
+  }
+}
 
 function QuotationPicker({ value, quotations, onChange }) {
   const [open, setOpen] = useState(false)
@@ -255,6 +296,7 @@ function ProformaDetail({ row, onClose, onEdit }) {
 
 export default function ProformaInvoices() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem('user') || '{}') } catch { return {} } })
   const [quotations, setQuotations] = useState([])
   const [rows, setRows] = useState([])
@@ -278,6 +320,51 @@ export default function ProformaInvoices() {
     finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    const leadContext = location.state?.leadContext
+    const leadAction = String(location.state?.leadAction || '').trim().toLowerCase()
+    if (!leadContext || !leadAction || loading) return
+
+    if (leadAction === 'revise') {
+      const invoice = [...rows]
+        .filter((row) => matchesLeadContext(row, leadContext))
+        .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0]
+      if (invoice) {
+        edit(invoice)
+        setNotice(`Opened ${invoice.proformaNumber || 'the latest Proforma Invoice'} for revision.`)
+      } else {
+        const quote = [...quotations]
+          .filter((row) => matchesLeadContext(row, leadContext))
+          .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0]
+        if (quote) {
+          selectQuotation(quote._id || quote.id)
+          setNotice('No saved Proforma Invoice found for this lead. Latest quotation loaded so you can create one.')
+        } else {
+          setForm(buildFormFromLeadContext(leadContext))
+          setEditingId('')
+          setNotice('No saved Proforma Invoice found for this lead. You can create a new one.')
+          setError('')
+        }
+      }
+      navigate(location.pathname, { replace: true, state: {} })
+      return
+    }
+
+    const quote = [...quotations]
+      .filter((row) => matchesLeadContext(row, leadContext))
+      .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0]
+    if (quote) {
+      selectQuotation(quote._id || quote.id)
+      setNotice('Latest quotation loaded for this lead. Add PO Number and verify before saving.')
+    } else {
+      setForm(buildFormFromLeadContext(leadContext))
+      setEditingId('')
+      setNotice('Lead details loaded. Select a quotation or continue manually.')
+      setError('')
+    }
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [loading, location.pathname, location.state, navigate, quotations, rows])
 
   function selectQuotation(id) {
     const quote = quotations.find((row) => String(row._id || row.id) === String(id))

@@ -31,7 +31,7 @@ function latestFinancialYearRow(lead = {}) {
 async function resolveManager(value) {
   const id = String(value || '').trim();
   if (!id) return null;
-  const query = [{ crmUserId: id }, { ccpUserId: id }];
+  const query = [{ crmUserId: id }];
   if (mongoose.isValidObjectId(id)) query.unshift({ _id: id });
   return User.findOne({ $or: query, role: 'manager', isActive: { $ne: false } }).select('_id name email role').lean();
 }

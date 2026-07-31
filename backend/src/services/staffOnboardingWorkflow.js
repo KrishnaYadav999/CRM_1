@@ -16,7 +16,7 @@ function escapeHtml(value) {
 }
 
 function stableId(value) {
-  if (value && typeof value === 'object') return String(value._id || value.id || value.crmUserId || value.ccpUserId || '');
+  if (value && typeof value === 'object') return String(value._id || value.id || value.crmUserId || value.userId || '');
   return String(value || '');
 }
 
@@ -25,7 +25,7 @@ async function resolveStaff(row = {}) {
   const email = String(row.assignedStaffEmail || row.assignedStaff?.email || '').trim().toLowerCase();
   const conditions = [];
   ids.forEach((id) => {
-    conditions.push({ crmUserId: id }, { ccpUserId: id });
+    conditions.push({ crmUserId: id });
     if (mongoose.isValidObjectId(id)) conditions.push({ _id: id });
   });
   if (email) conditions.push({ email });
@@ -61,7 +61,7 @@ function assignmentEmailHtml({ company, managerName, dueAt }) {
 }
 
 async function registerStaffOnboardingAssignments({ lead, manager, now = new Date() }) {
-  const leadKey = String(lead?._id || lead?.id || lead?.sourceLeadId || lead?.ccpLeadId || '').trim();
+  const leadKey = String(lead?._id || lead?.id || lead?.sourceLeadId || lead?.externalLeadId || '').trim();
   if (!leadKey) return { registered: 0 };
   const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
   let registered = 0;

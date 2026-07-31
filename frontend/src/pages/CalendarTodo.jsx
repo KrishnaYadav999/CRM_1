@@ -7,14 +7,9 @@ import ProfileModal from '../components/dashboard/ProfileModal';
 import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
-import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi';
-import { getClientUniqueId, mergeClientSources, mergeLeadSources, readCachedOrFreshList, readClientData } from '../features/clientMaster/clientMaster.utils';
+import { getClientUniqueId, mergeClientSources, mergeLeadSources, readClientData } from '../features/clientMaster/clientMaster.utils';
 
 const STORAGE_KEY = 'crm.calendar.todos.v1';
-const ccpCacheKeys = {
-  clients: 'crm.ccp.clients.cache.v1',
-  leads: 'crm.ccp.leads.cache.v1'
-};
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const priorities = ['Low', 'Medium', 'High', 'Urgent'];
 const categories = ['General', 'Sales', 'Support', 'Development', 'Manager', 'Follow-Up'];
@@ -119,7 +114,6 @@ function getClientOption(client = {}, linkedLead = {}) {
     selectedLead.sourceLeadId,
     data.importMeta?.leadNumber,
     getClientUniqueId(client),
-    data.importMeta?.ccpClientId,
     client.uniqueId,
     client.clientCode,
     client.code,
@@ -283,7 +277,7 @@ export default function CalendarTodo() {
     label: `${user.name || user.email || 'User'}${user.email ? ` (${user.email})` : ''}`
   })), [users]);
   const userLookup = useMemo(() => new Map(users.flatMap((user) => {
-    const keys = [user.name, user.email, user._id, user.id, user.crmUserId, user.userId, user.ccpUserId]
+    const keys = [user.name, user.email, user._id, user.id, user.crmUserId, user.userId]
       .filter(Boolean)
       .map((value) => String(value).trim().toLowerCase());
     return keys.map((key) => [key, user]);
@@ -294,19 +288,15 @@ export default function CalendarTodo() {
     async function loadOptions() {
       setOptionsLoading(true);
       setOptionsError('');
-      const [clientsResult, ccpClientsResult, leadsResult, ccpLeadsResult, usersResult, adminUsersResult] = await Promise.allSettled([
+      const [clientsResult, leadsResult, usersResult, adminUsersResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.clients.list),
-        fetchCcpClients(),
         api.get(API_ENDPOINTS.leads.list),
-        fetchCcpLeads(),
         api.get(API_ENDPOINTS.auth.users),
         api.get(API_ENDPOINTS.auth.adminUsers)
       ]);
       if (!mounted) return;
       const crmClients = clientsResult.status === 'fulfilled' ? extractList(clientsResult.value, 'clients') : [];
-      const ccpClients = readCachedOrFreshList(ccpClientsResult, 'clients', ccpCacheKeys.clients);
       const crmLeads = leadsResult.status === 'fulfilled' ? extractList(leadsResult.value, 'leads') : [];
-      const ccpLeads = readCachedOrFreshList(ccpLeadsResult, 'leads', ccpCacheKeys.leads);
       const apiUsers = usersResult.status === 'fulfilled' ? extractList(usersResult.value, 'users') : [];
       const adminUsers = adminUsersResult.status === 'fulfilled' ? extractList(adminUsersResult.value, 'users') : [];
       const mergedUsers = [...new Map([
@@ -314,8 +304,8 @@ export default function CalendarTodo() {
         ...apiUsers,
         ...(storedUser ? [storedUser] : [])
       ].map((user) => [String(user?._id || user?.id || user?.email || user?.name || Math.random()), user])).values()].filter(Boolean);
-      const mergedClients = mergeClientSources(crmClients, ccpClients);
-      const mergedLeads = mergeLeadSources(crmLeads, ccpLeads);
+      const mergedClients = mergeClientSources(crmClients, []);
+      const mergedLeads = mergeLeadSources(crmLeads, []);
       setClients(mergedClients);
       setLeads(mergedLeads);
       setUsers(mergedUsers);
@@ -526,7 +516,7 @@ export default function CalendarTodo() {
         leadCompanyName: selectedLead?.company || '',
         assignedToName: assignedUser?.name || todoDraft.assignedTo,
         assignedToEmail: assignedUser?.email || '',
-        assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
+        assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || '',
         createdAt: existingItem?.createdAt || new Date().toISOString(),
         createdBy: existingItem?.createdBy || storedUser?.name || storedUser?.email || '',
         updatedAt: existingItem ? new Date().toISOString() : '',
@@ -628,7 +618,7 @@ export default function CalendarTodo() {
         assignedTo: assignmentDraft.assignedTo,
         assignedToName: assignedUser?.name || assignmentDraft.assignedTo,
         assignedToEmail: assignedUser?.email || '',
-        assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
+        assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || '',
         assignmentHistory: [
           {
             assignedTo: assignmentDraft.assignedTo,

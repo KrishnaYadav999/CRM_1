@@ -28,18 +28,17 @@ Root deployment uses `vercel.json`:
 
 Backend API routes are exposed through the root `api/` folder and load `backend/src/index.js`.
 
-### Compliance Health Report CCP contract
+### Compliance Health Report CRM contract
 
 The CRM Compliance Health Report opens as a routed page at `/sales/compliance-health-report/:leadId`. Vercel's SPA rewrite must remain enabled so direct links and refreshes on this page resolve to `frontend/dist/index.html`.
 
-Report submission updates the CCP lead through the CRM backend proxy route:
+Report submission updates the CRM lead directly through the CRM backend:
 
-- frontend endpoint: `API_ENDPOINTS.ccp.updateLead(id)`
-- backend route: `PUT /api/integrations/ccp/leads/:id`
-- CCP resource: `PUT /api/ccp/leads/:id`
+- frontend endpoint: `API_ENDPOINTS.leads.detail(id)`
+- backend route: `PUT /api/leads/:id`
 - payload field: `complianceHealthReport`
 
-Because the save is proxied to CCP, production deploys must have `CCP_API_URL` plus `CCP_SHARED_SECRET` or `CCP_API_KEY` configured in Vercel. The frontend must not store CCP secrets.
+No CCP proxy is involved in this flow anymore.
 
 ### CCP screenshot and document storage contract
 
