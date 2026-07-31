@@ -543,6 +543,7 @@ export default function Quotations() {
   const [adminApprovalFilter, setAdminApprovalFilter] = useState('');
   const [validityFilter, setValidityFilter] = useState('');
   const [expandedId, setExpandedId] = useState('');
+  const [expandedCompany, setExpandedCompany] = useState('');
   const [menuId, setMenuId] = useState('');
   const [previewQuotation, setPreviewQuotation] = useState(null);
   const [detailQuotation, setDetailQuotation] = useState(null);
@@ -613,8 +614,18 @@ export default function Quotations() {
     });
   }, [adminApprovalFilter, query, quotationContext, quotationStatusFilter, quotations, userFilter, validityFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredQuotations.length / rowsPerPage));
-  const visibleQuotations = filteredQuotations.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const companyGroups = useMemo(() => {
+    const groups = new Map();
+    filteredQuotations.forEach((row) => {
+      const company = String(row.companyName || row.leadDetails?.companyName || 'Unnamed company').trim();
+      const key = normalizeSearchValue(company) || `unknown-${row._id || row.id}`;
+      if (!groups.has(key)) groups.set(key, { key, company, quotations: [] });
+      groups.get(key).quotations.push(row);
+    });
+    return [...groups.values()].sort((left, right) => left.company.localeCompare(right.company));
+  }, [filteredQuotations]);
+  const totalPages = Math.max(1, Math.ceil(companyGroups.length / rowsPerPage));
+  const visibleCompanyGroups = companyGroups.slice((page - 1) * rowsPerPage, page * rowsPerPage);
 
   useEffect(() => {
     loadPage();
@@ -1111,7 +1122,7 @@ export default function Quotations() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-baseline gap-3">
                   <h1 className="text-3xl font-black text-slate-950">Quotations</h1>
-                  <span className="text-sm font-black text-slate-500">Total: {filteredQuotations.length}</span>
+                  <span className="text-sm font-black text-slate-500">{companyGroups.length} companies · {filteredQuotations.length} quotations</span>
                 </div>
               </div>
             </div>
@@ -1165,21 +1176,17 @@ export default function Quotations() {
 
           <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
             <div className="hidden-scrollbar max-h-[610px] overflow-auto">
-              <table className="w-full min-w-[1420px] table-fixed text-left text-sm">
+              <table className="w-full min-w-[1050px] table-fixed text-left text-sm">
                 <thead className="sticky top-0 z-20 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-600 shadow-sm">
                   <tr>
                     {[
-                      ['Quotation Number', 'w-[160px]'],
-                      ['Company', 'w-[210px]'],
+                      ['Company', 'w-[260px]'],
                       ['Lead Code', 'w-[140px]'],
                       ['Contact Person', 'w-[170px]'],
-                      ['Quotation Date', 'w-[145px]'],
-                      ['Valid Until', 'w-[135px]'],
+                      ['Quotations', 'w-[130px]'],
                       ['Item Count', 'w-[110px]'],
                       ['Grand Total', 'w-[150px]'],
-                      ['Status', 'w-[120px]'],
-                      ['Last Synced', 'w-[160px]'],
-                      ['Actions', 'w-[110px]']
+                      ['Lead Status', 'w-[130px]']
                     ].map(([header, width]) => (
                       <th key={header} className={`border-r border-slate-100 px-4 py-5 last:border-r-0 ${width}`}>{header}</th>
                     ))}
@@ -1187,29 +1194,30 @@ export default function Quotations() {
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {loading ? (
-                    <tr><td colSpan={11} className="px-5 py-14 text-center font-black text-slate-400">Loading quotations...</td></tr>
-                  ) : visibleQuotations.length === 0 ? (
-                    <tr><td colSpan={11} className="px-5 py-14 text-center font-black text-slate-400">No quotations found.</td></tr>
-                  ) : visibleQuotations.map((row) => (
-                    <React.Fragment key={row._id || row.id}>
-                      <QuotationTableRow
-                        row={row}
-                        expanded={expandedId === (row._id || row.id)}
-                        menuOpen={menuId === (row._id || row.id)}
-                        onToggleItems={() => setExpandedId((current) => current === (row._id || row.id) ? '' : (row._id || row.id))}
-                        onToggleMenu={() => setMenuId((current) => current === (row._id || row.id) ? '' : (row._id || row.id))}
-                        onEdit={() => editQuotation(row)}
-                        onPreview={() => showQuotationDetail(row)}
-                      />
-                      {expandedId === (row._id || row.id) && (
-                        <tr>
-                          <td colSpan={11} className="bg-slate-50 px-20 py-5">
-                            <QuotationItemsPanel quotation={row} items={row.items || []} />
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  ))}
+                    <tr><td colSpan={7} className="px-5 py-14 text-center font-black text-slate-400">Loading quotations...</td></tr>
+                  ) : visibleCompanyGroups.length === 0 ? (
+                    <tr><td colSpan={7} className="px-5 py-14 text-center font-black text-slate-400">No quotations found.</td></tr>
+                  ) : visibleCompanyGroups.map((group) => {
+                    const quotationCount = group.quotations.length;
+                    const itemCount = group.quotations.reduce((sum, row) => sum + (row.items?.length || 0), 0);
+                    const grandTotal = group.quotations.reduce((sum, row) => sum + (Number(row.grandTotal) || 0), 0);
+                    const openCount = group.quotations.filter((row) => String(row.serviceState || 'open').toLowerCase() !== 'closed').length;
+                    const leadStatus = openCount ? 'Open' : 'Closed';
+                    const first = group.quotations[0] || {};
+                    const isOpen = expandedCompany === group.key;
+                    return <React.Fragment key={group.key}>
+                      <tr className="bg-white transition hover:bg-emerald-50/30">
+                        <td className="px-4 py-5"><button type="button" onClick={() => setExpandedCompany(isOpen ? '' : group.key)} className="flex w-full items-center gap-3 text-left"><ChevronDown className={`h-5 w-5 shrink-0 text-emerald-700 transition ${isOpen ? 'rotate-180' : '-rotate-90'}`} /><span><strong className="block break-words uppercase text-slate-800">{group.company}</strong><small className="font-bold text-emerald-700">Click to view {quotationCount} quotation{quotationCount === 1 ? '' : 's'}</small></span></button></td>
+                        <td className="px-4 py-5 font-black text-slate-600">{displayLeadCode(first)}</td>
+                        <td className="px-4 py-5 font-black uppercase text-slate-600">{first.leadDetails?.contactPerson || '-'}</td>
+                        <td className="px-4 py-5"><span className="rounded-full bg-blue-50 px-3 py-2 font-black text-blue-700">{quotationCount}</span></td>
+                        <td className="px-4 py-5 font-black text-slate-700">{itemCount}</td>
+                        <td className="px-4 py-5 font-black text-orange-600">{formatInr(grandTotal)}</td>
+                        <td className="px-4 py-5"><span className={`rounded-full border px-3 py-2 text-xs font-black uppercase ${leadStatus === 'Open' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{leadStatus}{openCount && openCount !== quotationCount ? ` (${openCount})` : ''}</span></td>
+                      </tr>
+                      {isOpen && <tr><td colSpan={7} className="bg-slate-50 p-5"><div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['Quotation No.', 'Date', 'Valid Until', 'Items', 'Amount', 'Lead Status', 'Quotation Status', 'Actions'].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{group.quotations.map((row) => <tr key={row._id || row.id} className="border-t"><td className="p-3 font-black text-orange-600">{row.quotationNumber || '-'}</td><td className="p-3 font-bold">{formatDisplayDate(row.quotationDate || row.createdAt)}</td><td className="p-3 font-bold">{formatDisplayDate(row.validUntil)}</td><td className="p-3 font-black">{row.items?.length || 0}</td><td className="p-3 font-black text-orange-600">{formatInr(Number(row.grandTotal) || 0)}</td><td className="p-3"><span className={`font-black uppercase ${String(row.serviceState || 'open').toLowerCase() === 'closed' ? 'text-red-600' : 'text-emerald-700'}`}>{row.serviceState || 'open'}</span></td><td className="p-3 font-black uppercase">{row.status || 'draft'}</td><td className="p-3"><div className="flex gap-2"><button type="button" onClick={() => showQuotationDetail(row)} className="rounded-lg border px-3 py-2 font-black text-emerald-700">View</button>{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 font-black text-orange-600">Edit</button>}</div></td></tr>)}</tbody></table></div></td></tr>}
+                    </React.Fragment>;
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1218,9 +1226,10 @@ export default function Quotations() {
               rowsPerPage={rowsPerPage}
               setPage={setPage}
               setRowsPerPage={setRowsPerPage}
-              total={filteredQuotations.length}
+              total={companyGroups.length}
               totalPages={totalPages}
-              showing={visibleQuotations.length}
+              showing={visibleCompanyGroups.length}
+              label="companies"
             />
           </section>
         </div>
@@ -1579,14 +1588,14 @@ function QuotationItemsPanel({ quotation, items }) {
   );
 }
 
-function QuotationPager({ page, rowsPerPage, setPage, setRowsPerPage, total, totalPages, showing }) {
+function QuotationPager({ page, rowsPerPage, setPage, setRowsPerPage, total, totalPages, showing, label = 'quotations' }) {
   const start = total ? (page - 1) * rowsPerPage + 1 : 0;
   const end = total ? start + showing - 1 : 0;
   const pages = Array.from({ length: Math.min(5, totalPages) }, (_, index) => index + 1);
 
   return (
     <div className="flex flex-col gap-3 border-t border-slate-100 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
-      <span className="font-black text-slate-900">{start}-{end} of {total} quotations</span>
+      <span className="font-black text-slate-900">{start}-{end} of {total} {label}</span>
       <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="px-2 font-black text-slate-400 disabled:opacity-40">‹</button>
       <div className="flex items-center gap-2">
         {pages.map((item) => (

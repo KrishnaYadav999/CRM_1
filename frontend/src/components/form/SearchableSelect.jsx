@@ -27,10 +27,11 @@ export default function SearchableSelect({ value = '', options = [], onChange, d
     if (!rect) return;
     const spaceBelow = window.innerHeight - rect.bottom;
     const height = Math.min(310, Math.max(170, filtered.length * 44 + 70));
+    const menuWidth = Math.min(Math.max(rect.width, 340), window.innerWidth - 24);
     setPosition({
-      left: Math.max(12, Math.min(rect.left, window.innerWidth - rect.width - 12)),
+      left: Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12)),
       top: spaceBelow >= height + 10 ? rect.bottom + 7 : Math.max(12, rect.top - height - 7),
-      width: rect.width,
+      width: menuWidth,
       maxHeight: height
     });
   }
@@ -69,7 +70,7 @@ export default function SearchableSelect({ value = '', options = [], onChange, d
         <div ref={menuRef} style={position} className="fixed z-[10010] flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-900/20">
           <div className="flex shrink-0 items-center gap-2 border-b border-slate-100 px-3 py-2 text-slate-400"><Search className="h-4 w-4" /><span className="truncate text-xs font-bold">{query ? `Results for “${query}”` : `${normalized.length} options available`}</span></div>
           <div className="mt-1 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
-            {filtered.map((option) => <button key={option.value} type="button" onClick={() => choose(option)} className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${String(option.value) === String(value) ? 'bg-emerald-50 text-emerald-800' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-950'}`}><span className="truncate">{option.label}</span>{String(option.value) === String(value) && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}</button>)}
+            {filtered.map((option) => <button key={option.value} type="button" onClick={() => choose(option)} title={option.label} className={`flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${String(option.value) === String(value) ? 'bg-emerald-50 text-emerald-800' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-950'}`}><span className="min-w-0 whitespace-normal break-words leading-5">{option.label}</span>{String(option.value) === String(value) && <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />}</button>)}
             {!filtered.length && <div className="px-4 py-7 text-center"><p className="text-sm font-black text-slate-600">No matching option</p><p className="mt-1 text-xs font-bold text-slate-400">Typed value custom option ke roop mein use hoga.</p></div>}
           </div>
         </div>, document.body

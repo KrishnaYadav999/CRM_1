@@ -22,7 +22,14 @@ async function claimLeadRoyalty({ lead, claimant, financialYear, servicesOffered
   const claimKey = `${leadId}:${claimantId}:${financialYear || 'latest'}`;
   const now = new Date();
   const dataFlag = servicesOffered.length && eprCategories.length ? 'GREEN' : 'RED';
-  const correctionDeadline = new Date(now.getTime() + (2 * 24 * 60 * 60 * 1000));
+  const previousApproval = await PendingApproval.findOne({ type: 'lead_royalty', source: 'crm', sourceClientId: claimKey }).lean();
+  const previousDeadline = previousApproval?.payload?.correctionDeadline ? new Date(previousApproval.payload.correctionDeadline) : null;
+  const correctionDeadline = previousDeadline && !Number.isNaN(previousDeadline.getTime())
+    ? previousDeadline
+    : new Date(now.getTime() + (2 * 24 * 60 * 60 * 1000));
+  if (previousApproval?.payload?.dataFlag === 'RED' && dataFlag === 'GREEN' && correctionDeadline < now) {
+    return { ok: false, expired: true, correctionDeadline: correctionDeadline.toISOString() };
+  }
   const approval = await PendingApproval.findOneAndUpdate(
     { type: 'lead_royalty', source: 'crm', sourceClientId: claimKey },
     { $set: {
@@ -40,7 +47,7 @@ async function claimLeadRoyalty({ lead, claimant, financialYear, servicesOffered
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
   const existing = await Notification.findOne({ kind: 'lead_royalty_claim', 'metadata.claimKey': claimKey }).lean();
-  if (existing) return { ok: true, skipped: true, notificationId: existing._id, approvalId: approval._id };
+  if (existing) return { ok: true, skipped: true, upgraded: previousApproval?.payload?.dataFlag === 'RED' && dataFlag === 'GREEN', notificationId: existing._id, approvalId: approval._id };
 
   const recipients = await User.find({ role: { $in: ADMIN_ROLES }, isActive: { $ne: false } }).select('_id name email').lean();
   const correctionMessage = dataFlag === 'RED' ? ` Required service data is incomplete and may be corrected by ${correctionDeadline.toISOString().slice(0, 10)}.` : ' Required service data is complete.';

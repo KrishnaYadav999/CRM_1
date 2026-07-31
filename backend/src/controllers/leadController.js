@@ -521,6 +521,7 @@ exports.claimLeadRoyalty = async (req, res) => {
   const servicesOffered = [...new Set(claimedRows.map((row) => String(row?.servicesOffered || '').trim()).filter(Boolean))];
   const eprCategories = [...new Set(claimedRows.map((row) => String(row?.eprCategory || '').trim()).filter(Boolean))];
   const result = await claimLeadRoyalty({ lead, claimant: req.user, financialYear, servicesOffered, eprCategories });
+  if (result.expired) return res.status(400).json({ error: `The two-day correction window expired on ${String(result.correctionDeadline).slice(0, 10)}. Please contact an Admin.` });
   return res.status(result.skipped ? 200 : 201).json(result);
 };
 
