@@ -10,4 +10,4 @@ npm install
 npm run dev
 ```
 
-Backend should run at `http://localhost:6000` (proxy configured).
+Backend should run at `http://localhost:4000` (proxy configured).

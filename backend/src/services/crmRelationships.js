@@ -15,15 +15,11 @@ async function resolveCrmRelationships({ leadId, companyName } = {}) {
 
   if (identity) {
     leadFilters.push(
-      { ccpLeadId: identity },
       { sourceLeadId: identity },
       { externalLeadId: identity },
       { leadCode: identity }
     );
     clientFilters.push(
-      { ccpClientId: identity },
-      { selectedLeadCcpId: identity },
-      { 'data.importMeta.ccpClientId': identity },
       { 'data.importMeta.uniqueId': identity },
       { 'data.importMeta.leadNumber': identity }
     );

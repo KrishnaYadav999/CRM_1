@@ -12,7 +12,6 @@ router.post('/pibo-categories', requireAuth, requireRoles(ADMIN_ROLES), quotatio
 router.get('/dropdown-options', requireAuth, quotationCtrl.listDropdownOptions);
 router.post('/dropdown-options', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.createDropdownOption);
 router.patch('/pending-approvals/approve-all', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.approveAllPendingQuotations);
-router.post('/sync-ccp', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.syncCcpQuotations);
 router.post('/bulk', requireAuth, quotationCtrl.bulkCreateQuotations);
 router.post('/', requireAuth, quotationCtrl.createQuotation);
 router.get('/:id', requireAuth, quotationCtrl.getQuotation);

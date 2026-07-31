@@ -4,9 +4,9 @@ import { viteConfig } from './vite.shared.mjs'
 const server = await createServer({
   ...viteConfig,
   server: {
-    port: 6173,
+    port: 4173,
     proxy: {
-      '/api': 'http://localhost:6000'
+      '/api': 'http://localhost:4000'
     }
   }
 })

@@ -10,7 +10,6 @@ import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
-import { fetchCcpClients, fetchCcpLeads } from '../services/ccpApi';
 import ClientDirectoryView from '../features/clientMaster/ClientDirectoryView';
 import { selectOptions } from '../features/clientMaster/clientMaster.constants';
 import {
@@ -28,7 +27,6 @@ import {
 import {
   annualDraftLegacyKeys,
   buildAnnualReturnYears,
-  buildCcpClientEditUrl,
   enrichClientsFromLeads,
   findClientByRouteKey,
   formatDateInputValue,
@@ -48,7 +46,6 @@ import {
   normalizeHeaderKey,
   normalizePersonName,
   normalizeFinancialYearLabel,
-  openCcpClientEdit,
   readClientData
 } from '../features/clientMaster/clientMaster.utils';
 import {
@@ -238,7 +235,6 @@ function getAnnualClientMatchKeys(client = {}) {
   return [
     client?._id,
     client?.id,
-    data.importMeta?.ccpClientId,
     data.importMeta?.uniqueId,
     data.importMeta?.leadNumber,
     lead?._id,
@@ -256,7 +252,6 @@ function getAnnualReturnMatchKeys(row = {}) {
     row.client,
     client._id,
     client.id,
-    clientData.importMeta?.ccpClientId,
     clientData.importMeta?.uniqueId,
     clientData.importMeta?.leadNumber
   ].map(normalizeAnnualClientKey).filter(Boolean);
@@ -441,7 +436,6 @@ function isMeaningfulClientMasterRow(item = {}) {
     data.basic?.tradeName,
     data.importMeta?.leadNumber,
     data.importMeta?.uniqueId,
-    data.importMeta?.ccpClientId,
     item?.selectedLead?._id,
     item?.selectedLead?.leadCode,
     typeof item?.selectedLead === 'string' ? item.selectedLead : ''
@@ -461,7 +455,6 @@ function getClientMasterRows(crmClients = [], ccpClients = []) {
     ];
     return [...new Set([
       data.importMeta?.uniqueId && `uid:${String(data.importMeta.uniqueId).trim().toLowerCase()}`,
-      data.importMeta?.ccpClientId && `ccp:${String(data.importMeta.ccpClientId).trim().toLowerCase()}`,
       data.importMeta?.leadNumber && `lead:${String(data.importMeta.leadNumber).trim().toLowerCase()}`,
       (typeof item.selectedLead === 'string' || typeof item.selectedLead === 'number') && `lead-id:${String(item.selectedLead).trim().toLowerCase()}`,
       ...quotationNumbers.filter(Boolean).map((value) => `quote:${String(value).trim().toLowerCase()}`)
@@ -562,7 +555,6 @@ function getClientDraftKeys(data = {}, selectedLead = '') {
     data.selectedLead,
     data.importMeta?.leadNumber,
     data.importMeta?.uniqueId,
-    data.importMeta?.ccpClientId,
     data.basic?.clientLegalName,
     data.basic?.tradeName,
     data.companyOverview?.companyName
@@ -714,7 +706,6 @@ export default function ClientMaster() {
       currentUser?.id,
       currentUser?.crmUserId,
       currentUser?.userId,
-      currentUser?.ccpUserId,
       currentUser?.name,
       currentUser?.email
     ]
@@ -738,7 +729,6 @@ export default function ClientMaster() {
           user?.id,
           user?.crmUserId,
           user?.userId,
-          user?.ccpUserId,
           user?.name,
           user?.email
         ].forEach((value) => {
@@ -784,7 +774,7 @@ export default function ClientMaster() {
     ].flatMap((value) => {
       if (!value) return [];
       if (typeof value === 'object') {
-        return [value._id, value.id, value.crmUserId, value.userId, value.ccpUserId, value.name, value.email].map((nestedValue) => normalizePersonName(nestedValue)).filter(Boolean);
+        return [value._id, value.id, value.crmUserId, value.userId, value.name, value.email].map((nestedValue) => normalizePersonName(nestedValue)).filter(Boolean);
       }
       return [normalizePersonName(value)].filter(Boolean);
     });
@@ -797,7 +787,7 @@ export default function ClientMaster() {
       ? lead.serviceSelections
       : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
     if (!user || adminRoles.includes(String(user.role || '').toLowerCase())) return services;
-    const ownTokens = [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId, user.name, user.email]
+    const ownTokens = [user._id, user.id, user.crmUserId, user.userId, user.name, user.email]
       .map(normalizePersonName).filter(Boolean);
     const assignments = Array.isArray(lead?.assignments) ? lead.assignments : [];
     const managerRole = ['manager', 'operation head', 'operations head', 'team manager'].includes(String(user.role || '').toLowerCase());
@@ -825,23 +815,20 @@ export default function ClientMaster() {
         setStaff(staffList);
       }
 
-      const [crmClientsResult, ccpClientsResult, ccpLeadsResult] = await Promise.allSettled([api.get(API_ENDPOINTS.clients.list), fetchCcpClients(), fetchCcpLeads()]);
+      const [crmClientsResult, crmLeadsResult] = await Promise.allSettled([api.get(API_ENDPOINTS.clients.list), api.get(API_ENDPOINTS.leads.list)]);
       const crmClients = crmClientsResult.status === 'fulfilled'
         ? (crmClientsResult.value.data.clients || [])
         : [];
-      const ccpClients = ccpClientsResult.status === 'fulfilled' && ccpClientsResult.value.data?.ok !== false
-        ? (ccpClientsResult.value.data.clients || [])
+      const crmLeads = crmLeadsResult.status === 'fulfilled'
+        ? (crmLeadsResult.value.data.leads || [])
         : [];
-      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
-        ? (ccpLeadsResult.value.data.leads || [])
-        : [];
-      const scopedCcpClients = !adminRoles.includes(String(me?.role || '').toLowerCase())
-        ? ccpClients.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
-        : ccpClients;
-      const scopedCcpLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
-        ? ccpLeads.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
-        : ccpLeads;
-      const visibleClients = enrichClientsFromLeads(getClientMasterRows(crmClients, scopedCcpClients), scopedCcpLeads);
+      const scopedCrmClients = !adminRoles.includes(String(me?.role || '').toLowerCase())
+        ? crmClients.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
+        : crmClients;
+      const scopedCrmLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
+        ? crmLeads.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
+        : crmLeads;
+      const visibleClients = enrichClientsFromLeads(getClientMasterRows(scopedCrmClients, []), scopedCrmLeads);
       setTotalClientCount(visibleClients.length);
       try {
         const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
@@ -852,7 +839,7 @@ export default function ClientMaster() {
         setAnnualReturnRecords([]);
         setClients(visibleClients);
       }
-      setLeads(scopedCcpLeads);
+      setLeads(scopedCrmLeads);
       try {
         const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);
         setQuotations(quotationsResponse.data.quotations || []);
@@ -955,7 +942,6 @@ export default function ClientMaster() {
         ...current.importMeta,
         leadNumber: current.importMeta?.leadNumber || leadCode,
         uniqueId: current.importMeta?.uniqueId || leadCode,
-        ccpClientId: current.importMeta?.ccpClientId || selectedLead.sourceLeadId || '',
         companyName: current.importMeta?.companyName || company,
         createdBy: current.importMeta?.createdBy || selectedLead.importedCreatedBy || selectedLead.referredBy || '',
         assignedTo: current.importMeta?.assignedTo || selectedLead.assignedToText || selectedLead.assignedTo?.name || ''
@@ -1072,7 +1058,8 @@ export default function ClientMaster() {
     if (!raw) return '';
     const match = staff.find((user) => normalizePersonName(user.name) === raw) ||
       staff.find((user) => normalizePersonName(user.email) === raw) ||
-      staff.find((user) => normalizePersonName(user.ccpUserId) === raw);
+      staff.find((user) => normalizePersonName(user.crmUserId) === raw) ||
+      staff.find((user) => normalizePersonName(user.userId) === raw);
     return match ? (match._id || match.id) : '';
   }
 
@@ -1084,7 +1071,7 @@ export default function ClientMaster() {
     }
     const directId = value._id || value.id || value.userId || '';
     if (/^[a-f\d]{24}$/i.test(String(directId))) return directId;
-    return resolveUserId(value.name || value.email || value.ccpUserId);
+    return resolveUserId(value.name || value.email || value.crmUserId || value.userId);
   }
 
   function buildAdminControlsPayload(adminControls = {}) {
@@ -1173,7 +1160,7 @@ export default function ClientMaster() {
 
     try {
       if (excelImportMode === 'annual-years') {
-        const response = await api.post(API_ENDPOINTS.ccp.bulkUpdateClientYears, { rows: excelRows });
+        const response = await api.post(API_ENDPOINTS.clients.bulkUpdateYears, { rows: excelRows });
         const updated = Number(response.data?.updated || 0);
         const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
         setNotice(`${updated} client${updated === 1 ? '' : 's'} updated with annual return years.`);
@@ -1194,7 +1181,7 @@ export default function ClientMaster() {
           workflowStatus: 'draft'
         };
       });
-      const response = await api.post(API_ENDPOINTS.ccp.bulkCreateClients, { clients: payload });
+      const response = await api.post(API_ENDPOINTS.clients.bulk, { clients: payload });
       const successCount = Number(response.data?.imported || response.data?.clients?.length || 0);
       const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
 
@@ -1281,9 +1268,9 @@ export default function ClientMaster() {
         data: normalizedClient,
         workflowStatus
       };
-      const response = editingClientId ? await api.put(API_ENDPOINTS.ccp.updateClient(editingClientId), payload) : await api.post(API_ENDPOINTS.ccp.createClient, payload);
+      const response = editingClientId ? await api.put(API_ENDPOINTS.clients.detail(editingClientId), payload) : await api.post(API_ENDPOINTS.clients.create, payload);
       const savedClient = response.data.client || response.data.data?.client || response.data.data;
-      if (!savedClient || typeof savedClient !== 'object') throw new Error('CCP did not return the saved client.');
+      if (!savedClient || typeof savedClient !== 'object') throw new Error('CRM did not return the saved client.');
       const savedId = savedClient._id || savedClient.id || editingClientId || '';
       if (savedId) setEditingClientId(savedId);
       rememberClientDraft(savedClient, { ...normalizedClient, selectedLead: normalizedClient.selectedLead, workflowStatus });
@@ -1406,7 +1393,7 @@ export default function ClientMaster() {
 
           <Card title="Select Lead" className="mt-6">
             <Field required label="Choose Existing Lead">
-              <SearchableSelect value={client.selectedLead} options={leadOptions} onChange={handleLeadSelect} placeholder="Search and select a CCP lead" />
+              <SearchableSelect value={client.selectedLead} options={leadOptions} onChange={handleLeadSelect} placeholder="Search and select a lead" />
             </Field>
           </Card>
 
@@ -1801,7 +1788,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
 
   function openClientSection(id) {
     if (id === 'annual') {
-      const clientKey = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || getClientUniqueId(client);
+      const clientKey = client?._id || client?.id || data.importMeta?.uniqueId || getClientUniqueId(client);
       navigate(`/sales/client-annual-returns/${encodeURIComponent(clientKey)}`);
       return;
     }
@@ -1810,7 +1797,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
 
   function saveClientInteractionItem(payload) {
     const assignedUser = [...staff, ...(currentUser ? [currentUser] : [])].find((user) => {
-      const keys = [user?.name, user?.email, user?._id, user?.id, user?.crmUserId, user?.userId, user?.ccpUserId]
+      const keys = [user?.name, user?.email, user?._id, user?.id, user?.crmUserId, user?.userId]
         .filter(Boolean)
         .map((value) => String(value).trim().toLowerCase());
       return keys.includes(String(payload.assignedTo || '').trim().toLowerCase());
@@ -1824,7 +1811,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
       leadNumber: data.importMeta?.leadNumber || client.selectedLead?.leadCode || '',
       assignedToName: assignedUser?.name || payload.assignedTo,
       assignedToEmail: assignedUser?.email || '',
-      assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || assignedUser?.ccpUserId || '',
+      assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || '',
       createdAt: new Date().toISOString(),
       createdBy: currentUser?.name || currentUser?.email || ''
     };
@@ -1855,7 +1842,6 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
               <a href="https://eprplastic.cpcb.gov.in/#/plastic/home" target="_blank" rel="noreferrer" className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><ShieldCheck className="h-4 w-4" />CPCB Login</a>
               <button type="button" onClick={() => navigate('/sales/quotations?mode=add', { state: { quotationContext } })} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><Plus className="h-4 w-4" />Quotation</button>
               <button type="button" onClick={() => setHistoryOpen(true)} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-teal-700 px-3.5 text-sm font-black text-white"><FileText className="h-4 w-4" />History</button>
-              <button type="button" onClick={() => openCcpClientEdit(client)} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-black text-white"><Edit3 className="h-4 w-4" />Edit in CCP</button>
             </div>
           </div>
         </div>}
@@ -2025,7 +2011,7 @@ function ClientCompleteHistoryModal({ clientName, quotations = [], followUps = [
   const quotationEvents = quotations.flatMap((quotation) => {
     const revisions = Array.isArray(quotation.revisionHistory) ? quotation.revisionHistory : [];
     return [
-      { id: `created-${quotation._id || quotation.id}`, kind: 'Quotation Created', at: quotation.createdAt || quotation.quotationDate, actor: quotation.createdBy?.name || quotation.createdBy?.email || 'CRM / CCP User', title: quotation.quotationNumber || 'Quotation', details: [`${(quotation.items || []).length} item(s)`, `Grand Total: ${formatInrValue(quotation.grandTotal || quotation.subtotal || 0)}`] },
+      { id: `created-${quotation._id || quotation.id}`, kind: 'Quotation Created', at: quotation.createdAt || quotation.quotationDate, actor: quotation.createdBy?.name || quotation.createdBy?.email || 'CRM User', title: quotation.quotationNumber || 'Quotation', details: [`${(quotation.items || []).length} item(s)`, `Grand Total: ${formatInrValue(quotation.grandTotal || quotation.subtotal || 0)}`] },
       ...revisions.map((revision, index) => ({ id: `revision-${quotation._id || quotation.id}-${index}`, kind: 'Quotation Updated', at: revision.at, actor: revision.userName || revision.userEmail || 'CRM User', title: `${quotation.quotationNumber || 'Quotation'} updated`, details: (revision.changes || []).map((change) => `${change.label || change.field}: ${historyValue(change.before)} → ${historyValue(change.after)}`) }))
     ];
   });

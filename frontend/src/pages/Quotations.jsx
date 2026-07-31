@@ -9,14 +9,10 @@ import PiboDependentSelect from '../components/form/PiboDependentSelect';
 import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
-import { fetchCcpLeads } from '../services/ccpApi';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
 import { adminRoles } from '../constants/dashboard';
 
 const ANANT_LOGO_SOURCE_URL = '/anant-tattva-logo-chroma.png';
-const CCP_QUOTATION_AUTO_SYNC_COOLDOWN_MS = 30000;
-let ccpQuotationAutoSyncPromise = null;
-let ccpQuotationAutoSyncAt = 0;
 
 const emptyLeadDetails = {
   referredBy: '',
@@ -154,7 +150,6 @@ function ownerIdentityTokens(...values) {
         value.id,
         value.crmUserId,
         value.userId,
-        value.ccpUserId,
         value.name,
         value.email
       );
@@ -205,7 +200,6 @@ function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
     currentUser?.id,
     currentUser?.crmUserId,
     currentUser?.userId,
-    currentUser?.ccpUserId,
     currentUser?.name,
     currentUser?.email
   );
@@ -403,6 +397,15 @@ function readAdminApprovalStatus(row = {}) {
   return 'approved';
 }
 
+function canReviseQuotation(row = {}) {
+  const approvalStatus = String(row.approvalStatus || row.adminApproval || '').trim().toLowerCase();
+  const quotationStatus = String(row.status || row.quotationStatus || '').trim().toLowerCase();
+  return approvalStatus.includes('approved')
+    || approvalStatus.includes('reject')
+    || quotationStatus === 'approved'
+    || quotationStatus === 'rejected';
+}
+
 function quotationUserNames(row = {}) {
   return [...new Set([
     row.assignedUserName,
@@ -417,7 +420,7 @@ function quotationUserNames(row = {}) {
 function quotationBelongsToUser(row = {}, currentUser = null) {
   const userTokens = [
     currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId,
-    currentUser?.ccpUserId, currentUser?.name, currentUser?.email
+    currentUser?.name, currentUser?.email
   ].map(normalizeSearchValue).filter(Boolean);
   const creatorTokens = [
     row.createdBy?._id, row.createdBy?.id, row.createdBy?.name, row.createdBy?.email,
@@ -641,7 +644,24 @@ export default function Quotations() {
   useEffect(() => {
     const editQuotationId = location.state?.editQuotationId;
     const previewQuotationId = location.state?.previewQuotationId;
+    const leadAction = String(location.state?.leadAction || '').trim().toLowerCase();
     const quotationSnapshot = normalizeQuotationSnapshot(location.state?.quotationSnapshot);
+    if (leadAction === 'revise' && quotationContext && !loading) {
+      const target = [...quotations]
+        .filter((row) => contextMatchesQuotation(row, quotationContext))
+        .filter((row) => {
+          const status = String(row?.status || '').trim().toLowerCase();
+          return status === 'approved' || status === 'rejected';
+        })
+        .sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0];
+      if (target) {
+        editQuotation(target);
+      } else {
+        setNotice('Quotation can be revised only after it is approved or rejected.');
+      }
+      navigate(location.pathname, { replace: true, state: {} });
+      return;
+    }
     if ((!editQuotationId && !previewQuotationId) || (!quotations.length && !quotationSnapshot)) return;
     if (previewQuotationId) {
       const previewKey = String(previewQuotationId).trim();
@@ -662,7 +682,7 @@ export default function Quotations() {
       editQuotation(target);
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.pathname, location.state, navigate, quotations]);
+  }, [loading, location.pathname, location.state, navigate, quotationContext, quotations]);
 
   useEffect(() => {
     setPage(1);
@@ -694,50 +714,26 @@ export default function Quotations() {
     setEditingId(savedQuotation._id || savedQuotation.id || '');
   }, [currentUser, editingId, quotation.pricingMode, quotationContext, quotations, viewMode]);
 
-  async function loadPage({ syncCcp = true } = {}) {
+  async function loadPage() {
     setLoading(true);
     setError('');
     try {
       const meResponse = await api.get(API_ENDPOINTS.auth.me);
       const me = meResponse.data.user;
-      const canSyncCcp = ['admin', 'superadmin'].includes(String(me?.role || '').toLowerCase());
-      let autoSyncSummary = null;
-      if (syncCcp && canSyncCcp) {
-        const now = Date.now();
-        if (!ccpQuotationAutoSyncPromise && now - ccpQuotationAutoSyncAt >= CCP_QUOTATION_AUTO_SYNC_COOLDOWN_MS) {
-          ccpQuotationAutoSyncPromise = api.post(API_ENDPOINTS.quotations.syncCcp)
-            .then((response) => {
-              ccpQuotationAutoSyncAt = Date.now();
-              return response.data?.summary || null;
-            })
-            .finally(() => { ccpQuotationAutoSyncPromise = null; });
-        }
-        if (ccpQuotationAutoSyncPromise) {
-          try {
-            autoSyncSummary = await ccpQuotationAutoSyncPromise;
-          } catch (syncError) {
-            console.warn('Automatic CCP quotation sync failed; loading saved quotations.', syncError);
-          }
-        }
-      }
-      const [crmLeadsResult, ccpLeadsResult, quotationsResponse, categoriesResponse, piboCategoriesResponse, dropdownOptionsResponse] = await Promise.all([
+      const [crmLeadsResult, quotationsResponse, categoriesResponse, piboCategoriesResponse, dropdownOptionsResponse] = await Promise.all([
         api.get(API_ENDPOINTS.leads.list).catch(() => ({ data: { leads: [] } })),
-        fetchCcpLeads(),
         api.get(API_ENDPOINTS.quotations.list),
         api.get(API_ENDPOINTS.quotations.serviceCategories).catch(() => ({ data: { categories: [] } })),
         api.get(API_ENDPOINTS.quotations.piboCategories).catch(() => ({ data: { categories: [] } })),
         api.get(API_ENDPOINTS.quotations.dropdownOptions).catch(() => ({ data: { options: [] } }))
       ]);
       setCurrentUser(me);
-      setLeads(mergeLeadLists(crmLeadsResult.data.leads || [], ccpLeadsResult.data.leads || []));
+      setLeads(mergeLeadLists(crmLeadsResult.data.leads || []));
       setQuotations(quotationsResponse.data.quotations || []);
       setCustomServiceCategories(categoriesResponse.data.categories || []);
       setPiboCategories(piboCategoriesResponse.data.categories || []);
       setCustomDropdownOptions(dropdownOptionsResponse.data.options || []);
       setPiboCategoriesLoading(false);
-      if (autoSyncSummary?.created || autoSyncSummary?.updated) {
-        setNotice(`CCP quotations updated automatically: ${autoSyncSummary.created || 0} new, ${autoSyncSummary.updated || 0} updated.`);
-      }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to load quotations.');
     } finally {
@@ -777,7 +773,7 @@ export default function Quotations() {
       const response = await api.post(API_ENDPOINTS.quotations.bulk, { quotations: quotationsToSave });
       const summary = response.data.summary || {};
       setBulkPreview(null);
-      await loadPage({ syncCcp: false });
+      await loadPage();
       setSuccessModal({ title: 'Bulk quotation import complete', message: `${summary.created || 0} created, ${summary.updated || 0} updated, ${summary.failed || 0} failed, and ${skippedCount} incomplete quotation${skippedCount === 1 ? ' was' : 's were'} skipped. All successfully saved quotations were sent to Pending Approval.` });
     } catch (importError) {
       const failures = importError.response?.data?.failures || [];
@@ -833,6 +829,12 @@ export default function Quotations() {
   }
 
   function editQuotation(row) {
+    if (!canReviseQuotation(row)) {
+      setNotice('Quotation can be revised only after it is approved or rejected.');
+      setError('');
+      setMenuId('');
+      return;
+    }
     setQuotation({
       leadId: row.leadId || '',
       leadCode: row.leadCode || '',
@@ -1508,6 +1510,7 @@ function SuccessDialog({ title, message, onClose }) {
 function QuotationTableRow({ row, expanded, menuOpen, onToggleItems, onToggleMenu, onEdit, onPreview }) {
   const itemCount = row.items?.length || 0;
   const total = Number(row.grandTotal) || (row.items || []).reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
+  const revisable = canReviseQuotation(row);
 
   return (
     <tr className="relative bg-white transition hover:bg-slate-50">
@@ -1533,7 +1536,7 @@ function QuotationTableRow({ row, expanded, menuOpen, onToggleItems, onToggleMen
           {menuOpen && (
             <div className="absolute right-0 top-10 z-30 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-2 shadow-xl">
               <button type="button" onClick={onPreview} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-slate-50"><Eye className="h-4 w-4" /> Preview</button>
-              {String(row.source || 'crm').toLowerCase() === 'crm' && <button type="button" onClick={onEdit} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-slate-50"><Edit3 className="h-4 w-4" /> Revise</button>}
+              {String(row.source || 'crm').toLowerCase() === 'crm' && <button type="button" disabled={!revisable} title={revisable ? 'Revise quotation' : 'Approve or reject this quotation first'} onClick={onEdit} className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black ${revisable ? 'text-slate-700 hover:bg-slate-50' : 'cursor-not-allowed text-slate-300'}`}><Edit3 className="h-4 w-4" /> Revise</button>}
               <button type="button" onClick={onPreview} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-black text-slate-700 hover:bg-slate-50"><Download className="h-4 w-4" /> Download</button>
             </div>
           )}
@@ -1664,6 +1667,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
   const userName = quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-';
   const totalAmount = Number(quotation.grandTotal) || items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
   const displayRevisionCount = Math.max(revisionCount, meaningfulItems.length || items.length);
+  const revisable = canReviseQuotation(quotation);
 
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 px-4 py-5 backdrop-blur-sm animate-[fadeIn_.18s_ease-out]" role="presentation" onClick={onClose}>
@@ -1675,7 +1679,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
             <p className="mt-1 text-sm font-black text-slate-500">{quotation.quotationNumber || quotation.uniqueId || '-'}</p>
           </div>
           <div className="flex shrink-0 gap-2">
-            {String(quotation.source || 'crm').toLowerCase() === 'crm' && <button type="button" onClick={onRevise} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-600">
+            {String(quotation.source || 'crm').toLowerCase() === 'crm' && <button type="button" disabled={!revisable} title={revisable ? 'Revise quotation' : 'Approve or reject this quotation first'} onClick={onRevise} className={`btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border px-4 text-sm font-black ${revisable ? 'border-orange-300 bg-white text-orange-600' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'}`}>
               <Edit3 className="h-4 w-4" /> Revise
             </button>}
             <button type="button" onClick={onClose} className="btn-lift grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600" aria-label="Close quotation details">
@@ -1754,6 +1758,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
   const terms = Array.isArray(quotation.terms) ? quotation.terms : [];
   const firstItem = items[0] || {};
   const createdDate = formatDisplayDate(quotation.createdAt);
+  const revisable = canReviseQuotation(quotation);
   const infoRows = [
     ['Salutation', details.salutation || '-'],
     ['Contact Person', details.contactPerson || '-'],
@@ -1786,7 +1791,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
           </button>
           <h1 className="text-xl font-black text-slate-950">Quote Details</h1>
         </div>
-        <button type="button" onClick={onRevise} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-600">
+        <button type="button" disabled={!revisable} title={revisable ? 'Revise quotation' : 'Approve or reject this quotation first'} onClick={onRevise} className={`btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border px-4 text-sm font-black ${revisable ? 'border-orange-300 bg-white text-orange-600' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'}`}>
           <Edit3 className="h-4 w-4" />
           Revise
         </button>

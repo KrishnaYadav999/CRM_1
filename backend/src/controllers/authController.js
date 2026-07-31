@@ -1,9 +1,7 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const mongoose = require('mongoose');
 const { getMailDebugConfig, sendMail } = require('../utils/mailer');
-const { syncUserToCcp, syncUsersToCcp } = require('../utils/ccpUserSync');
 const { ROLES } = require('../constants/roles');
  
 function generateOtp() {
@@ -230,44 +228,6 @@ function readAvatarUrl(value) {
   return avatarUrl;
 }
  
-function readObjectId(value) {
-  const id = String(value || '').trim();
-  return mongoose.Types.ObjectId.isValid(id) ? id : undefined;
-}
- 
-function readCcpUserIdFromSync(syncResult) {
-  const payload = syncResult?.response || {};
-  const candidates = [
-    payload.ccpUserId,
-    payload.user?.ccpUserId,
-    payload.user?.id,
-    payload.user?._id,
-    payload.data?.ccpUserId,
-    payload.data?.id,
-    payload.data?._id,
-    payload.id,
-    payload._id
-  ];
- 
-  return String(candidates.find(Boolean) || '').trim();
-}
- 
-async function saveSyncedCcpUserId(user, syncResult) {
-  if (!user || syncResult?.ok === false) return;
- 
-  const ccpUserId = readCcpUserIdFromSync(syncResult);
-  if (!ccpUserId || String(user.ccpUserId || '') === ccpUserId) return;
- 
-  const duplicate = await User.findOne({ ccpUserId, _id: { $ne: user._id } }).select('_id').lean();
-  if (duplicate) {
-    console.error('CCP user sync returned an id already linked to another CRM user', { ccpUserId, userId: String(user._id) });
-    return;
-  }
- 
-  user.ccpUserId = ccpUserId;
-  await user.save();
-}
- 
 async function ensureCrmUserId(user) {
   if (!user || user.crmUserId) return user;
   user.crmUserId = String(user._id || user.id);
@@ -411,10 +371,7 @@ exports.createUserByAdmin = async (req, res) => {
   const user = new User({ name, email, password: await bcrypt.hash(password, 10), role, team, teamId, managerId, operationHeadId, isActive, avatarUrl, createdBy: req.user?._id });
   await user.save();
   await ensureCrmUserId(user);
-  const ccpSync = await syncUserToCcp(user, { action: 'create', password });
-  if (ccpSync.ok === false) console.error('CCP user sync failed', ccpSync);
-  await saveSyncedCcpUserId(user, ccpSync);
-  res.status(201).json({ ok: true, user: publicUser(user), ccpSync });
+  res.status(201).json({ ok: true, user: publicUser(user) });
 };
  
 exports.updateUserByAdmin = async (req, res) => {
@@ -455,11 +412,7 @@ exports.updateUserByAdmin = async (req, res) => {
   if (req.body.avatarUrl !== undefined) user.avatarUrl = avatarUrl;
   await user.save();
   await ensureCrmUserId(user);
-  const ccpSync = await syncUserToCcp(user, { action: 'update' });
-  if (ccpSync.ok === false) console.error('CCP user sync failed', ccpSync);
-  await saveSyncedCcpUserId(user, ccpSync);
- 
-  res.json({ ok: true, user: publicUser(user), ccpSync });
+  res.json({ ok: true, user: publicUser(user) });
 };
  
 exports.me = async (req, res) => {
@@ -530,133 +483,15 @@ exports.listUsers = async (req, res) => {
  
 exports.listActiveUsers = async (req, res) => {
   const users = await User.find({ isActive: true })
-    .select('crmUserId ccpUserId source name email avatarUrl role team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
+    .select('crmUserId source name email avatarUrl role team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, email: 1 });
   res.json({ ok: true, users });
-};
- 
-exports.listUsersForCcp = async (req, res) => {
-  const users = await User.find({ isActive: true })
-    .select('crmUserId ccpUserId source name email avatarUrl role team teamId managerId operationHeadId isActive createdAt updatedAt')
-    .sort({ name: 1, email: 1 });
- 
-  res.json({
-    ok: true,
-    users: users.map((user) => ({
-      id: user._id,
-      _id: user._id,
-      crmUserId: user.crmUserId || String(user._id),
-      name: user.name,
-      email: user.email,
-      ccpUserId: user.ccpUserId,
-      avatarUrl: user.avatarUrl,
-      role: user.role,
-      team: user.team,
-      teamId: user.teamId,
-      managerId: user.managerId,
-      operationHeadId: user.operationHeadId,
-      isActive: user.isActive,
-      source: 'crm',
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    }))
-  });
-};
- 
-exports.syncUsersToCcp = async (req, res) => {
-  const users = await User.find().sort({ createdAt: -1 });
-  const results = await syncUsersToCcp(users);
-  const synced = results.filter((result) => result.ok).length;
-  const failed = results.filter((result) => result.ok === false).length;
- 
-  res.json({
-    ok: failed === 0,
-    total: results.length,
-    synced,
-    failed,
-    results
-  });
-};
- 
-exports.syncUserFromCcp = async (req, res) => {
-  const action = String(req.body.action || '').trim().toLowerCase();
-  const crmUserId = String(req.body.crmUserId || '').trim();
-  const ccpUserId = String(req.body.ccpUserId || req.body.id || req.body._id || '').trim();
-  const name = String(req.body.name || '').trim();
-  const email = String(req.body.email || '').toLowerCase().trim();
-  const role = String(req.body.role || 'operation').trim();
-  const team = String(req.body.team || 'No team assigned').trim();
-  const teamId = readObjectId(req.body.teamId);
-  const managerId = readObjectId(req.body.managerId);
-  const operationHeadId = readObjectId(req.body.operationHeadId);
-  const avatarUrl = req.body.avatarUrl === undefined || req.body.avatarUrl === null ? '' : String(req.body.avatarUrl);
-  const source = String(req.body.source || 'ccp').trim() || 'ccp';
-  const isActive = req.body.isActive === undefined ? true : Boolean(req.body.isActive);
-  const password = String(req.body.password || '');
- 
-  if (!['create', 'update'].includes(action)) {
-    return res.status(400).json({ error: 'Invalid action' });
-  }
-  if (!ccpUserId) return res.status(400).json({ error: 'ccpUserId is required' });
-  if (!email) return res.status(400).json({ error: 'Email is required' });
-  if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
-  if (password && password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  }
- 
-  let user = await User.findOne({ ccpUserId });
-  const userByEmail = await User.findOne({ email });
- 
-  if (user && userByEmail && String(user._id) !== String(userByEmail._id)) {
-    return res.status(409).json({ error: 'Email already belongs to another CRM user' });
-  }
- 
-  if (!user) user = userByEmail;
- 
-  if (user) {
-    user.name = name;
-    user.email = email;
-    user.role = role;
-    user.team = team;
-    user.teamId = teamId;
-    user.managerId = managerId;
-    user.operationHeadId = operationHeadId;
-    user.avatarUrl = avatarUrl;
-    user.isActive = isActive;
-    user.ccpUserId = ccpUserId;
-    user.crmUserId = user.crmUserId || crmUserId || String(user._id);
-    user.source = source;
-    if (!user.password && password) user.password = await bcrypt.hash(password, 10);
-    await user.save();
-    return res.json({ ok: true, crmUserId: user.crmUserId || String(user._id), user: publicUser(user) });
-  }
- 
-  const userData = {
-    crmUserId: crmUserId || undefined,
-    ccpUserId,
-    source,
-    name,
-    email,
-    role,
-    team,
-    teamId,
-    managerId,
-    operationHeadId,
-    avatarUrl,
-    isActive
-  };
-  if (password) userData.password = await bcrypt.hash(password, 10);
- 
-  const createdUser = await User.create(userData);
-  await ensureCrmUserId(createdUser);
-  return res.status(201).json({ ok: true, crmUserId: createdUser.crmUserId || String(createdUser._id), user: publicUser(createdUser) });
 };
  
 function publicUser(user) {
   return {
     id: user._id,
     crmUserId: user.crmUserId || String(user._id),
-    ccpUserId: user.ccpUserId,
     source: user.source,
     name: user.name,
     email: user.email,

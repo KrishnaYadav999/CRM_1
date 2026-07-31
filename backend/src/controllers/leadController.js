@@ -7,6 +7,12 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
 const { sendLeadClosureKickoffEmail } = require('../services/leadClosureKickoffEmail');
+const { registerStaffOnboardingAssignments } = require('../services/staffOnboardingWorkflow');
+const { notifyLeadAssignment } = require('../services/leadAssignmentNotifications');
+const { notifyNewFinancialYear } = require('../services/leadFinancialYearNotifications');
+const { notifyAdditionalLeadServices } = require('../services/leadServiceContributorNotifications');
+const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
+const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
@@ -78,10 +84,13 @@ function cleanBody(body) {
     'nextFollowUpDate',
     'nextFollowUpTime',
     'followUpRemarks',
+    'followUpPriority',
+    'followUpFlag',
     'followUpHistory',
     'importedCreatedAt',
     'importedUpdatedAt',
     'workflowStatus',
+    'recordStatus',
     'complianceHealthReport'
   ].forEach((key) => {
     if (body[key] !== undefined) {
@@ -197,6 +206,7 @@ async function getNextLeadCode() {
 
 async function createLeadRecord(rawBody, userId) {
   const data = cleanBody(rawBody);
+  data.companyIdentity = normalizeCompanyIdentity(data.company);
   data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : 'draft';
 
   if (data.workflowStatus === 'submitted' || data.piboParent || data.piboCategory) {
@@ -216,6 +226,76 @@ async function createLeadRecord(rawBody, userId) {
 
   return Lead.create({ ...data, leadCode: await getNextLeadCode(), createdBy: userId });
 }
+
+function royaltyIdentityTokens(...values) {
+  const identity = (value) => String(value || '').trim().toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+/g, ' ');
+  return [...new Set(values.flatMap((value) => value && typeof value === 'object'
+    ? [value._id, value.id, value.crmUserId, value.userId, value.email, value.name]
+    : [value]).filter(Boolean).map(identity).filter(Boolean))];
+}
+
+function royaltyContributorEligibility(lead = {}, claimant = {}) {
+  const originalIds = royaltyIdentityTokens(lead.createdBy, lead.createdByCrmUserId, lead.createdByEmail, lead.createdByName, lead.importedCreatedBy);
+  const claimantIds = royaltyIdentityTokens(claimant._id, claimant.id, claimant.crmUserId, claimant.userId, claimant.email, claimant.name);
+  if (originalIds.some((value) => claimantIds.includes(value))) {
+    return { eligible: false, reason: 'same-user' };
+  }
+
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const contributorGroups = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [])
+    .map((row, index) => {
+      const assignment = assignments[index] || {};
+      return royaltyIdentityTokens(
+        row?.createdByCrmUserId, row?.createdByEmail, row?.createdByName,
+        assignment?.closedBy, assignment?.closedByEmail, assignment?.closedByText
+      );
+    })
+    .filter((tokens) => tokens.length);
+
+  if (originalIds.length && !contributorGroups.some((tokens) => tokens.some((token) => originalIds.includes(token)))) {
+    contributorGroups.unshift(originalIds);
+  }
+
+  const distinctContributors = [];
+  contributorGroups.forEach((tokens) => {
+    if (!distinctContributors.some((known) => known.some((token) => tokens.includes(token)))) distinctContributors.push(tokens);
+  });
+  const claimantContributed = distinctContributors.some((tokens) => tokens.some((token) => claimantIds.includes(token)));
+
+  return {
+    eligible: distinctContributors.length >= 2 && claimantContributed,
+    reason: distinctContributors.length < 2 ? 'insufficient-contributors' : claimantContributed ? '' : 'claimant-not-contributor'
+  };
+}
+
+async function findDuplicateCompanyRecord(company, excludeId = '') {
+  const identity = normalizeCompanyIdentity(company);
+  if (!identity) return null;
+  const rows = await Lead.find({ companyIdentity: identity }).select('_id company leadCode importedCreatedBy createdBy').populate('createdBy', 'name email').lean();
+  return rows.find((lead) => String(lead._id) !== String(excludeId || '')) || null;
+}
+
+exports.searchCompanies = async (req, res) => {
+  const query = String(req.query.q || req.query.company || '').trim();
+  const identity = normalizeCompanyIdentity(query);
+
+  if (identity.length < 2) {
+    return res.json({ ok: true, leads: [] });
+  }
+
+  const escaped = identity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const leads = await Lead.find({
+    companyIdentity: { $regex: escaped, $options: 'i' }
+  })
+    .populate('assignedTo', 'name email avatarUrl role')
+    .populate('closedBy', 'name email avatarUrl role')
+    .populate('createdBy', 'name email')
+    .sort({ company: 1, createdAt: -1 })
+    .limit(10)
+    .lean();
+
+  res.json({ ok: true, leads });
+};
 
 exports.listLeads = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
@@ -242,8 +322,26 @@ exports.listLeads = async (req, res) => {
 
 exports.createLead = async (req, res) => {
   try {
+    const duplicate = await findDuplicateCompanyRecord(req.body?.company);
+    if (duplicate) {
+      const ownerName = duplicate.importedCreatedBy || duplicate.createdBy?.name || duplicate.createdBy?.email || 'another CRM user';
+      return res.status(409).json({
+        error: `This lead has already been generated by ${ownerName}. You cannot create or update this lead.`,
+        code: 'DUPLICATE_LEAD_COMPANY',
+        duplicate: {
+          id: String(duplicate._id || ''),
+          company: duplicate.company || '',
+          ownerName,
+          leadCode: duplicate.leadCode || ''
+        }
+      });
+    }
     const lead = await createLeadRecord(req.body, req.user?._id);
     await LeadActivity.create({ lead: lead._id, type: 'lead_created', title: 'Lead created', description: `Lead created for ${lead.company || lead.leadCode}`, actor: req.user?._id });
+    const managerId = String(req.body?.assignedToCrmUserId || req.body?.assignedTo || lead.assignedTo || '').trim();
+    if (managerId) {
+      await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
+    }
     res.status(201).json({ ok: true, lead });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to save lead' });
@@ -256,7 +354,27 @@ exports.updateLead = async (req, res) => {
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
     const beforeLead = lead.toObject();
 
+    if (req.body?.company) {
+      const duplicate = await findDuplicateCompanyRecord(req.body.company, req.params.id);
+      if (duplicate) {
+        const ownerName = duplicate.importedCreatedBy || duplicate.createdBy?.name || duplicate.createdBy?.email || 'another CRM user';
+        return res.status(409).json({
+          error: `This lead has already been generated by ${ownerName}. You cannot create or update this lead.`,
+          code: 'DUPLICATE_LEAD_COMPANY',
+          duplicate: {
+            id: String(duplicate._id || ''),
+            company: duplicate.company || '',
+            ownerName,
+            leadCode: duplicate.leadCode || ''
+          }
+        });
+      }
+    }
+
     const data = cleanBody(req.body);
+    if (Object.prototype.hasOwnProperty.call(data, 'company')) {
+      data.companyIdentity = normalizeCompanyIdentity(data.company);
+    }
     data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : (data.workflowStatus || lead.workflowStatus || 'draft');
 
     if (data.workflowStatus === 'submitted') {
@@ -281,6 +399,24 @@ exports.updateLead = async (req, res) => {
     await lead.save();
     await sendLeadClosureKickoffEmail({ beforeLead, lead: lead.toObject() })
       .catch((error) => console.error('Lead closure kick-off email failed', error));
+    if (Array.isArray(data.assignments)) {
+      await registerStaffOnboardingAssignments({
+        lead: lead.toObject(),
+        manager: req.user
+      }).catch((error) => console.error('Staff onboarding assignment notification failed', error));
+    }
+    const managerId = String(req.body?.assignedToCrmUserId || req.body?.assignedTo || lead.assignedTo || '').trim();
+    if (managerId) {
+      await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
+    }
+    if (req.body?.addServicesMode) {
+      await notifyNewFinancialYear({ beforeLead, savedLead: lead.toObject(), submittedPayload: req.body, actor: req.user }).catch((error) => console.error('Financial year notification failed', error));
+      await notifyAdditionalLeadServices({
+        beforeLead,
+        afterLead: lead.toObject(),
+        actor: req.user
+      }).catch((error) => console.error('Additional lead service notification failed', error));
+    }
     const changedFields = Object.keys(data).filter((key) => key !== 'followUpHistory');
     await LeadActivity.create({ lead: lead._id, type: 'lead_updated', title: 'Lead updated', description: changedFields.length ? `Updated ${changedFields.join(', ')}` : 'Lead details updated', actor: req.user?._id, metadata: { changedFields } });
     res.json({ ok: true, lead });
@@ -357,6 +493,23 @@ exports.bulkCreateLeads = async (req, res) => {
     leads,
     failures
   });
+};
+
+exports.claimLeadRoyalty = async (req, res) => {
+  const lookup = [{ sourceLeadId: req.params.id }];
+  if (mongoose.isValidObjectId(req.params.id)) lookup.push({ _id: req.params.id });
+  const lead = await Lead.findOne({ $or: lookup }).populate('createdBy', 'name email').lean();
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  const eligibility = royaltyContributorEligibility(lead, req.user);
+  if (eligibility.reason === 'same-user') {
+    return res.status(400).json({ error: 'Royalty cannot be claimed when the original lead and added service were created by the same user.' });
+  }
+  if (!eligibility.eligible) {
+    return res.status(400).json({ error: 'Claim Royalty is available only after two different users contribute service rows to the same lead.' });
+  }
+  const financialYear = String(req.body?.financialYear || '').trim();
+  const result = await claimLeadRoyalty({ lead, claimant: req.user, financialYear });
+  return res.status(result.skipped ? 200 : 201).json(result);
 };
 
 exports.requestDuplicateLeadApproval = async (req, res) => {

@@ -12,8 +12,6 @@ import PiboDependentSelect from '../components/form/PiboDependentSelect';
 import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
-import { fetchCcpLeadHistory, fetchCcpLeads, searchCcpLeadsByCompany } from '../services/ccpApi';
-import { mergeLeadSources } from '../features/clientMaster/clientMaster.utils';
 import { inferPiboParent, normalizeLegacyPiboCategory, normalizePiboCategories, PIBO_PARENTS } from '../constants/piboCategories';
 import { uploadMedia } from '../services/mediaUpload';
 import { fetchIndiaStateCities, fetchIndiaStates } from '../services/countriesNow';
@@ -249,21 +247,6 @@ const stateCities = {
   Goa: ['Panaji', 'Margao', 'Vasco da Gama', 'Mapusa']
 };
 
-function buildCcpLeadEditUrl(item = {}) {
-  const template = import.meta.env.VITE_CCP_LEAD_EDIT_URL || 'https://ccp-henna.vercel.app/lead-generation?edit={id}&leadCode={leadCode}&name={name}';
-  const id = item._id || item.id || item.sourceLeadId || item.leadCode || '';
-  const leadCode = item.leadCode || item.sourceLeadId || '';
-  const name = item.company || '';
-  return template
-    .replaceAll('{id}', encodeURIComponent(id))
-    .replaceAll('{leadCode}', encodeURIComponent(leadCode))
-    .replaceAll('{name}', encodeURIComponent(name));
-}
-
-function openCcpLeadEdit(item = {}) {
-  window.open(buildCcpLeadEditUrl(item), '_blank', 'noopener,noreferrer');
-}
-
 function displayLeadId(item = {}) {
   const value = String(item.leadCode || item.leadNumber || item.sourceLeadId || '').trim();
   const businessMatch = value.match(/^ATPL-LEAD-(\d+)$/i);
@@ -294,7 +277,7 @@ function normalizeCompanyIdentity(value) {
 }
 
 function leadRecordId(item = {}) {
-  return String(item._id || item.id || item.sourceLeadId || item.ccpLeadId || item.externalLeadId || '').trim();
+  return String(item._id || item.id || item.sourceLeadId || item.externalLeadId || '').trim();
 }
 
 function leadOwnerLabel(item = {}) {
@@ -406,6 +389,7 @@ export default function LeadGeneration() {
   const [staff, setStaff] = useState([]);
   const [leads, setLeads] = useState([]);
   const [allCcpLeads, setAllCcpLeads] = useState([]);
+  const [companySearchResults, setCompanySearchResults] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [piboCategories, setPiboCategories] = useState([]);
   const [piboCategoriesLoading, setPiboCategoriesLoading] = useState(true);
@@ -470,7 +454,7 @@ export default function LeadGeneration() {
     const seen = new Set();
     return staff.flatMap((user) => {
       const label = `${user.name || user.email} (${user.team || 'No team assigned'})`;
-      return [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId]
+      return [user._id, user.id, user.crmUserId, user.userId]
         .filter(Boolean)
         .filter((id) => {
           const key = String(id);
@@ -486,7 +470,7 @@ export default function LeadGeneration() {
     const seen = new Set();
     return managers.flatMap((user) => {
       const label = `${user.name || user.email} (${user.role || user.designation || 'Manager'})`;
-      return [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId].filter(Boolean).filter((id) => {
+      return [user._id, user.id, user.crmUserId, user.userId].filter(Boolean).filter((id) => {
         const key = String(id);
         if (seen.has(key)) return false;
         seen.add(key);
@@ -497,13 +481,13 @@ export default function LeadGeneration() {
   const generatedForOptions = useMemo(() => {
     const seen = new Set();
     return staff.map((user) => ({
-      value: String(user._id || user.id || user.crmUserId || user.ccpUserId || ''),
+      value: String(user._id || user.id || user.crmUserId || user.userId || ''),
       label: `${user.name || user.email} (${user.role || 'User'})`
     })).filter((option) => option.value && !seen.has(option.value) && seen.add(option.value));
   }, [staff]);
   const selectedGeneratedForUser = generatedForMode === 'self'
     ? currentUser
-    : staff.find((user) => [user._id, user.id, user.crmUserId, user.ccpUserId].some((id) => String(id || '') === String(generatedForUserId)));
+    : staff.find((user) => [user._id, user.id, user.crmUserId, user.userId].some((id) => String(id || '') === String(generatedForUserId)));
   const cityOptions = lead.state ? stateCities[lead.state] || [] : [];
   const addressRows = uniqueDataRows(Array.isArray(lead.addresses) && lead.addresses.length ? lead.addresses : [createAddressRow(lead)]);
   const contactRows = uniqueDataRows(Array.isArray(lead.contacts) && lead.contacts.length ? lead.contacts : [createContactRow(lead)]);
@@ -519,8 +503,8 @@ export default function LeadGeneration() {
   const normalizedCompanySearch = normalizeCompanyIdentity(companySearch);
   const companySearchMatches = useMemo(() => {
     if (normalizedCompanySearch.length < 2) return [];
-    return allCcpLeads.filter((item) => normalizeCompanyIdentity(item.company).includes(normalizedCompanySearch)).slice(0, 6);
-  }, [allCcpLeads, normalizedCompanySearch]);
+    return companySearchResults;
+  }, [companySearchResults, normalizedCompanySearch]);
   const approvedCompanyIdentities = useMemo(() => new Set(
     duplicateLeadApprovals.filter((item) => item.approvalStatus === 'APPROVED').map((item) => item.payload?.companyIdentity).filter(Boolean)
   ), [duplicateLeadApprovals]);
@@ -543,7 +527,6 @@ export default function LeadGeneration() {
       currentUser?._id,
       currentUser?.id,
       currentUser?.crmUserId,
-      currentUser?.ccpUserId,
       currentUser?.email,
       currentUser?.name
     ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
@@ -625,19 +608,18 @@ export default function LeadGeneration() {
 
   async function runCompanySearch() {
     const query = companySearch.trim();
-    if (query.length < 2 || companySearchLoading) return;
+    if (query.length < 2 || companySearchLoading) {
+      if (query.length < 2) setCompanySearchResults([]);
+      return;
+    }
     setCompanySearchLoading(true);
     setCompanySearchTouched(false);
     try {
-      const response = await searchCcpLeadsByCompany(query);
-      const matches = response.data?.leads || [];
-      setAllCcpLeads((current) => {
-        const merged = new Map(current.map((item) => [leadRecordId(item), item]));
-        matches.forEach((item) => merged.set(leadRecordId(item), item));
-        return [...merged.values()];
-      });
+      const response = await api.get(API_ENDPOINTS.leads.companySearch, { params: { q: query } });
+      setCompanySearchResults(response.data?.leads || []);
       setCompanySearchTouched(true);
     } catch (requestError) {
+      setCompanySearchResults([]);
       showToast(requestError?.response?.data?.error || 'Company search could not be completed. Please retry.', 'error');
     } finally {
       setCompanySearchLoading(false);
@@ -686,7 +668,7 @@ export default function LeadGeneration() {
   function confirmGeneratedFor() {
     if (!generatedForMode) return showToast('Please choose Yourself or Other User.', 'error');
     const userId = generatedForMode === 'self'
-      ? String(currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.ccpUserId || '')
+      ? String(currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.userId || '')
       : generatedForUserId;
     if (!userId) return showToast('Please select the user who owns this lead.', 'error');
     setGeneratedForUserId(userId);
@@ -763,7 +745,7 @@ export default function LeadGeneration() {
   }
 
   function updateAssignmentRow(index, field, value) {
-    const user = staff.find((item) => [item._id, item.id, item.crmUserId, item.userId, item.ccpUserId].filter(Boolean).some((id) => String(id) === String(value)));
+    const user = staff.find((item) => [item._id, item.id, item.crmUserId, item.userId].filter(Boolean).some((id) => String(id) === String(value)));
     const next = assignmentRows.map((row) => ({ ...row }));
     next[index] = field === 'assignedTo'
       ? { ...next[index], assignedTo: value, assignedToText: user?.name || user?.email || '', assignedToEmail: user?.email || '' }
@@ -805,10 +787,10 @@ export default function LeadGeneration() {
     setRoyaltyClaiming(true);
     try {
       const leadPayload = buildLeadPayload('draft');
-      const saveResponse = await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), leadPayload);
+      const saveResponse = await api.put(API_ENDPOINTS.leads.detail(editingLeadId), leadPayload);
       const savedLead = saveResponse.data.lead || saveResponse.data.data?.lead || saveResponse.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('The added service could not be saved before claiming royalty.');
-      await api.post(API_ENDPOINTS.ccp.claimLeadRoyalty(editingLeadId), { financialYear: latestFinancialYear });
+      await api.post(API_ENDPOINTS.leads.claimRoyalty(editingLeadId), { financialYear: latestFinancialYear });
       setRoyaltyClaimed(true);
       showToast('Royalty claim sent to Admin and Super Admin by email and notification.', 'success');
     } catch (claimError) {
@@ -948,7 +930,6 @@ export default function LeadGeneration() {
       currentUser?.id,
       currentUser?.crmUserId,
       currentUser?.userId,
-      currentUser?.ccpUserId,
       currentUser?.name,
       currentUser?.email
     ]
@@ -972,7 +953,6 @@ export default function LeadGeneration() {
           user?.id,
           user?.crmUserId,
           user?.userId,
-          user?.ccpUserId,
           user?.name,
           user?.email
         ].forEach((value) => {
@@ -1017,7 +997,7 @@ export default function LeadGeneration() {
       .flatMap((value) => {
         if (!value) return [];
         if (typeof value === 'object') {
-          return [value._id, value.id, value.crmUserId, value.userId, value.ccpUserId, value.name, value.email].map((nestedValue) => normalizePersonName(nestedValue)).filter(Boolean);
+          return [value._id, value.id, value.crmUserId, value.userId, value.name, value.email].map((nestedValue) => normalizePersonName(nestedValue)).filter(Boolean);
         }
         return [normalizePersonName(value)].filter(Boolean);
       });
@@ -1036,7 +1016,7 @@ export default function LeadGeneration() {
       ].forEach((value) => {
         if (!value) return;
         if (typeof value === 'object') {
-          [value._id, value.id, value.crmUserId, value.userId, value.ccpUserId, value.name, value.email]
+          [value._id, value.id, value.crmUserId, value.userId, value.name, value.email]
             .map((nestedValue) => normalizePersonName(nestedValue))
             .filter(Boolean)
             .forEach((token) => candidates.push(token));
@@ -1079,25 +1059,25 @@ export default function LeadGeneration() {
         setStaff(staffList);
       }
 
-      const [ccpLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult] = await Promise.allSettled([
-        fetchCcpLeads(),
+      const [crmLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult] = await Promise.allSettled([
+        api.get(API_ENDPOINTS.leads.list),
         api.get(API_ENDPOINTS.quotations.list),
         api.get(API_ENDPOINTS.quotations.piboCategories),
         api.get(API_ENDPOINTS.leads.duplicateApprovals)
       ]);
-      const ccpLeads = ccpLeadsResult.status === 'fulfilled' && ccpLeadsResult.value.data?.ok !== false
-        ? (ccpLeadsResult.value.data.leads || [])
+      const crmLeads = crmLeadsResult.status === 'fulfilled'
+        ? (crmLeadsResult.value.data.leads || [])
         : [];
-      const scopedCcpLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
-        ? ccpLeads.filter((item) => leadBelongsToCurrentUser(item, me, staffList))
-        : ccpLeads;
-      setAllCcpLeads(ccpLeads);
-      setLeads(scopedCcpLeads);
-      if (ccpLeadsResult.status === 'rejected') {
+      const scopedCrmLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
+        ? crmLeads.filter((item) => leadBelongsToCurrentUser(item, me, staffList))
+        : crmLeads;
+      setAllCcpLeads(crmLeads);
+      setLeads(scopedCrmLeads);
+      if (crmLeadsResult.status === 'rejected') {
         setError(
-          ccpLeadsResult.reason?.response?.data?.detail
-          || ccpLeadsResult.reason?.response?.data?.error
-          || 'Unable to fetch leads from CCP. Please retry.'
+          crmLeadsResult.reason?.response?.data?.detail
+          || crmLeadsResult.reason?.response?.data?.error
+          || 'Unable to fetch leads from CRM. Please retry.'
         );
       }
       setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
@@ -1238,7 +1218,7 @@ export default function LeadGeneration() {
           workflowStatus: 'draft'
         };
       });
-      const response = await api.post(API_ENDPOINTS.ccp.bulkCreateLeads, { leads: payload });
+      const response = await api.post(API_ENDPOINTS.leads.bulk, { leads: payload });
       const successCount = Number(response.data?.imported || response.data?.leads?.length || 0);
       const failures = Array.isArray(response.data?.failures) ? response.data.failures : [];
 
@@ -1347,9 +1327,9 @@ export default function LeadGeneration() {
     setNotice('');
     try {
       const leadPayload = buildLeadPayload(workflowStatus);
-      const response = editingLeadId ? await api.put(API_ENDPOINTS.ccp.updateLead(editingLeadId), leadPayload) : await api.post(API_ENDPOINTS.ccp.createLead, leadPayload);
+      const response = editingLeadId ? await api.put(API_ENDPOINTS.leads.detail(editingLeadId), leadPayload) : await api.post(API_ENDPOINTS.leads.create, leadPayload);
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
-      if (!savedLead || typeof savedLead !== 'object') throw new Error('CCP did not return the saved lead.');
+      if (!savedLead || typeof savedLead !== 'object') throw new Error('CRM did not return the saved lead.');
       setHealthPromptOpen(false);
       if (openHealthReport) {
         setHealthReportLead(savedLead);
@@ -1441,12 +1421,12 @@ export default function LeadGeneration() {
     setHealthReportSaving(true);
     setHealthReportError('');
     try {
-      const response = await api.put(API_ENDPOINTS.ccp.updateLead(leadId), {
+      const response = await api.put(API_ENDPOINTS.leads.detail(leadId), {
         workflowStatus: 'submitted',
         complianceHealthReport: buildHealthReportPayload(confirmed)
       });
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
-      if (!savedLead || typeof savedLead !== 'object') throw new Error('CCP did not return the saved lead.');
+      if (!savedLead || typeof savedLead !== 'object') throw new Error('CRM did not return the saved lead.');
       setHealthReportLead(null);
       setHealthReport(emptyComplianceHealthReport);
       setLead(emptyLead);
@@ -1473,10 +1453,8 @@ export default function LeadGeneration() {
       item._id,
       item.id,
       item.sourceLeadId,
-      item.ccpLeadId,
       item.externalLeadId,
       item.leadCode,
-      item.importMeta?.ccpLeadId,
       item.importMeta?.uniqueId
     ].some((value) => String(value || '').trim() === routeId));
     if (!match) {
@@ -1530,12 +1508,11 @@ export default function LeadGeneration() {
               setViewLead(updatedLead);
               setLeads((current) => current.map((item) => String(item._id || item.id) === String(updatedLead._id || updatedLead.id) ? updatedLead : item));
             }}
-            onAddQuotation={(quotationId) => {
-              if (quotationId) navigate('/sales/quotations', { state: { editQuotationId: quotationId } });
-              else {
+            onQuotationAction={(action) => {
+              if (action === 'revise') {
                 const currentUserTokens = [
                   currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId,
-                  currentUser?.ccpUserId, currentUser?.name, currentUser?.email
+                  currentUser?.name, currentUser?.email
                 ].map(normalizePersonName).filter(Boolean);
                 const leadCreatorTokens = [
                   viewLead.createdBy?._id, viewLead.createdBy?.id, viewLead.createdBy?.name,
@@ -1558,35 +1535,113 @@ export default function LeadGeneration() {
                   return ownerTokens.some((token) => currentUserTokens.includes(token));
                 });
                 const primaryOwnedService = ownedServices[0] || {};
+                const quotationContext = {
+                  sourceType: 'lead',
+                  leadId: viewLead._id || viewLead.id || viewLead.sourceLeadId || '',
+                  leadCode: viewLead.leadCode || '',
+                  company: viewLead.company || '',
+                  clientName: viewLead.company || '',
+                  contactPerson: viewLead.contactPerson || '',
+                  designation: viewLead.designation || '',
+                  mobileNo1: viewLead.mobileNo1 || '',
+                  mobileNo2: viewLead.mobileNo2 || '',
+                  addressLine1: viewLead.addressLine1 || '',
+                  addressLine2: viewLead.addressLine2 || '',
+                  addressLine3: viewLead.addressLine3 || '',
+                  state: viewLead.state || '',
+                  city: viewLead.city || '',
+                  pinCode: viewLead.pinCode || '',
+                  serviceSelections: ownedServices,
+                  industryType: primaryOwnedService.industryType || '',
+                  servicesOffered: primaryOwnedService.servicesOffered || '',
+                  annualYear: primaryOwnedService.firstAnnualReturnYearApplicable || '',
+                  eprCategory: primaryOwnedService.eprCategory || '',
+                  applicantType: primaryOwnedService.applicantType || '',
+                  piboParent: primaryOwnedService.piboParent || '',
+                  piboCategory: primaryOwnedService.piboCategory || ''
+                };
+                navigate('/sales/quotations', { state: { quotationContext, leadAction: 'revise' } });
+                return;
+              }
+                const currentUserTokens = [
+                  currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId,
+                  currentUser?.name, currentUser?.email
+                ].map(normalizePersonName).filter(Boolean);
+                const leadCreatorTokens = [
+                  viewLead.createdBy?._id, viewLead.createdBy?.id, viewLead.createdBy?.name,
+                  viewLead.createdBy?.email, viewLead.createdByCrmUserId, viewLead.createdByName,
+                  viewLead.createdByEmail, viewLead.importedCreatedBy
+                ].map(normalizePersonName).filter(Boolean);
+                const allServices = Array.isArray(viewLead.serviceSelections) && viewLead.serviceSelections.length
+                  ? viewLead.serviceSelections
+                  : [createServiceSelection(viewLead)];
+                const adminCanSeeAllServices = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+                const ownedServices = allServices.map((service, sourceServiceIndex) => ({
+                  ...service,
+                  sourceServiceIndex
+                })).filter((service) => {
+                  if (adminCanSeeAllServices) return true;
+                  const explicitOwnerTokens = [
+                    service.createdByCrmUserId, service.createdByName, service.createdByEmail
+                  ].map(normalizePersonName).filter(Boolean);
+                  const ownerTokens = explicitOwnerTokens.length ? explicitOwnerTokens : leadCreatorTokens;
+                  return ownerTokens.some((token) => currentUserTokens.includes(token));
+                });
+                const primaryOwnedService = ownedServices[0] || {};
+                const quotationContext = {
+                  sourceType: 'lead',
+                  leadId: viewLead._id || viewLead.id || viewLead.sourceLeadId || '',
+                  leadCode: viewLead.leadCode || '',
+                  company: viewLead.company || '',
+                  clientName: viewLead.company || '',
+                  contactPerson: viewLead.contactPerson || '',
+                  designation: viewLead.designation || '',
+                  mobileNo1: viewLead.mobileNo1 || '',
+                  mobileNo2: viewLead.mobileNo2 || '',
+                  addressLine1: viewLead.addressLine1 || '',
+                  addressLine2: viewLead.addressLine2 || '',
+                  addressLine3: viewLead.addressLine3 || '',
+                  state: viewLead.state || '',
+                  city: viewLead.city || '',
+                  pinCode: viewLead.pinCode || '',
+                  serviceSelections: ownedServices,
+                  industryType: primaryOwnedService.industryType || '',
+                  servicesOffered: primaryOwnedService.servicesOffered || '',
+                  annualYear: primaryOwnedService.firstAnnualReturnYearApplicable || '',
+                  eprCategory: primaryOwnedService.eprCategory || '',
+                  applicantType: primaryOwnedService.applicantType || '',
+                  piboParent: primaryOwnedService.piboParent || '',
+                  piboCategory: primaryOwnedService.piboCategory || ''
+                };
                 navigate('/sales/quotations?mode=add', {
                 state: {
-                  quotationContext: {
-                    sourceType: 'lead',
-                    leadId: viewLead._id || viewLead.id || viewLead.sourceLeadId || '',
-                    leadCode: viewLead.leadCode || '',
-                    company: viewLead.company || '',
-                    contactPerson: viewLead.contactPerson || '',
-                    designation: viewLead.designation || '',
-                    mobileNo1: viewLead.mobileNo1 || '',
-                    mobileNo2: viewLead.mobileNo2 || '',
-                    addressLine1: viewLead.addressLine1 || '',
-                    addressLine2: viewLead.addressLine2 || '',
-                    addressLine3: viewLead.addressLine3 || '',
-                    state: viewLead.state || '',
-                    city: viewLead.city || '',
-                    pinCode: viewLead.pinCode || '',
-                    serviceSelections: ownedServices,
-                    industryType: primaryOwnedService.industryType || '',
-                    servicesOffered: primaryOwnedService.servicesOffered || '',
-                    annualYear: primaryOwnedService.firstAnnualReturnYearApplicable || '',
-                    eprCategory: primaryOwnedService.eprCategory || '',
-                    applicantType: primaryOwnedService.applicantType || '',
-                    piboParent: primaryOwnedService.piboParent || '',
-                    piboCategory: primaryOwnedService.piboCategory || ''
-                  }
+                  quotationContext,
+                  leadAction: 'add'
                 }
               });
-              }
+            }}
+            onProformaAction={(action) => {
+              const leadContext = {
+                leadId: viewLead._id || viewLead.id || viewLead.sourceLeadId || '',
+                leadCode: viewLead.leadCode || '',
+                company: viewLead.company || '',
+                clientName: viewLead.company || '',
+                contactPerson: viewLead.contactPerson || '',
+                designation: viewLead.designation || '',
+                mobileNo1: viewLead.mobileNo1 || '',
+                mobileNo2: viewLead.mobileNo2 || '',
+                addressLine1: viewLead.addressLine1 || '',
+                addressLine2: viewLead.addressLine2 || '',
+                addressLine3: viewLead.addressLine3 || '',
+                state: viewLead.state || '',
+                city: viewLead.city || '',
+                pinCode: viewLead.pinCode || '',
+                referredBy: viewLead.referredBy || '',
+                salutation: viewLead.salutation || '',
+                gstNumber: viewLead.gstNumber || '',
+                serviceSelections: Array.isArray(viewLead.serviceSelections) ? viewLead.serviceSelections : []
+              };
+              navigate('/sales/proforma-invoices', { state: { leadContext, leadAction: action === 'revise' ? 'revise' : 'add' } });
             }}
             onEdit={() => {
               setLead({
@@ -1628,7 +1683,7 @@ export default function LeadGeneration() {
           }}
           onToggleActive={async (item, recordStatus) => {
             const id = leadRecordId(item);
-            const response = await api.put(API_ENDPOINTS.ccp.updateLead(id), { ...item, recordStatus });
+            const response = await api.put(API_ENDPOINTS.leads.detail(id), { ...item, recordStatus });
             const updated = response.data?.lead || response.data?.data?.lead || { ...item, recordStatus };
             setLeads((current) => current.map((row) => leadRecordId(row) === id ? { ...row, ...updated, recordStatus } : row));
             showToast(`Lead marked ${recordStatus.toLowerCase()}.`, 'success');
@@ -1739,7 +1794,7 @@ export default function LeadGeneration() {
                     <Field label="Lead Search Company" className="min-w-[260px] flex-1">
                       <div className="relative">
                         <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input className="form-input pl-11" value={companySearch} onChange={(event) => { setCompanySearch(event.target.value); setCompanySearchTouched(false); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); runCompanySearch(); } }} placeholder="For example: 20 MICRONS NANO MINERALS LIMITED" />
+                        <input className="form-input pl-11" value={companySearch} onChange={(event) => { setCompanySearch(event.target.value); setCompanySearchResults([]); setCompanySearchTouched(false); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); runCompanySearch(); } }} placeholder="For example: 20 MICRONS NANO MINERALS LIMITED" />
                       </div>
                     </Field>
                     <button type="button" disabled={companySearch.trim().length < 2 || companySearchLoading} onClick={runCompanySearch} className="min-h-[50px] rounded-xl bg-emerald-700 px-7 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50"><Search className="mr-2 inline h-4 w-4" />{companySearchLoading ? 'Searching...' : 'Search'}</button>
@@ -1759,13 +1814,13 @@ export default function LeadGeneration() {
                           {companySearchMatches.some((item) => normalizeCompanyIdentity(item.company) === normalizedCompanySearch) && !approvedCompanyIdentities.has(normalizedCompanySearch) && <div className="lead-duplicate-warning"><CircleAlert className="h-5 w-5" /><div><strong>This lead already exists</strong><p>Open the company result to add services or request special approval.</p></div></div>}
                         </div>
                       ) : (
-                        <div className="lead-search-available"><CheckCircle2 className="h-5 w-5" /><div><strong>Company name is available</strong><p>No matching lead was found in the CCP database.</p></div><button type="button" onClick={() => { updateField('company', companySearch.trim()); showToast('Company added to the new lead form.', 'success'); }}>Use this company</button></div>
+                        <div className="lead-search-available"><CheckCircle2 className="h-5 w-5" /><div><strong>Company name is available</strong><p>No matching lead was found in CRM.</p></div><button type="button" onClick={() => { updateField('company', companySearch.trim()); showToast('Company added to the new lead form.', 'success'); }}>Use this company</button></div>
                       )}
                     </div>
                   )}
                 </section>}
                 <LeadSection title="Company Information">
-                  <Field label="Lead ID"><input className="form-input bg-slate-100" value={displayLeadId(lead) === '-' ? 'Generated by CCP after save' : displayLeadId(lead)} readOnly /></Field>
+                  <Field label="Lead ID"><input className="form-input bg-slate-100" value={displayLeadId(lead) === '-' ? 'Generated after save' : displayLeadId(lead)} readOnly /></Field>
                   <Field required label="Company">
                     <input disabled={serviceOnlyMode} className={`form-input disabled:bg-slate-100 disabled:text-slate-500 ${duplicateCompanyLead ? 'border-red-400 bg-red-50 ring-4 ring-red-100' : ''}`} value={lead.company} onChange={(event) => { updateField('company', event.target.value); if (!event.target.value.trim()) setGeneratedForConfirmed(false); }} onBlur={() => { if (lead.company) { setCompanySearch(lead.company); setCompanySearchTouched(true); if (!editingLeadId && !generatedForConfirmed) openGeneratedForChooser('new'); } }} />
                   </Field>
@@ -1877,7 +1932,7 @@ export default function LeadGeneration() {
                   <div className="lead-assign-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>{assignmentApplicantLabel} <b className="text-red-500">*</b></span><span>Services Offered</span><span>Applicable Services</span><span>Lead Closed By</span><span>Assign To Manager</span><span>Manager Assigned to Staff</span><span>Claim Royalty</span><span>Action</span></div>
                   {assignmentRows.map((row, index) => {
                     const matchingService = serviceRows[index] || serviceRows[serviceRows.length - 1] || {};
-                    const currentUserIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.ccpUserId].filter(Boolean).map(String);
+                    const currentUserIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId].filter(Boolean).map(String);
                     const currentUserOwnerTokens = [
                       ...currentUserIds,
                       currentUser?.name,
@@ -1906,7 +1961,7 @@ export default function LeadGeneration() {
                       ? [{ value: String(row.assignedTo), label: row.assignedToText || lead.assignedToText || 'Previously assigned manager' }, ...managerOptions]
                       : managerOptions;
                     const intendedCloser = currentUser;
-                    const intendedCloserIds = [intendedCloser?._id, intendedCloser?.id, intendedCloser?.crmUserId, intendedCloser?.userId, intendedCloser?.ccpUserId].filter(Boolean);
+                    const intendedCloserIds = [intendedCloser?._id, intendedCloser?.id, intendedCloser?.crmUserId, intendedCloser?.userId].filter(Boolean);
                     const intendedCloserOption = intendedCloserIds.length ? [{
                       value: String(intendedCloserIds[0]),
                       label: `${intendedCloser?.name || intendedCloser?.email}${intendedCloser?.team ? ` (${intendedCloser.team})` : ' (No team assigned)'}`
@@ -2284,10 +2339,10 @@ function ComplianceHealthReportModal({ lead, report, saving, error, onChange, on
             {pageMode && <button type="button" onClick={onBack} className="compliance-health-back" title="Back"><ArrowLeft className="h-5 w-5" /></button>}
             <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">{pageMode ? 'Compliance' : 'Saved Lead Context'}</p>
             <h2 className="mt-2 text-2xl font-black text-slate-950">COMPLIANCE HEALTH REPORT</h2>
-            <p className="mt-2 text-sm font-bold text-slate-600">{loading ? 'Loading CCP lead...' : (lead.company || '-')} {lead.leadCode ? `| ${lead.leadCode}` : ''}</p>
+            <p className="mt-2 text-sm font-bold text-slate-600">{loading ? 'Loading lead...' : (lead.company || '-')} {lead.leadCode ? `| ${lead.leadCode}` : ''}</p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black uppercase text-emerald-700">CCP Lead Document</span>
+            <span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black uppercase text-emerald-700">CRM Lead Document</span>
             <button type="button" onClick={handleDownloadPdf} className={`${pageMode ? 'compliance-health-download' : 'btn-lift inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 font-black text-slate-700 hover:bg-slate-50'}`}><Download className="h-4 w-4" />{pageMode ? 'Download Complete PDF' : 'Download PDF'}</button>
             {pageMode && (
               <div className="compliance-health-stats">
@@ -2748,7 +2803,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {visibleLeads.length === 0 ? (
-                  <tr><td colSpan={16} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading CCP leads...' : 'No leads found.'}</td></tr>
+                  <tr><td colSpan={16} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : 'No leads found.'}</td></tr>
                 ) : visibleLeads.map((item) => (
                   <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
                     <td className="lead-directory-id-cell px-5 py-4 font-black text-slate-900"><span title={displayLeadId(item)}>{displayLeadId(item)}</span></td>
@@ -3005,7 +3060,53 @@ function buildLeadFollowUpRows(lead = {}) {
   return rows;
 }
 
-function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null, onBack, onEdit, onAddQuotation, onLeadUpdated, canEdit = false }) {
+function LeadToolbarMenu({ label, icon: Icon, tone = 'emerald', options = [] }) {
+  const [open, setOpen] = useState(false);
+  const palette = tone === 'blue'
+    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+    : tone === 'violet'
+      ? 'bg-violet-600 text-white shadow-lg shadow-violet-600/20'
+      : 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20';
+
+  return (
+    <div className="relative z-[90]">
+      <button type="button" onClick={() => setOpen((current) => !current)} className={`btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg px-5 text-sm font-black ${palette}`}>
+        <Icon className="h-4 w-4" />{label}<ChevronDown className={`h-4 w-4 transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-label={`Close ${label} menu`} onClick={() => setOpen(false)} className="fixed inset-0 z-[85] cursor-default" />
+          <div className="absolute right-0 top-[calc(100%+10px)] z-[95] min-w-[220px] overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
+            {options.map((option) => {
+              const OptionIcon = option.icon || Plus;
+              return (
+                <button
+                  key={option.label}
+                  type="button"
+                  disabled={option.disabled}
+                  onClick={() => {
+                    setOpen(false);
+                    if (!option.disabled) option.onClick?.();
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-black transition ${
+                    option.disabled
+                      ? 'cursor-not-allowed text-slate-300'
+                      : 'text-slate-700 hover:bg-emerald-50 hover:text-emerald-700'
+                  }`}
+                >
+                  <OptionIcon className="h-4 w-4" />
+                  <span className="flex-1">{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null, onBack, onEdit, onQuotationAction, onProformaAction, onLeadUpdated, canEdit = false }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [detailLead, setDetailLead] = useState(lead);
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
@@ -3044,13 +3145,13 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const detailApplicantLabel = detailHasPlastic && detailHasNonPlastic
     ? 'Applicant / Sub Applicant Type'
     : detailHasPlastic ? 'Sub Applicant Type' : 'Applicant Type';
-  const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.ccpUserId]
+  const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId]
     .filter(Boolean).map(String);
   const isManager = String(currentUser?.role || '').toLowerCase() === 'manager';
   const isAssignmentAdmin = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
   const detailStaffOptions = staff.flatMap((user) => {
     const label = `${user.name || user.email} (${user.team || 'No team assigned'})`;
-    return [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId]
+    return [user._id, user.id, user.crmUserId, user.userId]
       .filter(Boolean)
       .map((id) => ({ value: String(id), label }));
   });
@@ -3059,7 +3160,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     const row = detailAssignments[index];
     const managerOwnsRow = currentUserTokens.includes(String(row?.assignedTo?._id || row?.assignedTo || ''));
     if ((!isManager || !managerOwnsRow) && !isAssignmentAdmin) return;
-    const selected = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId, user.ccpUserId]
+    const selected = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId]
       .filter(Boolean).some((id) => String(id) === String(value)));
     const assignments = detailAssignments.map((item, rowIndex) => rowIndex === index ? {
       ...item,
@@ -3082,7 +3183,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         ...leadWithoutLegacyStaff,
         assignments
       };
-      const response = await api.put(API_ENDPOINTS.ccp.updateLead(activeLead._id || activeLead.id || activeLead.sourceLeadId), payload);
+      const response = await api.put(API_ENDPOINTS.leads.detail(activeLead._id || activeLead.id || activeLead.sourceLeadId), payload);
       const responseLead = response.data?.lead || response.data?.data?.lead || response.data?.data;
       // Some CCP update responses contain only the changed assignment fields.
       // Merge that patch into the current lead so company/service/contact data does
@@ -3110,15 +3211,19 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const leadQuotations = quotations.filter((quotation) => {
     const normalize = (value) => String(value || '').trim().toLowerCase();
     const crmLeadIds = [activeLead._id, activeLead.id].map(normalize).filter(Boolean);
-    const ccpLeadIds = [activeLead.sourceLeadId, activeLead.ccpLeadId, activeLead.externalLeadId, activeLead._id, activeLead.id].map(normalize).filter(Boolean);
+    const sourceLeadIds = [activeLead.sourceLeadId, activeLead.externalLeadId, activeLead._id, activeLead.id].map(normalize).filter(Boolean);
     const quotationLeadId = normalize(quotation.leadId?._id || quotation.leadId?.id || quotation.leadId);
-    const quotationCcpLeadId = normalize(quotation.ccpLeadId || quotation.sourceLeadId || quotation.externalLeadId);
+    const quotationSourceLeadId = normalize(quotation.sourceLeadId || quotation.externalLeadId || quotation.leadId);
     const quotationLeadCode = normalize(quotation.leadCode);
     return Boolean(
       (quotationLeadId && crmLeadIds.includes(quotationLeadId))
-      || (quotationCcpLeadId && ccpLeadIds.includes(quotationCcpLeadId))
+      || (quotationSourceLeadId && sourceLeadIds.includes(quotationSourceLeadId))
       || (quotationLeadCode && quotationLeadCode === normalize(activeLead.leadCode))
     );
+  });
+  const revisableLeadQuotations = leadQuotations.filter((quotation) => {
+    const status = String(quotation?.status || '').trim().toLowerCase();
+    return status === 'approved' || status === 'rejected';
   });
   const followUpRows = buildLeadFollowUpRows(activeLead);
   const todayKey = todayDateKey();
@@ -3183,16 +3288,15 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         ...followUpRows.map((item, index) => ({ id: `follow-${index}`, type: 'follow_up', title: 'Lead follow-up', description: item.remarks || 'Follow-up updated', actor: item.updatedBy || 'CRM User', at: item.createdAt || item.updatedAt || item.scheduledDate }))
       ].filter((item) => item.at);
     try {
-      const [crmResult, ccpResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.leads.history(leadId), { params: identifiers }),
-        fetchCcpLeadHistory(leadId, identifiers)
+      const [crmResult] = await Promise.allSettled([
+        api.get(API_ENDPOINTS.leads.history(leadId), { params: identifiers })
       ]);
-      const remoteEvents = [crmResult, ccpResult].flatMap((result) => result.status === 'fulfilled' ? (result.value.data?.events || []) : []);
+      const remoteEvents = [crmResult].flatMap((result) => result.status === 'fulfilled' ? (result.value.data?.events || []) : []);
       const unique = new Map();
       [...remoteEvents, ...fallbackEvents].forEach((event) => { if (event?.id && !unique.has(String(event.id))) unique.set(String(event.id), event); });
       const events = [...unique.values()].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
       const group = (type = '') => type.includes('quotation') || type.includes('approval') ? 'quotation' : type.includes('follow') ? 'followup' : type.includes('todo') ? 'todo' : type.includes('email') ? 'email' : 'lead';
-      setHistoryData({ lead: { leadCode: activeLead.leadCode, company: activeLead.company }, events, summary: { total: events.length, quotations: events.filter((event) => group(event.type) === 'quotation').length, followUps: events.filter((event) => group(event.type) === 'followup').length, todos: events.filter((event) => group(event.type) === 'todo').length, emails: events.filter((event) => group(event.type) === 'email').length }, sourceStatus: { crm: crmResult.status, ccp: ccpResult.status } });
+      setHistoryData({ lead: { leadCode: activeLead.leadCode, company: activeLead.company }, events, summary: { total: events.length, quotations: events.filter((event) => group(event.type) === 'quotation').length, followUps: events.filter((event) => group(event.type) === 'followup').length, todos: events.filter((event) => group(event.type) === 'todo').length, emails: events.filter((event) => group(event.type) === 'email').length }, sourceStatus: { crm: crmResult.status } });
     } finally {
       setHistoryLoading(false);
     }
@@ -3258,7 +3362,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     setFollowUpSaving(true);
     setFollowUpError('');
     try {
-      const response = await api.put(API_ENDPOINTS.ccp.updateLead(leadId), payload);
+      const response = await api.put(API_ENDPOINTS.leads.detail(leadId), payload);
       const updatedLead = response.data?.lead || payload;
       await api.post(API_ENDPOINTS.calendarItems.create, {
         type: 'followup',
@@ -3285,7 +3389,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
 
   return (
     <div className="min-h-[calc(100vh-72px)] bg-[#f3f8f6] px-4 py-5 sm:px-6 lg:px-8">
-      <div className="-mx-4 -mt-5 border-b border-slate-200/80 bg-white/90 px-4 py-4 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+      <div className="relative z-[80] -mx-4 -mt-5 border-b border-slate-200/80 bg-white/90 px-4 py-4 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} className="btn-lift grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-orange-600 shadow-sm" title="Back">
@@ -3297,7 +3401,33 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         </div>
         <div className="flex flex-wrap gap-3">
           {(!leadIsClosed || canEdit) && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
-          {(!leadIsClosed || canEdit) && <button type="button" onClick={() => onAddQuotation?.('')} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Plus className="h-4 w-4" />Add Quotation</button>}
+          {(!leadIsClosed || canEdit) && (
+            <>
+              <LeadToolbarMenu
+                label="Quotation"
+                icon={Plus}
+                tone="emerald"
+                options={[
+                  { label: 'Add Quotation', icon: Plus, onClick: () => onQuotationAction?.('add') },
+                  {
+                    label: revisableLeadQuotations.length ? 'Revise' : 'Revise (Approve/Reject first)',
+                    icon: Edit3,
+                    disabled: !revisableLeadQuotations.length,
+                    onClick: () => onQuotationAction?.('revise')
+                  }
+                ]}
+              />
+              <LeadToolbarMenu
+                label="Proforma Invoice"
+                icon={CreditCard}
+                tone="blue"
+                options={[
+                  { label: 'Add Proforma Invoice', icon: Plus, onClick: () => onProformaAction?.('add') },
+                  { label: 'Revise', icon: Edit3, onClick: () => onProformaAction?.('revise') }
+                ]}
+              />
+            </>
+          )}
           <button type="button" onClick={openHistory} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-600/20"><RefreshCw className="h-4 w-4" />View History</button>
           {canEdit && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-5 text-sm font-black text-white shadow-lg shadow-orange-500/20"><Edit3 className="h-4 w-4" />Edit</button>}
         </div>

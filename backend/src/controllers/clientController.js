@@ -6,18 +6,8 @@ const PendingApproval = require('../models/PendingApproval');
 const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
 const { notifyPoSpecialApproval } = require('../services/poApprovalNotifications');
 const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
-const { mapQuotationPendingApprovalRow, hydrateCcpQuotationCreators } = require('./quotationController');
+const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
-const { ccpApiBaseUrl, ccpHeaders } = require('../utils/ccpConfig');
-
-const CCP_FETCH_TIMEOUT_MS = Number(process.env.CCP_FETCH_TIMEOUT_MS) || 15000;
-
-function ccpBaseUrls() {
-  return [ccpApiBaseUrl()]
-    .map((url) => String(url || '').trim().replace(/\/+$/, ''))
-    .filter(Boolean)
-    .filter((url, index, urls) => urls.indexOf(url) === index);
-}
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -199,24 +189,6 @@ function normalizeCollection(payload, key) {
   return [];
 }
 
-async function fetchCcpClients() {
-  for (const baseUrl of ccpBaseUrls()) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), CCP_FETCH_TIMEOUT_MS);
-    try {
-      const response = await fetch(`${baseUrl}/ccp/clients`, { headers: ccpHeaders(), signal: controller.signal });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) continue;
-      return normalizeCollection(payload, 'clients');
-    } catch {
-      // Try the next configured CCP URL before giving up.
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  return [];
-}
-
 function readClientName(client) {
   return client.data?.basic?.clientLegalName
     || client.data?.basic?.tradeName
@@ -277,82 +249,8 @@ function getPendingClientKeys(row) {
   ].map((value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);
 }
 
-function mapCcpPendingClient(client) {
-  const lookup = buildValueLookup(client);
-  const data = client.data || {};
-  const importMeta = data.importMeta || {};
-  const basic = data.basic || {};
-  const selectedLead = client.selectedLead || {};
-  const parts = readApprovalDateParts(client);
-  const approvalStatus = normalizeApprovalStatus(
-    client.adminControls?.approvalStatus
-    || pickLookup(lookup, ['Approval Status'])
-    || 'PENDING'
-  ) || 'PENDING';
-
-  const rawImportCreator = String(importMeta.createdBy || '').trim();
-  const importCreatorIsId = /^[a-f\d]{24}$/i.test(rawImportCreator);
-  const createdBy = client.leadCreatedBy
-    || selectedLead.importedCreatedBy
-    || selectedLead.createdBy?.name
-    || selectedLead.createdBy?.email
-    || client.createdByName
-    || client.createdBy?.name
-    || client.createdBy?.email
-    || importMeta.createdByName
-    || (!importCreatorIsId ? rawImportCreator : '')
-    || client.createdByEmail
-    || 'CCP User';
-
-  return {
-    id: client._id || client.id || importMeta.uniqueId || pickLookup(lookup, ['Unique ID', 'Client ID']),
-    source: 'ccp',
-    uniqueId: importMeta.uniqueId || pickLookup(lookup, ['Unique ID', 'UniqueId', 'Client ID']),
-    clientName: basic.clientLegalName || basic.tradeName || selectedLead.company || pickLookup(lookup, ['Client Name', 'Client Legal Name', 'Legal Name', 'Company Name', 'Name']) || 'Untitled client',
-    approvalStatus,
-    piboCategory: basic.piboCategory || selectedLead.piboCategory || pickLookup(lookup, ['PIBO Category', 'PIBO']) || '-',
-    eprCategory: basic.eprCategory || selectedLead.eprCategory || pickLookup(lookup, ['EPR Category', 'EPR']) || '-',
-    createdBy,
-    requestDate: parts.date,
-    requestTime: parts.time,
-    payload: client
-  };
-}
-
 function isDemoCreator(value) {
   return /^demo(?:\s+demo)?$/i.test(String(value || '').trim());
-}
-
-async function hydrateCcpClientLeadCreators(clients = []) {
-  if (!clients.length) return clients;
-  try {
-    const db = mongoose.connection.useDb(String(process.env.CCP_DB_NAME || 'ccp').trim(), { useCache: true });
-    const ids = clients.map((client) => String(client._id || client.id || '')).filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
-    const storedClients = ids.length ? await db.collection('clients').find({ _id: { $in: ids } }).toArray() : [];
-    const storedById = new Map(storedClients.map((client) => [String(client._id), client]));
-    const leadIds = storedClients.map((client) => client.selectedLead).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
-    const leadNumbers = storedClients.map((client) => String(client.data?.importMeta?.leadNumber || '').trim()).filter(Boolean);
-    const leadQuery = [];
-    if (leadIds.length) leadQuery.push({ _id: { $in: leadIds } });
-    if (leadNumbers.length) leadQuery.push({ sourceLeadId: { $in: leadNumbers } });
-    const leads = leadQuery.length ? await db.collection('leads').find({ $or: leadQuery }).toArray() : [];
-    const leadsById = new Map(leads.map((lead) => [String(lead._id), lead]));
-    const leadsByNumber = new Map(leads.map((lead) => [String(lead.sourceLeadId || '').trim(), lead]));
-    const userIds = leads.map((lead) => lead.createdBy).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
-    const users = userIds.length ? await db.collection('users').find({ _id: { $in: userIds } }).project({ name: 1, email: 1 }).toArray() : [];
-    const usersById = new Map(users.map((user) => [String(user._id), String(user.name || user.email || '').trim()]));
-
-    clients.forEach((client) => {
-      const stored = storedById.get(String(client._id || client.id || '')) || {};
-      const lead = leadsById.get(String(stored.selectedLead || '')) || leadsByNumber.get(String(stored.data?.importMeta?.leadNumber || '').trim()) || {};
-      const originalCreator = String(lead.importedCreatedBy || usersById.get(String(lead.createdBy || '')) || lead.createdByEmail || '').trim();
-      const assignedName = String(lead.assignedTo?.name || lead.assignedToText || lead.assignedToEmail || '').trim();
-      client.leadCreatedBy = isDemoCreator(originalCreator) && assignedName ? assignedName : originalCreator;
-    });
-  } catch (error) {
-    console.warn('[CCP client lead creator hydration] skipped', { error: error.message });
-  }
-  return clients;
 }
 
 function isPlainObject(value) {
@@ -382,7 +280,7 @@ function readAssignedToLabel(value) {
   if (!value) return '';
   if (typeof value === 'string') return value.trim();
   if (!isPlainObject(value)) return '';
-  return String(value.name || value.email || value.ccpUserId || '').trim();
+  return String(value.name || value.email || value.crmUserId || value.userId || '').trim();
 }
 
 function normalizeAdminControls(adminControls = {}) {
@@ -468,7 +366,6 @@ function getAnnualReturnClientKey(client, fallback = '') {
   return String(
     client?._id
     || client?.id
-    || client?.data?.importMeta?.ccpClientId
     || client?.data?.importMeta?.uniqueId
     || fallback
     || ''
@@ -589,15 +486,15 @@ async function upsertAnnualReturnRecord(client, annualYear, filing, requestBody 
   return canonical;
 }
 
-function buildCcpClientApprovalPayload(body = {}, status, userId, remarks = '') {
-  const ccpPayload = isPlainObject(body.payload) ? body.payload : {};
-  const payloadData = isPlainObject(ccpPayload.data) ? ccpPayload.data : {};
+function buildClientApprovalPayload(body = {}, status, userId, remarks = '') {
+  const existingPayload = isPlainObject(body.payload) ? body.payload : {};
+  const payloadData = isPlainObject(existingPayload.data) ? existingPayload.data : {};
   const payloadImportMeta = isPlainObject(payloadData.importMeta) ? payloadData.importMeta : {};
-  const payloadAdminControls = isPlainObject(ccpPayload.adminControls) ? ccpPayload.adminControls : {};
+  const payloadAdminControls = isPlainObject(existingPayload.adminControls) ? existingPayload.adminControls : {};
   const adminControls = normalizeAdminControls(payloadAdminControls);
   const assignedToLabel = readAssignedToLabel(payloadAdminControls.assignedTo);
   const uniqueId = String(body.uniqueId || payloadImportMeta.uniqueId || '').trim();
-  const ccpClientId = String(body.sourceClientId || ccpPayload._id || ccpPayload.id || '').trim();
+  const sourceClientId = String(body.sourceClientId || existingPayload._id || existingPayload.id || '').trim();
   const fullData = Object.keys(payloadData).length
     ? payloadData
     : {
@@ -619,12 +516,12 @@ function buildCcpClientApprovalPayload(body = {}, status, userId, remarks = '') 
         ...(isPlainObject(fullData.importMeta) ? fullData.importMeta : {}),
         assignedTo: fullData.importMeta?.assignedTo || assignedToLabel || '',
         uniqueId,
-        ccpClientId,
+        sourceClientId: fullData.importMeta?.sourceClientId || sourceClientId,
         approvalOverride: true
       },
       approvalMeta: {
         status,
-        source: String(body.source || 'ccp').trim() || 'ccp',
+        source: String(body.source || 'crm').trim() || 'crm',
         actionBy: userId,
         actionAt: new Date(),
         remarks
@@ -633,11 +530,11 @@ function buildCcpClientApprovalPayload(body = {}, status, userId, remarks = '') 
   };
 }
 
-function mergePendingClients(localRows, ccpRows) {
+function mergePendingClients(localRows, incomingRows) {
   const merged = [];
   const indexByKey = new Map();
 
-  [...ccpRows, ...localRows].forEach((row) => {
+  [...incomingRows, ...localRows].forEach((row) => {
     const key = getPendingClientKey(row);
     if (key && indexByKey.has(key)) {
       const index = indexByKey.get(key);
@@ -718,27 +615,23 @@ async function applyClientApprovalStatus(record, status, userId, remarks = '') {
   const client = mongoose.Types.ObjectId.isValid(sourceClientId)
     ? await Client.findById(sourceClientId)
     : null;
-  const ccpApprovalBody = {
+  const approvalBody = {
     ...(record.payload || {}),
     sourceClientId,
     uniqueId: record.uniqueId || record.payload?.uniqueId || '',
     payload: record.payload?.payload,
     source: record.source
   };
+  const approvalFields = buildClientApprovalPayload(approvalBody, status, userId, remarks);
 
   if (client) {
-    const ccpFields = record.source === 'ccp'
-      ? buildCcpClientApprovalPayload(ccpApprovalBody, status, userId, remarks)
-      : null;
-    client.adminControls = ccpFields
-      ? { ...(client.adminControls || {}), ...ccpFields.adminControls }
-      : { ...(client.adminControls || {}), approvalStatus: status };
+    client.adminControls = { ...(client.adminControls || {}), ...approvalFields.adminControls };
     client.data = {
       ...(client.data || {}),
-      ...(ccpFields?.data || {}),
+      ...(approvalFields.data || {}),
       approvalMeta: {
         status,
-        source: record.source,
+        source: String(record.source || 'crm').trim() || 'crm',
         actionBy: userId,
         actionAt: new Date(),
         remarks
@@ -749,17 +642,12 @@ async function applyClientApprovalStatus(record, status, userId, remarks = '') {
     return client;
   }
 
-  if (record.source === 'ccp') {
-    const ccpFields = buildCcpClientApprovalPayload(ccpApprovalBody, status, userId, remarks);
-    return Client.create({
-      adminControls: ccpFields.adminControls,
-      data: ccpFields.data,
-      workflowStatus: 'draft',
-      createdBy: userId
-    });
-  }
-
-  return null;
+  return Client.create({
+    adminControls: approvalFields.adminControls,
+    data: approvalFields.data,
+    workflowStatus: 'draft',
+    createdBy: userId
+  });
 }
 
 function mapPendingApprovalRecord(record) {
@@ -855,23 +743,19 @@ exports.listClients = async (req, res) => {
 exports.listPendingApprovals = async (req, res) => {
   const startedAt = Date.now();
   const storedFallback = await readStoredPendingApprovals();
-  const [clientsResult, ccpClientsResult, quotationsResult] = await Promise.allSettled([
+  const [clientsResult, quotationsResult] = await Promise.allSettled([
     Client.find()
       .populate('selectedLead', 'leadCode company piboCategory eprCategory contactPerson mobileNo1 importedCreatedBy')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 })
       .lean(),
-    fetchCcpClients(),
     Quotation.find({ status: { $in: ['draft', 'submitted', 'sent'] } })
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 })
       .lean()
   ]);
   const allClients = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
-  const ccpClients = ccpClientsResult.status === 'fulfilled' ? ccpClientsResult.value : [];
-  await hydrateCcpClientLeadCreators(ccpClients);
   const quotations = quotationsResult.status === 'fulfilled' ? quotationsResult.value : [];
-  await hydrateCcpQuotationCreators(quotations);
   const clients = allClients.filter((client) => {
     const status = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
     return status === 'PENDING' && client.data?.importMeta?.approvalOverride !== true;
@@ -881,7 +765,7 @@ exports.listPendingApprovals = async (req, res) => {
     const status = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
     if (status === 'PENDING') return;
     const row = {
-      id: client.data?.importMeta?.ccpClientId || client._id,
+      id: client._id,
       uniqueId: client.data?.importMeta?.uniqueId || client.selectedLead?.leadCode || '',
       clientName: readClientName(client)
     };
@@ -904,10 +788,6 @@ exports.listPendingApprovals = async (req, res) => {
       requestTime: parts.time
     };
   });
-  const pendingCcpClients = ccpClients
-    .map(mapCcpPendingClient)
-    .filter((client) => normalizeApprovalStatus(client.approvalStatus) === 'PENDING')
-    .filter((client) => !getPendingClientKeys(client).some((key) => resolvedClientKeys.has(key)));
 
   const clientQuotationRows = clients.filter(hasQuotationData).map((client) => {
     const validation = client.data?.validation || {};
@@ -931,7 +811,9 @@ exports.listPendingApprovals = async (req, res) => {
   const quotationRows = quotations.map((quotation) => mapQuotationPendingApprovalRow(quotation, 'CREATE'));
   const pendingQuotations = [...quotationRows, ...clientQuotationRows];
 
-  const pendingClientRows = mergePendingClients(pendingClients, pendingCcpClients);
+  const pendingClientRows = pendingClients.filter((client) => (
+    !getPendingClientKeys(client).some((key) => resolvedClientKeys.has(key))
+  ));
   const responseClients = pendingClientRows.length ? pendingClientRows : storedFallback.pendingClients;
   const responseQuotations = pendingQuotations.length ? pendingQuotations : storedFallback.pendingQuotations;
 
@@ -945,9 +827,7 @@ exports.listPendingApprovals = async (req, res) => {
       source: pendingClientRows.length || pendingQuotations.length ? 'live' : 'stored-fallback',
       ms: Date.now() - startedAt,
       clientsQueryOk: clientsResult.status === 'fulfilled',
-      ccpQueryOk: ccpClientsResult.status === 'fulfilled',
       quotationsQueryOk: quotationsResult.status === 'fulfilled',
-      ccpRows: Array.isArray(ccpClients) ? ccpClients.length : 0,
       storedClients: storedFallback.pendingClients.length,
       storedQuotations: storedFallback.pendingQuotations.length
     }
@@ -1026,6 +906,54 @@ exports.bulkCreateClients = async (req, res) => {
   });
 };
 
+exports.bulkUpdateClientYears = async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'No annual return year rows provided' });
+
+  let updated = 0;
+  const failures = [];
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || {};
+    const companyUniqueId = String(row.companyUniqueId || '').trim();
+    const onboardingYear = String(row.onboardingYear || '').trim();
+    const firstAnnualReturnYear = String(row.firstAnnualReturnYear || '').trim();
+
+    if (!companyUniqueId || (!onboardingYear && !firstAnnualReturnYear)) {
+      failures.push({ row: Number(row.row) || index + 2, error: 'Company Unique ID and at least one year value are required' });
+      continue;
+    }
+
+    const client = await Client.findOne({
+      $or: [{ 'data.importMeta.uniqueId': companyUniqueId }]
+    });
+
+    if (!client) {
+      failures.push({ row: Number(row.row) || index + 2, error: 'Matching client not found in CRM' });
+      continue;
+    }
+
+    client.data = {
+      ...(isPlainObject(client.data) ? client.data : {}),
+      basic: {
+        ...(isPlainObject(client.data?.basic) ? client.data.basic : {}),
+        ...(onboardingYear ? { onboardingYear } : {}),
+        ...(firstAnnualReturnYear ? { firstAnnualReturnYear } : {})
+      }
+    };
+    client.markModified('data');
+    await client.save();
+    updated += 1;
+  }
+
+  return res.status(failures.length && !updated ? 400 : 200).json({
+    ok: failures.length === 0,
+    updated,
+    failed: failures.length,
+    failures
+  });
+};
+
 exports.updateClient = async (req, res) => {
   const workflowStatus = req.body.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(req.body);
@@ -1062,7 +990,6 @@ exports.updateAnnualReturn = async (req, res) => {
       : await Client.findOne({
           $or: [
             { 'data.importMeta.uniqueId': clientId },
-            { 'data.importMeta.ccpClientId': clientId },
             { 'data.basic.clientLegalName': clientId },
             { 'data.basic.tradeName': clientId }
           ]
@@ -1079,8 +1006,7 @@ exports.updateAnnualReturn = async (req, res) => {
           importMeta: {
             ...importMeta,
             assignedTo: importMeta.assignedTo || assignedToLabel || '',
-            uniqueId: importMeta.uniqueId || clientId,
-            ccpClientId: importMeta.ccpClientId || clientId
+            uniqueId: importMeta.uniqueId || clientId
           }
         },
         adminControls,
@@ -1239,16 +1165,19 @@ exports.updateClientApproval = async (req, res) => {
   const approvalRecord = mongoose.Types.ObjectId.isValid(approvalRecordId)
     ? await PendingApproval.findById(approvalRecordId)
     : null;
-  const source = String(req.body.source || approvalRecord?.source || 'ccp').trim() || 'ccp';
+  const source = String(req.body.source || approvalRecord?.source || 'crm').trim() || 'crm';
   const sourceClientId = String(req.body.sourceClientId || req.params.id || approvalRecord?.sourceClientId || '').trim();
-  const ccpPayload = req.body.payload || approvalRecord?.payload?.payload;
-  const ccpFields = source === 'ccp'
-    ? buildCcpClientApprovalPayload({
+  const rawApprovalPayload = req.body.payload || approvalRecord?.payload?.payload || null;
+  const shouldBuildApprovalPayload = isPlainObject(rawApprovalPayload)
+    || isPlainObject(req.body.data)
+    || isPlainObject(req.body.adminControls);
+  const approvalFields = shouldBuildApprovalPayload
+    ? buildClientApprovalPayload({
         ...req.body,
         source,
         sourceClientId,
         uniqueId: req.body.uniqueId || approvalRecord?.uniqueId || '',
-        payload: ccpPayload
+        payload: rawApprovalPayload || req.body.payload || {}
       }, status, req.user?._id, remarks)
     : null;
 
@@ -1258,8 +1187,8 @@ exports.updateClientApproval = async (req, res) => {
 
   if (!client) {
     const createdClient = await Client.create({
-      adminControls: ccpFields?.adminControls || { approvalStatus: status },
-      data: ccpFields?.data || {
+      adminControls: approvalFields?.adminControls || { approvalStatus: status },
+      data: approvalFields?.data || {
         approvalMeta: {
           status,
           source,
@@ -1301,13 +1230,13 @@ exports.updateClientApproval = async (req, res) => {
     return res.json({ ok: true, client: createdClient });
   }
 
-  client.adminControls = ccpFields
-    ? { ...(client.adminControls || {}), ...ccpFields.adminControls }
+  client.adminControls = approvalFields
+    ? { ...(client.adminControls || {}), ...approvalFields.adminControls }
     : { ...(client.adminControls || {}), approvalStatus: status };
 
   client.data = {
     ...(client.data || {}),
-    ...(ccpFields?.data || {}),
+    ...(approvalFields?.data || {}),
     approvalMeta: {
       status,
       source,
@@ -1383,5 +1312,5 @@ exports.approveAllPendingClients = async (req, res) => {
 };
 
 exports.__test = {
-  buildCcpClientApprovalPayload
+  buildClientApprovalPayload
 };

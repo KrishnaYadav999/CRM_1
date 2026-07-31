@@ -817,7 +817,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
       return;
     }
     const saved = { ...poDraft, mode, confirmed: true, savedAt: new Date().toISOString() };
-    const clientId = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId;
+    const clientId = client?._id || client?.id || data.importMeta?.uniqueId;
     const targetYears = mode === 'yes' ? [...new Set(rows.map((row) => row.fyYear))] : years.map((year) => year.label);
     try {
       await Promise.all(targetYears.map((annualYear, index) => api.put(API_ENDPOINTS.clients.annualReturn(clientId), {
@@ -955,7 +955,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
 
   async function saveAnnualDraft(nextTab = '', nextSection = '', workflowOverride = null, statusOverride = 'draft', completionTab = '') {
     if (!selected?.label) return;
-    const clientId = client?._id || client?.id || data.importMeta?.ccpClientId || uniqueId;
+    const clientId = client?._id || client?.id || uniqueId;
     if (!clientId) {
       setAnnualSaveError('Unable to save annual return: client id not found.');
       return;
@@ -1876,7 +1876,7 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
   }, [activeProcessingTab, activeSections]);
 
   function openAnnualYear(year) {
-    const clientKey = client?._id || client?.id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || getClientUniqueId(client);
+    const clientKey = client?._id || client?.id || data.importMeta?.uniqueId || getClientUniqueId(client);
     const nextYear = year?.label || '';
     if (isAnnualYearLocked(nextYear)) {
       setAnnualToast({ type: 'error', message: `You didn't fill Annual Return ${nextYear}. Complete its PO details first.` });

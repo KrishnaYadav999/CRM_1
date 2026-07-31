@@ -7,7 +7,7 @@ function readClientData(client) {
 
 function getClientKey(client) {
   const data = readClientData(client);
-  return String(client?._id || data.importMeta?.ccpClientId || data.importMeta?.uniqueId || '').trim();
+  return String(client?._id || data.importMeta?.uniqueId || '').trim();
 }
 
 function getClientName(client) {

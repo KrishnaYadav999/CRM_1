@@ -13,7 +13,7 @@ function display(value, fallback = '-') {
 }
 
 function getRecordClientKey(row) {
-  return row.clientKey || row.client?._id || row.client?.id || row.clientData?.importMeta?.ccpClientId || row.clientData?.importMeta?.uniqueId || '';
+  return row.clientKey || row.client?._id || row.client?.id || row.clientData?.importMeta?.uniqueId || '';
 }
 
 export default function AnnualReturns() {
@@ -111,7 +111,7 @@ export default function AnnualReturns() {
         firstAnnualReturnYear: row['First Annual Return Year Applicable'] || row['First Annual Return Year'] || ''
       })).filter((row) => String(row.companyUniqueId).trim());
       if (!rows.length) throw new Error('No usable Annual Return year rows found');
-      const response = await api.post(API_ENDPOINTS.ccp.bulkUpdateClientYears, { rows });
+      const response = await api.post(API_ENDPOINTS.clients.bulkUpdateYears, { rows });
       const failures = response.data?.failures || [];
       const skipped = Number(response.data?.skipped || 0);
       setImportNotice(`${response.data?.updated || 0} client year records updated${skipped ? `; ${skipped} placeholder-only rows safely skipped` : ''}${failures.length ? `; ${failures.length} failed. First: row ${failures[0].row} (${failures[0].error})` : '.'}`);

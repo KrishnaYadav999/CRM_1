@@ -3,7 +3,6 @@ import { Eye, RefreshCw, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
-import { fetchCcpLeads, fetchCcpLeadHistory } from '../services/ccpApi';
 
 function idFor(row = {}) { return row._id || row.id || row.sourceLeadId || row.leadCode || ''; }
 function dateFor(row = {}) { return row.createdAt || row.importedCreatedAt || row.leadDate || ''; }
@@ -76,7 +75,7 @@ export default function PendingLeads({ mode = 'open' }) {
 
   async function load() {
     setLoading(true);
-    const [me, result] = await Promise.allSettled([api.get(API_ENDPOINTS.auth.me), fetchCcpLeads()]);
+    const [me, result] = await Promise.allSettled([api.get(API_ENDPOINTS.auth.me), api.get(API_ENDPOINTS.leads.list)]);
     if (me.status === 'fulfilled') setCurrentUser(me.value.data?.user);
     setLeads(result.status === 'fulfilled' ? (result.value.data?.leads || []) : []);
     setLoading(false);
@@ -87,8 +86,7 @@ export default function PendingLeads({ mode = 'open' }) {
     setSelected(row);
     setHistory([]);
     const result = await Promise.allSettled([
-      api.get(API_ENDPOINTS.leads.history(idFor(row))),
-      fetchCcpLeadHistory(idFor(row), { leadCode: row.leadCode, company: row.company })
+      api.get(API_ENDPOINTS.leads.history(idFor(row)), { params: { leadCode: row.leadCode, company: row.company } })
     ]);
     setHistory(result.flatMap((item) => item.status === 'fulfilled' ? (item.value.data?.events || []) : []).sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0)));
   }

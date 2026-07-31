@@ -3,7 +3,6 @@ const PendingApproval = require('../models/PendingApproval');
 const QuotationServiceCategory = require('../models/QuotationServiceCategory');
 const QuotationPiboCategory = require('../models/QuotationPiboCategory');
 const QuotationDropdownOption = require('../models/QuotationDropdownOption');
-const QuotationSyncIssue = require('../models/QuotationSyncIssue');
 const { resolveCrmRelationships } = require('../services/crmRelationships');
 const Lead = require('../models/Lead');
 const Notification = require('../models/Notification');
@@ -149,218 +148,6 @@ function normalizeCompanyName(value) {
     .trim();
 }
 
-function ccpRequestHeaders() {
-  const apiKey = cleanString(process.env.CCP_API_KEY || process.env.CCP_SHARED_API_KEY || process.env.CCP_SHARED_SECRET);
-  return {
-    accept: 'application/json',
-    ...(apiKey ? { 'x-ccp-api-key': apiKey, 'x-ccp-secret': apiKey } : {})
-  };
-}
-
-function ccpQuotationUrl() {
-  const configured = cleanString(process.env.CCP_API_URL || process.env.CCP_API_BASE_URL);
-  if (!configured) throw new Error('CCP_API_URL is not configured on the CRM backend');
-  const base = configured.replace(/\/$/, '');
-  if (/\/api\/ccp$/i.test(base)) return `${base}/quotations`;
-  if (/\/api$/i.test(base)) return `${base}/ccp/quotations`;
-  return `${base}/api/ccp/quotations`;
-}
-
-async function fetchCcpQuotations() {
-  const url = ccpQuotationUrl();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
-  console.info('[CCP quotation sync] request', { url });
-  try {
-    const response = await fetch(url, { headers: ccpRequestHeaders(), signal: controller.signal });
-    const payload = await response.json().catch(() => ({}));
-    const quotations = Array.isArray(payload.quotations) ? payload.quotations : null;
-    console.info('[CCP quotation sync] response', { url, httpStatus: response.status, responseTotal: payload.total, received: quotations?.length ?? 0 });
-    if (!response.ok) {
-      if (response.status === 503 && /credential is not configured/i.test(String(payload.error || payload.message || ''))) {
-        console.warn('[CCP quotation sync] API credential unavailable; using server-side CCP Mongo fallback', { url });
-        return fetchCcpQuotationsFromMongo();
-      }
-      const error = new Error(payload.error || payload.message || `CCP quotation API returned HTTP ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
-    if (!quotations) {
-      const error = new Error('CCP quotation API response does not contain a quotations array');
-      error.status = 502;
-      throw error;
-    }
-    const hasUnresolvedCreator = quotations.some((row) =>
-      (row?.createdBy && typeof row.createdBy !== 'object') ||
-      (row?.selectedLead && typeof row.selectedLead !== 'object')
-    );
-    if (hasUnresolvedCreator) {
-      try {
-        console.info('[CCP quotation sync] creator identity is not populated; enriching from CCP Mongo');
-        return await fetchCcpQuotationsFromMongo();
-      } catch (mongoError) {
-        console.warn('[CCP quotation sync] creator enrichment unavailable; continuing with API response', { error: mongoError.message });
-      }
-    }
-    return { quotations, total: Number(payload.total) || quotations.length, url, status: response.status };
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      const timeoutError = new Error('CCP quotation request timed out');
-      timeoutError.status = 504;
-      throw timeoutError;
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function fetchCcpQuotationsFromMongo() {
-  const dbName = cleanString(process.env.CCP_DB_NAME) || 'ccp';
-  const db = require('mongoose').connection.useDb(dbName, { useCache: true });
-  const quotations = await db.collection('quotations').find({}).sort({ updatedAt: -1, createdAt: -1 }).toArray();
-  const leadIds = [...new Set(quotations.map((row) => {
-    const value = row?.selectedLead && typeof row.selectedLead === 'object' ? row.selectedLead._id : row?.selectedLead;
-    return cleanString(value);
-  }).filter(Boolean))];
-  const objectIds = leadIds.filter((id) => require('mongoose').Types.ObjectId.isValid(id)).map((id) => new (require('mongoose').Types.ObjectId)(id));
-  const leads = objectIds.length
-    ? await db.collection('leads').find({ _id: { $in: objectIds } }).project({ leadCode: 1, sourceLeadId: 1, company: 1, contactPerson: 1, designation: 1, mobileNo1: 1, mobileNo2: 1, emails: 1, importedCreatedBy: 1, createdByEmail: 1, createdBy: 1, assignedToText: 1 }).toArray()
-    : [];
-  const creatorIds = [...new Set([
-    ...quotations.map((row) => cleanString(row.createdBy)),
-    ...leads.map((lead) => cleanString(lead.createdBy))
-  ].filter((id) => require('mongoose').Types.ObjectId.isValid(id)))]
-    .map((id) => new (require('mongoose').Types.ObjectId)(id));
-  const users = creatorIds.length
-    ? await db.collection('users').find({ _id: { $in: creatorIds } }).project({ name: 1, email: 1 }).toArray()
-    : [];
-  const usersById = new Map(users.map((user) => [String(user._id), { _id: String(user._id), name: user.name || '', email: user.email || '' }]));
-  const leadsById = new Map(leads.map((lead) => [String(lead._id), lead]));
-  const populated = quotations.map((row) => {
-    const storedLead = row?.selectedLead && typeof row.selectedLead === 'object' ? row.selectedLead : null;
-    const leadId = cleanString(storedLead?._id || row.selectedLead);
-    const lead = leadsById.get(leadId);
-    const populatedLead = lead ? {
-      ...lead,
-      _id: String(lead._id),
-      createdBy: usersById.get(cleanString(lead.createdBy)) || lead.createdBy
-    } : (storedLead || row.selectedLead);
-    return {
-      ...row,
-      createdBy: usersById.get(cleanString(row.createdBy)) || row.createdBy,
-      selectedLead: populatedLead
-    };
-  });
-  console.info('[CCP quotation sync] Mongo fallback response', { sourceDb: dbName, received: populated.length });
-  return { quotations: populated, total: populated.length, url: `mongodb:${dbName}.quotations`, status: 200 };
-}
-
-function quotationLeadSnapshot(row) {
-  return row?.selectedLead && typeof row.selectedLead === 'object' ? row.selectedLead : {};
-}
-
-async function matchCrmLead(row) {
-  const selectedLead = quotationLeadSnapshot(row);
-  const ccpLeadId = cleanString(selectedLead._id || row.selectedLead || row.ccpLeadId);
-  const leadCode = cleanString(selectedLead.leadCode || row.leadCode);
-
-  const identifiers = [ccpLeadId].filter(Boolean);
-  if (identifiers.length) {
-    const bySourceId = await Lead.find({
-      $or: [
-        { sourceLeadId: { $in: identifiers } },
-        { ccpLeadId: { $in: identifiers } },
-        { externalLeadId: { $in: identifiers } }
-      ]
-    }).limit(2).lean();
-    if (bySourceId.length === 1) return { lead: bySourceId[0], matchedBy: 'ccpLeadId' };
-    if (bySourceId.length > 1) return { reason: 'Multiple CRM leads share the CCP/source lead ID' };
-  }
-
-  if (leadCode) {
-    const byCode = await Lead.find({ leadCode }).limit(2).lean();
-    if (byCode.length === 1) return { lead: byCode[0], matchedBy: 'leadCode' };
-    if (byCode.length > 1) return { reason: 'Multiple CRM leads share the lead code' };
-  }
-
-  const companyName = cleanString(row.companyName || selectedLead.company);
-  const normalizedCompany = normalizeCompanyName(companyName);
-  if (!normalizedCompany) return { reason: 'CCP quotation has no usable lead identifier or company name' };
-  const candidates = await Lead.find({ company: { $exists: true, $ne: '' } }).select('leadCode sourceLeadId company contactPerson').lean();
-  const companyMatches = candidates.filter((lead) => normalizeCompanyName(lead.company) === normalizedCompany);
-  if (companyMatches.length === 1) return { lead: companyMatches[0], matchedBy: 'company' };
-  if (companyMatches.length > 1) return { reason: 'Company-name match is ambiguous' };
-  return { reason: 'No matching CRM lead found' };
-}
-
-function mapCcpQuotation(row, lead) {
-  const selectedLead = quotationLeadSnapshot(row);
-  const quotationCreator = cleanString(row.createdBy?.name || row.createdByName || row.createdBy?.email || row.createdByEmail);
-  const leadCreator = cleanString(
-    selectedLead.importedCreatedBy || selectedLead.createdBy?.name || selectedLead.createdBy?.email ||
-    selectedLead.createdByEmail || lead?.importedCreatedBy || lead?.createdBy?.name || lead?.createdBy?.email ||
-    lead?.createdByEmail || selectedLead.assignedToText || lead?.assignedToText
-  );
-  const assignedUserName = cleanString(selectedLead.assignedTo?.name || selectedLead.assignedToText || selectedLead.assignedToEmail || lead?.assignedTo?.name || lead?.assignedToText || lead?.assignedToEmail);
-  const items = cleanItems(row.items);
-  const pricingMode = row.pricingMode === 'combined' ? 'combined' : 'individual';
-  const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
-  const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(row.combinedBasicAmount || row.grandTotal || row.subtotal) : 0;
-  const calculatedTotal = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
-  return {
-    ccpQuotationId: cleanString(row._id || row.id),
-    leadId: lead?._id ? String(lead._id) : undefined,
-    ccpLeadId: cleanString(selectedLead._id || row.selectedLead || row.ccpLeadId),
-    leadCode: cleanString(lead?.leadCode || selectedLead.leadCode || row.leadCode),
-    businessLeadCode: cleanString(selectedLead.sourceLeadId || lead?.sourceLeadId || row.businessLeadCode || row.sourceLeadId),
-    companyName: cleanString(row.companyName || selectedLead.company || lead?.company),
-    quotationNumber: cleanString(row.quotationNumber),
-    quotationDate: row.quotationDate || row.createdAt || undefined,
-    validUntil: cleanString(row.validUntil),
-    pricingMode,
-    combinedBasicAmount,
-    leadDetails: cleanLeadDetails({
-      companyName: row.companyName || selectedLead.company || lead?.company,
-      contactPerson: selectedLead.contactPerson || lead?.contactPerson,
-      designation: selectedLead.designation || lead?.designation,
-      mobileNo1: selectedLead.mobileNo1 || lead?.mobileNo1,
-      mobileNo2: selectedLead.mobileNo2 || lead?.mobileNo2,
-      gstNumber: selectedLead.gstNumber || selectedLead.gstin || selectedLead.gst
-    }),
-    items,
-    terms: cleanTerms(row.terms),
-    scopeOfWork: cleanTerms(row.scopeOfWork),
-    subtotal: roundMoney(row.subtotal || calculatedTotal),
-    grandTotal: roundMoney(row.grandTotal || row.subtotal || calculatedTotal),
-    status: ['draft', 'submitted'].includes(row.status) ? row.status : 'draft',
-    source: 'CCP',
-    createdByName: quotationCreator || leadCreator,
-    leadGeneratedBy: leadCreator || quotationCreator,
-    assignedUserName,
-    ccpSource: ['manual', 'bulk'].includes(cleanString(row.source).toLowerCase()) ? cleanString(row.source).toLowerCase() : cleanString(row.source),
-    ccpCreatedAt: row.createdAt || undefined,
-    ccpUpdatedAt: row.updatedAt || row.createdAt || undefined,
-    lastSyncedAt: new Date(),
-    syncMatchStatus: lead?._id ? 'matched' : 'unmatched',
-    unmatchedReason: ''
-  };
-}
-
-function comparableCcpFields(record) {
-  return JSON.stringify({
-    leadId: record.leadId || '', ccpLeadId: record.ccpLeadId, leadCode: record.leadCode, businessLeadCode: record.businessLeadCode || '',
-    companyName: record.companyName, quotationNumber: record.quotationNumber,
-    quotationDate: record.quotationDate ? new Date(record.quotationDate).toISOString() : '',
-    validUntil: record.validUntil, pricingMode: record.pricingMode, combinedBasicAmount: record.combinedBasicAmount, items: record.items, terms: record.terms, scopeOfWork: record.scopeOfWork,
-    subtotal: record.subtotal, grandTotal: record.grandTotal, status: record.status,
-    source: record.source, ccpSource: record.ccpSource,
-    createdByName: record.createdByName || '', leadGeneratedBy: record.leadGeneratedBy || '', assignedUserName: record.assignedUserName || '',
-    ccpUpdatedAt: record.ccpUpdatedAt ? new Date(record.ccpUpdatedAt).toISOString() : '',
-    syncMatchStatus: record.syncMatchStatus, unmatchedReason: record.unmatchedReason || ''
-  });
-}
-
 function preserveTerminalApprovalStatus(existing, incoming) {
   const currentStatus = cleanString(existing?.status).toLowerCase();
   const incomingStatus = cleanString(incoming?.status).toLowerCase();
@@ -383,11 +170,11 @@ function approvalDateParts(value) {
 }
 
 function readCreatedBy(quotation) {
-  return quotation.createdBy?.name || quotation.createdByName || quotation.createdBy?.email || (String(quotation.source || '').toLowerCase() === 'ccp' ? 'CCP User' : 'CRM User');
+  return quotation.createdBy?.name || quotation.createdByName || quotation.createdBy?.email || 'CRM User';
 }
 
 function quotationApprovalSource(quotation) {
-  return String(quotation.source || '').trim().toLowerCase() === 'ccp' || quotation.ccpQuotationId ? 'ccp' : 'crm';
+  return 'crm';
 }
 
 function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
@@ -398,20 +185,18 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
   const totalBasicAmount = quotation.pricingMode === 'combined'
     ? roundMoney(quotation.combinedBasicAmount || quotation.grandTotal)
     : itemBasicAmount;
-  const isBulkCcp = quotationApprovalSource(quotation) === 'ccp' && String(quotation.ccpSource || '').toLowerCase() === 'bulk';
   const leadCreator = quotation.leadGeneratedBy || readCreatedBy(quotation);
-  const displayUser = isBulkCcp ? (quotation.assignedUserName || leadCreator) : readCreatedBy(quotation);
-  const displayCreator = isBulkCcp ? leadCreator : readCreatedBy(quotation);
+  const displayUser = readCreatedBy(quotation);
+  const displayCreator = readCreatedBy(quotation);
 
   return {
     id: quotation._id,
     quotationId: quotation._id,
     quotationNumber: quotation.quotationNumber || '',
     leadId: quotation.leadId || '',
-    ccpLeadId: quotation.ccpLeadId || '',
+    sourceLeadId: quotation.sourceLeadId || quotation.externalLeadId || quotation.leadId || '',
     leadCode: quotation.leadCode || '',
     businessLeadCode: quotation.businessLeadCode || '',
-    ccpSource: quotation.ccpSource || '',
     leadDetails: details,
     validUntil: quotation.validUntil || '',
     pricingMode: quotation.pricingMode || 'individual',
@@ -493,54 +278,6 @@ async function upsertQuotationPendingApproval(quotation, approvalType = 'CREATE'
   return record;
 }
 
-async function hydrateCcpQuotationCreators(quotations = []) {
-  const unresolved = quotations.filter((quotation) =>
-    quotationApprovalSource(quotation) === 'ccp' &&
-    (!cleanString(quotation.createdByName) || !cleanString(quotation.leadGeneratedBy)) &&
-    cleanString(quotation.ccpQuotationId)
-  );
-  if (!unresolved.length) return quotations;
-
-  try {
-    const mongoose = require('mongoose');
-    const db = mongoose.connection.useDb(cleanString(process.env.CCP_DB_NAME) || 'ccp', { useCache: true });
-    const ccpIds = unresolved
-      .map((quotation) => cleanString(quotation.ccpQuotationId))
-      .filter((id) => mongoose.Types.ObjectId.isValid(id))
-      .map((id) => new mongoose.Types.ObjectId(id));
-    const ccpRows = await db.collection('quotations').find({ _id: { $in: ccpIds } }).toArray();
-    const leadIds = ccpRows.map((row) => row.selectedLead).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
-    const leads = leadIds.length ? await db.collection('leads').find({ _id: { $in: leadIds } }).toArray() : [];
-    const leadsById = new Map(leads.map((lead) => [String(lead._id), lead]));
-    const userIds = [...new Set([
-      ...ccpRows.map((row) => cleanString(row.createdBy)),
-      ...leads.map((lead) => cleanString(lead.createdBy))
-    ].filter((id) => mongoose.Types.ObjectId.isValid(id)))]
-      .map((id) => new mongoose.Types.ObjectId(id));
-    const users = userIds.length ? await db.collection('users').find({ _id: { $in: userIds } }).project({ name: 1, email: 1 }).toArray() : [];
-    const usersById = new Map(users.map((user) => [String(user._id), cleanString(user.name || user.email)]));
-    const ccpById = new Map(ccpRows.map((row) => [String(row._id), row]));
-
-    for (const quotation of unresolved) {
-      const ccpRow = ccpById.get(cleanString(quotation.ccpQuotationId));
-      if (!ccpRow) continue;
-      const lead = leadsById.get(String(ccpRow.selectedLead)) || {};
-      const quotationCreator = usersById.get(cleanString(ccpRow.createdBy)) || cleanString(ccpRow.createdByName || ccpRow.createdByEmail);
-      const leadCreator = cleanString(lead.importedCreatedBy) || usersById.get(cleanString(lead.createdBy)) || cleanString(lead.createdByEmail) || quotationCreator;
-      const createdByName = cleanString(quotation.createdByName) || quotationCreator || leadCreator;
-      const leadGeneratedBy = cleanString(quotation.leadGeneratedBy) || leadCreator || quotationCreator;
-      if (!createdByName && !leadGeneratedBy) continue;
-      quotation.createdByName = createdByName;
-      quotation.leadGeneratedBy = leadGeneratedBy;
-      await Quotation.updateOne({ _id: quotation._id }, { $set: { createdByName, leadGeneratedBy } });
-    }
-  } catch (error) {
-    console.warn('[CCP quotation creator hydration] skipped', { error: error.message });
-  }
-
-  return quotations;
-}
-
 async function nextQuotationNumber() {
   const now = new Date();
   const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -589,124 +326,6 @@ exports.listLeadQuotations = async (req, res) => {
   const leadId = cleanString(req.params.leadId);
   const quotations = await Quotation.find({ leadId }).populate('createdBy', 'name email').sort({ quotationDate: -1, createdAt: -1 }).lean();
   return res.json({ ok: true, quotations });
-};
-
-exports.syncCcpQuotations = async (req, res) => {
-  const summary = { fetched: 0, created: 0, updated: 0, unchanged: 0, pendingSynced: 0, unmatched: 0, failed: 0 };
-  const unmatched = [];
-  const failures = [];
-  let rows;
-  try {
-    const fetched = await fetchCcpQuotations();
-    rows = fetched.quotations;
-    summary.fetched = rows.length;
-  } catch (err) {
-    const status = Number(err.status) >= 400 && Number(err.status) < 600 ? Number(err.status) : 502;
-    return res.status(status).json({ ok: false, error: err.message || 'Unable to fetch quotations from CCP', summary });
-  }
-
-  for (const row of rows) {
-    const ccpQuotationId = cleanString(row?._id || row?.id);
-    const selectedLead = quotationLeadSnapshot(row);
-    const issueIdentity = ccpQuotationId || `${cleanString(selectedLead._id || row?.selectedLead)}:${cleanString(row?.quotationNumber)}`;
-    try {
-      if (!ccpQuotationId || !cleanString(row.quotationNumber)) {
-        throw new Error('CCP quotation ID and quotation number are required');
-      }
-      const match = await matchCrmLead(row);
-      if (!match.lead) {
-        const issue = {
-          ccpQuotationId: issueIdentity,
-          ccpLeadId: cleanString(selectedLead._id || row.selectedLead),
-          leadCode: cleanString(selectedLead.leadCode || row.leadCode),
-          quotationNumber: cleanString(row.quotationNumber),
-          companyName: cleanString(row.companyName || selectedLead.company),
-          reason: match.reason || 'No matching CRM lead found',
-          status: 'unmatched', lastSeenAt: new Date(), resolvedAt: null
-        };
-        await QuotationSyncIssue.findOneAndUpdate({ ccpQuotationId: issueIdentity }, { $set: issue }, { upsert: true, new: true });
-        let unmatchedQuotation = {
-          ...mapCcpQuotation(row, null),
-          syncMatchStatus: 'unmatched',
-          unmatchedReason: issue.reason
-        };
-        const existingUnmatched = await Quotation.findOne({ ccpQuotationId }).lean();
-        unmatchedQuotation = preserveTerminalApprovalStatus(existingUnmatched, unmatchedQuotation);
-        let savedQuotation;
-        let changed = false;
-        if (!existingUnmatched) {
-          savedQuotation = await Quotation.create(unmatchedQuotation);
-          summary.created += 1;
-        } else {
-          changed = comparableCcpFields(existingUnmatched) !== comparableCcpFields(unmatchedQuotation);
-          savedQuotation = await Quotation.findOneAndUpdate(
-            { _id: existingUnmatched._id },
-            { $set: changed ? unmatchedQuotation : { lastSyncedAt: unmatchedQuotation.lastSyncedAt, unmatchedReason: issue.reason, syncMatchStatus: 'unmatched' } },
-            { new: true }
-          );
-          summary[changed ? 'updated' : 'unchanged'] += 1;
-        }
-        const hasPendingRecord = await PendingApproval.exists({ type: 'quotation', source: 'ccp', sourceClientId: String(savedQuotation._id) });
-        if (!existingUnmatched || changed || !hasPendingRecord) {
-          await upsertQuotationPendingApproval(savedQuotation, existingUnmatched ? 'UPDATE' : 'CREATE');
-          summary.pendingSynced += 1;
-        }
-        unmatched.push(issue);
-        summary.unmatched += 1;
-        console.warn('[CCP quotation sync] unmatched', { ccpQuotationId, quotationNumber: issue.quotationNumber, ccpLeadId: issue.ccpLeadId, reason: issue.reason });
-        continue;
-      }
-
-      let mapped = mapCcpQuotation(row, match.lead);
-      const existing = await Quotation.findOne({
-        $or: [
-          { ccpQuotationId },
-          { leadId: mapped.leadId, quotationNumber: mapped.quotationNumber }
-        ]
-      }).lean();
-      mapped = preserveTerminalApprovalStatus(existing, mapped);
-
-      let savedQuotation;
-      let changed = false;
-      if (!existing) {
-        savedQuotation = await Quotation.create(mapped);
-        summary.created += 1;
-      } else {
-        changed = comparableCcpFields(existing) !== comparableCcpFields(mapped);
-        savedQuotation = await Quotation.findOneAndUpdate(
-          { _id: existing._id },
-          { $set: changed ? mapped : { lastSyncedAt: mapped.lastSyncedAt, ccpQuotationId } },
-          { new: true }
-        );
-        summary[changed ? 'updated' : 'unchanged'] += 1;
-      }
-      const hasPendingRecord = await PendingApproval.exists({ type: 'quotation', source: 'ccp', sourceClientId: String(savedQuotation._id) });
-      if (!existing || changed || !hasPendingRecord) {
-        await upsertQuotationPendingApproval(savedQuotation, existing ? 'UPDATE' : 'CREATE');
-        summary.pendingSynced += 1;
-      }
-      await QuotationSyncIssue.findOneAndUpdate(
-        { ccpQuotationId: issueIdentity },
-        { $set: { status: 'resolved', resolvedAt: new Date(), lastSeenAt: new Date() } }
-      );
-    } catch (err) {
-      summary.failed += 1;
-      const failure = {
-        ccpQuotationId: issueIdentity,
-        ccpLeadId: cleanString(selectedLead._id || row?.selectedLead),
-        leadCode: cleanString(selectedLead.leadCode || row?.leadCode),
-        quotationNumber: cleanString(row?.quotationNumber),
-        companyName: cleanString(row?.companyName || selectedLead.company),
-        reason: err.message || 'Quotation sync failed', status: 'failed', lastSeenAt: new Date()
-      };
-      failures.push(failure);
-      await QuotationSyncIssue.findOneAndUpdate({ ccpQuotationId: issueIdentity }, { $set: failure }, { upsert: true, new: true }).catch(() => {});
-      console.error('[CCP quotation sync] failed', { ccpQuotationId: issueIdentity, quotationNumber: failure.quotationNumber, reason: failure.reason });
-    }
-  }
-
-  console.info('[CCP quotation sync] complete', summary);
-  return res.json({ ok: summary.failed === 0, ...summary, summary, unmatched, failures });
 };
 
 exports.createQuotation = async (req, res) => {
@@ -940,7 +559,6 @@ exports.approveAllPendingQuotations = async (req, res) => {
 
 exports.mapQuotationPendingApprovalRow = mapQuotationPendingApprovalRow;
 exports.upsertQuotationPendingApproval = upsertQuotationPendingApproval;
-exports.hydrateCcpQuotationCreators = hydrateCcpQuotationCreators;
 
 exports.listServiceCategories = async (req, res) => {
   const categories = await QuotationServiceCategory.find().sort({ name: 1 }).lean();
@@ -992,10 +610,6 @@ exports.createPiboCategory = async (req, res) => {
 
 exports._test = {
   normalizeCompanyName,
-  ccpRequestHeaders,
-  ccpQuotationUrl,
-  mapCcpQuotation,
-  comparableCcpFields,
   preserveTerminalApprovalStatus
 };
 

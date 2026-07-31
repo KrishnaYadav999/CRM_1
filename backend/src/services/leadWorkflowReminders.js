@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
+const Lead = require('../models/Lead');
 const Notification = require('../models/Notification');
 const PendingApproval = require('../models/PendingApproval');
 const User = require('../models/User');
-const { ccpApiUrl, ccpHeaders } = require('../utils/ccpConfig');
 const { sendMail } = require('../utils/mailer');
 
 const HOUR = 60 * 60 * 1000;
@@ -92,11 +92,9 @@ function listFrom(payload) {
 
 async function getCcpLeads() {
   try {
-    const response = await fetch(ccpApiUrl('ccp/leads'), { headers: ccpHeaders() });
-    if (!response.ok) throw new Error(`CCP lead reminder read returned ${response.status}`);
-    return listFrom(await response.json());
+    return await Lead.find({}).lean();
   } catch (error) {
-    console.warn('CCP lead reminder fetch failed, continuing with local reminders only', error.message);
+    console.warn('CRM lead reminder fetch failed', error.message);
     return [];
   }
 }
@@ -108,7 +106,7 @@ async function admins(roles = ['superadmin']) {
 async function resolveManager(value) {
   const id = String(value || '').trim();
   if (!id) return null;
-  const options = [{ crmUserId: id }, { ccpUserId: id }];
+  const options = [{ crmUserId: id }];
   if (mongoose.isValidObjectId(id)) options.unshift({ _id: id });
   return User.findOne({ $or: options, role: 'manager', isActive: { $ne: false } }).select('_id name email').lean();
 }
@@ -121,7 +119,7 @@ async function resolveLeadUser(lead) {
   const name = String(creatorRow.createdByName || lead.createdByName || lead.importedCreatedBy || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
   const options = [];
   if (id) {
-    options.push({ crmUserId: id }, { ccpUserId: id });
+    options.push({ crmUserId: id });
     if (mongoose.isValidObjectId(id)) options.unshift({ _id: id });
   }
   if (email) options.push({ email });
@@ -130,8 +128,13 @@ async function resolveLeadUser(lead) {
 }
 
 async function updateCcpLead(id, body) {
-  const response = await fetch(ccpApiUrl(`ccp/leads/${encodeURIComponent(id)}`), { method: 'PUT', headers: ccpHeaders({ json: true }), body: JSON.stringify(body) });
-  return response.ok;
+  const lead = mongoose.isValidObjectId(String(id || ''))
+    ? await Lead.findById(id)
+    : await Lead.findOne({ sourceLeadId: String(id || '').trim() });
+  if (!lead) return false;
+  Object.assign(lead, body || {});
+  await lead.save();
+  return true;
 }
 
 async function remindFollowUps(leads, now) {

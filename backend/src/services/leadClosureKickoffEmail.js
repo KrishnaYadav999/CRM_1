@@ -16,12 +16,12 @@ function escapeHtml(value) {
 
 async function resolveUserEmails(values = []) {
   const identities = [...new Set(values.flatMap((value) => value && typeof value === 'object'
-    ? [value._id, value.id, value.crmUserId, value.ccpUserId, value.email]
+    ? [value._id, value.id, value.crmUserId, value.userId, value.email]
     : [value]).map((value) => String(value || '').trim()).filter(Boolean))];
   if (!identities.length) return [];
   const conditions = [];
   identities.forEach((identity) => {
-    conditions.push({ crmUserId: identity }, { ccpUserId: identity }, { email: identity.toLowerCase() }, { name: identity });
+    conditions.push({ crmUserId: identity }, { email: identity.toLowerCase() }, { name: identity });
     if (/^[a-f\d]{24}$/i.test(identity)) conditions.push({ _id: identity });
   });
   const users = await User.find({ $or: conditions, isActive: { $ne: false } }).select('email').lean();

@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
-const authController = require('./controllers/authController');
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
 const clientRoutes = require('./routes/clients');
@@ -11,8 +10,6 @@ const quotationRoutes = require('./routes/quotations');
 const proformaInvoiceRoutes = require('./routes/proformaInvoices');
 const annualReturnRoutes = require('./routes/annualReturns');
 const notificationRoutes = require('./routes/notifications');
-const ccpRoutes = require('./routes/ccp');
-const ccpIntegrationRoutes = require('./routes/ccpIntegrations');
 const assetRoutes = require('./routes/assets');
 const teamRoutes = require('./routes/teams');
 const calendarItemRoutes = require('./routes/calendarItems');
@@ -21,8 +18,6 @@ const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } =
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
 const { startLeadServiceApprovalReminderScheduler, runLeadServiceApprovalReminders } = require('./services/leadServiceApprovalReminders');
-const { requireCcpSecret } = require('./middleware/ccpSecret');
-const PendingApproval = require('./models/PendingApproval');
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception', err);
@@ -82,7 +77,6 @@ app.use('/api', async (req, res, next) => {
   return next();
 });
 
-app.post('/api/crm/users/sync', requireCcpSecret, authController.syncUserFromCcp);
 app.get('/api/internal/client-onboarding-reminders', async (req, res) => {
   const cronSecret = String(process.env.CRON_SECRET || '').trim();
   const authorization = String(req.get('authorization') || '').trim();
@@ -99,30 +93,8 @@ app.get('/api/internal/lead-service-approval-reminders', async (req, res) => {
   try { return res.json({ ok: true, ...(await runLeadServiceApprovalReminders()) }); }
   catch (error) { return res.status(500).json({ ok: false, error: error.message || 'Service approval reminder run failed' }); }
 });
-app.post('/api/pending-approvals/ccp/sync', requireCcpSecret, async (req, res, next) => {
-  try {
-    const rows = Array.isArray(req.body?.approvals) ? req.body.approvals : [req.body];
-    const approvals = [];
-    for (const row of rows.filter(Boolean)) {
-      const sourceClientId = String(row.sourceClientId || row.ccpApprovalId || row.id || row._id || '').trim();
-      if (!sourceClientId) return res.status(400).json({ ok: false, error: 'Each approval requires a stable CCP id' });
-      const update = { ...row, source: 'ccp', sourceClientId };
-      delete update._id;
-      delete update.id;
-      delete update.ccpApprovalId;
-      approvals.push(await PendingApproval.findOneAndUpdate(
-        { type: update.type || 'client', source: 'ccp', sourceClientId },
-        { $set: update },
-        { new: true, upsert: true, runValidators: true }
-      ).lean());
-    }
-    return res.json({ ok: true, source: 'crm', approvals });
-  } catch (error) { return next(error); }
-});
   app.use('/api/auth', authRoutes);
   app.use('/api/assets', assetRoutes);
-app.use('/api/ccp', ccpRoutes);
-app.use('/api/integrations/ccp', ccpIntegrationRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/quotations', quotationRoutes);
@@ -134,7 +106,7 @@ app.use('/api/calendar-items', calendarItemRoutes);
 
 app.get('/', (req, res) => res.send({ ok: true, env: process.env.NODE_ENV }));
 
-const PORT = process.env.PORT || 6000;
+const PORT = process.env.PORT || 4000;
 if (require.main === module) {
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }

@@ -9,7 +9,6 @@ function leadKeys(lead = {}) {
     lead._id,
     lead.id,
     lead.sourceLeadId,
-    lead.ccpLeadId,
     lead.externalLeadId,
     lead.leadId
   ].map(cleanKey).filter(Boolean))];
