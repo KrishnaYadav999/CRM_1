@@ -3089,9 +3089,11 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
     setOpenServiceRow(rowIndex);
   }
 
-  function updateFile(rowIndex, fileList) {
+  async function updateFile(rowIndex, fileList) {
     const file = fileList?.[0];
-    updateRow(rowIndex, 'compliancePoFile', file?.name || '');
+    if (!file) return;
+    const uploaded = await uploadMedia(file, 'crm/client-master/compliance-po');
+    updateRow(rowIndex, 'compliancePoFile', uploaded);
   }
 
   return (
@@ -3161,7 +3163,7 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                   <td>
                     <label className="annual-po-upload-cell">
                       <Upload className="h-4 w-4" />
-                      <span>{row.compliancePoFile || 'Upload PO'}</span>
+                      <span>{row.compliancePoFile?.name || row.compliancePoFile || 'Upload PO'}</span>
                       <input
                         type="file"
                         accept=".pdf,.png,.jpg,.jpeg,.gif"

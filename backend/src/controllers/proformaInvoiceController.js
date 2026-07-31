@@ -4,6 +4,18 @@ const { resolveCrmRelationships } = require('../services/crmRelationships');
 
 const text = (value) => String(value || '').trim();
 const money = (value) => Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : 0;
+const mediaReference = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return { name: text(value) };
+  if (typeof value !== 'object') return null;
+  return {
+    name: text(value.name || value.fileName), type: text(value.type), size: Math.max(0, Number(value.size) || 0),
+    url: text(value.secureUrl || value.url), secureUrl: text(value.secureUrl || value.url), publicId: text(value.publicId),
+    resourceType: text(value.resourceType), format: text(value.format), bytes: Math.max(0, Number(value.bytes) || Number(value.size) || 0),
+    width: Number(value.width) || null, height: Number(value.height) || null, duration: Number(value.duration) || null,
+    uploadedAt: text(value.uploadedAt)
+  };
+};
 
 async function nextProformaNumber() {
   const now = new Date();
@@ -29,7 +41,7 @@ function cleanPayload(body = {}) {
   const poYearCount = Math.max(0, Math.min(50, Number(body.poYearCount) || 0));
   const poYearRows = (Array.isArray(body.poYearRows) ? body.poYearRows : []).slice(0, poYearCount).map((row) => ({
     fy: text(row.fy), annualReturnYear: text(row.annualReturnYear), quotationNo: text(row.quotationNo),
-    compliancePoDate: text(row.compliancePoDate), compliancePoFile: text(row.compliancePoFile),
+    compliancePoDate: text(row.compliancePoDate), compliancePoFile: mediaReference(row.compliancePoFile),
     serviceCategory: [...new Set((Array.isArray(row.serviceCategory) ? row.serviceCategory : String(row.serviceCategory || '').split(',')).map(text).filter(Boolean))],
     value: money(row.value)
   }));

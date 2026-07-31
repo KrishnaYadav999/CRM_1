@@ -15,7 +15,7 @@ const PurchaseOrderYearSchema = new mongoose.Schema({
   annualReturnYear: { type: String, trim: true },
   quotationNo: { type: String, trim: true },
   compliancePoDate: { type: String, trim: true },
-  compliancePoFile: { type: String, trim: true },
+  compliancePoFile: { type: mongoose.Schema.Types.Mixed, default: null },
   serviceCategory: { type: [String], default: [] },
   value: { type: Number, default: 0 }
 }, { _id: false });

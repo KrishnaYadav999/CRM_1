@@ -10,7 +10,7 @@ test('proforma payload preserves quotation, PO and calculated item totals', () =
     leadDetails: { companyName: 'Example Limited', contactPerson: 'Krishna' },
     items: [{ serviceCategory: 'CONSULTANCY FEE', unit: '2', basicAmount: '30000' }],
     poYearCount: 1,
-    poYearRows: [{ fy: '2024-25', annualReturnYear: '2024-25', quotationNo: 'AT/26-27/292', compliancePoFile: 'po.pdf', serviceCategory: ['CONSULTANCY FEE'], value: '60000' }]
+    poYearRows: [{ fy: '2024-25', annualReturnYear: '2024-25', quotationNo: 'AT/26-27/292', compliancePoDate: '2026-07-31', compliancePoFile: { name: 'po.pdf', secureUrl: 'https://files.example/po.pdf', publicId: 'crm/po-1', type: 'application/pdf', size: 2048 }, serviceCategory: ['CONSULTANCY FEE'], value: '60000' }]
   });
   assert.equal(payload.quotationNumber, 'AT/26-27/292');
   assert.equal(payload.poNumber, 'PO-1001');
@@ -19,6 +19,10 @@ test('proforma payload preserves quotation, PO and calculated item totals', () =
   assert.equal(payload.poYearCount, 1);
   assert.deepEqual(payload.poYearRows[0].serviceCategory, ['CONSULTANCY FEE']);
   assert.equal(payload.poYearRows[0].value, 60000);
+  assert.equal(payload.poYearRows[0].compliancePoDate, '2026-07-31');
+  assert.equal(payload.poYearRows[0].compliancePoFile.name, 'po.pdf');
+  assert.equal(payload.poYearRows[0].compliancePoFile.secureUrl, 'https://files.example/po.pdf');
+  assert.equal(payload.poYearRows[0].compliancePoFile.publicId, 'crm/po-1');
 });
 
 test('proforma routes require CRM authentication and are mounted', () => {

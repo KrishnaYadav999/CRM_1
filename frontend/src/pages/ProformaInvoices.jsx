@@ -5,6 +5,7 @@ import jsPDF from 'jspdf'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import api, { readApiError, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
+import { uploadMedia } from '../services/mediaUpload'
 
 const blankLead = { referredBy: '', salutation: '', contactPerson: '', designation: '', mobileNo1: '', mobileNo2: '', companyName: '', addressLine1: '', addressLine2: '', addressLine3: '', state: '', city: '', pinCode: '', gstNumber: '' }
 const blankItem = { serviceCategory: '', servicesForYear: '', eprCategory: '', piboParent: '', piboCategory: '', unit: '1', basicAmount: '' }
@@ -68,6 +69,8 @@ function QuotationPicker({ value, quotations, onChange }) {
 
 function PoMappingTable({ form, setForm }) {
   const [openRow, setOpenRow] = useState(null)
+  const [uploadingRow, setUploadingRow] = useState(null)
+  const [uploadError, setUploadError] = useState('')
   const count = Math.max(0, Number(form.poYearCount) || 0)
   const serviceOptions = [...new Set((form.items || []).map((item) => String(item.serviceCategory || '').trim()).filter(Boolean))]
   const rows = Array.from({ length: count }, (_, index) => ({
@@ -85,9 +88,19 @@ function PoMappingTable({ form, setForm }) {
     const selected = rows[rowIndex]?.serviceCategory || []
     updateRow(rowIndex, 'serviceCategory', selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option])
   }
+  const uploadPoFile = async (rowIndex, file) => {
+    if (!file) return
+    setUploadingRow(rowIndex); setUploadError('')
+    try {
+      const uploaded = await uploadMedia(file, 'crm/proforma-invoices/compliance-po')
+      updateRow(rowIndex, 'compliancePoFile', uploaded)
+    } catch (uploadError) {
+      setUploadError(uploadError?.message || 'Unable to upload Compliance PO.')
+    } finally { setUploadingRow(null) }
+  }
   return <section className="mt-7 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50/70 to-orange-50/50">
     <header className="flex flex-wrap items-end justify-between gap-4 border-b border-emerald-100 px-5 py-4">
-      <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Compliance PO Mapping</p><h3 className="mt-1 text-lg font-black">Mention No. of Year PO</h3><p className="text-xs font-bold text-slate-500">Fill once here; saved rows auto-fetch in Client Master.</p></div>
+      <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Compliance PO Mapping</p><h3 className="mt-1 text-lg font-black">Mention No. of Year PO</h3><p className="text-xs font-bold text-slate-500">Fill once here; saved rows auto-fetch in Client Master.</p>{uploadError && <p className="mt-1 text-xs font-black text-red-600">{uploadError}</p>}</div>
       <label className="w-40"><span className="mb-2 block text-[10px] font-black uppercase tracking-wider text-emerald-800">No. of Year PO</span><input type="number" min="0" max="50" value={count || ''} onChange={(event) => updateCount(event.target.value)} className="h-11 w-full rounded-xl border border-emerald-200 bg-white px-3 font-black" /></label>
     </header>
     {count > 0 && <div className="overflow-x-auto bg-white"><table className="w-full min-w-[1200px] text-left text-xs"><thead className="bg-emerald-50 text-[10px] uppercase tracking-wide text-emerald-900"><tr>{['#', 'F.Y', 'Annual Return', 'Quotation No.', 'Compliance PO Date', 'Upload Compliance PO', 'Service Category', 'Value'].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index} className="border-t border-emerald-50">
@@ -96,7 +109,7 @@ function PoMappingTable({ form, setForm }) {
       <td className="p-2"><input value={row.annualReturnYear || ''} onChange={(event) => updateRow(index, 'annualReturnYear', event.target.value)} placeholder="2024-25" className="h-11 w-32 rounded-xl border px-3 font-bold" /></td>
       <td className="p-2"><input value={row.quotationNo || ''} onChange={(event) => updateRow(index, 'quotationNo', event.target.value)} placeholder="Quotation No." className="h-11 w-36 rounded-xl border px-3 font-bold" /></td>
       <td className="p-2"><input type="date" value={row.compliancePoDate || ''} onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)} className="h-11 w-40 rounded-xl border px-3 font-bold" /></td>
-      <td className="p-2"><label className="flex h-11 w-48 cursor-pointer items-center gap-2 overflow-hidden rounded-xl border border-dashed border-emerald-300 bg-emerald-50 px-3 font-black text-emerald-700"><Upload className="h-4 w-4 shrink-0" /><span className="truncate">{row.compliancePoFile || 'Upload PO'}</span><input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={(event) => updateRow(index, 'compliancePoFile', event.target.files?.[0]?.name || '')} /></label></td>
+      <td className="p-2"><label className="flex h-11 w-48 cursor-pointer items-center gap-2 overflow-hidden rounded-xl border border-dashed border-emerald-300 bg-emerald-50 px-3 font-black text-emerald-700"><Upload className="h-4 w-4 shrink-0" /><span className="truncate">{uploadingRow === index ? 'Uploading...' : row.compliancePoFile?.name || row.compliancePoFile || 'Upload PO'}</span><input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" disabled={uploadingRow === index} onChange={(event) => uploadPoFile(index, event.target.files?.[0])} /></label></td>
       <td className="relative p-2"><button type="button" onClick={() => setOpenRow(openRow === index ? null : index)} className="flex h-11 w-56 items-center justify-between rounded-xl border bg-white px-3 font-bold"><span className="truncate">{row.serviceCategory?.length ? `${row.serviceCategory.length} selected` : 'Select service category'}</span><ChevronDown className="h-4 w-4" /></button>{openRow === index && <div className="absolute z-30 mt-1 max-h-48 w-64 overflow-y-auto rounded-xl border bg-white p-2 shadow-xl">{serviceOptions.length ? serviceOptions.map((option) => <label key={option} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 font-bold hover:bg-emerald-50"><input type="checkbox" checked={(row.serviceCategory || []).includes(option)} onChange={() => toggleService(index, option)} /><span>{option}</span></label>) : <p className="p-3 text-slate-400">Add invoice items first.</p>}</div>}<small className="mt-1 block max-w-56 truncate font-bold text-slate-400">{(row.serviceCategory || []).join(', ') || 'No service selected'}</small></td>
       <td className="p-2"><input type="number" value={row.value ?? ''} onChange={(event) => updateRow(index, 'value', event.target.value)} placeholder="0" className="h-11 w-28 rounded-xl border px-3 font-black" /></td>
     </tr>)}</tbody></table></div>}
