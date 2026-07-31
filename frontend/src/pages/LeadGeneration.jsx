@@ -656,9 +656,7 @@ export default function LeadGeneration() {
 
   function startAddServicesMode() {
     if (!selectedSearchLead) return;
-    const rows = Array.isArray(selectedSearchLead.serviceSelections) && selectedSearchLead.serviceSelections.length
-      ? selectedSearchLead.serviceSelections
-      : [createServiceSelection(selectedSearchLead)];
+    const rows = normalizeLegacyServiceSelections(selectedSearchLead);
     setLead({ ...emptyLead, ...selectedSearchLead, leadCode: displayLeadId(selectedSearchLead) === '-' ? nextVisibleLeadCode(allCcpLeads) : selectedSearchLead.leadCode, serviceSelections: rows.map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? selectedSearchLead.firstAnnualReturnYearApplicable : '') })), addresses: Array.isArray(selectedSearchLead.addresses) && selectedSearchLead.addresses.length ? selectedSearchLead.addresses : [createAddressRow(selectedSearchLead)] });
     setEditingLeadId(leadRecordId(selectedSearchLead));
     setRoyaltyClaimed(false);
@@ -1715,11 +1713,13 @@ export default function LeadGeneration() {
               navigate('/sales/proforma-invoices', { state: { leadContext, leadAction: action === 'revise' ? 'revise' : 'add' } });
             }}
             onEdit={() => {
+              const normalizedServices = normalizeLegacyServiceSelections(viewLead).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? viewLead.firstAnnualReturnYearApplicable : '') }));
               setLead({
                 ...emptyLead,
                 ...viewLead,
                 leadCode: displayLeadId(viewLead) === '-' ? nextVisibleLeadCode(allCcpLeads) : viewLead.leadCode,
-                serviceSelections: (Array.isArray(viewLead.serviceSelections) && viewLead.serviceSelections.length ? viewLead.serviceSelections : [createServiceSelection(viewLead)]).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? viewLead.firstAnnualReturnYearApplicable : '') })),
+                serviceSelections: normalizedServices,
+                applicableService: normalizedServices[0]?.applicableService || viewLead.applicableService || '',
                 assignedTo: viewLead.assignedTo?._id || viewLead.assignedTo?.id || viewLead.assignedTo || '',
                 closedBy: viewLead.closedBy?._id || viewLead.closedBy?.id || viewLead.closedBy || ''
               });
@@ -1746,7 +1746,8 @@ export default function LeadGeneration() {
           onRefresh={loadPage}
           onView={setViewLead}
           onEdit={(item) => {
-            setLead({ ...emptyLead, ...item, serviceSelections: item.serviceSelections?.length ? item.serviceSelections : [createServiceSelection(item)], addresses: item.addresses?.length ? item.addresses : [createAddressRow(item)], contacts: item.contacts?.length ? item.contacts : [createContactRow(item)], assignments: item.assignments?.length ? item.assignments : [createAssignmentRow(item)] });
+            const normalizedServices = normalizeLegacyServiceSelections(item).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? item.firstAnnualReturnYearApplicable : '') }));
+            setLead({ ...emptyLead, ...item, serviceSelections: normalizedServices, applicableService: normalizedServices[0]?.applicableService || item.applicableService || '', addresses: item.addresses?.length ? item.addresses : [createAddressRow(item)], contacts: item.contacts?.length ? item.contacts : [createContactRow(item)], assignments: item.assignments?.length ? item.assignments : [createAssignmentRow(item)] });
             setEditingLeadId(leadRecordId(item));
             setServiceOnlyMode(false);
             setActiveTab('basic');
