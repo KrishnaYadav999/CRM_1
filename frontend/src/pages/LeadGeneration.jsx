@@ -29,6 +29,7 @@ const emptyLead = {
   applicantType: '',
   serviceSelections: [],
   servicesOffered: '',
+  applicableService: '',
   firstAnnualReturnYearApplicable: '',
   addresses: [],
   contacts: [],
@@ -335,7 +336,10 @@ function createServiceSelection(source = {}) {
 
 function normalizeLegacyServiceSelections(source = {}) {
   const saved = (Array.isArray(source.serviceSelections) ? source.serviceSelections : []).map((row) => createServiceSelection(row));
-  const topLevel = createServiceSelection(source);
+  const topLevel = createServiceSelection({
+    ...source,
+    applicableService: source.applicableService || saved[0]?.applicableService || ''
+  });
   const fields = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable'];
   const hasService = (row) => fields.some((field) => String(row?.[field] || '').trim());
   const identity = (row) => fields.map((field) => String(row?.[field] || '').trim().toLowerCase()).join('|');
@@ -583,7 +587,8 @@ export default function LeadGeneration() {
       piboParent: direct ? '' : first.applicantType,
       piboCategoryParent: '',
       piboCategory: direct ? '' : first.piboCategory,
-      servicesOffered: first.servicesOffered
+      servicesOffered: first.servicesOffered,
+      applicableService: first.applicableService
       ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
     }));
   }
@@ -605,7 +610,8 @@ export default function LeadGeneration() {
       applicantType: first.applicantType,
       piboParent: direct ? '' : first.applicantType,
       piboCategory: direct ? '' : first.piboCategory,
-      servicesOffered: first.servicesOffered
+      servicesOffered: first.servicesOffered,
+      applicableService: first.applicableService
       ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
     }));
   }
@@ -1370,6 +1376,7 @@ export default function LeadGeneration() {
       piboCategory: primaryService.piboCategory || lead.piboCategory || '',
       piboParent: primaryService.piboParent || lead.piboParent || lead.piboCategoryParent || inferPiboParent(primaryService.piboCategory || lead.piboCategory),
       servicesOffered: primaryService.servicesOffered || lead.servicesOffered || '',
+      applicableService: primaryService.applicableService || lead.applicableService || '',
       firstAnnualReturnYearApplicable: primaryService.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable || '',
       workflowStatus
     };
