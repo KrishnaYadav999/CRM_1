@@ -121,7 +121,7 @@ function isCalendarFollowUp(item = {}) {
 function calendarItemBelongsToUser(item = {}, user = {}) {
   const safeUser = user || {}
   const role = normalizeKey(safeUser.role)
-  if (adminRoles.includes(safeUser.role) || role === 'manager' || role.includes('operation head')) return true
+  if (adminRoles.map(normalizeKey).includes(role) || role === 'admin' || role === 'superadmin' || role === 'super admin') return true
   const userTokens = [safeUser.name, safeUser.email, safeUser.firstName && safeUser.lastName ? `${safeUser.firstName} ${safeUser.lastName}` : '', safeUser._id, safeUser.id]
     .filter(Boolean)
     .map((value) => normalizeKey(value))
@@ -163,17 +163,127 @@ function buildLeadFollowUpItems(leads = []) {
         clientName: lead.clientName || '',
         leadCompanyName: company,
         leadNumber: lead.leadCode || lead.leadNumber || lead['Lead Number'] || '',
-        assignedTo: getLeadFollowUpOwner(lead),
+        assignedTo: lead.assignedTo || lead.assignedToId || getLeadFollowUpOwner(lead),
         assignedToName: getLeadFollowUpOwner(lead),
+        assignedToEmail: lead.assignedToEmail || lead.ownerEmail || lead.createdByEmail || '',
+        assignedToId: lead.assignedToId || lead.assignedTo?._id || lead.assignedTo?.id || '',
+        createdBy: lead.createdBy || lead.createdById || '',
+        createdByName: lead.createdByName || lead.importedCreatedBy || '',
+        createdByEmail: lead.createdByEmail || '',
         scheduledDate,
         scheduledTime,
-        priority: lead.priority || 'Medium',
+        priority: lead.followUpPriority || lead.priority || 'Medium',
         category: 'Follow-Up',
         status: lead.followUpStatus || lead.status || 'open',
         type: 'follow-up',
-        source: 'lead'
+        source: 'lead',
+        followUpHistory: Array.isArray(lead.followUpHistory) ? lead.followUpHistory : [],
+        updatedAt: lead.updatedAt || '',
+        createdAt: lead.createdAt || lead.importedCreatedAt || ''
       }
     })
+}
+
+function getFollowUpDueAt(item = {}) {
+  if (!item.scheduledDate) return null
+  const value = new Date(`${item.scheduledDate}T${item.scheduledTime || '23:59'}:00`)
+  return Number.isNaN(value.getTime()) ? null : value
+}
+
+function getRedFlagStage(item = {}, now = new Date()) {
+  if (normalizeKey(item.status) === 'completed') return null
+  const dueAt = getFollowUpDueAt(item)
+  if (!dueAt) return null
+  const delta = now.getTime() - dueAt.getTime()
+  if (delta >= 24 * 60 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 24+ hours', rank: 4 }
+  if (delta >= 60 * 60 * 1000) return { key: 'missed-60', label: '60 min missed', detail: 'Third reminder window crossed', rank: 3 }
+  if (delta >= 30 * 60 * 1000) return { key: 'overdue-30', label: '30 min overdue', detail: 'Second reminder window crossed', rank: 2 }
+  if (delta >= -30 * 60 * 1000) return { key: 'due-30', label: 'Due in 30 min', detail: 'First reminder window', rank: 1 }
+  return null
+}
+
+function formatAuditDateTime(value) {
+  if (!value) return 'Not recorded'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return `${date.toLocaleDateString('en-GB')} · ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+}
+
+function buildRedFlagHistory(item = {}, stage = {}) {
+  const dueAt = getFollowUpDueAt(item)
+  const events = [
+    { title: 'Follow-up scheduled', detail: item.description || 'Follow-up created', at: item.createdAt || dueAt },
+    { title: '30 min before', detail: 'First reminder window reached.', at: dueAt ? new Date(dueAt.getTime() - 30 * 60 * 1000) : null }
+  ]
+  if (stage.rank >= 2) events.push({ title: '30 min after', detail: 'No action recorded; second reminder window reached.', at: new Date(dueAt.getTime() + 30 * 60 * 1000) })
+  if (stage.rank >= 3) events.push({ title: '60 min after', detail: 'Follow-up still open; third reminder window reached.', at: new Date(dueAt.getTime() + 60 * 60 * 1000) })
+  if (stage.rank >= 4) events.push({ title: '24 hours after', detail: 'No action recorded; follow-up marked as a red flag.', at: new Date(dueAt.getTime() + 24 * 60 * 60 * 1000) })
+  ;(Array.isArray(item.followUpHistory) ? item.followUpHistory : []).forEach((entry) => events.push({
+    title: entry.title || entry.reason || 'Follow-up history',
+    detail: entry.remarks || entry.description || entry.followUpRemarks || 'Follow-up updated',
+    at: entry.updatedAt || entry.createdAt || entry.scheduledDate
+  }))
+  return events.filter((event) => event.at)
+}
+
+function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Missed Action Audit' }) {
+  const [selected, setSelected] = useState(null)
+  const rows = useMemo(() => items
+    .map((item) => ({ item, stage: getRedFlagStage(item) }))
+    .filter((row) => row.stage)
+    .sort((a, b) => b.stage.rank - a.stage.rank || getFollowUpDueAt(a.item) - getFollowUpDueAt(b.item)), [items])
+  const counts = rows.reduce((result, row) => {
+    result[row.stage.key] = (result[row.stage.key] || 0) + 1
+    return result
+  }, {})
+
+  return (
+    <>
+      <section className="red-flag-audit">
+        <header>
+          <div><span>Action control</span><h2>{title}</h2><p>30 min before, 30/60 min after and 24-hour escalation in one place.</p></div>
+          <div className="red-flag-audit-summary">
+            <b>{counts['red-flag'] || 0}<small>Red flags</small></b>
+            <b>{(counts['overdue-30'] || 0) + (counts['missed-60'] || 0)}<small>Missed</small></b>
+            <b>{counts['due-30'] || 0}<small>Due soon</small></b>
+          </div>
+        </header>
+        <div className="red-flag-table-wrap">
+          <table>
+            <thead><tr><th>Stage</th><th>Lead / Follow-up</th><th>Assigned User</th><th>Due At</th><th>No-action Reason</th><th>History</th></tr></thead>
+            <tbody>
+              {rows.length ? rows.map(({ item, stage }, index) => {
+                const assignee = resolveFollowUpAssignee(item, users)
+                return (
+                  <tr key={item.id || item._id || index}>
+                    <td><mark className={`red-flag-stage is-${stage.key}`}>{stage.label}</mark></td>
+                    <td><strong>{item.title || getCalendarFollowUpCompany(item)}</strong><small>{getCalendarFollowUpCompany(item)}</small></td>
+                    <td><span className="red-flag-user"><UserAvatar user={assignee} /><span>{assignee.name}<small>{assignee.email || 'CRM user'}</small></span></span></td>
+                    <td><strong>{formatAuditDateTime(getFollowUpDueAt(item))}</strong></td>
+                    <td><span>{stage.detail}</span><small>Status remains {displayValue(item.status, 'open')}</small></td>
+                    <td><button type="button" className="red-flag-eye" onClick={() => setSelected({ item, stage })} aria-label={`View complete history for ${item.title || 'follow-up'}`}><Eye className="h-4 w-4" /> View</button></td>
+                  </tr>
+                )
+              }) : <tr><td colSpan={6} className="red-flag-empty">No missed action or red flag in your visible records.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <AnimatePresence>
+        {selected && (
+          <motion.div className="red-flag-modal-backdrop" onClick={() => setSelected(null)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.aside className="red-flag-modal" onClick={(event) => event.stopPropagation()} initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }}>
+              <header><div><span>Complete action history</span><h2>{selected.item.title || getCalendarFollowUpCompany(selected.item)}</h2><p>{getCalendarFollowUpCompany(selected.item)} · {selected.stage.detail}</p></div><button type="button" onClick={() => setSelected(null)}><X className="h-5 w-5" /></button></header>
+              <div className="red-flag-modal-meta"><span><b>Assigned</b>{resolveFollowUpAssignee(selected.item, users).name}</span><span><b>Scheduled</b>{formatAuditDateTime(getFollowUpDueAt(selected.item))}</span><span><b>Priority</b>{selected.item.priority || 'Medium'}</span><span><b>Current stage</b>{selected.stage.label}</span></div>
+              <div className="red-flag-history">
+                {buildRedFlagHistory(selected.item, selected.stage).map((event, index) => <article key={`${event.title}-${index}`}><i>{index + 1}</i><div><strong>{event.title}</strong><p>{event.detail}</p><time>{formatAuditDateTime(event.at)}</time></div></article>)}
+              </div>
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  )
 }
 
 function getCalendarFollowUpsForUser(user = {}, extraItems = []) {
@@ -3119,7 +3229,7 @@ function SalesMixAnalytics({ analytics, total }) {
   )
 }
 
-function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
+function SalesDashboard({ leads = [], quotations = [], clients = [], users = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
   const navigate = useNavigate()
   const [reportModal, setReportModal] = useState(null)
   const [leadSourcePeriod, setLeadSourcePeriod] = useState(() => `months:m${new Date().getMonth()}`)
@@ -3251,6 +3361,8 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], currentUser
       <div className="sales-metric-grid">
         {metrics.map((metric, index) => <SalesMetricCard key={metric.label} metric={metric} index={index} />)}
       </div>
+
+      <RedFlagAuditSection items={calendarFollowUps} users={users} title="Sales Red Flag & Missed Follow-ups" />
 
       <SalesMixAnalytics analytics={salesMixAnalytics} total={scopedLeads.length} />
 
@@ -4767,12 +4879,14 @@ export default function AdminDashboard() {
                     leads={leads}
                     quotations={quotations}
                     clients={clients}
+                    users={users}
                     currentUser={currentUser}
                     onOpenTodayLeads={() => setTodayLeadsOpen(true)}
                     onOpenSalesValue={() => setSalesValueDrawerOpen(true)}
                   />
                 ) : (
                   <>
+              <RedFlagAuditSection items={operationsFollowUps} users={users} title="Operations Red Flag & Missed Actions" />
               <UserWisePoStatus
                 rows={scopedOperationsRows}
                 onRefresh={() => loadDashboard({ force: true })}
