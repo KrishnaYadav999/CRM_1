@@ -10,6 +10,16 @@ const ProformaItemSchema = new mongoose.Schema({
   basicAmount: { type: Number, default: 0 }
 }, { _id: false });
 
+const PurchaseOrderYearSchema = new mongoose.Schema({
+  fy: { type: String, trim: true },
+  annualReturnYear: { type: String, trim: true },
+  quotationNo: { type: String, trim: true },
+  compliancePoDate: { type: String, trim: true },
+  compliancePoFile: { type: String, trim: true },
+  serviceCategory: { type: [String], default: [] },
+  value: { type: Number, default: 0 }
+}, { _id: false });
+
 const ProformaInvoiceSchema = new mongoose.Schema({
   proformaNumber: { type: String, required: true, unique: true, index: true, trim: true },
   quotationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Quotation', index: true },
@@ -26,6 +36,8 @@ const ProformaInvoiceSchema = new mongoose.Schema({
   pricingMode: { type: String, enum: ['combined', 'individual'], default: 'individual' },
   combinedBasicAmount: { type: Number, default: 0 },
   items: { type: [ProformaItemSchema], default: [] },
+  poYearCount: { type: Number, min: 0, max: 50, default: 0 },
+  poYearRows: { type: [PurchaseOrderYearSchema], default: [] },
   terms: { type: [String], default: [] },
   scopeOfWork: { type: [String], default: [] },
   subtotal: { type: Number, default: 0 },

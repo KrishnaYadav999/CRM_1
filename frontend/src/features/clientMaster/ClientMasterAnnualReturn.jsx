@@ -3026,12 +3026,9 @@ function createAnnualPoYearRow(defaultFy = '') {
     fy: defaultFy,
     annualReturnYear: defaultFy,
     quotationNo: '',
-    proformaNumber: '',
-    poNumber: '',
     compliancePoDate: '',
     compliancePoFile: '',
     serviceCategory: [],
-    eprCategory: [],
     value: ''
   };
 }
@@ -3050,20 +3047,17 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
   const rowsKey = config.rowsKey || 'financials.poYearRows';
   const serviceOptions = Array.isArray(config.serviceCategoryOptions) ? config.serviceCategoryOptions : [];
   const savedRows = readValue(rowsKey, []);
-  const savedCount = readValue(countKey, Array.isArray(savedRows) ? savedRows.length : 0);
+  const proformaRows = Array.isArray(config.proformaInvoice?.poYearRows) ? config.proformaInvoice.poYearRows : [];
+  const sourceRows = Array.isArray(savedRows) && savedRows.length ? savedRows : proformaRows;
+  const savedCount = readValue(countKey, sourceRows.length);
   const rowCount = Math.max(0, Number(savedCount) || 0);
-  const rows = normalizeAnnualPoYearRows(savedRows, rowCount, config.defaultFy || '').map((row) => ({
+  const rows = normalizeAnnualPoYearRows(sourceRows, rowCount, config.defaultFy || '').map((row) => ({
     ...row,
     annualReturnYear: row.annualReturnYear || config.annualReturnYear || config.defaultFy || '',
     quotationNo: config.quotationNo || (String(row.quotationNo || '').startsWith('ATPL-QTN-') ? '' : row.quotationNo || ''),
-    proformaNumber: row.proformaNumber || config.proformaInvoice?.proformaNumber || '',
-    poNumber: row.poNumber || config.proformaInvoice?.poNumber || '',
     serviceCategory: Array.isArray(row.serviceCategory)
       ? row.serviceCategory
-      : String(row.serviceCategory || '').split(',').map((item) => item.trim()).filter(Boolean),
-    eprCategory: Array.isArray(row.eprCategory) && row.eprCategory.length
-      ? row.eprCategory
-      : [...new Set((config.proformaInvoice?.items || []).map((item) => String(item.eprCategory || '').trim()).filter(Boolean))]
+      : String(row.serviceCategory || '').split(',').map((item) => item.trim()).filter(Boolean)
   }));
 
   const invoiceServices = [...new Set((config.proformaInvoice?.items || []).map((item) => String(item.serviceCategory || '').trim()).filter(Boolean))];
@@ -3072,7 +3066,7 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
   function updateCount(nextValue) {
     const nextCount = Math.max(0, Math.min(50, Number(nextValue) || 0));
     onChange(countKey, nextCount);
-    onChange(rowsKey, normalizeAnnualPoYearRows(savedRows, nextCount, config.defaultFy || ''));
+    onChange(rowsKey, normalizeAnnualPoYearRows(sourceRows, nextCount, config.defaultFy || ''));
   }
 
   function updateRow(rowIndex, field, value) {
@@ -3130,12 +3124,9 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                 <th>F.Y</th>
                 <th>Annual Return</th>
                 <th>Quotation No.</th>
-                <th>Proforma Invoice No.</th>
-                <th>PO Number</th>
                 <th>Compliance PO Date</th>
                 <th>Upload Compliance PO</th>
                 <th>Service Category</th>
-                <th>EPR Category</th>
                 <th>Value</th>
               </tr>
             </thead>
@@ -3164,8 +3155,6 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                       onChange={(event) => updateRow(index, 'quotationNo', event.target.value)}
                     />
                   </td>
-                  <td><input value={row.proformaNumber || ''} placeholder="PI Number" onChange={(event) => updateRow(index, 'proformaNumber', event.target.value)} /></td>
-                  <td><input value={row.poNumber || ''} placeholder="PO Number" onChange={(event) => updateRow(index, 'poNumber', event.target.value)} /></td>
                   <td>
                     <PremiumDatePicker value={row.compliancePoDate || ''} onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)} />
                   </td>
@@ -3206,7 +3195,6 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                     </div>
                     <small className="annual-po-selected-count">{(row.serviceCategory || []).join(', ') || 'No service selected'}</small>
                   </td>
-                  <td><span className="annual-po-selected-count">{(row.eprCategory || []).join(', ') || 'No EPR category'}</span></td>
                   <td>
                     <input
                       type="number"

@@ -8,12 +8,17 @@ test('proforma payload preserves quotation, PO and calculated item totals', () =
   const payload = _test.cleanPayload({
     quotationNumber: 'AT/26-27/292', poNumber: 'PO-1001',
     leadDetails: { companyName: 'Example Limited', contactPerson: 'Krishna' },
-    items: [{ serviceCategory: 'CONSULTANCY FEE', unit: '2', basicAmount: '30000' }]
+    items: [{ serviceCategory: 'CONSULTANCY FEE', unit: '2', basicAmount: '30000' }],
+    poYearCount: 1,
+    poYearRows: [{ fy: '2024-25', annualReturnYear: '2024-25', quotationNo: 'AT/26-27/292', compliancePoFile: 'po.pdf', serviceCategory: ['CONSULTANCY FEE'], value: '60000' }]
   });
   assert.equal(payload.quotationNumber, 'AT/26-27/292');
   assert.equal(payload.poNumber, 'PO-1001');
   assert.equal(payload.companyName, 'Example Limited');
   assert.equal(payload.grandTotal, 60000);
+  assert.equal(payload.poYearCount, 1);
+  assert.deepEqual(payload.poYearRows[0].serviceCategory, ['CONSULTANCY FEE']);
+  assert.equal(payload.poYearRows[0].value, 60000);
 });
 
 test('proforma routes require CRM authentication and are mounted', () => {

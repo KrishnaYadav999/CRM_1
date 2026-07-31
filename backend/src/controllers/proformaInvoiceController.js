@@ -26,10 +26,17 @@ function cleanPayload(body = {}) {
   const individualTotal = items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * item.basicAmount), 0);
   const combinedBasicAmount = pricingMode === 'combined' ? money(body.combinedBasicAmount) : 0;
   const calculated = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
+  const poYearCount = Math.max(0, Math.min(50, Number(body.poYearCount) || 0));
+  const poYearRows = (Array.isArray(body.poYearRows) ? body.poYearRows : []).slice(0, poYearCount).map((row) => ({
+    fy: text(row.fy), annualReturnYear: text(row.annualReturnYear), quotationNo: text(row.quotationNo),
+    compliancePoDate: text(row.compliancePoDate), compliancePoFile: text(row.compliancePoFile),
+    serviceCategory: [...new Set((Array.isArray(row.serviceCategory) ? row.serviceCategory : String(row.serviceCategory || '').split(',')).map(text).filter(Boolean))],
+    value: money(row.value)
+  }));
   return {
     quotationId: body.quotationId || undefined, quotationNumber: text(body.quotationNumber), poNumber: text(body.poNumber),
     leadId: text(body.leadId), leadCode: text(body.leadCode), companyName: text(body.companyName || leadDetails.companyName),
-    leadDetails, invoiceDate: body.invoiceDate || new Date(), validUntil: text(body.validUntil), pricingMode, combinedBasicAmount, items,
+    leadDetails, invoiceDate: body.invoiceDate || new Date(), validUntil: text(body.validUntil), pricingMode, combinedBasicAmount, items, poYearCount, poYearRows,
     terms: (Array.isArray(body.terms) ? body.terms : String(body.terms || '').split(/\r?\n/)).map(text).filter(Boolean),
     scopeOfWork: (Array.isArray(body.scopeOfWork) ? body.scopeOfWork : String(body.scopeOfWork || '').split(/\r?\n/)).map(text).filter(Boolean),
     subtotal: money(body.subtotal || calculated), grandTotal: money(body.grandTotal || calculated),
