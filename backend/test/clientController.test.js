@@ -3,13 +3,13 @@ const test = require('node:test');
 
 const { __test } = require('../src/controllers/clientController');
 
-test('buildCcpClientApprovalPayload preserves full CCP client data', () => {
-  const ccpClient = {
-    _id: 'ccp-client-123',
+test('buildClientApprovalPayload preserves full CRM client data', () => {
+  const crmClient = {
+    _id: 'crm-client-123',
     adminControls: {
       approvalStatus: 'PENDING',
       visibilityStatus: 'LIVE',
-      assignedTo: { id: '', ccpUserId: '', email: '', name: 'SIDDHESH NIKAM' }
+      assignedTo: { id: 'user-44', email: '', name: 'SIDDHESH NIKAM' }
     },
     data: {
       basic: {
@@ -39,31 +39,32 @@ test('buildCcpClientApprovalPayload preserves full CCP client data', () => {
       otp: { mobile: '9999999999' },
       authorised: { name: 'Riya Shah', email: 'riya@example.com' },
       coordinating: { name: 'Dev Patel' },
-      importMeta: { uniqueId: 'CCP-001', createdBy: 'CCP User' }
+      importMeta: { uniqueId: 'CRM-001', createdBy: 'CRM User' }
     }
   };
 
-  const result = __test.buildCcpClientApprovalPayload({
-    source: 'ccp',
+  const result = __test.buildClientApprovalPayload({
+    source: 'crm',
     uniqueId: 'CRM-UNIQUE-1',
     sourceClientId: 'source-from-body',
-    payload: ccpClient
+    payload: crmClient
   }, 'APPROVED', 'user-1', 'Approved from test');
 
   assert.equal(result.adminControls.approvalStatus, 'APPROVED');
   assert.equal(result.adminControls.visibilityStatus, 'LIVE');
   assert.equal(result.adminControls.assignedTo, undefined);
-  assert.deepEqual(result.data.basic, ccpClient.data.basic);
+  assert.deepEqual(result.data.basic, crmClient.data.basic);
   assert.equal(result.data.basic.firstAnnualReturnYear, '2023');
-  assert.deepEqual(result.data.registeredAddress, ccpClient.data.registeredAddress);
-  assert.deepEqual(result.data.compliance, ccpClient.data.compliance);
-  assert.deepEqual(result.data.cpcb, ccpClient.data.cpcb);
-  assert.deepEqual(result.data.authorised, ccpClient.data.authorised);
-  assert.deepEqual(result.data.msmeRows, ccpClient.data.msmeRows);
-  assert.equal(result.data.importMeta.createdBy, 'CCP User');
+  assert.deepEqual(result.data.registeredAddress, crmClient.data.registeredAddress);
+  assert.deepEqual(result.data.compliance, crmClient.data.compliance);
+  assert.deepEqual(result.data.cpcb, crmClient.data.cpcb);
+  assert.deepEqual(result.data.authorised, crmClient.data.authorised);
+  assert.deepEqual(result.data.msmeRows, crmClient.data.msmeRows);
+  assert.equal(result.data.importMeta.createdBy, 'CRM User');
   assert.equal(result.data.importMeta.assignedTo, 'SIDDHESH NIKAM');
   assert.equal(result.data.importMeta.uniqueId, 'CRM-UNIQUE-1');
-  assert.equal(result.data.importMeta.ccpClientId, 'source-from-body');
+  assert.equal(result.data.importMeta.sourceClientId, 'source-from-body');
   assert.equal(result.data.importMeta.approvalOverride, true);
   assert.equal(result.data.approvalMeta.status, 'APPROVED');
+  assert.equal(result.data.approvalMeta.source, 'crm');
 });

@@ -5,7 +5,7 @@ const {
   mergeAssignmentOverrides
 } = require('../src/services/leadAssignmentPersistence');
 
-test('lead assignment database override survives a refreshed CCP lead response', () => {
+test('lead assignment database override survives a refreshed CRM lead response', () => {
   const refreshedLead = {
     _id: '6a634f8eacfed5478344594b',
     company: 'Example Company',
@@ -31,10 +31,10 @@ test('lead assignment database override survives a refreshed CCP lead response',
   assert.equal(merged.assignedStaffText, 'Shubham');
 });
 
-test('all stable CCP lead identities can locate a saved assignment override', () => {
+test('all stable CRM lead identities can locate a saved assignment override', () => {
   assert.deepEqual(
-    leadKeys({ _id: 'mongo-id', sourceLeadId: 'source-id', ccpLeadId: 'ccp-id', externalLeadId: 'external-id' }),
-    ['mongo-id', 'source-id', 'ccp-id', 'external-id']
+    leadKeys({ _id: 'mongo-id', sourceLeadId: 'source-id', externalLeadId: 'external-id' }),
+    ['mongo-id', 'source-id', 'external-id']
   );
 });
 
