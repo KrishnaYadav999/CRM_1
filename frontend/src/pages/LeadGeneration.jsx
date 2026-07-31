@@ -263,17 +263,19 @@ function nextVisibleLeadCode(leads = []) {
 }
 
 function normalizeCompanyIdentity(value) {
-  return String(value || '')
+  let normalized = String(value || '')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .toUpperCase()
     .replace(/&/g, ' AND ')
-    .replace(/\bPRIVATE\s+LIMITED\b/g, ' PVT LTD ')
-    .replace(/\bLIMITED\b/g, ' LTD ')
     .replace(/\bCORPORATION\b/g, ' CORP ')
     .replace(/[^A-Z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
+  const legalSuffix = /\s+(?:(?:PRIVATE|PVT)\s+(?:LIMITED|LTD)|LIMITED\s+LIABILITY(?:\s+PARTNERSHIP)?|LLP|LIMITED|LTD)$/;
+  while (legalSuffix.test(normalized)) normalized = normalized.replace(legalSuffix, '').trim();
+  return normalized;
 }
 
 function leadRecordId(item = {}) {

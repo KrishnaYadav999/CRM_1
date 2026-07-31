@@ -6401,7 +6401,9 @@ body select optgroup{background:#edf8f4;color:#08745f;font-weight:900}
 
 /* Quotations already renders its own chevron; suppress native/global select artwork. */
 body select.quotation-salutation-select{
+  background-color:#fff!important;
   background-image:none!important;
+  background:none!important;
   background-repeat:no-repeat!important;
   background-size:auto!important;
 }

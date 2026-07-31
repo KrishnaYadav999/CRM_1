@@ -271,8 +271,12 @@ function royaltyContributorEligibility(lead = {}, claimant = {}) {
 async function findDuplicateCompanyRecord(company, excludeId = '') {
   const identity = normalizeCompanyIdentity(company);
   if (!identity) return null;
-  const rows = await Lead.find({ companyIdentity: identity }).select('_id company leadCode importedCreatedBy createdBy').populate('createdBy', 'name email').lean();
-  return rows.find((lead) => String(lead._id) !== String(excludeId || '')) || null;
+  const escaped = identity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rows = await Lead.find({ $or: [
+    { companyIdentity: identity },
+    { company: { $regex: `^\\s*${escaped}`, $options: 'i' } }
+  ] }).select('_id company leadCode importedCreatedBy createdBy').populate('createdBy', 'name email').lean();
+  return rows.find((lead) => String(lead._id) !== String(excludeId || '') && normalizeCompanyIdentity(lead.company) === identity) || null;
 }
 
 exports.searchCompanies = async (req, res) => {
@@ -284,9 +288,10 @@ exports.searchCompanies = async (req, res) => {
   }
 
   const escaped = identity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const leads = await Lead.find({
-    companyIdentity: { $regex: escaped, $options: 'i' }
-  })
+  const leads = await Lead.find({ $or: [
+    { companyIdentity: { $regex: escaped, $options: 'i' } },
+    { company: { $regex: escaped, $options: 'i' } }
+  ] })
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .populate('createdBy', 'name email')
@@ -294,7 +299,7 @@ exports.searchCompanies = async (req, res) => {
     .limit(10)
     .lean();
 
-  res.json({ ok: true, leads });
+  res.json({ ok: true, leads: leads.filter((lead) => normalizeCompanyIdentity(lead.company).includes(identity)) });
 };
 
 exports.listLeads = async (req, res) => {
@@ -508,7 +513,14 @@ exports.claimLeadRoyalty = async (req, res) => {
     return res.status(400).json({ error: 'Claim Royalty is available only after two different users contribute service rows to the same lead.' });
   }
   const financialYear = String(req.body?.financialYear || '').trim();
-  const result = await claimLeadRoyalty({ lead, claimant: req.user, financialYear });
+  const claimantTokens = royaltyIdentityTokens(req.user?._id, req.user?.id, req.user?.email, req.user?.name);
+  const claimedRows = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : []).filter((row) => {
+    const tokens = royaltyIdentityTokens(row?.createdByCrmUserId, row?.createdByEmail, row?.createdByName);
+    return tokens.some((token) => claimantTokens.includes(token));
+  });
+  const servicesOffered = [...new Set(claimedRows.map((row) => String(row?.servicesOffered || '').trim()).filter(Boolean))];
+  const eprCategories = [...new Set(claimedRows.map((row) => String(row?.eprCategory || '').trim()).filter(Boolean))];
+  const result = await claimLeadRoyalty({ lead, claimant: req.user, financialYear, servicesOffered, eprCategories });
   return res.status(result.skipped ? 200 : 201).json(result);
 };
 
@@ -525,7 +537,7 @@ exports.requestDuplicateLeadApproval = async (req, res) => {
     if (reason.length < 10) return res.status(400).json({ error: 'Please enter a reason of at least 10 characters.' });
     const requestedById = String(req.user?._id || req.user?.id || '');
     if (requestedById && !candidateUsers.some((item) => item.id === requestedById)) candidateUsers.push({ id: requestedById, name: String(req.user?.name || req.user?.email || 'Requesting user') });
-    const companyIdentity = company.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/&/g, ' AND ').replace(/\bPRIVATE\s+LIMITED\b/g, ' PVT LTD ').replace(/\bLIMITED\b/g, ' LTD ').replace(/[^A-Z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+    const companyIdentity = normalizeCompanyIdentity(company);
     const sourceClientId = `${existingLeadId}:${requestedById}`;
     const now = new Date();
     const approval = await PendingApproval.findOneAndUpdate(

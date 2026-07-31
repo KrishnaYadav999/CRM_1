@@ -604,6 +604,7 @@ export default function ClientMaster() {
   const [totalClientCount, setTotalClientCount] = useState(0);
   const [annualReturnRecords, setAnnualReturnRecords] = useState([]);
   const [quotations, setQuotations] = useState([]);
+  const [proformaInvoices, setProformaInvoices] = useState([]);
   const [staff, setStaff] = useState([]);
   const [client, setClient] = useState(emptyClient);
   const [editingClientId, setEditingClientId] = useState('');
@@ -846,12 +847,19 @@ export default function ClientMaster() {
       } catch {
         setQuotations([]);
       }
+      try {
+        const proformaResponse = await api.get(API_ENDPOINTS.proformaInvoices.list);
+        setProformaInvoices(proformaResponse.data.proformaInvoices || []);
+      } catch {
+        setProformaInvoices([]);
+      }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to fetch client master data.');
       setLeads([]);
       setClients([]);
       setTotalClientCount(0);
       setQuotations([]);
+      setProformaInvoices([]);
     } finally {
       setLoading(false);
     }
@@ -1323,6 +1331,7 @@ export default function ClientMaster() {
           <ClientViewModal
             client={viewClient}
             quotations={quotations}
+            proformaInvoices={proformaInvoices}
             staff={staff}
             initialTab={routeClientKey ? 'annual' : 'basic'}
             initialAnnualYear={routeAnnualYearLabel}
@@ -1612,7 +1621,7 @@ function BasicTab({ client, setValue }) {
   );
 }
 
-function ClientViewModal({ client, quotations = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
+function ClientViewModal({ client, quotations = [], proformaInvoices = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
   const msmeRows = getMsmeRows(data);
@@ -1950,6 +1959,7 @@ function ClientViewModal({ client, quotations = [], staff = [], onClose, initial
                     <AnnualReturnHistory
                       client={client}
                       quotations={clientQuotations.length ? clientQuotations : quotations}
+                      proformaInvoices={proformaInvoices}
                       years={annualYears}
                       selectedYear={selectedAnnualYear}
                       currentUser={currentUser}

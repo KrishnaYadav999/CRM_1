@@ -586,7 +586,7 @@ function PoServiceMultiSelect({ value, options, onChange }) {
   );
 }
 
-export function AnnualReturnHistory({ client, quotations = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
+export function AnnualReturnHistory({ client, quotations = [], proformaInvoices = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
   const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
@@ -662,6 +662,17 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
     const latest = sorted[0] || {};
     return latest.quotationNumber || latest.quotationNo || latest.quoteNumber || data.financials?.quotationNo || data.validation?.quotationNumber || '';
   }, [client, data.basic?.clientLegalName, data.basic?.tradeName, data.financials?.quotationNo, data.importMeta?.companyName, data.validation?.quotationNumber, quotations]);
+  const latestProforma = useMemo(() => {
+    const normalizeName = (value = '') => String(value).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[^a-z0-9]+/g, ' ').replace(/\s+(?:(?:private|pvt)\s+(?:limited|ltd)|limited\s+liability(?:\s+partnership)?|llp|limited|ltd)$/g, '').trim();
+    const names = [data.basic?.clientLegalName, data.basic?.tradeName, data.importMeta?.companyName, client?.companyName, client?.clientName].map(normalizeName).filter(Boolean);
+    return [...proformaInvoices]
+      .filter((invoice) => {
+        if (invoice.clientRef && String(invoice.clientRef) === String(client?._id || client?.id || '')) return true;
+        const invoiceName = normalizeName(invoice.companyName || invoice.leadDetails?.companyName);
+        return invoiceName && names.includes(invoiceName);
+      })
+      .sort((left, right) => new Date(right.updatedAt || right.createdAt || right.invoiceDate || 0) - new Date(left.updatedAt || left.createdAt || left.invoiceDate || 0))[0] || null;
+  }, [client, data.basic?.clientLegalName, data.basic?.tradeName, data.importMeta?.companyName, proformaInvoices]);
   const docLinks = mapClientDocuments(documentUrls);
   const registeredAddress = [data.registeredAddress?.address1, data.registeredAddress?.address2, data.registeredAddress?.address3].filter(Boolean).join(', ');
   const communicationAddress = [data.communicationAddress?.address1, data.communicationAddress?.address2, data.communicationAddress?.city, data.communicationAddress?.state, data.communicationAddress?.pincode].filter(Boolean).join(', ');
@@ -1709,7 +1720,8 @@ export function AnnualReturnHistory({ client, quotations = [], years, selectedYe
           serviceCategoryOptions: annualPoServiceCategoryOptions,
           defaultFy: selected?.label || '',
           annualReturnYear: selected?.label || '',
-          quotationNo: latestQuotationNo
+          quotationNo: latestQuotationNo,
+          proformaInvoice: latestProforma
         },
         fields: [
           createProcessingField('financials.complianceAmountReceived', 'Compliance Amount Received', data.financials?.amountReceived || data.validation?.basicAmount, FileText, 'number'),
@@ -3014,9 +3026,12 @@ function createAnnualPoYearRow(defaultFy = '') {
     fy: defaultFy,
     annualReturnYear: defaultFy,
     quotationNo: '',
+    proformaNumber: '',
+    poNumber: '',
     compliancePoDate: '',
     compliancePoFile: '',
     serviceCategory: [],
+    eprCategory: [],
     value: ''
   };
 }
@@ -3041,10 +3056,18 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
     ...row,
     annualReturnYear: row.annualReturnYear || config.annualReturnYear || config.defaultFy || '',
     quotationNo: config.quotationNo || (String(row.quotationNo || '').startsWith('ATPL-QTN-') ? '' : row.quotationNo || ''),
+    proformaNumber: row.proformaNumber || config.proformaInvoice?.proformaNumber || '',
+    poNumber: row.poNumber || config.proformaInvoice?.poNumber || '',
     serviceCategory: Array.isArray(row.serviceCategory)
       ? row.serviceCategory
-      : String(row.serviceCategory || '').split(',').map((item) => item.trim()).filter(Boolean)
+      : String(row.serviceCategory || '').split(',').map((item) => item.trim()).filter(Boolean),
+    eprCategory: Array.isArray(row.eprCategory) && row.eprCategory.length
+      ? row.eprCategory
+      : [...new Set((config.proformaInvoice?.items || []).map((item) => String(item.eprCategory || '').trim()).filter(Boolean))]
   }));
+
+  const invoiceServices = [...new Set((config.proformaInvoice?.items || []).map((item) => String(item.serviceCategory || '').trim()).filter(Boolean))];
+  rows.forEach((row) => { if (!row.serviceCategory.length && invoiceServices.length) row.serviceCategory = invoiceServices; });
 
   function updateCount(nextValue) {
     const nextCount = Math.max(0, Math.min(50, Number(nextValue) || 0));
@@ -3107,9 +3130,12 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                 <th>F.Y</th>
                 <th>Annual Return</th>
                 <th>Quotation No.</th>
+                <th>Proforma Invoice No.</th>
+                <th>PO Number</th>
                 <th>Compliance PO Date</th>
                 <th>Upload Compliance PO</th>
                 <th>Service Category</th>
+                <th>EPR Category</th>
                 <th>Value</th>
               </tr>
             </thead>
@@ -3138,6 +3164,8 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                       onChange={(event) => updateRow(index, 'quotationNo', event.target.value)}
                     />
                   </td>
+                  <td><input value={row.proformaNumber || ''} placeholder="PI Number" onChange={(event) => updateRow(index, 'proformaNumber', event.target.value)} /></td>
+                  <td><input value={row.poNumber || ''} placeholder="PO Number" onChange={(event) => updateRow(index, 'poNumber', event.target.value)} /></td>
                   <td>
                     <PremiumDatePicker value={row.compliancePoDate || ''} onChange={(event) => updateRow(index, 'compliancePoDate', event.target.value)} />
                   </td>
@@ -3178,6 +3206,7 @@ function AnnualPoYearTable({ config = {}, readValue, onChange }) {
                     </div>
                     <small className="annual-po-selected-count">{(row.serviceCategory || []).join(', ') || 'No service selected'}</small>
                   </td>
+                  <td><span className="annual-po-selected-count">{(row.eprCategory || []).join(', ') || 'No EPR category'}</span></td>
                   <td>
                     <input
                       type="number"

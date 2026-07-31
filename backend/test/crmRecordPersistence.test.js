@@ -16,3 +16,15 @@ test('CRM company identity normalizes punctuation and ampersands consistently', 
     normalizeCompanyIdentity('A and B Polymers Limited')
   );
 });
+
+test('CRM company identity ignores repeated legal suffix variants', () => {
+  const identity = normalizeCompanyIdentity('Test');
+  [
+    'Test Pvt Ltd',
+    'Test Private Limited',
+    'Test Limited',
+    'Test Limited Liability',
+    'Test Private Limited Limited Liability',
+    'testLimited Liability'
+  ].forEach((name) => assert.equal(normalizeCompanyIdentity(name), identity));
+});

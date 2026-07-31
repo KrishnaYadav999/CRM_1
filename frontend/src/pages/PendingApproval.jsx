@@ -790,12 +790,12 @@ export default function PendingApproval() {
                 ))}
               </ApprovalTable>
             ) : activeTab === 'royalty' ? (
-              <ApprovalTable title="Claim Royalty Approvals" columns={['Company', 'FY', 'Original Creator', 'Claimed By', 'Original %', 'Claimant %', 'Status', 'Actions']} emptyText="No royalty claims found." page={1} totalPages={1} showing={filteredRoyalty.length} total={filteredRoyalty.length} onPrev={() => {}} onNext={() => {}}>
+              <ApprovalTable title="Claim Royalty Approvals" columns={['Company', 'FY', 'Services Offered', 'EPR Category', 'Data Flag', 'Original Creator', 'Claimed By', 'Original %', 'Claimant %', 'Status', 'Actions']} emptyText="No royalty claims found." page={1} totalPages={1} showing={filteredRoyalty.length} total={filteredRoyalty.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredRoyalty.map((row) => {
                   const id = row._id || row.id;
                   const values = approvalInputs[id] || {};
                   return <tr key={id}>
-                    <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.financialYear}</Cell><Cell>{row.payload?.originalCreator}</Cell><Cell>{row.payload?.claimantName}</Cell>
+                    <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.financialYear}</Cell><Cell>{(row.payload?.servicesOffered || []).join(', ') || '-'}</Cell><Cell>{(row.payload?.eprCategories || []).join(', ') || '-'}</Cell><Cell><span className={`rounded-full px-3 py-1 text-xs font-black ${row.payload?.dataFlag === 'GREEN' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`} title={row.payload?.correctionDeadline ? `Correction allowed until ${String(row.payload.correctionDeadline).slice(0, 10)}` : 'Complete'}>{row.payload?.dataFlag || 'RED'}</span></Cell><Cell>{row.payload?.originalCreator}</Cell><Cell>{row.payload?.claimantName}</Cell>
                     <Cell><input className="form-input min-w-24" type="number" min="0" max="100" disabled={getApprovalStatus(row) !== 'PENDING'} value={values.originalCreatorRatio ?? row.payload?.originalCreatorRatio ?? ''} onChange={(event) => setApprovalInputs((current) => ({ ...current, [id]: { ...(current[id] || {}), originalCreatorRatio: event.target.value } }))} /></Cell>
                     <Cell><input className="form-input min-w-24" type="number" min="0" max="100" disabled={getApprovalStatus(row) !== 'PENDING'} value={values.claimantRatio ?? row.payload?.claimantRatio ?? ''} onChange={(event) => setApprovalInputs((current) => ({ ...current, [id]: { ...(current[id] || {}), claimantRatio: event.target.value } }))} /></Cell>
                     <Cell>{statusBadge(row.approvalStatus)}</Cell><ActionCell row={{ ...row, id }} savingId={savingId} onUpdate={updateDuplicateLeadApproval} canApprove={canApprove} />
