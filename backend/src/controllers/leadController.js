@@ -43,6 +43,7 @@ function cleanBody(body) {
     'applicantType',
     'serviceSelections',
     'servicesOffered',
+    'applicableService',
     'firstAnnualReturnYearApplicable',
     'addresses',
     'contacts',
@@ -153,7 +154,8 @@ function cleanBody(body) {
           closedByEmail: String(row?.closedByEmail || '').trim(),
           assignedStaff: String(row?.assignedStaff || '').trim(),
           assignedStaffText: String(row?.assignedStaffText || '').trim(),
-          assignedStaffEmail: String(row?.assignedStaffEmail || '').trim()
+          assignedStaffEmail: String(row?.assignedStaffEmail || '').trim(),
+          assignedBy: String(row?.assignedBy || '').trim()
         })) : [];
         return;
       }
@@ -277,6 +279,117 @@ async function findDuplicateCompanyRecord(company, excludeId = '') {
     { company: { $regex: `^\\s*${escaped}`, $options: 'i' } }
   ] }).select('_id company leadCode importedCreatedBy createdBy').populate('createdBy', 'name email').lean();
   return rows.find((lead) => String(lead._id) !== String(excludeId || '') && normalizeCompanyIdentity(lead.company) === identity) || null;
+}
+
+function bulkServiceRow(source = {}, user = {}) {
+  return {
+    industryType: String(source.industryType || '').trim(),
+    eprCategory: String(source.eprCategory || '').trim(),
+    applicantType: String(source.applicantType || source.piboParent || '').trim(),
+    piboCategory: String(source.piboCategory || '').trim(),
+    servicesOffered: String(source.servicesOffered || '').trim(),
+    applicableService: String(source.applicableService || '').trim(),
+    firstAnnualReturnYearApplicable: String(source.firstAnnualReturnYearApplicable || '').trim(),
+    createdByCrmUserId: String(source.createdByCrmUserId || user?._id || user?.id || '').trim(),
+    createdByName: String(source.createdByName || source.importedCreatedBy || user?.name || user?.email || '').trim(),
+    createdByEmail: String(source.createdByEmail || user?.email || '').trim().toLowerCase()
+  };
+}
+
+function hasBulkService(row = {}) {
+  return ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable']
+    .some((key) => String(row[key] || '').trim());
+}
+
+function bulkServiceIdentity(row = {}) {
+  return ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable']
+    .map((key) => String(row[key] || '').trim().toLowerCase()).join('|');
+}
+
+function normalizeLegacyBulkServices(lead = {}) {
+  const saved = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : []).map((row) => bulkServiceRow(row));
+  const topLevel = bulkServiceRow(lead);
+  if (hasBulkService(topLevel) && !saved.some((row) => bulkServiceIdentity(row) === bulkServiceIdentity(topLevel))) saved.unshift(topLevel);
+  return saved;
+}
+
+function bulkAssignmentRow(source = {}) {
+  return {
+    assignedTo: String(source.assignedTo?._id || source.assignedTo || '').trim(),
+    assignedToText: String(source.assignedToText || '').trim(),
+    assignedToEmail: String(source.assignedToEmail || '').trim().toLowerCase(),
+    assignedStaff: String(source.assignedStaff?._id || source.assignedStaff || '').trim(),
+    assignedStaffText: String(source.assignedStaffText || '').trim(),
+    assignedStaffEmail: String(source.assignedStaffEmail || '').trim().toLowerCase(),
+    closedBy: String(source.closedBy?._id || source.closedBy || '').trim(),
+    closedByText: String(source.closedByText || '').trim(),
+    closedByEmail: String(source.closedByEmail || '').trim().toLowerCase(),
+    assignedBy: String(source.assignedBy || '').trim()
+  };
+}
+
+function alignBulkAssignments(lead = {}, serviceCount = 0) {
+  const existing = (Array.isArray(lead.assignments) ? lead.assignments : []).map(bulkAssignmentRow);
+  const topLevel = bulkAssignmentRow(lead);
+  if (existing.length < serviceCount && Object.values(topLevel).some(Boolean)) existing.unshift(topLevel);
+  while (existing.length < serviceCount) existing.push({ ...topLevel });
+  return existing.slice(0, serviceCount);
+}
+
+function bulkAddressRow(source = {}) {
+  return {
+    addressLine1: String(source.addressLine1 || '').trim(), addressLine2: String(source.addressLine2 || '').trim(),
+    addressLine3: String(source.addressLine3 || '').trim(), landmark: String(source.landmark || '').trim(),
+    state: String(source.state || '').trim(), city: String(source.city || '').trim(), pinCode: String(source.pinCode || '').trim(),
+    existingClient: source.existingClient === 'Yes' ? 'Yes' : 'No', website: String(source.website || '').trim()
+  };
+}
+
+function bulkContactRow(source = {}) {
+  return {
+    salutation: String(source.salutation || '').trim(), contactPerson: String(source.contactPerson || '').trim(),
+    designation: String(source.designation || '').trim(), emails: String(source.emails || '').trim(),
+    mobileNo1: String(source.mobileNo1 || '').replace(/\D/g, '').slice(0, 10), mobileNo2: String(source.mobileNo2 || '').replace(/\D/g, '').slice(0, 10),
+    referredBy: String(source.referredBy || '').trim(), source: String(source.source || '').trim(), businessCardUrl: String(source.businessCardUrl || '').trim()
+  };
+}
+
+function buildBulkCreateData(data, user = {}) {
+  const service = bulkServiceRow(data, user);
+  const assignment = bulkAssignmentRow(data);
+  return {
+    ...data,
+    serviceSelections: [service],
+    assignments: [assignment],
+    addresses: Array.isArray(data.addresses) && data.addresses.length ? data.addresses : [bulkAddressRow(data)],
+    contacts: Array.isArray(data.contacts) && data.contacts.length ? data.contacts : [bulkContactRow(data)],
+    workflowStatus: 'draft'
+  };
+}
+
+function buildBulkMergeData(existing = {}, incoming = {}, user = {}) {
+  const services = normalizeLegacyBulkServices(existing);
+  const assignments = alignBulkAssignments(existing, services.length);
+  const addedService = bulkServiceRow(incoming, user);
+  services.push(addedService);
+  assignments.push(bulkAssignmentRow(incoming));
+  const primary = services[0] || {};
+  const fill = (key) => existing[key] || incoming[key];
+  return {
+    serviceSelections: services,
+    assignments: assignments,
+    industryType: primary.industryType || existing.industryType || '', eprCategory: primary.eprCategory || existing.eprCategory || '',
+    applicantType: primary.applicantType || existing.applicantType || '', piboCategory: primary.piboCategory || existing.piboCategory || '',
+    servicesOffered: primary.servicesOffered || existing.servicesOffered || '', firstAnnualReturnYearApplicable: primary.firstAnnualReturnYearApplicable || existing.firstAnnualReturnYearApplicable || '',
+    addresses: Array.isArray(existing.addresses) && existing.addresses.length ? existing.addresses : [bulkAddressRow(incoming)],
+    contacts: Array.isArray(existing.contacts) && existing.contacts.length ? existing.contacts : [bulkContactRow(incoming)],
+    communicationMode: fill('communicationMode'), status: fill('status'), addressLine1: fill('addressLine1'), addressLine2: fill('addressLine2'),
+    addressLine3: fill('addressLine3'), landmark: fill('landmark'), state: fill('state'), city: fill('city'), pinCode: fill('pinCode'),
+    existingClient: fill('existingClient'), website: fill('website'), salutation: fill('salutation'), contactPerson: fill('contactPerson'),
+    designation: fill('designation'), emails: fill('emails'), mobileNo1: fill('mobileNo1'), mobileNo2: fill('mobileNo2'),
+    businessCardUrl: fill('businessCardUrl'), referredBy: fill('referredBy'), source: fill('source'), notes: fill('notes'),
+    workflowStatus: 'draft'
+  };
 }
 
 exports.searchCompanies = async (req, res) => {
@@ -478,10 +591,43 @@ exports.bulkCreateLeads = async (req, res) => {
 
   const leads = [];
   const failures = [];
+  let created = 0;
+  let updated = 0;
+  const staff = await User.find({ isActive: { $ne: false } }).select('_id name email').lean();
+  const staffByName = new Map(staff.map((user) => [String(user.name || '').trim().replace(/\s+/g, ' ').toLowerCase(), user]));
 
   for (let index = 0; index < rows.length; index += 1) {
     try {
-      const lead = await createLeadRecord(rows[index], req.user?._id);
+      const data = cleanBody(rows[index]);
+      data.workflowStatus = 'draft';
+      data.companyIdentity = normalizeCompanyIdentity(data.company);
+      if (!data.companyIdentity) throw new Error('Company is required');
+      if (data.pinCode && !/^\d{6}$/.test(String(data.pinCode))) throw new Error('PIN must contain exactly 6 digits');
+
+      const assignedName = String(data.assignedToText || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      const matchedStaff = assignedName ? staffByName.get(assignedName) : null;
+      if (matchedStaff) {
+        data.assignedTo = matchedStaff._id;
+        data.assignedToText = matchedStaff.name;
+        data.assignedToEmail = matchedStaff.email || '';
+      }
+
+      let lead = await Lead.findOne({ companyIdentity: data.companyIdentity });
+      if (!lead) {
+        const escapedCompany = String(data.company || '').trim().split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const candidates = escapedCompany ? await Lead.find({ company: { $regex: `^\\s*${escapedCompany}`, $options: 'i' } }).limit(100) : [];
+        lead = candidates.find((candidate) => normalizeCompanyIdentity(candidate.company) === data.companyIdentity) || null;
+      }
+
+      if (lead) {
+        lead.set(buildBulkMergeData(lead.toObject(), data, req.user));
+        lead.companyIdentity = data.companyIdentity;
+        await lead.save();
+        updated += 1;
+      } else {
+        lead = await createLeadRecord(buildBulkCreateData(data, req.user), req.user?._id);
+        created += 1;
+      }
       leads.push(lead);
     } catch (err) {
       failures.push({
@@ -494,6 +640,8 @@ exports.bulkCreateLeads = async (req, res) => {
   res.status(failures.length && !leads.length ? 400 : 201).json({
     ok: failures.length === 0,
     imported: leads.length,
+    created,
+    updated,
     failed: failures.length,
     leads,
     failures
@@ -757,4 +905,12 @@ exports.updateDuplicateLeadApproval = async (req, res) => {
     await Promise.allSettled(resultEmails.map((email) => sendMail(email, `${approval.type === 'lead_royalty' ? 'Royalty Claim' : 'Special Approval'} ${status} - ${approval.clientName}`, `<div style="font-family:Arial,sans-serif;color:#334155"><h2 style="color:#0f766e">${status === 'APPROVED' ? 'Request approved' : 'Request rejected'}</h2><p>Your request for <strong>${escapeHtml(approval.clientName)}</strong> was ${status.toLowerCase()}.</p>${detail}<p>Please review the CRM Notification Center for complete details.</p></div>`, { branded: false })));
   }
   return res.json({ ok: true, approval });
+};
+
+exports._test = {
+  bulkServiceRow,
+  normalizeLegacyBulkServices,
+  alignBulkAssignments,
+  buildBulkCreateData,
+  buildBulkMergeData
 };

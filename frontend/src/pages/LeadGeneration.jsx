@@ -333,6 +333,16 @@ function createServiceSelection(source = {}) {
   };
 }
 
+function normalizeLegacyServiceSelections(source = {}) {
+  const saved = (Array.isArray(source.serviceSelections) ? source.serviceSelections : []).map((row) => createServiceSelection(row));
+  const topLevel = createServiceSelection(source);
+  const fields = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable'];
+  const hasService = (row) => fields.some((field) => String(row?.[field] || '').trim());
+  const identity = (row) => fields.map((field) => String(row?.[field] || '').trim().toLowerCase()).join('|');
+  if (hasService(topLevel) && !saved.some((row) => identity(row) === identity(topLevel))) saved.unshift(topLevel);
+  return saved.length ? saved : [topLevel];
+}
+
 function createAddressRow(source = {}) {
   return {
     addressLine1: source.addressLine1 || '',
@@ -381,7 +391,8 @@ function createAssignmentRow(source = {}) {
     closedByEmail: source.closedByEmail || source.closedBy?.email || '',
     assignedStaff: source.assignedStaff?._id || source.assignedStaff || '',
     assignedStaffText: source.assignedStaffText || source.assignedStaff?.name || '',
-    assignedStaffEmail: source.assignedStaffEmail || source.assignedStaff?.email || ''
+    assignedStaffEmail: source.assignedStaffEmail || source.assignedStaff?.email || '',
+    assignedBy: source.assignedBy || ''
   };
 }
 
@@ -450,7 +461,7 @@ export default function LeadGeneration() {
   const isFirstStepReady = Boolean(lead.status && lead.company && resolvedApplicantType && (primaryDirectSelection || lead.piboCategory) && lead.servicesOffered);
   const ownershipRequired = Boolean(!editingLeadId && !serviceOnlyMode && lead.company.trim() && !generatedForConfirmed);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
-  const canUseExcelBulkImport = adminRoles.includes(currentUser?.role);
+  const canUseExcelBulkImport = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
 
   const staffOptions = useMemo(() => {
     const seen = new Set();
@@ -493,10 +504,9 @@ export default function LeadGeneration() {
   const cityOptions = lead.state ? stateCities[lead.state] || [] : [];
   const addressRows = uniqueDataRows(Array.isArray(lead.addresses) && lead.addresses.length ? lead.addresses : [createAddressRow(lead)]);
   const contactRows = uniqueDataRows(Array.isArray(lead.contacts) && lead.contacts.length ? lead.contacts : [createContactRow(lead)]);
-  const assignmentRows = Array.isArray(lead.assignments) && lead.assignments.length ? lead.assignments : [createAssignmentRow(lead)];
-  const serviceRows = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length
-    ? lead.serviceSelections
-    : [createServiceSelection(lead)];
+  const serviceRows = normalizeLegacyServiceSelections(lead);
+  const savedAssignmentRows = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const assignmentRows = Array.from({ length: serviceRows.length }, (_, index) => savedAssignmentRows[index] || createAssignmentRow(lead));
   const assignmentHasPlastic = serviceRows.some((row) => /plastic\s+waste/i.test(String(row?.eprCategory || '')));
   const assignmentHasNonPlastic = serviceRows.some((row) => row?.eprCategory && !/plastic\s+waste/i.test(String(row.eprCategory)));
   const assignmentApplicantLabel = assignmentHasPlastic && assignmentHasNonPlastic
@@ -1163,6 +1173,60 @@ export default function LeadGeneration() {
     return match ? (match._id || match.id) : '';
   }
 
+  function downloadLeadImportTemplate() {
+    const headers = [
+      'Communication Mode', 'Lead ID', 'Status', 'Company', 'Industry', 'EPR Category', 'Applicant Type', 'PIBO Subcategory',
+      'Services Offered', 'Applicable Services', 'Financial Year', 'Address', 'Address Line 2', 'Address Line 3', 'Landmark',
+      'State', 'City', 'PIN', 'Existing Client', 'Website', 'Salutation', 'Contact Person', 'Designation', 'Email',
+      'Emails Sent Count', 'Last Email Sent', 'Mobile 1', 'Mobile 2', 'Business Card URL', 'Referred By', 'Source', 'Notes',
+      'Assigned To', 'Assigned By', 'Created By', 'Lead Date', 'Next Follow-Up Date', 'Next Follow-Up Time',
+      'Follow-Up Remarks', 'Created At', 'Updated At'
+    ];
+    const templateRows = allCcpLeads.flatMap((item) => {
+      const services = normalizeLegacyServiceSelections(item);
+      const assignments = Array.isArray(item.assignments) ? item.assignments : [];
+      return services.map((service, index) => {
+        const assignment = assignments[index] || createAssignmentRow(item);
+        return {
+          'Communication Mode': item.communicationMode || '', 'Lead ID': item.sourceLeadId || item.leadCode || '', Status: item.status || '', Company: item.company || '',
+          Industry: service.industryType || '', 'EPR Category': service.eprCategory || '', 'Applicant Type': service.applicantType || '',
+          'PIBO Subcategory': service.piboCategory || '', 'Services Offered': service.servicesOffered || '', 'Applicable Services': service.applicableService || '',
+          'Financial Year': service.firstAnnualReturnYearApplicable || '', Address: item.addressLine1 || item.addresses?.[0]?.addressLine1 || '',
+          'Address Line 2': item.addressLine2 || item.addresses?.[0]?.addressLine2 || '', 'Address Line 3': item.addressLine3 || item.addresses?.[0]?.addressLine3 || '',
+          Landmark: item.landmark || item.addresses?.[0]?.landmark || '', State: item.state || item.addresses?.[0]?.state || '', City: item.city || item.addresses?.[0]?.city || '',
+          PIN: item.pinCode || item.addresses?.[0]?.pinCode || '', 'Existing Client': item.existingClient || item.addresses?.[0]?.existingClient || 'No', Website: item.website || item.addresses?.[0]?.website || '',
+          Salutation: item.salutation || item.contacts?.[0]?.salutation || '', 'Contact Person': item.contactPerson || item.contacts?.[0]?.contactPerson || '',
+          Designation: item.designation || item.contacts?.[0]?.designation || '', Email: item.emails || item.contacts?.[0]?.emails || '',
+          'Emails Sent Count': item.emailsSentCount || 0, 'Last Email Sent': item.lastEmailSent || '',
+          'Mobile 1': item.mobileNo1 || item.contacts?.[0]?.mobileNo1 || '', 'Mobile 2': item.mobileNo2 || item.contacts?.[0]?.mobileNo2 || '',
+          'Business Card URL': item.businessCardUrl || item.contacts?.[0]?.businessCardUrl || '', 'Referred By': item.referredBy || item.contacts?.[0]?.referredBy || '',
+          Source: item.source || item.contacts?.[0]?.source || '', Notes: item.notes || '', 'Assigned To': assignment.assignedToText || assignment.assignedTo?.name || item.assignedToText || item.assignedTo?.name || '',
+          'Assigned By': assignment.assignedBy || item.assignedBy || '', 'Created By': service.createdByName || item.importedCreatedBy || item.createdBy?.name || '',
+          'Lead Date': item.leadDate || '', 'Next Follow-Up Date': item.nextFollowUpDate || '', 'Next Follow-Up Time': item.nextFollowUpTime || '',
+          'Follow-Up Remarks': item.followUpRemarks || '', 'Created At': item.createdAt || item.importedCreatedAt || '', 'Updated At': item.updatedAt || item.importedUpdatedAt || ''
+        };
+      });
+    });
+    const leadsSheet = templateRows.length ? XLSX.utils.json_to_sheet(templateRows, { header: headers }) : XLSX.utils.aoa_to_sheet([headers]);
+    leadsSheet['!cols'] = headers.map((header) => ({ wch: Math.max(14, Math.min(34, header.length + 4)) }));
+    const required = new Set(['Company']);
+    const helpRows = headers.map((field) => ({
+      Field: field,
+      Required: required.has(field) ? 'Yes' : 'No (draft import)',
+      Guidance: field === 'Company' ? 'Required. Repeated company names append service rows to one lead.'
+        : field === 'PIN' ? 'Use exactly 6 digits. Format the Excel cell as Text to preserve leading zeroes.'
+          : field === 'Assigned To' ? 'Enter an existing CRM staff name; exact names are matched automatically.'
+            : ['Industry', 'EPR Category', 'Applicant Type', 'PIBO Subcategory', 'Services Offered', 'Applicable Services', 'Financial Year'].includes(field) ? 'This value belongs to the service row.'
+              : 'Optional for draft import; existing CRM business rules remain applicable.'
+    }));
+    const helpSheet = XLSX.utils.json_to_sheet(helpRows);
+    helpSheet['!cols'] = [{ wch: 28 }, { wch: 20 }, { wch: 75 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, leadsSheet, 'Lead Import');
+    XLSX.utils.book_append_sheet(workbook, helpSheet, 'Help');
+    XLSX.writeFile(workbook, `crm-lead-import-template-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
   async function handleExcelUpload(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1193,9 +1257,7 @@ export default function LeadGeneration() {
       }
 
       setExcelRows(parsed);
-      setLead({ ...emptyLead, ...parsed[0], assignedTo: resolveUserId(parsed[0].assignedTo) || parsed[0].assignedTo });
-      setActiveTab('basic');
-      showToast(`Loaded ${parsed.length} lead${parsed.length === 1 ? '' : 's'} from Excel. First row applied to form.`, 'success');
+      showToast(`Loaded ${parsed.length} Excel row${parsed.length === 1 ? '' : 's'}. Ready to import as drafts.`, 'success');
     } catch (err) {
       console.error(err);
       showToast('Unable to read Excel file. Please upload a valid .xlsx file.', 'error');
@@ -1736,6 +1798,7 @@ export default function LeadGeneration() {
               )}
             </div>
             <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={downloadLeadImportTemplate} className="btn-lift inline-flex min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 font-black text-emerald-800 hover:bg-emerald-100"><Download className="h-4 w-4" /> Download Template</button>
               <label className="btn-lift inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 font-black text-slate-800 hover:bg-slate-50">
                 <Upload className="h-4 w-4" /> Upload Excel
                 <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="sr-only" />
@@ -3978,13 +4041,16 @@ function mapExcelRowToLead(row, staff) {
     industry: 'industryType',
     industrytype: 'industryType',
     eprcategory: 'eprCategory',
-    applicanttype: 'piboParent',
+    applicanttype: 'applicantType',
     pibocategorytype: 'piboParent',
     pibosubcategory: 'piboCategory',
     pibocategoryparent: 'piboParent',
     piboparent: 'piboParent',
     pibocategory: 'piboCategory',
     servicesoffered: 'servicesOffered',
+    applicableservices: 'applicableService',
+    applicableservice: 'applicableService',
+    financialyear: 'firstAnnualReturnYearApplicable',
     address: 'addressLine1',
     addressline1: 'addressLine1',
     address1: 'addressLine1',
@@ -4053,6 +4119,7 @@ function mapExcelRowToLead(row, staff) {
     data.piboParent = data.piboParent || normalizedPibo.parent;
     data.piboCategory = normalizedPibo.child;
   }
+  if (!data.piboParent && PIBO_PARENTS.includes(data.applicantType)) data.piboParent = data.applicantType;
 
   return data;
 }
