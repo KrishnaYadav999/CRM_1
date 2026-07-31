@@ -35,12 +35,14 @@ const emptyLeadDetails = {
 const emptyItem = {
   industryType: '',
   serviceCategory: '',
+  serviceStartDate: '',
+  serviceEndDate: '',
   servicesForYear: '',
   eprCategory: '',
   piboParent: '',
   piboCategoryParent: '',
   piboCategory: '',
-  unit: '',
+  unit: '1',
   basicAmount: ''
 };
 
@@ -63,6 +65,54 @@ function displayLeadCode(row = {}, index = -1) {
   return businessMatch ? `ATPL-${businessMatch[1].padStart(4, '0')}` : (value || '-');
 }
 
+function normalizeDateInputValue(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
+}
+
+function parseDateInputValue(value) {
+  const normalized = normalizeDateInputValue(value);
+  if (!normalized) return null;
+  const [year, month, day] = normalized.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(date.getTime())
+    || date.getFullYear() !== year
+    || date.getMonth() !== month - 1
+    || date.getDate() !== day
+  ) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+function deriveFinancialYearFromDate(value) {
+  const parts = parseDateInputValue(value);
+  if (!parts) return '';
+  const startYear = parts.month >= 4 ? parts.year : parts.year - 1;
+  return `${startYear}-${String(startYear + 1).slice(-2)}`;
+}
+
+function formatServiceDate(value) {
+  const parts = parseDateInputValue(value);
+  if (!parts) return '-';
+  return new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString('en-GB');
+}
+
+function isMeaningfulQuotationItem(item = {}) {
+  return [
+    item.industryType,
+    item.serviceCategory,
+    item.serviceStartDate,
+    item.serviceEndDate,
+    item.servicesForYear,
+    item.eprCategory,
+    item.piboCategory
+  ].some((value) => String(value || '').trim())
+    || Number(item.basicAmount) > 0;
+}
+
 const emptyQuotation = {
   leadId: '',
   leadCode: '',
@@ -76,7 +126,6 @@ const emptyQuotation = {
   status: 'draft'
 };
 
-const yearOptions = ['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30'];
 const salutationOptions = ['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.', 'Er.', 'CA', 'Adv.'];
 const eprCategoryOptions = ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'];
 const industryTypeOptions = ['Automotive', 'Chemicals', 'Construction', 'Consumer Goods', 'E-commerce', 'Electronics', 'Energy', 'FMCG', 'Financial Services', 'Healthcare', 'Hospitality', 'IT & Software', 'Logistics', 'Manufacturing', 'Pharmaceuticals', 'Renewables', 'Retail', 'Telecom', 'Waste Management', 'Food Manufacturing', 'Mechanical Industry', 'Petrochemical', 'Packaging Manufacture', 'Plastic Recycling', 'E-Waste Recycler', 'E-Waste Recycling', 'Other'];
@@ -223,11 +272,13 @@ function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', c
       serviceAddedBy: row.createdByName || row.createdByEmail || currentUser?.name || currentUser?.email || '',
       industryType: row.industryType || saved.industryType || '',
       serviceCategory: saved.serviceCategory || '',
-      servicesForYear: row.firstAnnualReturnYearApplicable || saved.servicesForYear || '',
+      serviceStartDate: normalizeDateInputValue(saved.serviceStartDate),
+      serviceEndDate: normalizeDateInputValue(saved.serviceEndDate),
+      servicesForYear: saved.servicesForYear || row.firstAnnualReturnYearApplicable || '',
       eprCategory: row.eprCategory || saved.eprCategory || '',
       piboParent: applicant.parent || saved.piboParent || '',
       piboCategory: applicant.child || saved.piboCategory || '',
-      unit: saved.unit ?? '',
+      unit: saved.unit || '1',
       basicAmount: saved.basicAmount ?? ''
     };
   });
@@ -310,10 +361,13 @@ function buildQuotationFromContext(context) {
         serviceAddedBy: service.createdByName || service.createdByEmail || '',
         industryType: service.industryType || '',
         serviceCategory: '',
+        serviceStartDate: normalizeDateInputValue(service.serviceStartDate),
+        serviceEndDate: normalizeDateInputValue(service.serviceEndDate),
         servicesForYear: service.firstAnnualReturnYearApplicable || service.annualYear || '',
         eprCategory: service.eprCategory || '',
         piboParent: applicant.parent,
-        piboCategory: applicant.child
+        piboCategory: applicant.child,
+        unit: service.unit || '1'
       };
     }),
     terms: [],
@@ -341,13 +395,22 @@ function normalizeQuotationSnapshot(row) {
     pricingMode: row.pricingMode || '',
     combinedBasicAmount: row.combinedBasicAmount ?? '',
     items: Array.isArray(row.items) && row.items.length
-      ? row.items
+      ? row.items.map((item) => ({
+          ...emptyItem,
+          ...item,
+          serviceStartDate: normalizeDateInputValue(item?.serviceStartDate),
+          serviceEndDate: normalizeDateInputValue(item?.serviceEndDate),
+          unit: item?.unit || '1',
+          basicAmount: item?.basicAmount ?? ''
+        }))
       : [{
           serviceCategory: row.service || '',
+          serviceStartDate: normalizeDateInputValue(row.serviceStartDate),
+          serviceEndDate: normalizeDateInputValue(row.serviceEndDate),
           servicesForYear: row.servicesForYear || '',
           eprCategory: row.category || row.eprCategory || '',
           piboCategory: row.piboCategory || '',
-          unit: row.unit || '',
+          unit: row.unit || '1',
           basicAmount: row.basicAmount || ''
         }],
     terms: Array.isArray(row.terms) ? row.terms : [],
@@ -472,10 +535,12 @@ function parseQuotationWorkbook(fileRows, leads = []) {
     quotation.items.push({
       ...emptyItem,
       serviceCategory: String(row['Item Service Category'] || row['Service Category'] || '').trim(),
-      servicesForYear: String(row['Services for the Year'] || '').trim(),
+      serviceStartDate: normalizeDateInputValue(row['Service Start Date']),
+      serviceEndDate: normalizeDateInputValue(row['Service End Date']),
+      servicesForYear: deriveFinancialYearFromDate(row['Service Start Date']) || String(row['Services for the Year'] || '').trim(),
       eprCategory: String(row['Item EPR Category'] || row['EPR Category'] || '').trim(),
       piboParent: inferPiboParent(piboCategory), piboCategory,
-      unit: String(row['Item Unit'] || row['Quantity/Unit'] || '').trim(),
+      unit: String(row['Item Unit'] || row['Quantity/Unit'] || '').trim() || '1',
       basicAmount: excelAmount(row['Item Basic Amount (INR)'] || row['Basic Amount (INR)'])
     });
     quotation.__sourceRows.push(index + 2);
@@ -556,7 +621,6 @@ export default function Quotations() {
     ...customDropdownOptions.filter((option) => option.field === field).map((option) => option.name)
   ])].sort((left, right) => left.localeCompare(right));
   const allIndustryTypeOptions = optionsFor('industryType', industryTypeOptions);
-  const allYearOptions = optionsFor('servicesForYear', yearOptions);
   const allEprCategoryOptions = optionsFor('eprCategory', eprCategoryOptions);
 
   const userOptions = useMemo(() => {
@@ -812,7 +876,7 @@ export default function Quotations() {
   }
 
   function showQuotationDetail(row) {
-    setPreviewQuotation(row);
+    setPreviewQuotation(normalizeQuotationSnapshot(row));
     setMenuId('');
   }
 
@@ -933,7 +997,7 @@ export default function Quotations() {
 
   function startEditItem(index) {
     setEditingItemIndex(index);
-    setItemDrafts((drafts) => ({ ...drafts, [index]: { ...emptyItem, ...(quotation.items[index] || {}) } }));
+    setItemDrafts((drafts) => ({ ...drafts, [index]: { ...emptyItem, ...(quotation.items[index] || {}), unit: quotation.items[index]?.unit || '1' } }));
   }
 
   function setItemDraft(index, field, value) {
@@ -958,12 +1022,27 @@ export default function Quotations() {
 
   function readItemDraftValue(index, field, fallback = '') {
     const draft = itemDrafts[index];
-    return draft && Object.prototype.hasOwnProperty.call(draft, field) ? draft[field] : fallback;
+    if (!draft || !Object.prototype.hasOwnProperty.call(draft, field)) return fallback;
+    return draft[field] ?? fallback;
   }
 
   function saveItem(index) {
     const draft = { ...emptyItem, ...(itemDrafts[index] || {}) };
     const parent = draft.piboParent || draft.piboCategoryParent || inferPiboParent(draft.piboCategory);
+    const serviceStartDate = normalizeDateInputValue(draft.serviceStartDate);
+    const serviceEndDate = normalizeDateInputValue(draft.serviceEndDate);
+    if (!serviceStartDate) {
+      setError('Select Service Start Date before saving the quotation item.');
+      return;
+    }
+    if (!serviceEndDate) {
+      setError('Select Service End Date before saving the quotation item.');
+      return;
+    }
+    if (serviceEndDate < serviceStartDate) {
+      setError('Service End Date must be on or after Service Start Date.');
+      return;
+    }
     if (!parent || !draft.piboCategory) {
       setError('Select both Applicant Type and its child category before saving the quotation item.');
       return;
@@ -974,6 +1053,10 @@ export default function Quotations() {
       return;
     }
     draft.piboParent = parent;
+    draft.serviceStartDate = serviceStartDate;
+    draft.serviceEndDate = serviceEndDate;
+    draft.servicesForYear = deriveFinancialYearFromDate(serviceStartDate);
+    draft.unit = '1';
     delete draft.piboCategoryParent;
     setError('');
     setQuotation((current) => ({
@@ -985,7 +1068,7 @@ export default function Quotations() {
 
   function cancelItemEdit(index) {
     const original = quotation.items[index] || {};
-    const isEmpty = Object.values(original).every((value) => String(value || '').trim() === '');
+    const isEmpty = !isMeaningfulQuotationItem(original);
     if (isEmpty) removeItem(index);
     else setEditingItemIndex(null);
   }
@@ -1071,6 +1154,22 @@ export default function Quotations() {
       setError(`Quotation item ${invalidItemIndex + 1}: select a valid Applicant Type and child category.`);
       return;
     }
+    const invalidDateIndex = quotation.items.findIndex((item) => {
+      const start = normalizeDateInputValue(item.serviceStartDate);
+      const end = normalizeDateInputValue(item.serviceEndDate);
+      return !start || !end || end < start;
+    });
+    if (invalidDateIndex >= 0) {
+      const item = quotation.items[invalidDateIndex] || {};
+      if (!normalizeDateInputValue(item.serviceStartDate)) {
+        setError(`Quotation item ${invalidDateIndex + 1}: select Service Start Date.`);
+      } else if (!normalizeDateInputValue(item.serviceEndDate)) {
+        setError(`Quotation item ${invalidDateIndex + 1}: select Service End Date.`);
+      } else {
+        setError(`Quotation item ${invalidDateIndex + 1}: Service End Date must be on or after Service Start Date.`);
+      }
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
@@ -1082,7 +1181,11 @@ export default function Quotations() {
         leadDetails: { ...quotation.leadDetails, gstNumber },
         items: quotation.items.map((item) => ({
           ...item,
+          serviceStartDate: normalizeDateInputValue(item.serviceStartDate),
+          serviceEndDate: normalizeDateInputValue(item.serviceEndDate),
+          servicesForYear: deriveFinancialYearFromDate(item.serviceStartDate) || item.servicesForYear || '',
           basicAmount: quotation.pricingMode === 'combined' ? 0 : item.basicAmount,
+          unit: '1',
           piboParent: item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory),
           piboCategoryParent: undefined
         })),
@@ -1283,7 +1386,7 @@ export default function Quotations() {
           <div className="mt-5">
             <Field label={quotationContext?.sourceType === 'client' ? 'Client Reference' : 'Select Lead'}>
               <LeadSelect
-                value={quotation.leadId}
+                value={quotation.leadId || ''}
                 disabled={fetchedQuoteDetailsLocked}
                 onChange={selectLead}
                 options={[
@@ -1358,7 +1461,7 @@ export default function Quotations() {
           </div>
           <div className="mt-5 max-w-sm">
             <Field label="Quotation Valid Until" required>
-              <PremiumDatePicker value={quotation.validUntil} onChange={(event) => setQuotation((current) => ({ ...current, validUntil: event.target.value }))} />
+              <PremiumDatePicker value={quotation.validUntil || ''} onChange={(event) => setQuotation((current) => ({ ...current, validUntil: event.target.value }))} />
             </Field>
           </div>
 
@@ -1377,10 +1480,10 @@ export default function Quotations() {
               {!quotation.pricingMode ? null : quotation.items.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No quotation items added.</div>
               ) : (
-                <table className="w-full min-w-[980px] text-left text-sm">
+                <table className="w-full min-w-[1180px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
-                      {['Sr.No', 'Industry Type', 'Service Category', 'Services for the Year', 'EPR Category', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
+                      {['Sr.No', 'Industry Type', 'Service Category', 'Service Start Date', 'Service End Date', 'EPR Category', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
                         <th key={header} className="px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -1394,19 +1497,21 @@ export default function Quotations() {
                             {selectedLead ? <>
                               <td className="px-3 py-4 font-black text-slate-700">{item.industryType || '-'}</td>
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'serviceCategory', item.serviceCategory || '')} options={allServiceCategoryOptions} placeholder="Select service category" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
-                              <td className="px-3 py-4 font-black text-slate-700">{item.servicesForYear || '-'}</td>
+                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate))} onChange={(event) => setItemDraft(index, 'serviceStartDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
+                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate))} onChange={(event) => setItemDraft(index, 'serviceEndDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
                               <td className="px-3 py-4 font-black text-slate-700">{item.eprCategory || '-'}</td>
                               <td className="px-3 py-4 font-black text-slate-700">{displayPiboChild(item)}</td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </> : <>
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'industryType', item.industryType || '')} options={allIndustryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('industryType', name) : undefined} /></td>
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'serviceCategory', item.serviceCategory || '')} options={allServiceCategoryOptions} placeholder="Select service category" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'servicesForYear', item.servicesForYear || '')} options={allYearOptions} placeholder="2025-26" onChange={(value) => setItemDraft(index, 'servicesForYear', value)} categoryLabel="Financial Year" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('servicesForYear', name) : undefined} /></td>
+                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate))} onChange={(event) => setItemDraft(index, 'serviceStartDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
+                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate))} onChange={(event) => setItemDraft(index, 'serviceEndDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'eprCategory', item.eprCategory || '')} options={allEprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} categoryLabel="EPR Category" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('eprCategory', name) : undefined} /></td>
                               <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={readItemDraftValue(index, 'piboParent', item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory))} value={readItemDraftValue(index, 'piboCategory', item.piboCategory || '')} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={canManageDropdownOptions ? addPiboCategory : undefined} /></td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </>}
-                            <td className="px-3 py-4"><input value={readItemDraftValue(index, 'unit', item.unit || '')} onChange={(event) => setItemDraft(index, 'unit', event.target.value)} className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1" /></td>
+                            <td className="px-3 py-4"><input value="1" disabled className="h-10 w-24 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" placeholder="1" /></td>
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
                                 <span className="grid w-10 place-items-center border-r border-slate-200 font-black text-slate-800">₹</span>
@@ -1425,7 +1530,8 @@ export default function Quotations() {
                           <>
                             <td className="px-3 py-4 font-black">{item.industryType || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.serviceCategory || '-'}</td>
-                            <td className="px-3 py-4 font-black">{item.servicesForYear || '-'}</td>
+                            <td className="px-3 py-4 font-black">{formatServiceDate(item.serviceStartDate)}</td>
+                            <td className="px-3 py-4 font-black">{formatServiceDate(item.serviceEndDate)}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.eprCategory || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{displayPiboChild(item)}</td>
                             <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
@@ -1492,7 +1598,7 @@ export default function Quotations() {
           </div>
           <p className="mt-2 text-xs font-bold text-slate-500">Selecting a package replaces the current scope list with the standard package deliverables from your EPR package matrix.</p>
           <div className="mt-4 space-y-3">
-            {(quotation.scopeOfWork || []).map((item, index) => <div key={index} className="flex items-center gap-3"><span className="w-8 text-right font-black">{index + 1}.</span><input value={item} onChange={(event) => setScopeItem(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter scope of work" /><button type="button" onClick={() => removeScopeItem(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50"><X className="h-4 w-4" /> Remove</button></div>)}
+            {(quotation.scopeOfWork || []).map((item, index) => <div key={index} className="flex items-center gap-3"><span className="w-8 text-right font-black">{index + 1}.</span><input value={String(item ?? '')} onChange={(event) => setScopeItem(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter scope of work" /><button type="button" onClick={() => removeScopeItem(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50"><X className="h-4 w-4" /> Remove</button></div>)}
             {!(quotation.scopeOfWork || []).length && <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No scope of work added.</div>}
           </div>
           <button type="button" onClick={addScopeItem} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 font-black text-slate-700 hover:bg-slate-50"><Plus className="h-4 w-4" /> Add Scope</button>
@@ -1534,7 +1640,7 @@ function SuccessDialog({ title, message, onClose }) {
 
 function QuotationTableRow({ row, expanded, menuOpen, onToggleItems, onToggleMenu, onEdit, onPreview }) {
   const itemCount = row.items?.length || 0;
-  const total = Number(row.grandTotal) || (row.items || []).reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
+  const total = Number(row.grandTotal) || (row.items || []).reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
   const revisable = canReviseQuotation(row);
 
   return (
@@ -1576,26 +1682,27 @@ function QuotationItemsPanel({ quotation, items }) {
   const combinedTotal = combinedQuotationTotal(quotation, items);
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-      <table className="w-full min-w-[920px] text-left text-sm">
+      <table className="w-full min-w-[1120px] text-left text-sm">
         <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
           <tr>
-            {['Service Category', 'Financial Years', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
+            {['Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
               <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
           ) : items.map((item, index) => (
             <tr key={index} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.serviceCategory || '-'}</td>
-              <td className="px-4 py-4">{item.servicesForYear || '-'}</td>
+              <td className="px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
+              <td className="px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
               <td className="px-4 py-4">{item.eprCategory || '-'}</td>
               <td className="px-4 py-4">{displayPiboChild(item)}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
-              {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="px-4 py-4 align-middle text-center font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)))}</td>}
+              {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="px-4 py-4 align-middle text-center font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
             </tr>
           ))}
         </tbody>
@@ -1680,17 +1787,10 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
   const items = Array.isArray(quotation.items) ? quotation.items : [];
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
-  const meaningfulItems = items.filter((item) => [
-    item.serviceCategory,
-    item.servicesForYear,
-    item.eprCategory,
-    item.piboCategory,
-    item.unit,
-    item.basicAmount
-  ].some((value) => String(value || '').trim() && String(value || '').trim() !== '-'));
+  const meaningfulItems = items.filter((item) => isMeaningfulQuotationItem(item));
   const latestItem = meaningfulItems[meaningfulItems.length - 1] || items[items.length - 1] || {};
   const userName = quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-';
-  const totalAmount = Number(quotation.grandTotal) || items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0);
+  const totalAmount = Number(quotation.grandTotal) || items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
   const displayRevisionCount = Math.max(revisionCount, meaningfulItems.length || items.length);
   const revisable = canReviseQuotation(quotation);
 
@@ -1729,10 +1829,10 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
 
           <DetailSection title="Quotation Items">
             <div className="overflow-auto rounded-lg border border-slate-200">
-              <table className="w-full min-w-[980px] text-left text-sm">
+              <table className="w-full min-w-[1160px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-black text-slate-600">
                   <tr>
-                    {['Sr.No', 'Service Category', 'Financial Years', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
+                    {['Sr.No', 'Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
                       <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                     ))}
                   </tr>
@@ -1742,15 +1842,16 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                     <tr key={index} className="font-black uppercase text-slate-700">
                       <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
-                      <td className="border-b border-r border-slate-100 px-4 py-4">{item.servicesForYear || '-'}</td>
+                      <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
+                      <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{displayPiboChild(item)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
-                      {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)))}</td>}
+                      {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
                     </tr>
                   )) : (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1799,6 +1900,8 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
     ['Referred By', details.referredBy || quotation.createdBy?.name || quotation.createdBy || '-'],
     ['Quotation Number', quotation.quotationNumber || quotation.uniqueId || '-'],
     ['Service Category', firstItem.serviceCategory || '-'],
+    ['Service Start Date', formatServiceDate(firstItem.serviceStartDate)],
+    ['Service End Date', formatServiceDate(firstItem.serviceEndDate)],
     ['EPR Category', firstItem.eprCategory || '-'],
     ['Applicant Type', displayPiboChild(firstItem)],
     ['Quantity/Unit', firstItem.unit || '-'],
@@ -1835,10 +1938,10 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
 
       <DetailSection title="Quotation Items">
         <div className="overflow-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[980px] text-left text-sm">
+          <table className="w-full min-w-[1120px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-600">
               <tr>
-                {['Sr.No', 'Service Category', 'Financial Years', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit'].map((header) => (
+                {['Sr.No', 'Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit'].map((header) => (
                   <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                 ))}
               </tr>
@@ -1848,14 +1951,15 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                 <tr key={index} className="font-black uppercase text-slate-700">
                   <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
-                  <td className="border-b border-r border-slate-100 px-4 py-4">{item.servicesForYear || '-'}</td>
+                  <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
+                  <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
                   {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{displayPiboChild(item)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
                 </tr>
               )) : (
-                <tr><td colSpan={7} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
               )}
             </tbody>
           </table>
@@ -1914,6 +2018,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
   const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+  const scopeItems = (quotation.scopeOfWork || []).filter(Boolean);
   const documentRef = useRef(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadError, setDownloadError] = useState('');
@@ -2073,81 +2178,97 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
         </div>
         <div className="hidden-scrollbar flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_36%,#eef2f7_100%)] p-5 sm:p-8">
           {downloadError && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600">{downloadError}</div>}
-          <section ref={documentRef} className="mx-auto min-h-[900px] max-w-[760px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
-            <div className="flex items-center justify-between pb-2">
-              <img data-pdf-logo src={quotationLogoUrl} alt="Anant Tattva" className="h-14 w-32 object-contain object-left" />
-              <div className="text-xl font-black uppercase tracking-[0.2em] text-orange-500">Quotation</div>
-            </div>
-            <div className="border-t border-slate-950 pt-5">
-              <div className="grid gap-8 md:grid-cols-2">
-                <div className="text-[11px] font-bold leading-5 text-slate-950">
-                  <p className="font-black">From:</p>
-                  <p>Krunal Goda</p>
-                  <p>AnantTattva Private Limited</p>
-                  <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Andheri East, Mumbai - 400059</p>
-                </div>
-                <div className="text-right text-[11px] font-normal leading-5 text-slate-950">
-                  <p>Quotation Date: {date}</p>
-                  <p>Quotation No.: {quotation.quotationNumber || '-'}</p>
-                  <p>Quotation Valid Until: {quotation.validUntil || '-'}</p>
-                  <p>Created: {date}</p>
-                  <p>Prepared By: {quotation.createdBy?.name || '-'}</p>
+          <div ref={documentRef} className="mx-auto max-w-[760px]">
+            <section className="min-h-[1020px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
+              <div className="flex items-center justify-between pb-2">
+                <img data-pdf-logo src={quotationLogoUrl} alt="Anant Tattva" className="h-14 w-32 object-contain object-left" />
+                <div className="text-xl font-black uppercase tracking-[0.2em] text-orange-500">Quotation</div>
+              </div>
+              <div className="border-t border-slate-950 pt-5">
+                <div className="grid gap-8 md:grid-cols-2">
+                  <div className="text-[11px] font-bold leading-5 text-slate-950">
+                    <p className="font-black">From:</p>
+                    <p>Krunal Goda</p>
+                    <p>AnantTattva Private Limited</p>
+                    <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Andheri East, Mumbai - 400059</p>
+                  </div>
+                  <div className="text-right text-[11px] font-normal leading-5 text-slate-950">
+                    <p>Quotation Date: {date}</p>
+                    <p>Quotation No.: {quotation.quotationNumber || '-'}</p>
+                    <p>Quotation Valid Until: {quotation.validUntil || '-'}</p>
+                    <p>Created: {date}</p>
+                    <p>Prepared By: {quotation.createdBy?.name || '-'}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="mt-5 border-t border-slate-200 pt-4 text-[11px] font-bold leading-5 text-slate-950">
-              <p className="font-black">To:</p>
-              <p>{details.salutation || ''} {details.contactPerson || '-'} {details.designation ? `- ${details.designation}` : ''}</p>
-              <p>Mobile No.1: {details.mobileNo1 || '-'}</p>
-              <p>{details.companyName || '-'}</p>
-              <p>{[details.addressLine1, details.addressLine2, details.addressLine3].filter(Boolean).join(', ') || '-'}</p>
-              <p>State: {details.state || '-'}</p>
-              <p>City: {details.city || '-'}</p>
-              <p>Pincode: {details.pinCode || '-'}</p>
-              <p>GST Number: {details.gstNumber || '-'}</p>
-            </div>
-            <div className="mt-5 overflow-hidden border border-slate-950">
-              <table className="w-full table-fixed text-[10px]">
-                <colgroup><col className="w-[19%]" /><col className="w-[21%]" /><col className="w-[21%]" /><col className="w-[15%]" /><col className="w-[6%]" /><col className="w-[18%]" /></colgroup>
-                <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
-                  <tr>
-                    {['Service Category', 'Services for the Year', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, index) => (
-                    <tr key={index} className="font-black uppercase">
-                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.serviceCategory || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.servicesForYear || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || '-'}</td>
-                      <td className="border-r border-t border-slate-950 px-1.5 py-2">{displayPiboChild(item)}</td>
-                      <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{item.unit || '-'}</td>
-                      {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-t border-slate-950 px-1.5 py-2 text-center align-middle">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
+              <div className="mt-5 border-t border-slate-200 pt-4 text-[11px] font-bold leading-5 text-slate-950">
+                <p className="font-black">To:</p>
+                <p>{details.salutation || ''} {details.contactPerson || '-'} {details.designation ? `- ${details.designation}` : ''}</p>
+                <p>Mobile No.1: {details.mobileNo1 || '-'}</p>
+                <p>{details.companyName || '-'}</p>
+                <p>{[details.addressLine1, details.addressLine2, details.addressLine3].filter(Boolean).join(', ') || '-'}</p>
+                <p>State: {details.state || '-'}</p>
+                <p>City: {details.city || '-'}</p>
+                <p>Pincode: {details.pinCode || '-'}</p>
+                <p>GST Number: {details.gstNumber || '-'}</p>
+              </div>
+              <div className="mt-5 overflow-hidden border border-slate-950">
+                <table className="w-full table-fixed text-[10px]">
+                  <colgroup><col className="w-[18%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[18%]" /><col className="w-[16%]" /><col className="w-[6%]" /><col className="w-[14%]" /></colgroup>
+                  <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
+                    <tr>
+                      {['Service Category', 'Service Start Date', 'Service End Date', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
-              <p className="font-black">Terms & Conditions:</p>
-              {(quotation.terms || []).length ? quotation.terms.map((term, index) => <p key={index}>{index + 1}. {term}</p>) : <p>No terms added.</p>}
-            </div>
-            <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
-              <p className="font-black">Scope of Work:</p>
-              {(quotation.scopeOfWork || []).filter(Boolean).length
-                ? quotation.scopeOfWork.filter(Boolean).map((item, index) => <p key={index}>{index + 1}. {item}</p>)
-                : <p>No scope of work added.</p>}
-            </div>
-            <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
-              <p className="font-black text-red-600">Important Note:</p>
-              <p>1. GST tax will be extra @ 18%.</p>
-              <p>2. Any Government Charges to be paid by Client directly.</p>
-            </div>
-            <div className="mt-6 border-t border-slate-950 pt-3 text-center">
-              <p className="text-[10px] font-black text-slate-950">For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p>
-              <p className="mt-5 text-[10px] font-black text-slate-950">This is a computer-generated quotation and does not require a signature.</p>
-            </div>
-          </section>
+                  </thead>
+                  <tbody>
+                    {items.map((item, index) => (
+                      <tr key={index} className="font-black uppercase">
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.serviceCategory || '-'}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{formatServiceDate(item.serviceStartDate)}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{formatServiceDate(item.serviceEndDate)}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || '-'}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{displayPiboChild(item)}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{item.unit || '-'}</td>
+                        {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-t border-slate-950 px-1.5 py-2 text-center align-middle">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
+                <p className="font-black">Terms & Conditions:</p>
+                {(quotation.terms || []).length ? quotation.terms.map((term, index) => <p key={index}>{index + 1}. {term}</p>) : <p>No terms added.</p>}
+              </div>
+              <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
+                <p className="font-black">Scope of Work:</p>
+                <p>Scope of work has been attached below.</p>
+              </div>
+              <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
+                <p className="font-black text-red-600">Important Note:</p>
+                <p>1. GST tax will be extra @ 18%.</p>
+                <p>2. Any Government Charges to be paid by Client directly.</p>
+              </div>
+              <div className="mt-6 border-t border-slate-950 pt-3 text-center">
+                <p className="text-[10px] font-black text-slate-950">For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p>
+                <p className="mt-5 text-[10px] font-black text-slate-950">This is a computer-generated quotation and does not require a signature.</p>
+              </div>
+            </section>
+            <section className="mt-6 min-h-[1020px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
+              <div className="border-b border-slate-950 pb-3">
+                <p className="text-lg font-black uppercase tracking-[0.18em] text-orange-500">Scope of Work for Preview and Download</p>
+              </div>
+              <div className="mt-6 text-[11px] font-bold leading-6 text-slate-950">
+                <p className="font-black">Scope of Work:</p>
+                {scopeItems.length ? (
+                  <ol className="mt-3 list-decimal space-y-2 pl-5">
+                    {scopeItems.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+                  </ol>
+                ) : (
+                  <p className="mt-3">No scope of work added.</p>
+                )}
+              </div>
+            </section>
+          </div>
         </div>
       </aside>
     </div>
@@ -2165,8 +2286,7 @@ function formatInr(value) {
 
 function meaningfulQuotationItems(items) {
   if (!Array.isArray(items)) return [];
-  return items.filter((item) => ['serviceCategory', 'servicesForYear', 'eprCategory', 'piboCategory', 'unit', 'unitLabel', 'basicAmount']
-    .some((field) => String(item?.[field] ?? '').trim() !== '' && Number(item?.[field]) !== 0));
+  return items.filter((item) => isMeaningfulQuotationItem(item));
 }
 
 function formatDisplayDate(value) {
@@ -2194,7 +2314,8 @@ function buildQuotationPrintHtml(quotation) {
   const rows = items.map((item, index) => `
     <tr>
       <td>${escapeHtml(item.serviceCategory || '-')}</td>
-      <td>${escapeHtml(item.servicesForYear || '-')}</td>
+      <td>${escapeHtml(formatServiceDate(item.serviceStartDate))}</td>
+      <td>${escapeHtml(formatServiceDate(item.serviceEndDate))}</td>
       <td>${escapeHtml(item.eprCategory || '-')}</td>
       <td>${escapeHtml(displayPiboChild(item))}</td>
       <td class="center">${escapeHtml(item.unit || '-')}</td>
@@ -2205,7 +2326,7 @@ function buildQuotationPrintHtml(quotation) {
     ? quotation.terms.map((term, index) => `<p>${index + 1}. ${escapeHtml(term)}</p>`).join('')
     : '<p>No terms added.</p>';
   const scopeOfWork = (quotation.scopeOfWork || []).length
-    ? quotation.scopeOfWork.map((item, index) => `<p>${index + 1}. ${escapeHtml(item)}</p>`).join('')
+    ? `<ol>${quotation.scopeOfWork.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ol>`
     : '<p>No scope of work added.</p>';
 
   return `<!doctype html>
@@ -2217,7 +2338,8 @@ function buildQuotationPrintHtml(quotation) {
       @page { size: A4; margin: 10mm; }
       * { box-sizing: border-box; }
       body { margin: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 10px; font-weight: 400; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .page { width: 100%; min-height: 100vh; padding: 0; }
+      .page { width: 100%; min-height: 277mm; padding: 0; }
+      .page + .page { page-break-before: always; }
       .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 8px; border-bottom: 1px solid #020617; }
       .logo { width: 105px; height: 42px; object-fit: contain; object-position: left center; }
       .title { color: #f97316; font-size: 18px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; }
@@ -2237,10 +2359,13 @@ function buildQuotationPrintHtml(quotation) {
       .center { text-align: center; }
       .terms { margin-top: 16px; line-height: 1.45; }
       .terms p { margin: 2px 0; font-weight: 400; }
+      .terms li, .scope-page li { margin: 0 0 6px; font-weight: 400; }
       .important { margin-top: 14px; line-height: 1.55; }
       .important-title { color: #ef0000; font-weight: 900; }
       .footer { margin-top: 16px; border-top: 1px solid #020617; padding-top: 14px; text-align: center; font-weight: 900; }
       .signature { margin-top: 16px; }
+      .scope-page { padding-top: 18px; }
+      .scope-page-title { color: #f97316; font-size: 18px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; border-bottom: 1px solid #020617; padding-bottom: 10px; margin-bottom: 18px; }
       @media print {
         html, body { width: 210mm; min-height: 297mm; }
       }
@@ -2279,17 +2404,17 @@ function buildQuotationPrintHtml(quotation) {
         <p><span class="strong">GST Number:</span> ${escapeHtml(details.gstNumber || '-')}</p>
       </section>
       <table>
-        <colgroup><col style="width:19%"><col style="width:21%"><col style="width:21%"><col style="width:15%"><col style="width:6%"><col style="width:18%"></colgroup>
+        <colgroup><col style="width:18%"><col style="width:14%"><col style="width:14%"><col style="width:18%"><col style="width:16%"><col style="width:6%"><col style="width:14%"></colgroup>
         <thead>
-          <tr><th>Service Category</th><th>Services for the Year</th><th>EPR Category</th><th>Applicant Type</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Service Category</th><th>Service Start Date</th><th>Service End Date</th><th>EPR Category</th><th>Applicant Type</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
         </thead>
-        <tbody>${rows || '<tr><td colspan="6" class="center">No quotation items added.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="7" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
       <section class="terms">
         <p class="label">Terms & Conditions:</p>
         ${terms}
         <h3>Scope of Work</h3>
-        ${scopeOfWork}
+        <p>Scope of work has been attached below.</p>
       </section>
       <section class="important">
         <p class="important-title">Important Note:</p>
@@ -2299,6 +2424,13 @@ function buildQuotationPrintHtml(quotation) {
       <section class="footer">
         <p>For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p>
         <p class="signature">This is a computer-generated quotation and does not require a signature.</p>
+      </section>
+    </main>
+    <main class="page scope-page">
+      <section class="scope-page-title">Scope of Work for Preview and Download</section>
+      <section class="terms">
+        <p class="label">Scope of Work:</p>
+        ${scopeOfWork}
       </section>
     </main>
   </body>

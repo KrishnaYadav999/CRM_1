@@ -22,6 +22,8 @@ const QuoteItemSchema = new mongoose.Schema({
   sourceServiceIndex: { type: Number, min: 0 },
   industryType: { type: String, trim: true },
   serviceCategory: { type: String, trim: true },
+  serviceStartDate: { type: String, trim: true },
+  serviceEndDate: { type: String, trim: true },
   servicesForYear: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
   piboParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },

@@ -84,26 +84,73 @@ function roundMoney(value) {
   return Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
 }
 
-function cleanItems(items) {
+function normalizeDateOnly(value) {
+  const raw = cleanString(value);
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    Number.isNaN(date.getTime())
+    || date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return '';
+  }
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function financialYearFromDate(value) {
+  const normalized = normalizeDateOnly(value);
+  if (!normalized) return '';
+  const year = Number(normalized.slice(0, 4));
+  const month = Number(normalized.slice(5, 7));
+  const startYear = month >= 4 ? year : year - 1;
+  return `${startYear}-${String(startYear + 1).slice(-2)}`;
+}
+
+function isMeaningfulItem(item = {}) {
+  return [
+    item.industryType,
+    item.serviceCategory,
+    item.serviceStartDate,
+    item.serviceEndDate,
+    item.servicesForYear,
+    item.eprCategory,
+    item.piboCategory
+  ].some((value) => cleanString(value))
+    || Number(item.basicAmount) > 0;
+}
+
+function cleanItems(items, user = null) {
   if (!Array.isArray(items)) return [];
   return items
-    .map((item) => ({
-      id: cleanString(item.id),
-      sourceServiceIndex: Number.isInteger(Number(item.sourceServiceIndex)) && Number(item.sourceServiceIndex) >= 0
-        ? Number(item.sourceServiceIndex)
-        : undefined,
-      serviceAddedBy: cleanString(item.serviceAddedBy),
-      industryType: cleanString(item.industryType),
-      serviceCategory: cleanString(item.serviceCategory),
-      servicesForYear: cleanString(item.servicesForYear),
-      eprCategory: cleanString(item.eprCategory),
-      piboParent: normalizeParent(item.piboParent || item.piboCategoryParent) || inferPiboParent(item.piboCategory) || undefined,
-      piboCategory: cleanString(item.piboCategory),
-      unit: cleanString(item.unit),
-      unitLabel: cleanString(item.unitLabel),
-      basicAmount: roundMoney(item.basicAmount)
-    }))
-    .filter((item) => Object.values(item).some((value) => String(value || '').trim() !== '' && value !== 0));
+    .map((item) => {
+      const serviceStartDate = normalizeDateOnly(item.serviceStartDate);
+      const serviceEndDate = normalizeDateOnly(item.serviceEndDate);
+      return {
+        id: cleanString(item.id),
+        sourceServiceIndex: Number.isInteger(Number(item.sourceServiceIndex)) && Number(item.sourceServiceIndex) >= 0
+          ? Number(item.sourceServiceIndex)
+          : undefined,
+        serviceAddedBy: cleanString(item.serviceAddedBy),
+        industryType: cleanString(item.industryType),
+        serviceCategory: cleanString(item.serviceCategory),
+        serviceStartDate,
+        serviceEndDate,
+        servicesForYear: financialYearFromDate(serviceStartDate || serviceEndDate) || cleanString(item.servicesForYear),
+        eprCategory: cleanString(item.eprCategory),
+        piboParent: normalizeParent(item.piboParent || item.piboCategoryParent) || inferPiboParent(item.piboCategory) || undefined,
+        piboCategory: cleanString(item.piboCategory),
+        unit: '1',
+        unitLabel: cleanString(item.unitLabel),
+        basicAmount: roundMoney(item.basicAmount)
+      };
+    })
+    .filter((item) => isMeaningfulItem(item));
 }
 
 function cleanTerms(terms) {
@@ -129,8 +176,19 @@ async function validateQuotationPiboItems(items = []) {
   }
 }
 
-function cleanBody(body) {
-  const items = cleanItems(body.items);
+function validateQuotationItemDates(items = []) {
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index] || {};
+    if (!item.serviceStartDate) throw new Error(`Quotation item ${index + 1}: Service Start Date is required.`);
+    if (!item.serviceEndDate) throw new Error(`Quotation item ${index + 1}: Service End Date is required.`);
+    if (item.serviceEndDate < item.serviceStartDate) {
+      throw new Error(`Quotation item ${index + 1}: Service End Date must be on or after Service Start Date.`);
+    }
+  }
+}
+
+function cleanBody(body, user = null) {
+  const items = cleanItems(body.items, user);
   const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
   const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
   const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(body.combinedBasicAmount) : 0;
@@ -349,8 +407,9 @@ exports.listLeadQuotations = async (req, res) => {
 exports.createQuotation = async (req, res) => {
   const gstError = validateGstNumber(req.body.leadDetails?.gstNumber);
   if (gstError) return res.status(400).json({ error: gstError });
-  const data = cleanBody(req.body);
+  const data = cleanBody(req.body, req.user);
   try {
+    validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);
   } catch (error) {
     return res.status(error.statusCode || 400).json({ error: error.message });
@@ -377,8 +436,9 @@ exports.updateQuotation = async (req, res) => {
 
   // Every revision, including a one-field edit, starts a completely new approval cycle.
   // Client-supplied status is deliberately ignored.
-  const data = cleanBody(req.body);
+  const data = cleanBody(req.body, req.user);
   try {
+    validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);
   } catch (error) {
     return res.status(error.statusCode || 400).json({ error: error.message });
@@ -484,9 +544,10 @@ exports.bulkCreateQuotations = async (req, res) => {
     try {
       const gstError = validateGstNumber(row.leadDetails?.gstNumber);
       if (gstError) throw new Error(gstError);
-      const data = cleanBody(row);
+      const data = cleanBody(row, req.user);
       if (!data.companyName) throw new Error('Company Name is required');
       if (!data.items.length) throw new Error('At least one quotation item is required');
+      validateQuotationItemDates(data.items);
       await validateQuotationPiboItems(data.items);
       const quotationNumber = cleanString(row.quotationNumber) || await nextQuotationNumber();
       const existing = await Quotation.findOne({ quotationNumber });
