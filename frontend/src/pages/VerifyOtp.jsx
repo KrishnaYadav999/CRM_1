@@ -18,6 +18,7 @@ export default function VerifyOtp(){
   const navigate = useNavigate()
   const location = useLocation()
   const email = location.state?.email || localStorage.getItem('login_email') || ''
+  const loginMode = location.state?.loginMode || localStorage.getItem('login_mode') || 'user'
   const [devOtp, setDevOtp] = useState(() => import.meta.env.DEV ? localStorage.getItem('dev_otp') || '' : '')
   const otpSlots = Array.from({ length: 6 }, (_, index) => otp[index] || '')
 
@@ -37,10 +38,11 @@ export default function VerifyOtp(){
         setError('Session expired. Please login again.')
         return
       }
-      const res = await api.post(API_ENDPOINTS.auth.verifyOtp, { email, otp })
+      const res = await api.post(API_ENDPOINTS.auth.verifyOtp, { email, otp, loginMode })
       localStorage.setItem('token', res.data.token)
       storeSessionUser(res.data.user)
       localStorage.removeItem('login_email')
+      localStorage.removeItem('login_mode')
       localStorage.removeItem('dev_otp')
       navigate('/dashboard')
     }catch(err){
@@ -58,7 +60,7 @@ export default function VerifyOtp(){
     setError('')
     setNotice('')
     try {
-      const res = await api.post(API_ENDPOINTS.auth.resendOtp, { email })
+      const res = await api.post(API_ENDPOINTS.auth.resendOtp, { email, loginMode })
       setOtp('')
       setNotice(res.data?.message || 'A new OTP has been sent to your email.')
       setResendCooldown(60)
@@ -81,9 +83,9 @@ export default function VerifyOtp(){
 
   return (
     <AuthLayout
-      eyebrow="OTP verification"
+      eyebrow={loginMode === 'admin' ? 'Admin OTP verification' : 'User OTP verification'}
       title="Enter secure OTP"
-      subtitle={`Enter the 6-digit code sent to ${email || 'your email address'}.`}
+      subtitle={`Enter the 6-digit code sent to ${email || 'your email address'} for ${loginMode === 'admin' ? 'Admin Login' : 'User Login'}.`}
     >
       <form onSubmit={handleVerify} className="mt-8 space-y-5">
         <label className="block">

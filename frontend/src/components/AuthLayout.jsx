@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
-import { ArrowUpRight, Factory, Leaf, Recycle, ShieldCheck, Sparkles, Sprout, Waves, Wind } from 'lucide-react'
+import { Factory, Leaf, Recycle, ShieldCheck, Sparkles, Sprout, Waves, Wind } from 'lucide-react'
 import { brand } from '../constants/brand'
 
 export default function AuthLayout({ eyebrow, title, subtitle, children }) {
@@ -26,7 +26,7 @@ export default function AuthLayout({ eyebrow, title, subtitle, children }) {
         <section ref={visualRef} className="relative hidden min-h-screen overflow-hidden bg-[#f5fbf8] px-8 py-8 lg:block">
           <div className="relative z-10 flex h-full flex-col">
             <div className="flex items-center gap-5">
-              <div className="grid h-24 w-24 place-items-center rounded-3xl border border-emerald-100 bg-white p-2 shadow-xl shadow-emerald-900/10">
+              <div className="grid h-24 w-40 place-items-center rounded-3xl border border-emerald-100 bg-white px-4 py-2 shadow-xl shadow-emerald-900/10">
                 <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
               </div>
               <div>
@@ -38,7 +38,7 @@ export default function AuthLayout({ eyebrow, title, subtitle, children }) {
             <div className="mt-10 max-w-2xl">
               <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 shadow-sm">
                 <Sparkles className="h-4 w-4 text-amber-500" />
-                ESG Operations CRM
+                EPR Operations CRM
               </p>
               <h2 className="mt-6 text-5xl font-black leading-[1.04] text-slate-950 xl:text-6xl">
                 Smarter waste, cleaner work, faster teams.
@@ -60,25 +60,6 @@ export default function AuthLayout({ eyebrow, title, subtitle, children }) {
               <EcoBadge className="right-[14%] top-[14%]" icon={Waves} label="Water" tone="bg-sky-100 text-sky-700" size="lg" />
               <EcoBadge className="left-[18%] top-[48%]" icon={Recycle} label="Recycle" tone="bg-cyan-100 text-cyan-700" />
 
-              <div className="absolute bottom-8 right-3 w-[340px] rounded-2xl border border-white/70 bg-white/75 p-5 shadow-2xl shadow-emerald-900/10 backdrop-blur-xl">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Today</p>
-                    <p className="mt-1 text-2xl font-black text-slate-950">Operations live</p>
-                  </div>
-                  <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-white">
-                    <ArrowUpRight className="h-5 w-5" />
-                  </span>
-                </div>
-                <div className="mt-5 grid grid-cols-3 gap-3">
-                  {['ESG', 'Sales', 'Users'].map((item) => (
-                    <div key={item} className="rounded-xl border border-slate-100 bg-white p-3 text-center">
-                      <p className="text-sm font-black text-slate-900">{item}</p>
-                      <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-emerald-500" />
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
           <div className="absolute -left-24 top-24 h-64 w-64 rounded-full bg-emerald-200/40 blur-3xl" />
@@ -88,7 +69,7 @@ export default function AuthLayout({ eyebrow, title, subtitle, children }) {
         <section className="relative flex items-center px-5 py-8 sm:px-10 lg:px-14">
           <div ref={panelRef} className="mx-auto w-full max-w-[560px] rounded-[28px] border border-white bg-white/85 p-6 shadow-2xl shadow-slate-900/10 backdrop-blur sm:p-9">
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <div className="grid h-14 w-14 place-items-center rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+              <div className="grid h-14 w-24 place-items-center rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
                 <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
               </div>
               <div>

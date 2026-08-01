@@ -12,6 +12,32 @@ const OTP_EXPIRY_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const PASSWORD_RESET_EXPIRY_MS = 10 * 60 * 1000;
 const APP_NAME = 'CRM';
+const ADMIN_LOGIN_ROLES = ['admin', 'superadmin'];
+
+function normalizeLoginMode(value) {
+  return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
+}
+
+function normalizeRole(value) {
+  return String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function validateLoginModeForUser(user, loginMode) {
+  const role = normalizeRole(user?.role);
+  const isAdminUser = ADMIN_LOGIN_ROLES.includes(role);
+
+  if (loginMode === 'admin' && !isAdminUser) {
+    const error = new Error('Admin Login is only available for Admin and Super Admin.');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (loginMode === 'user' && isAdminUser) {
+    const error = new Error('This account must use Admin Login.');
+    error.statusCode = 403;
+    throw error;
+  }
+}
  
 function shouldSkipMailInDevelopment() {
   if (process.env.NODE_ENV === 'production') return false;
@@ -238,6 +264,7 @@ async function ensureCrmUserId(user) {
 exports.requestOtp = async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   const password = String(req.body.password || '');
+  const loginMode = normalizeLoginMode(req.body.loginMode);
   if (!email) return res.status(400).json({ error: 'Email required' });
   if (!password) return res.status(400).json({ error: 'Password required' });
   let user = await User.findOne({ email });
@@ -247,6 +274,11 @@ exports.requestOtp = async (req, res) => {
   }
  
   if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
+  try {
+    validateLoginModeForUser(user, loginMode);
+  } catch (error) {
+    return res.status(error.statusCode || 403).json({ error: error.message });
+  }
  
   if (user.password) {
     const matches = await bcrypt.compare(password, user.password);
@@ -271,12 +303,18 @@ exports.requestOtp = async (req, res) => {
  
 exports.resendOtp = async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
+  const loginMode = normalizeLoginMode(req.body.loginMode);
   if (!email) return res.status(400).json({ error: 'Email required' });
  
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ error: 'User not found. Contact admin.' });
   if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
   if (!user.password) return res.status(400).json({ error: 'Password is not set. Contact admin.' });
+  try {
+    validateLoginModeForUser(user, loginMode);
+  } catch (error) {
+    return res.status(error.statusCode || 403).json({ error: error.message });
+  }
  
   if (user.otp && user.otpExpires && user.otpExpires > Date.now()) {
     const generatedAt = new Date(user.otpExpires).getTime() - OTP_EXPIRY_MS;
@@ -304,6 +342,7 @@ exports.resendOtp = async (req, res) => {
 exports.verifyOtp = async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   const otp = String(req.body.otp || '').trim();
+  const loginMode = normalizeLoginMode(req.body.loginMode);
   if (!email || !otp) {
     console.warn('OTP verify failed', { email, reason: 'missing_email_or_otp', otpLength: otp.length });
     return res.status(400).json({ error: 'Email and OTP are required' });
@@ -312,6 +351,11 @@ exports.verifyOtp = async (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (!user.isActive) return res.status(403).json({ error: 'Your account is inactive. Contact admin.' });
   if (!user.password) return res.status(400).json({ error: 'Password is not set. Contact admin.' });
+  try {
+    validateLoginModeForUser(user, loginMode);
+  } catch (error) {
+    return res.status(error.statusCode || 403).json({ error: error.message });
+  }
  
   if (!user.otp) {
     console.warn('OTP verify failed', { email, reason: 'no_active_otp', otpLength: otp.length });
