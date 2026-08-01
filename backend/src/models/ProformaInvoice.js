@@ -12,6 +12,7 @@ const ProformaItemSchema = new mongoose.Schema({
 
 const PurchaseOrderYearSchema = new mongoose.Schema({
   fy: { type: String, trim: true },
+  poNumber: { type: String, trim: true },
   annualReturnYear: { type: String, trim: true },
   quotationNo: { type: String, trim: true },
   compliancePoDate: { type: String, trim: true },

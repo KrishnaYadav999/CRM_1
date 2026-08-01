@@ -40,7 +40,7 @@ function cleanPayload(body = {}) {
   const calculated = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
   const poYearCount = Math.max(0, Math.min(50, Number(body.poYearCount) || 0));
   const poYearRows = (Array.isArray(body.poYearRows) ? body.poYearRows : []).slice(0, poYearCount).map((row) => ({
-    fy: text(row.fy), annualReturnYear: text(row.annualReturnYear), quotationNo: text(row.quotationNo),
+    fy: text(row.fy), poNumber: text(row.poNumber), annualReturnYear: text(row.annualReturnYear), quotationNo: text(row.quotationNo),
     compliancePoDate: text(row.compliancePoDate), compliancePoFile: mediaReference(row.compliancePoFile),
     serviceCategory: [...new Set((Array.isArray(row.serviceCategory) ? row.serviceCategory : String(row.serviceCategory || '').split(',')).map(text).filter(Boolean))],
     value: money(row.value)

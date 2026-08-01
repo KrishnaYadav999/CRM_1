@@ -425,7 +425,23 @@ function hydrateClientsWithAnnualReturns(clients = [], annualReturns = []) {
 
 function isLeadPlaceholderRow(item = {}) {
   const uniqueId = getClientUniqueId(item);
-  return /^ATPL-LEA/i.test(uniqueId) || /^ATPL-LEAD/i.test(uniqueId);
+  if (!/^ATPL-LEA(?:D)?/i.test(uniqueId)) return false;
+
+  // A completed Client Master can legitimately retain the source lead number
+  // (for example ATPL-LEAD-...).  Treat it as a placeholder only while it has
+  // no client-specific data; otherwise the saved client disappears from the
+  // directory immediately after submit.
+  const data = readClientData(item);
+  return ![
+    data.basic?.clientLegalName,
+    data.basic?.tradeName,
+    data.registeredAddress?.address1,
+    data.registeredAddress?.state,
+    data.otp?.mobile,
+    data.authorised?.email,
+    data.cpcb?.linkedToCommonPortal,
+    item?.workflowStatus
+  ].some((value) => String(value || '').trim());
 }
 
 function isMeaningfulClientMasterRow(item = {}) {
@@ -823,6 +839,13 @@ export default function ClientMaster() {
       const crmLeads = crmLeadsResult.status === 'fulfilled'
         ? (crmLeadsResult.value.data.leads || [])
         : [];
+      if (crmClientsResult.status === 'rejected') {
+        throw new Error(
+          crmClientsResult.reason?.response?.data?.error
+          || crmClientsResult.reason?.response?.data?.message
+          || 'Unable to fetch saved clients.'
+        );
+      }
       const scopedCrmClients = !adminRoles.includes(String(me?.role || '').toLowerCase())
         ? crmClients.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
         : crmClients;
@@ -854,7 +877,7 @@ export default function ClientMaster() {
         setProformaInvoices([]);
       }
     } catch (err) {
-      setError(err?.response?.data?.error || 'Unable to fetch client master data.');
+      setError(err?.response?.data?.error || err?.message || 'Unable to fetch client master data.');
       setLeads([]);
       setClients([]);
       setTotalClientCount(0);

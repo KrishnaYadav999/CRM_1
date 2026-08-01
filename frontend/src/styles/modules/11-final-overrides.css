@@ -6522,6 +6522,8 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 .red-flag-stage.is-missed-60 { background: #ffedd5; color: #c2410c; }
 .red-flag-stage.is-overdue-30 { background: #fef3c7; color: #a16207; }
 .red-flag-stage.is-due-30 { background: #e0f2fe; color: #0369a1; }
+.red-flag-stage.is-overdue-10 { background: #fef3c7; color: #a16207; }
+.red-flag-stage.is-due-10 { background: #e0f2fe; color: #0369a1; }
 .red-flag-user { display: flex !important; align-items: center; gap: 9px; }
 .red-flag-user .followup-flow-avatar { width: 34px !important; height: 34px !important; min-width: 34px; font-size: 12px; }
 .red-flag-eye { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #fecaca; border-radius: 9px; background: #fff1f2; padding: 7px 10px; color: #be123c; font-size: 11px; font-weight: 900; transition: .2s ease; }

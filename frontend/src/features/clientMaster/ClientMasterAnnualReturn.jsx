@@ -817,19 +817,14 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
       setPoValidationError('Please select Yes or No for PO Received.');
       return;
     }
-    if (mode === 'yes') {
-      const invalid = !rows.length || rows.some((row) => !row.fyYear || !String(row.poNumber || '').trim() || !row.file || !String(row.service || '').trim());
-      if (invalid) {
-        setPoValidationError('FY Year, PO Number, PO Upload and Service are required for every row.');
-        return;
-      }
-    } else if (!(poDraft.approvalFiles || []).length && !String(poDraft.approvalNote || '').trim()) {
-      setPoValidationError('Upload special approval proof or enter the approval email/note.');
+    const invalid = !rows.length || rows.some((row) => !row.fyYear || !String(row.poNumber || '').trim() || !row.file || !String(row.service || '').trim());
+    if (invalid) {
+      setPoValidationError('FY Year, PO Number, PO Upload and Service are required for every row.');
       return;
     }
     const saved = { ...poDraft, mode, confirmed: true, savedAt: new Date().toISOString() };
     const clientId = client?._id || client?.id || data.importMeta?.uniqueId;
-    const targetYears = mode === 'yes' ? [...new Set(rows.map((row) => row.fyYear))] : years.map((year) => year.label);
+    const targetYears = [...new Set(rows.map((row) => row.fyYear))];
     try {
       await Promise.all(targetYears.map((annualYear, index) => api.put(API_ENDPOINTS.clients.annualReturn(clientId), {
         annualYear,
@@ -856,7 +851,6 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
 
   function isAnnualYearLocked(yearLabel) {
     if (!poWorkflow.confirmed) return true;
-    if (poWorkflow.mode === 'no') return !(poWorkflow.approvalFiles || []).length && !String(poWorkflow.approvalNote || '').trim();
     return !(poWorkflow.rows || []).some((row) => row.fyYear === yearLabel);
   }
 
@@ -1917,9 +1911,6 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
             <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Annual Return</p><h2 className="text-xl font-black text-slate-950">{clientName}</h2></div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {poWorkflow.confirmed && poWorkflow.mode === 'no' && (
-              <button type="button" onClick={() => setPoApprovalPreviewOpen(true)} className="btn-lift inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-black text-[#24675f] hover:bg-emerald-100"><Eye className="h-4 w-4" /> View Approval Email</button>
-            )}
             <button type="button" onClick={() => { setPoDraft(poWorkflow.confirmed ? poWorkflow : {}); setPoValidationError(''); setPoModalOpen(true); }} className="btn-lift inline-flex items-center gap-2 rounded-xl bg-[#30737B] px-5 py-3 text-sm font-black text-white"><Plus className="h-4 w-4" /> {poWorkflow.confirmed ? 'Edit PO' : 'Add PO'}</button>
           </div>
         </div>
@@ -2021,7 +2012,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                     return (
                       <button key={mode} type="button" aria-pressed={selectedMode} onClick={() => { setPoDraft((current) => ({ ...current, mode })); setPoValidationError(''); }} className={`group flex min-w-36 items-center gap-3 rounded-2xl border-2 px-4 py-3.5 text-left transition-all ${selectedMode ? 'border-[#30737B] bg-teal-50 text-[#205e65] shadow-md shadow-teal-900/10' : 'border-slate-200 bg-white text-slate-600 hover:border-teal-200 hover:bg-teal-50/40'}`}>
                         <span className={`grid h-9 w-9 place-items-center rounded-xl transition ${selectedMode ? 'bg-[#30737B] text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-teal-100 group-hover:text-[#30737B]'}`}>{mode === 'yes' ? <Check className="h-5 w-5" /> : <X className="h-5 w-5" />}</span>
-                        <span><strong className="block text-sm font-black capitalize">{mode}</strong><small className="mt-0.5 block text-[11px] font-bold text-slate-400">{mode === 'yes' ? 'PO is available' : 'Special approval'}</small></span>
+                        <span><strong className="block text-sm font-black capitalize">{mode}</strong><small className="mt-0.5 block text-[11px] font-bold text-slate-400">{mode === 'yes' ? 'PO is available' : 'Enter PO details'}</small></span>
                         {selectedMode && <CheckCircle2 className="ml-auto h-5 w-5 text-[#30737B]" />}
                       </button>
                     );
@@ -2033,9 +2024,9 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                 <div className="rounded-2xl border border-dashed border-teal-200 bg-gradient-to-br from-white to-teal-50/60 px-6 py-10 text-center shadow-sm">
                   <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-teal-100 text-[#30737B]"><FileCheck2 className="h-7 w-7" /></div>
                   <h3 className="mt-4 text-lg font-black text-slate-900">Select PO availability</h3>
-                  <p className="mx-auto mt-2 max-w-lg text-sm font-semibold text-slate-500">Choose Yes to add financial-year purchase orders, or No to provide special approval proof.</p>
+                  <p className="mx-auto mt-2 max-w-lg text-sm font-semibold text-slate-500">Choose Yes or No, then add the financial-year purchase order details.</p>
                 </div>
-              ) : poDraft.mode === 'yes' ? (
+              ) : (
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">PO Received For No Of Year</p><strong className="mt-2 block text-2xl text-slate-900">{(poDraft.rows || []).length}</strong></div><div className="flex gap-2"><button type="button" onClick={addPoYear} disabled={(poDraft.rows || []).length >= years.length} className="rounded-xl bg-[#416c5a] px-4 py-3 text-sm font-black text-white disabled:opacity-50">+ Add Next Year</button><button type="button" onClick={() => updatePoRows((poDraft.rows || []).slice(0, -1))} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-600">Remove Last Year</button></div></div>
                   <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -2053,8 +2044,6 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                     </table>
                   </div>
                 </div>
-              ) : (
-                <div className="rounded-2xl border border-slate-200 p-5"><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Please Provide Special Approval</p><p className="mt-2 text-sm font-semibold text-slate-500">Upload supporting images or email approval proof.</p><div className="mt-5 grid gap-5 md:grid-cols-2"><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Upload Images / Email</span><span className="mt-2 flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 font-black text-[#416c5a]"><Upload className="h-5 w-5" />{(poDraft.approvalFiles || []).length ? `${poDraft.approvalFiles.length} file(s) selected` : 'Choose Files'}<input type="file" multiple accept="image/*,.pdf,.eml,.msg" className="sr-only" onChange={(event) => uploadApprovalFiles(event.target.files)} /></span></label><label className="block"><span className="text-xs font-black uppercase tracking-widest text-slate-500">Email / Approval Note</span><textarea className="form-input mt-2 min-h-28 py-3" value={poDraft.approvalNote || ''} onChange={(event) => setPoDraft((current) => ({ ...current, approvalNote: event.target.value }))} placeholder="Enter approval email details or notes here" /></label></div></div>
               )}
               {poValidationError && <ToastMessage type="error">{poValidationError}</ToastMessage>}
               <footer className="flex justify-end gap-3 border-t border-slate-200 pt-5"><button type="button" onClick={() => setPoModalOpen(false)} className="rounded-xl border border-slate-200 px-5 py-3 font-black text-slate-600">Cancel</button><button type="button" onClick={savePoWorkflow} className="rounded-xl bg-[#416c5a] px-6 py-3 font-black text-white">Save And Continue</button></footer>
@@ -2984,11 +2973,6 @@ function ProcessingSection({ section, sectionTabs = [], activeSectionTitle = '',
         />
       ) : section.type === 'compliancePoDetails' ? (
         <div className="annual-compliance-po-workspace">
-          <AnnualPoYearTable
-            config={section.poYearTable || {}}
-            readValue={readValue}
-            onChange={onChange}
-          />
           <ProcessingTable
             title={section.title}
             fields={section.fields || []}

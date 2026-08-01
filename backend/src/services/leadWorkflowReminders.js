@@ -2,11 +2,13 @@ const mongoose = require('mongoose');
 const Lead = require('../models/Lead');
 const Notification = require('../models/Notification');
 const PendingApproval = require('../models/PendingApproval');
+const Quotation = require('../models/Quotation');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
+const TEN_MINUTES = 10 * 60 * 1000;
 let started = false;
 let running = false;
 
@@ -103,6 +105,42 @@ async function admins(roles = ['superadmin']) {
   return User.find({ role: { $in: roles }, isActive: { $ne: false } }).select('_id name email').lean();
 }
 
+async function usersForIdentities(rows = []) {
+  const options = [];
+  rows.forEach((row = {}) => {
+    const id = String(row.createdByCrmUserId || row.assignedStaff || row.assignedTo || '').trim();
+    const email = String(row.createdByEmail || row.assignedStaffEmail || row.assignedToEmail || '').trim().toLowerCase();
+    const name = String(row.createdByName || '').trim();
+    if (id) {
+      options.push({ crmUserId: id });
+      if (mongoose.isValidObjectId(id)) options.push({ _id: id });
+    }
+    if (email) options.push({ email });
+    if (name) options.push({ name });
+  });
+  if (!options.length) return [];
+  return User.find({ $or: options, isActive: { $ne: false } })
+    .select('_id name email role managerId operationHeadId').lean();
+}
+
+async function followUpRecipients(lead, openServiceRows = null) {
+  const serviceRows = openServiceRows || (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : []);
+  // A contributor's service reminder must not leak to the original lead
+  // creator. Resolve ownership only from the currently open service rows.
+  const contributors = await usersForIdentities(serviceRows);
+  const hierarchyIds = contributors.flatMap((user) => [user.managerId, user.operationHeadId]).filter(Boolean);
+  const [leaders, administrators] = await Promise.all([
+    hierarchyIds.length ? User.find({ _id: { $in: hierarchyIds }, isActive: { $ne: false } }).select('_id name email role').lean() : [],
+    admins(['admin', 'superadmin'])
+  ]);
+  const hasServiceOwnership = serviceRows.some((row = {}) => row.createdByCrmUserId || row.createdByEmail || row.createdByName);
+  // Never fall back to Krishna/original creator when Jack-style service
+  // ownership exists, even if that contributor account cannot be resolved.
+  const fallback = contributors.length || hasServiceOwnership ? null : await resolveLeadUser(lead);
+  const byId = new Map([...contributors, ...leaders, ...administrators, ...(fallback ? [fallback] : [])].map((user) => [String(user._id), user]));
+  return [...byId.values()];
+}
+
 async function resolveManager(value) {
   const id = String(value || '').trim();
   if (!id) return null;
@@ -139,37 +177,142 @@ async function updateCcpLead(id, body) {
 
 async function remindFollowUps(leads, now) {
   for (const lead of leads) {
-    if (lead.closedBy || lead.closedByText || !lead.nextFollowUpDate) continue;
-    const due = new Date(`${lead.nextFollowUpDate}T${lead.nextFollowUpTime || '09:00'}:00`);
+    const serviceRows = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
+    const assignmentRows = Array.isArray(lead.assignments) ? lead.assignments : [];
+    const openServices = serviceRows.map((service, index) => ({ service, index })).filter(({ service, index }) => {
+      const assignment = assignmentRows[index] || {};
+      return !service.closedBy && !service.closedByText && !service.closedAt
+        && !assignment.closedBy && !assignment.closedByText && !assignment.closedAt
+        && !(serviceRows.length === 1 && (lead.closedBy || lead.closedByText || lead.closedAt));
+    });
+    if (!openServices.length) continue;
+    for (const { service, index: serviceIndex } of openServices) {
+    const followUpDate = service.nextFollowUpDate || (serviceIndex === 0 ? lead.nextFollowUpDate : '');
+    const followUpTime = service.nextFollowUpTime || (serviceIndex === 0 ? lead.nextFollowUpTime : '');
+    if (!followUpDate) continue;
+    const due = new Date(`${followUpDate}T${followUpTime || '09:00'}:00`);
     if (!due.getTime()) continue;
     const delta = now - due.getTime();
     let stage = '';
-    if (delta >= DAY) stage = 'RED_FLAG_24H';
-    else if (delta >= 30 * 60 * 1000) stage = 'OVERDUE_30M';
-    else if (delta >= -30 * 60 * 1000) stage = 'DUE_IN_30M';
+    // Escalation now advances in ten-minute windows: before due, overdue, then red flag.
+    if (delta >= 2 * TEN_MINUTES) stage = 'RED_FLAG_20M';
+    else if (delta >= TEN_MINUTES) stage = 'OVERDUE_10M';
+    else if (delta >= -TEN_MINUTES) stage = 'DUE_IN_10M';
     if (!stage) continue;
-    const key = `${leadId(lead)}:${lead.nextFollowUpDate}:${lead.nextFollowUpTime || ''}:${stage}`;
+    const key = `${leadId(lead)}:service-${serviceIndex}:${followUpDate}:${followUpTime || ''}:${stage}`;
     if (await Notification.exists({ kind: 'lead_followup_escalation', 'metadata.key': key })) continue;
-    const recipient = await resolveLeadUser(lead);
-    if (!recipient) continue;
-    const labels = { DUE_IN_30M: 'is due within 30 minutes', OVERDUE_30M: 'is overdue by at least 30 minutes', RED_FLAG_24H: 'is overdue by 24 hours and has been red-flagged' };
+    const recipients = await followUpRecipients(lead, [service]);
+    if (!recipients.length) continue;
+    const labels = { DUE_IN_10M: 'is due within 10 minutes', OVERDUE_10M: 'is overdue by at least 10 minutes', RED_FLAG_20M: 'is overdue by 20 minutes and has been red-flagged' };
     const company = lead.company || 'Lead';
-    const description = `${company} follow-up ${labels[stage]}. The lead is still not closed.`;
-    const item = await Notification.create({ title: stage === 'RED_FLAG_24H' ? 'RED FLAG: Lead follow-up overdue' : 'Lead follow-up reminder', description, tag: stage === 'RED_FLAG_24H' ? 'Red Flag' : 'Follow-Up', kind: 'lead_followup_escalation', audience: [recipient._id], metadata: { key, stage, leadId: leadId(lead), dueAt: due.toISOString(), priority: lead.followUpPriority || 'Medium' } });
+    const pendingServices = [service];
+    const contributorNames = [...new Set(pendingServices.map((row) => row?.createdByName || row?.createdByEmail).filter(Boolean))];
+    const serviceNames = [...new Set(pendingServices.map((row) => row?.servicesOffered || row?.applicableService).filter(Boolean))];
+    const description = `${company} follow-up ${labels[stage]}. ${contributorNames.join(', ') || 'Assigned user'} added ${serviceNames.join(', ') || 'a service'} but has not closed it.`;
+    const isRedFlag = stage === 'RED_FLAG_20M';
+    const priority = service.followUpPriority || (serviceIndex === 0 ? lead.followUpPriority : '') || 'Medium';
+    const item = await Notification.create({ title: isRedFlag ? 'RED FLAG: Service follow-up overdue' : 'Service follow-up reminder', description, tag: isRedFlag ? 'Red Flag' : 'Follow-Up', kind: 'lead_followup_escalation', audience: recipients.map((user) => user._id), visibleToRoles: ['admin', 'superadmin'], metadata: { key, stage, leadId: leadId(lead), serviceIndex, dueAt: due.toISOString(), priority, contributorNames, serviceNames } });
     item.crmNotificationId = String(item._id); await item.save();
-    if (recipient.email) {
+    const primary = recipients.find((user) => contributorNames.some((name) => [user.name, user.email].includes(name))) || recipients[0];
+    if (primary?.email) {
       const html = buildFollowUpReminderEmail({
         company,
         description,
-        date: lead.nextFollowUpDate,
-        time: lead.nextFollowUpTime || '',
-        priority: lead.followUpPriority || 'Medium',
-        isRedFlag: stage === 'RED_FLAG_24H',
+        date: followUpDate,
+        time: followUpTime || '',
+        priority,
+        isRedFlag,
       });
-      await sendMail(recipient.email, `${stage === 'RED_FLAG_24H' ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false }).catch(() => null);
+      const cc = recipients.map((user) => user.email).filter((email) => email && email !== primary.email);
+      await sendMail(primary.email, `${isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false, cc }).catch(() => null);
     }
-    if (stage === 'RED_FLAG_24H') await updateCcpLead(leadId(lead), { followUpFlag: 'RED' }).catch(() => false);
+    if (isRedFlag) await updateCcpLead(leadId(lead), { followUpFlag: 'RED' }).catch(() => false);
+    }
   }
+}
+
+function parseServiceDate(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const match = text.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+  const date = match ? new Date(`${match[3]}-${match[2]}-${match[1]}T00:00:00`) : new Date(`${text}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatServiceDate(value) {
+  const date = parseServiceDate(value);
+  if (!date) return String(value || '-');
+  return [String(date.getDate()).padStart(2, '0'), String(date.getMonth() + 1).padStart(2, '0'), date.getFullYear()].join('/');
+}
+
+function formatInr(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-';
+}
+
+async function remindServiceEndDates(now) {
+  const quotations = await Quotation.find({ serviceState: { $ne: 'closed' }, 'items.serviceEndDate': { $exists: true, $ne: '' } })
+    .populate('createdBy', 'name email managerId operationHeadId').lean();
+  let reminded = 0;
+  for (const quotation of quotations) {
+    const reminderBase = new Date(quotation.updatedAt || quotation.createdAt || 0);
+    if (!reminderBase.getTime() || now < reminderBase.getTime() + TEN_MINUTES) continue;
+    const expiring = (quotation.items || []).filter((row) => {
+      const end = parseServiceDate(row.serviceEndDate);
+      if (!end) return false;
+      end.setHours(23, 59, 0, 0);
+      return end.getTime() > now;
+    });
+    if (!expiring.length) continue;
+    const revisionKey = reminderBase.toISOString();
+    const key = `${quotation._id}:${revisionKey}:service-end-test-10m`;
+    if (await Notification.exists({ kind: 'service_end_10_minute_reminder', 'metadata.key': key })) continue;
+    const creator = quotation.createdBy;
+    const leaderIds = [creator?.managerId, creator?.operationHeadId].filter(Boolean);
+    const [leaders, administrators] = await Promise.all([
+      leaderIds.length ? User.find({ _id: { $in: leaderIds }, isActive: { $ne: false } }).select('_id name email').lean() : [],
+      admins(['admin', 'superadmin'])
+    ]);
+    const recipients = [...new Map([...(creator ? [creator] : []), ...leaders, ...administrators].map((user) => [String(user._id), user])).values()];
+    if (!recipients.length) continue;
+    const customer = quotation.companyName || quotation.leadDetails?.companyName || 'Customer';
+    const services = expiring.map((row) => `${row.serviceCategory || row.eprCategory || row.industryType || 'Service'} (ends ${row.serviceEndDate})`);
+    const description = `${customer}: 10-minute test reminder for ${services.join(', ')}. Service owner: ${creator?.name || quotation.createdByName || 'CRM user'}.`;
+    const item = await Notification.create({ title: 'Service expiry test reminder', description, tag: 'Service Expiry', kind: 'service_end_10_minute_reminder', audience: recipients.map((user) => user._id), visibleToRoles: ['admin', 'superadmin'], metadata: { key, quotationId: String(quotation._id), customer, services, reminderBase: revisionKey } });
+    item.crmNotificationId = String(item._id); await item.save();
+    const primary = creator?.email ? creator : recipients[0];
+    if (primary?.email) {
+      const cell = 'padding:12px 10px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:12px;font-weight:700;vertical-align:middle;white-space:nowrap;';
+      const rows = expiring.map((row, index) => `<tr style="background:${index % 2 ? '#ffffff' : '#fbfdff'}">
+        <td style="${cell}text-align:center">${index + 1}</td>
+        <td style="${cell}">${escapeHtml(row.industryType || '-')}</td>
+        <td style="${cell}">${escapeHtml(row.serviceCategory || '-')}</td>
+        <td style="${cell}">${escapeHtml(formatServiceDate(row.serviceStartDate))}</td>
+        <td style="${cell}color:#b91c1c">${escapeHtml(formatServiceDate(row.serviceEndDate))}</td>
+        <td style="${cell}">${escapeHtml(row.eprCategory || '-')}</td>
+        <td style="${cell}">${escapeHtml(row.piboCategory || row.piboParent || '-')}</td>
+        <td style="${cell}color:#0f766e">${escapeHtml(row.serviceAddedBy || creator?.name || quotation.createdByName || 'CRM user')}</td>
+        <td style="${cell}text-align:center">${escapeHtml(row.unit || '1')}</td>
+        <td style="${cell}text-align:right;color:#0f766e">${escapeHtml(quotation.pricingMode === 'combined' ? (index === 0 ? formatInr(quotation.combinedBasicAmount) : 'Combined') : formatInr(row.basicAmount))}</td>
+      </tr>`).join('');
+      const headers = ['SR.NO', 'INDUSTRY TYPE', 'SERVICE CATEGORY', 'SERVICE START DATE', 'SERVICE END DATE', 'EPR CATEGORY', 'APPLICANT TYPE', 'ADDED BY', 'UNIT', 'BASIC AMOUNT (INR)']
+        .map((heading) => `<th style="padding:12px 10px;background:#f1f5f9;color:#64748b;font-size:10px;letter-spacing:.04em;text-align:left;white-space:nowrap">${heading}</th>`).join('');
+      const html = `<div style="margin:0;padding:28px 12px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#334155">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
+          <table role="presentation" width="1100" cellspacing="0" cellpadding="0" style="width:100%;max-width:1100px;overflow:hidden;border:1px solid #dbe5e7;border-radius:16px;background:#fff">
+            <tr><td style="height:7px;background:#0f766e"></td></tr>
+            <tr><td style="padding:28px 30px 18px"><span style="display:inline-block;border-radius:99px;background:#fef2f2;padding:7px 11px;color:#b91c1c;font-size:11px;font-weight:800;letter-spacing:.8px">SERVICE EXPIRY · TEST REMINDER</span><h1 style="margin:16px 0 6px;color:#0f172a;font-size:25px">Quotation Items</h1><p style="margin:0;color:#64748b;font-size:13px">This 10-minute test reminder covers the following active services provided to <strong style="color:#0f766e">${escapeHtml(customer)}</strong>.</p></td></tr>
+            <tr><td style="padding:0 30px 18px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse"><tr><td style="padding:12px 14px;border:1px solid #dbe5e7;background:#f8fafc;font-size:12px"><strong>Customer:</strong> ${escapeHtml(customer)}</td><td style="padding:12px 14px;border:1px solid #dbe5e7;background:#f8fafc;font-size:12px"><strong>Service owner:</strong> ${escapeHtml(creator?.name || quotation.createdByName || 'CRM user')}</td><td style="padding:12px 14px;border:1px solid #dbe5e7;background:#f8fafc;font-size:12px"><strong>Quotation:</strong> ${escapeHtml(quotation.quotationNumber || '-')}</td></tr></table></td></tr>
+            <tr><td style="padding:0 18px 26px"><div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px"><table width="100%" cellspacing="0" cellpadding="0" style="min-width:1000px;border-collapse:collapse"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></div><p style="margin:20px 12px 0;padding:14px;border-radius:8px;background:#ecfdf5;color:#065f46;font-size:13px;text-align:center"><strong>Action required:</strong> Please contact the customer for renewal or the next required action.</p></td></tr>
+          </table>
+        </td></tr></table></div>`;
+      const cc = recipients.map((user) => user.email).filter((email) => email && email !== primary.email);
+      await sendMail(primary.email, `10-minute Service Expiry Test - ${customer}`, html, { branded: false, cc })
+        .catch((error) => console.error(`[Service expiry reminder] Email failed for ${primary.email}`, error));
+    }
+    reminded += 1;
+  }
+  return reminded;
 }
 
 async function remindManagers(leads, now) {
@@ -268,7 +411,8 @@ async function runLeadWorkflowReminders() {
     await remindFollowUps(leads, now);
     await remindApprovals(now);
     await remindOldDrafts(leads, now);
-    return { leads: leads.length };
+    const serviceEndReminders = await remindServiceEndDates(now);
+    return { leads: leads.length, serviceEndReminders };
   } finally { running = false; }
 }
 
@@ -284,5 +428,5 @@ function startLeadWorkflowReminderScheduler() {
 module.exports = {
   runLeadWorkflowReminders,
   startLeadWorkflowReminderScheduler,
-  __test: { getCcpLeads }
+  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr }
 };

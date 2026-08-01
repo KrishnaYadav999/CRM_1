@@ -3115,6 +3115,8 @@ function buildLeadFollowUpRows(lead = {}) {
       remarks: lead.followUpRemarks || '',
       reason: 'Current follow-up',
       priority: lead.followUpPriority || 'Medium',
+      owner: lead.importedCreatedBy || lead.createdByName || lead.createdByEmail || 'Lead creator',
+      serviceName: lead.servicesOffered || 'Lead follow-up',
       createdAt: lead.updatedAt || lead.createdAt || ''
     });
   }
@@ -3129,6 +3131,21 @@ function buildLeadFollowUpRows(lead = {}) {
       priority: item.priority || item.followUpPriority || 'Medium',
       createdAt: item.createdAt || ''
     });
+  });
+  (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : []).forEach((service, serviceIndex) => {
+    if (service.nextFollowUpDate || service.nextFollowUpTime || service.followUpRemarks) rows.push({
+      id: `service-current-${serviceIndex}`, isCurrent: true, serviceIndex,
+      scheduledDate: service.nextFollowUpDate || '', scheduledTime: service.nextFollowUpTime || '',
+      remarks: service.followUpRemarks || '', reason: 'Current service follow-up',
+      priority: service.followUpPriority || 'Medium', owner: service.createdByName || service.createdByEmail || 'Service owner',
+      serviceName: service.servicesOffered || service.applicableService || `Service ${serviceIndex + 1}`,
+      createdAt: service.followUpUpdatedAt || lead.updatedAt || ''
+    });
+    (Array.isArray(service.followUpHistory) ? service.followUpHistory : []).forEach((item, historyIndex) => rows.push({
+      ...item, id: item.id || `service-${serviceIndex}-history-${historyIndex}`, isCurrent: false, serviceIndex,
+      owner: item.owner || service.createdByName || service.createdByEmail || 'Service owner',
+      serviceName: service.servicesOffered || service.applicableService || `Service ${serviceIndex + 1}`
+    }));
   });
   return rows;
 }
@@ -3193,6 +3210,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const [historyData, setHistoryData] = useState({ events: [], summary: {} });
   const [historyFilter, setHistoryFilter] = useState('all');
   const [followUpDraft, setFollowUpDraft] = useState({
+    serviceIndex: '',
     scheduledDate: todayDateKey(),
     scheduledTime: '',
     remarks: '',
@@ -3218,8 +3236,11 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const detailApplicantLabel = detailHasPlastic && detailHasNonPlastic
     ? 'Applicant / Sub Applicant Type'
     : detailHasPlastic ? 'Sub Applicant Type' : 'Applicant Type';
-  const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId]
-    .filter(Boolean).map(String);
+  const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name]
+    .filter(Boolean).map((item) => String(item).trim().toLowerCase());
+  const ownedServiceOptions = detailServices.map((service, index) => ({ service, index, ownerTokens: [service.createdByCrmUserId, service.createdByEmail, service.createdByName].filter(Boolean).map((item) => String(item).trim().toLowerCase()) }))
+    .filter(({ ownerTokens }) => ownerTokens.some((token) => currentUserTokens.includes(token)))
+    .map(({ service, index }) => ({ value: String(index), label: `${service.servicesOffered || service.applicableService || `Service ${index + 1}`} · ${service.createdByName || service.createdByEmail || 'You'}` }));
   const isManager = String(currentUser?.role || '').toLowerCase() === 'manager';
   const isAssignmentAdmin = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
   const detailStaffOptions = staff.flatMap((user) => {
@@ -3298,7 +3319,11 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     const status = String(quotation?.status || '').trim().toLowerCase();
     return status === 'approved' || status === 'rejected';
   });
-  const followUpRows = buildLeadFollowUpRows(activeLead);
+  const ownedServiceIndexes = new Set(ownedServiceOptions.map((option) => Number(option.value)));
+  const followUpRows = buildLeadFollowUpRows(activeLead).map((item) => ({
+    ...item,
+    canEdit: item.isCurrent && (Number.isInteger(item.serviceIndex) ? ownedServiceIndexes.has(item.serviceIndex) : ownedServiceIndexes.has(0))
+  }));
   const todayKey = todayDateKey();
   const upcomingFollowUps = followUpRows
     .filter((item) => item.isCurrent && item.scheduledDate && item.scheduledDate >= todayKey)
@@ -3376,13 +3401,21 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   }
 
   function openFollowUpModal(item = null) {
+    const serviceIndex = item?.serviceIndex ?? Number(ownedServiceOptions[0]?.value ?? -1);
+    const service = detailServices[serviceIndex] || {};
+    if (serviceIndex < 0) {
+      setFollowUpError('You can add follow-ups only for a service added by you.');
+      setFollowUpModalOpen(true);
+      return;
+    }
     setFollowUpEditing(Boolean(item));
     setFollowUpDraft({
-      scheduledDate: item?.scheduledDate || activeLead.nextFollowUpDate || todayDateKey(),
-      scheduledTime: item?.scheduledTime || activeLead.nextFollowUpTime || '',
-      remarks: item?.remarks || '',
+      serviceIndex: String(serviceIndex),
+      scheduledDate: item?.scheduledDate || service.nextFollowUpDate || todayDateKey(),
+      scheduledTime: item?.scheduledTime || service.nextFollowUpTime || '',
+      remarks: item?.remarks || service.followUpRemarks || '',
       reason: '',
-      priority: item?.priority || activeLead.followUpPriority || 'Medium'
+      priority: item?.priority || service.followUpPriority || 'Medium'
     });
     setFollowUpError('');
     setFollowUpModalOpen(true);
@@ -3402,14 +3435,21 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       setFollowUpError('This lead cannot be updated because its CRM id is missing.');
       return;
     }
-    const previousCurrent = activeLead.nextFollowUpDate || activeLead.nextFollowUpTime || activeLead.followUpRemarks
+    const serviceIndex = Number(followUpDraft.serviceIndex);
+    const selectedService = detailServices[serviceIndex];
+    if (!selectedService || !ownedServiceOptions.some((option) => Number(option.value) === serviceIndex)) {
+      setFollowUpError('Select a service added by you.');
+      return;
+    }
+    const previousCurrent = selectedService.nextFollowUpDate || selectedService.nextFollowUpTime || selectedService.followUpRemarks
       ? [{
           id: `previous-${Date.now()}`,
-          scheduledDate: activeLead.nextFollowUpDate || '',
-          scheduledTime: activeLead.nextFollowUpTime || '',
-          remarks: activeLead.followUpRemarks || '',
+          scheduledDate: selectedService.nextFollowUpDate || '',
+          scheduledTime: selectedService.nextFollowUpTime || '',
+          remarks: selectedService.followUpRemarks || '',
           reason: followUpDraft.reason.trim() || 'Previous current follow-up',
           status: 'superseded',
+          owner: currentUser?.name || currentUser?.email || 'CRM User',
           updatedAt: new Date().toISOString(),
           createdAt: new Date().toISOString()
         }]
@@ -3426,11 +3466,15 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     const payload = {
       ...activeLead,
       assignedTo: activeLead.assignedTo?._id || activeLead.assignedTo?.id || activeLead.assignedTo || '',
-      nextFollowUpDate: newEntry.scheduledDate,
-      nextFollowUpTime: newEntry.scheduledTime,
-      followUpRemarks: newEntry.remarks,
-      followUpPriority: newEntry.priority,
-      followUpHistory: [...previousCurrent, ...(Array.isArray(activeLead.followUpHistory) ? activeLead.followUpHistory : [])]
+      serviceSelections: detailServices.map((service, index) => index === serviceIndex ? {
+        ...service,
+        nextFollowUpDate: newEntry.scheduledDate,
+        nextFollowUpTime: newEntry.scheduledTime,
+        followUpRemarks: newEntry.remarks,
+        followUpPriority: newEntry.priority,
+        followUpUpdatedAt: new Date().toISOString(),
+        followUpHistory: [...previousCurrent, ...(Array.isArray(service.followUpHistory) ? service.followUpHistory : [])]
+      } : service)
     };
     setFollowUpSaving(true);
     setFollowUpError('');
@@ -3447,8 +3491,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         scheduledTime: newEntry.scheduledTime,
         priority: newEntry.priority,
         status: 'open',
-        assignedTo: activeLead.assignedTo?._id || activeLead.assignedTo || '',
-        assignedToName: activeLead.assignedTo?.name || activeLead.assignedToText || ''
+        assignedTo: currentUser?._id || currentUser?.id || '',
+        assignedToName: currentUser?.name || currentUser?.email || '',
+        metadata: { serviceIndex, serviceName: selectedService.servicesOffered || selectedService.applicableService || '' }
       }).catch(() => null);
       setDetailLead(updatedLead);
       onLeadUpdated?.(updatedLead);
@@ -3626,13 +3671,14 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
               <button type="button" onClick={() => setViewFollowUp(null)} className="grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 shadow-sm"><X className="h-4 w-4" /></button>
             </div>
             <div className="space-y-4 p-6">
+              <div className="grid grid-cols-2 gap-3"><FollowUpDetail label="Service" value={viewFollowUp.serviceName || 'Lead service'} /><FollowUpDetail label="Follow-Up Owner" value={viewFollowUp.owner || 'CRM User'} /></div>
               <div className="grid grid-cols-2 gap-3"><FollowUpDetail label="Scheduled Time" value={viewFollowUp.scheduledTime || 'Not set'} /><FollowUpDetail label="Priority" value={viewFollowUp.priority || 'Medium'} /></div>
               <FollowUpDetail label="Remarks" value={viewFollowUp.remarks || 'No remarks added.'} />
               <FollowUpDetail label="Update Reason" value={viewFollowUp.reason || 'Not provided'} />
             </div>
             <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
               <button type="button" onClick={() => setViewFollowUp(null)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 font-black text-slate-600">Close</button>
-              {viewFollowUp.id === 'current-follow-up' && <button type="button" onClick={() => { const item = viewFollowUp; setViewFollowUp(null); openFollowUpModal(item); }} className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 font-black text-white"><Edit3 className="h-4 w-4" /> Update</button>}
+              {viewFollowUp.canEdit && <button type="button" onClick={() => { const item = viewFollowUp; setViewFollowUp(null); openFollowUpModal(item); }} className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 font-black text-white"><Edit3 className="h-4 w-4" /> Update</button>}
             </div>
           </section>
         </div>
@@ -3648,6 +3694,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
               <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-50 text-slate-600 hover:bg-slate-100"><X className="h-5 w-5" /></button>
             </div>
             <div className="grid gap-4 px-6 py-5 sm:grid-cols-2">
+              <Field label="Your Service" required className="sm:col-span-2"><select className="form-input" value={followUpDraft.serviceIndex} disabled={followUpEditing} onChange={(event) => { const serviceIndex = event.target.value; const service = detailServices[Number(serviceIndex)] || {}; setFollowUpDraft((current) => ({ ...current, serviceIndex, scheduledDate: service.nextFollowUpDate || todayDateKey(), scheduledTime: service.nextFollowUpTime || '', remarks: service.followUpRemarks || '', priority: service.followUpPriority || 'Medium' })); }}><option value="">Select your service</option>{ownedServiceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
               <Field label="Scheduled Date" required><PremiumDatePicker value={followUpDraft.scheduledDate} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
               <Field label="Scheduled Time"><input type="time" className="form-input" value={followUpDraft.scheduledTime} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
               <Field label="Priority"><select className="form-input" value={followUpDraft.priority} onChange={(event) => setFollowUpDraft((current) => ({ ...current, priority: event.target.value }))}><option>Low</option><option>Medium</option><option>High</option></select></Field>
@@ -3657,7 +3704,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
             </div>
             <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
               <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Cancel</button>
-              <button type="button" disabled={followUpSaving || !followUpDraft.scheduledDate || !followUpDraft.remarks.trim() || (followUpEditing && !followUpDraft.reason.trim())} onClick={saveFollowUp} className="min-h-10 rounded-lg bg-orange-500 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Saving...' : followUpEditing ? 'Update Follow-Up' : 'Save Follow-Up'}</button>
+              <button type="button" disabled={followUpSaving || followUpDraft.serviceIndex === '' || !followUpDraft.scheduledDate || !followUpDraft.remarks.trim() || (followUpEditing && !followUpDraft.reason.trim())} onClick={saveFollowUp} className="min-h-10 rounded-lg bg-orange-500 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Saving...' : followUpEditing ? 'Update Follow-Up' : 'Save Follow-Up'}</button>
             </div>
           </section>
         </div>
@@ -3896,10 +3943,11 @@ function FollowUpBox({ title, tone, items = [], emptyMessage, onView, onEdit, on
                   <strong className="text-sm font-black text-slate-950">{formatFollowUpDate(item.scheduledDate)}{item.scheduledTime ? ` at ${item.scheduledTime}` : ''}</strong>
                   {item.reason && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-500">{item.reason}</span>}
                 </div>
+                <div className="mt-2 flex flex-wrap gap-2"><span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black text-sky-700">{item.serviceName || 'Lead service'}</span><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-700">By {item.owner || 'CRM User'}</span></div>
                 <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6 text-slate-600">{item.remarks || 'No remarks added.'}</p>
                 <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3">
                   <FollowUpAction icon={Eye} label="View follow-up" tone="blue" onClick={() => onView?.(item)} />
-                  <FollowUpAction icon={Edit3} label={item.id === 'current-follow-up' ? 'Update follow-up' : 'Past follow-ups are read-only'} tone="teal" disabled={item.id !== 'current-follow-up'} onClick={() => onEdit?.(item)} />
+                  <FollowUpAction icon={Edit3} label={item.canEdit ? 'Update your follow-up' : 'This follow-up belongs to another user or is read-only'} tone="teal" disabled={!item.canEdit} onClick={() => onEdit?.(item)} />
                   <FollowUpAction icon={UserPlus} label="View lead assignment" tone="violet" onClick={() => onAssignment?.(item)} />
                   <FollowUpAction icon={History} label="View complete history" tone="slate" onClick={() => onHistory?.()} />
                 </div>

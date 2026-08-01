@@ -252,7 +252,7 @@ function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', c
         servicesOffered: lead.servicesOffered,
         firstAnnualReturnYearApplicable: lead.firstAnnualReturnYearApplicable
       }];
-  return rows.map((row, index) => ({
+  const mappedRows = rows.map((row, index) => ({
     row,
     index,
     closed: leadServiceIsClosed(lead, index),
@@ -282,6 +282,20 @@ function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', c
       basicAmount: saved.basicAmount ?? ''
     };
   });
+  // Rows manually added in Quotation do not exist in the lead service matrix.
+  // Preserve them on refresh instead of rebuilding the table from lead rows only.
+  const mappedIndexes = new Set(mappedRows.map((item) => Number(item.sourceServiceIndex)).filter(Number.isFinite));
+  const additionalSavedRows = savedItems
+    .filter((item) => !Number.isFinite(Number(item.sourceServiceIndex)) || !mappedIndexes.has(Number(item.sourceServiceIndex)))
+    .map((item) => ({
+      ...emptyItem,
+      ...item,
+      serviceStartDate: normalizeDateInputValue(item.serviceStartDate),
+      serviceEndDate: normalizeDateInputValue(item.serviceEndDate),
+      unit: item.unit || '1',
+      basicAmount: item.basicAmount ?? ''
+    }));
+  return [...mappedRows, ...additionalSavedRows];
 }
 
 function displayPiboChild(item = {}) {
@@ -451,6 +465,7 @@ function quotationUserNames(row = {}) {
 }
 
 function quotationBelongsToUser(row = {}, currentUser = null) {
+  if (adminRoles.map(normalizeSearchValue).includes(normalizeSearchValue(currentUser?.role))) return true;
   const userTokens = [
     currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId,
     currentUser?.name, currentUser?.email
@@ -2255,7 +2270,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
             </section>
             <section className="mt-6 min-h-[1020px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
               <div className="border-b border-slate-950 pb-3">
-                <p className="text-lg font-black uppercase tracking-[0.18em] text-orange-500">Scope of Work for Preview and Download</p>
+                <p className="text-lg font-black uppercase tracking-[0.18em] text-orange-500">Scope of Work</p>
               </div>
               <div className="mt-6 text-[11px] font-bold leading-6 text-slate-950">
                 <p className="font-black">Scope of Work:</p>
@@ -2427,7 +2442,7 @@ function buildQuotationPrintHtml(quotation) {
       </section>
     </main>
     <main class="page scope-page">
-      <section class="scope-page-title">Scope of Work for Preview and Download</section>
+      <section class="scope-page-title">Scope of Work</section>
       <section class="terms">
         <p class="label">Scope of Work:</p>
         ${scopeOfWork}

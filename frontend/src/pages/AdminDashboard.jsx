@@ -151,21 +151,23 @@ function getLeadFollowUpOwner(lead = {}) {
 function buildLeadFollowUpItems(leads = []) {
   return leads
     .filter((lead) => lead.nextFollowUpDate || lead['Next Follow-Up Date'])
-    .map((lead, index) => {
+    .flatMap((lead, index) => {
       const scheduledDate = lead.nextFollowUpDate || lead['Next Follow-Up Date']
       const scheduledTime = lead.nextFollowUpTime || lead['Next Follow-Up Time'] || ''
       const company = getLeadFollowUpCompany(lead)
-      return {
-        id: `lead-follow-up-${lead._id || lead.id || lead.leadCode || lead.leadNumber || index}`,
-        title: lead.followUpTitle || `Follow up with ${company}`,
+      const services = (Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead])
+        .filter((service) => !service.closedBy && !service.closedByText)
+      return services.map((service, serviceIndex) => ({
+        id: `lead-follow-up-${lead._id || lead.id || lead.leadCode || lead.leadNumber || index}-${serviceIndex}`,
+        title: lead.followUpTitle || `${service.servicesOffered || service.applicableService || 'Service'} follow-up`,
         description: lead.followUpRemarks || lead['Follow-Up Remarks'] || lead.remarks || '',
         clientName: lead.clientName || '',
         leadCompanyName: company,
         leadNumber: lead.leadCode || lead.leadNumber || lead['Lead Number'] || '',
-        assignedTo: lead.assignedTo || lead.assignedToId || getLeadFollowUpOwner(lead),
-        assignedToName: getLeadFollowUpOwner(lead),
-        assignedToEmail: lead.assignedToEmail || lead.ownerEmail || lead.createdByEmail || '',
-        assignedToId: lead.assignedToId || lead.assignedTo?._id || lead.assignedTo?.id || '',
+        assignedTo: service.createdByCrmUserId || service.createdByEmail || lead.assignedTo || lead.assignedToId || getLeadFollowUpOwner(lead),
+        assignedToName: service.createdByName || service.createdByEmail || getLeadFollowUpOwner(lead),
+        assignedToEmail: service.createdByEmail || lead.assignedToEmail || lead.ownerEmail || lead.createdByEmail || '',
+        assignedToId: service.createdByCrmUserId || lead.assignedToId || lead.assignedTo?._id || lead.assignedTo?.id || '',
         createdBy: lead.createdBy || lead.createdById || '',
         createdByName: lead.createdByName || lead.importedCreatedBy || '',
         createdByEmail: lead.createdByEmail || '',
@@ -178,8 +180,10 @@ function buildLeadFollowUpItems(leads = []) {
         source: 'lead',
         followUpHistory: Array.isArray(lead.followUpHistory) ? lead.followUpHistory : [],
         updatedAt: lead.updatedAt || '',
-        createdAt: lead.createdAt || lead.importedCreatedAt || ''
-      }
+        createdAt: lead.createdAt || lead.importedCreatedAt || '',
+        serviceName: service.servicesOffered || service.applicableService || '',
+        serviceContributor: service.createdByName || service.createdByEmail || ''
+      }))
     })
 }
 
@@ -194,10 +198,9 @@ function getRedFlagStage(item = {}, now = new Date()) {
   const dueAt = getFollowUpDueAt(item)
   if (!dueAt) return null
   const delta = now.getTime() - dueAt.getTime()
-  if (delta >= 24 * 60 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 24+ hours', rank: 4 }
-  if (delta >= 60 * 60 * 1000) return { key: 'missed-60', label: '60 min missed', detail: 'Third reminder window crossed', rank: 3 }
-  if (delta >= 30 * 60 * 1000) return { key: 'overdue-30', label: '30 min overdue', detail: 'Second reminder window crossed', rank: 2 }
-  if (delta >= -30 * 60 * 1000) return { key: 'due-30', label: 'Due in 30 min', detail: 'First reminder window', rank: 1 }
+  if (delta >= 20 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 20+ minutes', rank: 3 }
+  if (delta >= 10 * 60 * 1000) return { key: 'overdue-10', label: '10 min overdue', detail: 'Overdue reminder window crossed', rank: 2 }
+  if (delta >= -10 * 60 * 1000) return { key: 'due-10', label: 'Due in 10 min', detail: 'First reminder window', rank: 1 }
   return null
 }
 
@@ -212,11 +215,10 @@ function buildRedFlagHistory(item = {}, stage = {}) {
   const dueAt = getFollowUpDueAt(item)
   const events = [
     { title: 'Follow-up scheduled', detail: item.description || 'Follow-up created', at: item.createdAt || dueAt },
-    { title: '30 min before', detail: 'First reminder window reached.', at: dueAt ? new Date(dueAt.getTime() - 30 * 60 * 1000) : null }
+    { title: '10 min before', detail: 'First reminder window reached.', at: dueAt ? new Date(dueAt.getTime() - 10 * 60 * 1000) : null }
   ]
-  if (stage.rank >= 2) events.push({ title: '30 min after', detail: 'No action recorded; second reminder window reached.', at: new Date(dueAt.getTime() + 30 * 60 * 1000) })
-  if (stage.rank >= 3) events.push({ title: '60 min after', detail: 'Follow-up still open; third reminder window reached.', at: new Date(dueAt.getTime() + 60 * 60 * 1000) })
-  if (stage.rank >= 4) events.push({ title: '24 hours after', detail: 'No action recorded; follow-up marked as a red flag.', at: new Date(dueAt.getTime() + 24 * 60 * 60 * 1000) })
+  if (stage.rank >= 2) events.push({ title: '10 min after', detail: 'No action recorded; overdue reminder reached.', at: new Date(dueAt.getTime() + 10 * 60 * 1000) })
+  if (stage.rank >= 3) events.push({ title: '20 min after', detail: 'Follow-up still open; marked as a red flag.', at: new Date(dueAt.getTime() + 20 * 60 * 1000) })
   ;(Array.isArray(item.followUpHistory) ? item.followUpHistory : []).forEach((entry) => events.push({
     title: entry.title || entry.reason || 'Follow-up history',
     detail: entry.remarks || entry.description || entry.followUpRemarks || 'Follow-up updated',
@@ -240,11 +242,11 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
     <>
       <section className="red-flag-audit">
         <header>
-          <div><span>Action control</span><h2>{title}</h2><p>30 min before, 30/60 min after and 24-hour escalation in one place.</p></div>
+          <div><span>Action control</span><h2>{title}</h2><p>10 min before, 10 min overdue and 20-minute red-flag escalation in one place.</p></div>
           <div className="red-flag-audit-summary">
             <b>{counts['red-flag'] || 0}<small>Red flags</small></b>
-            <b>{(counts['overdue-30'] || 0) + (counts['missed-60'] || 0)}<small>Missed</small></b>
-            <b>{counts['due-30'] || 0}<small>Due soon</small></b>
+            <b>{counts['overdue-10'] || 0}<small>Missed</small></b>
+            <b>{counts['due-10'] || 0}<small>Due soon</small></b>
           </div>
         </header>
         <div className="red-flag-table-wrap">

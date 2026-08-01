@@ -20,6 +20,7 @@ const QuoteLeadDetailsSchema = new mongoose.Schema({
 const QuoteItemSchema = new mongoose.Schema({
   id: { type: String, trim: true },
   sourceServiceIndex: { type: Number, min: 0 },
+  serviceAddedBy: { type: String, trim: true },
   industryType: { type: String, trim: true },
   serviceCategory: { type: String, trim: true },
   serviceStartDate: { type: String, trim: true },

@@ -24,8 +24,13 @@ const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope')
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
 const { ADMIN_ROLES } = require('../constants/roles');
 
-const REQUIRED_FIELDS = ['status', 'company', 'piboCategory', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
+const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
+
+function usesDirectApplicantType(eprCategory) {
+  const category = String(eprCategory || '').toLowerCase();
+  return Boolean(category && !category.includes('plastic'));
+}
 
 function cleanBody(body) {
   const data = {};
@@ -110,6 +115,11 @@ function cleanBody(body) {
           servicesOffered: String(row?.servicesOffered || '').trim(),
           applicableService: String(row?.applicableService || '').trim(),
           firstAnnualReturnYearApplicable: String(row?.firstAnnualReturnYearApplicable || '').trim(),
+          nextFollowUpDate: String(row?.nextFollowUpDate || '').trim(),
+          nextFollowUpTime: String(row?.nextFollowUpTime || '').trim(),
+          followUpRemarks: String(row?.followUpRemarks || '').trim(),
+          followUpPriority: String(row?.followUpPriority || 'Medium').trim(),
+          followUpHistory: Array.isArray(row?.followUpHistory) ? row.followUpHistory.slice(0, 100) : [],
           createdByCrmUserId: String(row?.createdByCrmUserId || '').trim(),
           createdByName: String(row?.createdByName || '').trim(),
           createdByEmail: String(row?.createdByEmail || '').trim().toLowerCase()
@@ -188,6 +198,7 @@ function cleanBody(body) {
 function validateSubmittedLead(data) {
   const missing = REQUIRED_FIELDS.filter((field) => !data[field]);
   if (missing.length) return `Missing required fields: ${missing.join(', ')}`;
+  if (!usesDirectApplicantType(data.eprCategory) && !data.piboCategory) return 'PIBO/SIMP/PWP Category is required';
   const addresses = Array.isArray(data.addresses) && data.addresses.length ? data.addresses : [data];
   if (addresses.some((row) => !/^\d{6}$/.test(String(row?.pinCode || '')))) return 'Every PIN code must contain exactly 6 digits';
   const contacts = Array.isArray(data.contacts) && data.contacts.length ? data.contacts : [data];
@@ -211,7 +222,7 @@ async function createLeadRecord(rawBody, userId) {
   data.companyIdentity = normalizeCompanyIdentity(data.company);
   data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : 'draft';
 
-  if (data.workflowStatus === 'submitted' || data.piboParent || data.piboCategory) {
+  if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.piboCategory) {
     const selection = await validatePiboSelection({ parent: data.piboParent, child: data.piboCategory, required: true });
     data.piboParent = selection.piboParent;
     data.piboCategory = selection.piboCategory;
@@ -500,7 +511,7 @@ exports.updateLead = async (req, res) => {
       if (error) return res.status(400).json({ error });
     }
 
-    if (data.workflowStatus === 'submitted' || data.piboParent || data.piboCategory) {
+    if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.piboCategory) {
       const current = lead.toObject();
       const selection = await validatePiboSelection({
         parent: data.piboParent || current.piboParent || current.piboCategoryParent,
@@ -908,6 +919,8 @@ exports.updateDuplicateLeadApproval = async (req, res) => {
 };
 
 exports._test = {
+  usesDirectApplicantType,
+  validateSubmittedLead,
   bulkServiceRow,
   normalizeLegacyBulkServices,
   alignBulkAssignments,

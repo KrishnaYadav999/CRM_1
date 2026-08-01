@@ -5,6 +5,26 @@ const { _test } = require('../src/controllers/leadController');
 const firstService = { industryType: 'Manufacturing', eprCategory: 'Plastic Waste', applicantType: 'PIBO', piboCategory: 'Producer', servicesOffered: 'Registration', applicableService: 'Registration', firstAnnualReturnYearApplicable: '2025-26' };
 const secondService = { industryType: 'Manufacturing', eprCategory: 'E-Waste', applicantType: 'PIBO', piboCategory: 'Importer', servicesOffered: 'Annual Return', applicableService: 'Annual Filing', firstAnnualReturnYearApplicable: '2026-27' };
 
+test('direct EPR applicant types submit without a separate PIBO category', () => {
+  const error = _test.validateSubmittedLead({
+    status: 'Qualified', company: 'Example Pvt Ltd', eprCategory: 'EPR - Battery Waste',
+    applicantType: 'Recycler', servicesOffered: 'EPR - Battery Waste Compliance',
+    addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001',
+    addresses: [{ addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001' }],
+    contacts: [{ salutation: 'Mr.', contactPerson: 'Jack', designation: 'Manager', emails: 'jack@example.com', mobileNo1: '9876543210', referredBy: 'Krishna', source: 'Referral' }]
+  });
+  assert.equal(error, '');
+});
+
+test('plastic applicant hierarchy still requires a PIBO category', () => {
+  const error = _test.validateSubmittedLead({
+    status: 'Qualified', company: 'Example Pvt Ltd', eprCategory: 'EPR - Plastic Waste',
+    applicantType: 'PIBO', servicesOffered: 'EPR - Plastic Compliance',
+    addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001'
+  });
+  assert.equal(error, 'PIBO/SIMP/PWP Category is required');
+});
+
 test('legacy top-level service and a different saved service are both preserved', () => {
   const rows = _test.normalizeLegacyBulkServices({ ...firstService, serviceSelections: [secondService] });
   assert.equal(rows.length, 2);
