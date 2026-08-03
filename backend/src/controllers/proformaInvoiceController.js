@@ -30,7 +30,11 @@ async function nextProformaNumber() {
 function cleanPayload(body = {}) {
   const leadDetails = body.leadDetails && typeof body.leadDetails === 'object' ? body.leadDetails : {};
   const items = (Array.isArray(body.items) ? body.items : []).map((item) => ({
-    serviceCategory: text(item.serviceCategory), servicesForYear: text(item.servicesForYear),
+    serviceCategory: text(item.serviceCategory), servicesForYear: text(item.servicesForYear), financialYear: text(item.financialYear),
+    validityPeriod: Math.max(1, Math.min(50, Number(item.validityPeriod) || 1)),
+    annualReturnYears: [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(text).filter(Boolean))],
+    servicesOffered: text(item.servicesOffered), applicableService: text(item.applicableService),
+    serviceStartDate: text(item.serviceStartDate), serviceEndDate: text(item.serviceEndDate),
     eprCategory: text(item.eprCategory), piboParent: text(item.piboParent),
     piboCategory: text(item.piboCategory), unit: text(item.unit), basicAmount: money(item.basicAmount)
   })).filter((item) => item.serviceCategory || item.piboCategory || item.basicAmount);
@@ -38,6 +42,10 @@ function cleanPayload(body = {}) {
   const individualTotal = items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * item.basicAmount), 0);
   const combinedBasicAmount = pricingMode === 'combined' ? money(body.combinedBasicAmount) : 0;
   const calculated = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
+  const gstRate = 18;
+  const subtotal = money(calculated);
+  const gstAmount = money(subtotal * gstRate / 100);
+  const grandTotal = money(subtotal + gstAmount);
   const poYearCount = Math.max(0, Math.min(50, Number(body.poYearCount) || 0));
   const poYearRows = (Array.isArray(body.poYearRows) ? body.poYearRows : []).slice(0, poYearCount).map((row) => ({
     fy: text(row.fy), poNumber: text(row.poNumber), annualReturnYear: text(row.annualReturnYear), quotationNo: text(row.quotationNo),
@@ -51,7 +59,7 @@ function cleanPayload(body = {}) {
     leadDetails, invoiceDate: body.invoiceDate || new Date(), validUntil: text(body.validUntil), pricingMode, combinedBasicAmount, items, poYearCount, poYearRows,
     terms: (Array.isArray(body.terms) ? body.terms : String(body.terms || '').split(/\r?\n/)).map(text).filter(Boolean),
     scopeOfWork: (Array.isArray(body.scopeOfWork) ? body.scopeOfWork : String(body.scopeOfWork || '').split(/\r?\n/)).map(text).filter(Boolean),
-    subtotal: money(body.subtotal || calculated), grandTotal: money(body.grandTotal || calculated),
+    subtotal, gstRate, gstAmount, grandTotal,
     status: ['draft', 'issued', 'cancelled'].includes(body.status) ? body.status : 'issued'
   };
 }

@@ -34,6 +34,12 @@ const emptyLeadDetails = {
 
 const emptyItem = {
   industryType: '',
+  financialYear: '',
+  validityPeriod: '',
+  servicePeriod: '',
+  annualReturnYears: [],
+  servicesOffered: '',
+  applicableService: '',
   serviceCategory: '',
   serviceStartDate: '',
   serviceEndDate: '',
@@ -94,6 +100,45 @@ function deriveFinancialYearFromDate(value) {
   return `${startYear}-${String(startYear + 1).slice(-2)}`;
 }
 
+function serviceEndDateFrom(startDate, servicePeriod) {
+  const normalized = normalizeDateInputValue(startDate);
+  const years = Number(servicePeriod);
+  if (!normalized || !Number.isFinite(years) || years < 1) return '';
+  const [year, month, day] = normalized.split('-').map(Number);
+  const endDate = new Date(Date.UTC(year + Math.floor(years), month - 1, day));
+  endDate.setUTCDate(endDate.getUTCDate() - 1);
+  return endDate.toISOString().slice(0, 10);
+}
+
+function renewalDateFrom(startDate, servicePeriod) {
+  const normalized = normalizeDateInputValue(startDate);
+  const years = Number(servicePeriod);
+  if (!normalized || !Number.isFinite(years) || years < 1) return '';
+  const [year, month, day] = normalized.split('-').map(Number);
+  return new Date(Date.UTC(year + Math.floor(years), month - 1, day)).toISOString().slice(0, 10);
+}
+
+function quotationFyOptions() {
+  const now = new Date();
+  const currentStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  return Array.from({ length: 12 }, (_, index) => {
+    const start = currentStart - 5 + index;
+    return `${start}-${String(start + 1).slice(-2)}`;
+  });
+}
+
+function datesFromAnnualYears(years = []) {
+  const sorted = [...new Set(years)].filter((value) => /^\d{4}-\d{2}$/.test(value)).sort();
+  if (!sorted.length) return { financialYear: '', serviceStartDate: '', serviceEndDate: '' };
+  const firstStart = Number(sorted[0].slice(0, 4));
+  const lastStart = Number(sorted.at(-1).slice(0, 4));
+  return {
+    financialYear: sorted.length === 1 ? sorted[0] : `${sorted[0]} to ${sorted.at(-1)}`,
+    serviceStartDate: `${firstStart}-04-01`,
+    serviceEndDate: `${lastStart + 1}-03-31`
+  };
+}
+
 function formatServiceDate(value) {
   const parts = parseDateInputValue(value);
   if (!parts) return '-';
@@ -128,7 +173,22 @@ const emptyQuotation = {
 
 const salutationOptions = ['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.', 'Er.', 'CA', 'Adv.'];
 const eprCategoryOptions = ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'];
+const EPR_DATA_YEAR_CATEGORIES = new Set(eprCategoryOptions.map((category) => category.trim().toLowerCase()));
+
+function requiresEprDataYear(category) {
+  return EPR_DATA_YEAR_CATEGORIES.has(String(category || '').trim().toLowerCase());
+}
 const industryTypeOptions = ['Automotive', 'Chemicals', 'Construction', 'Consumer Goods', 'E-commerce', 'Electronics', 'Energy', 'FMCG', 'Financial Services', 'Healthcare', 'Hospitality', 'IT & Software', 'Logistics', 'Manufacturing', 'Pharmaceuticals', 'Renewables', 'Retail', 'Telecom', 'Waste Management', 'Food Manufacturing', 'Mechanical Industry', 'Petrochemical', 'Packaging Manufacture', 'Plastic Recycling', 'E-Waste Recycler', 'E-Waste Recycling', 'Other'];
+const PAYMENT_TERM_OPTIONS = [
+  '100% after completion of work',
+  '50% advance and 50% after completion of work',
+  '100% advance payment'
+];
+const ANANT_TATTVA_GST_NUMBER = 'AZCA6657R1ZB';
+
+function cleanScopePresetItem(value) {
+  return String(value || '').replace(/:\s*\d+\.\d+\s*/g, ': ').replace(/^\d+\.\d+\s*/, '').trim();
+}
 
 function mapLeadToDetails(lead) {
   return {
@@ -270,8 +330,10 @@ function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', c
       ...saved,
       sourceServiceIndex: index,
       serviceAddedBy: row.createdByName || row.createdByEmail || currentUser?.name || currentUser?.email || '',
+      servicesOffered: row.servicesOffered || saved.servicesOffered || '',
+      applicableService: row.applicableService || saved.applicableService || '',
       industryType: row.industryType || saved.industryType || '',
-      serviceCategory: saved.serviceCategory || '',
+      serviceCategory: row.eprCategory || saved.serviceCategory || '',
       serviceStartDate: normalizeDateInputValue(saved.serviceStartDate),
       serviceEndDate: normalizeDateInputValue(saved.serviceEndDate),
       servicesForYear: saved.servicesForYear || row.firstAnnualReturnYearApplicable || '',
@@ -308,6 +370,36 @@ function isCombinedQuotation(quotation = {}) {
 
 function quotationItemsTotal(items = []) {
   return items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
+}
+
+function scopePresetKeyForAmount(amount) {
+  const basicAmount = Number(amount) || 0;
+  if (basicAmount <= 0) return '';
+  if (basicAmount <= 50000) return 'basic';
+  if (basicAmount <= 100000) return 'premium';
+  return 'superPremium';
+}
+
+function sanitizePdfClone(clonedDocument) {
+  const root = clonedDocument.querySelector('[data-quotation-pdf]');
+  if (!root) return;
+  const unsupportedColor = /(?:color|oklch|oklab|lab|lch)\(/i;
+  root.querySelectorAll('*').forEach((element) => {
+    const computed = clonedDocument.defaultView?.getComputedStyle(element);
+    if (!computed) return;
+    for (const property of computed) {
+      const value = computed.getPropertyValue(property);
+      if (!unsupportedColor.test(value)) continue;
+      let fallback = 'initial';
+      if (property === 'color') fallback = '#0f172a';
+      else if (property === 'background-color') fallback = 'transparent';
+      else if (property.includes('border') && property.endsWith('color')) fallback = '#cbd5e1';
+      else if (property === 'fill') fallback = '#0f172a';
+      else if (property === 'stroke') fallback = '#64748b';
+      else if (property.includes('shadow') || property.includes('image')) fallback = 'none';
+      element.style.setProperty(property, fallback, 'important');
+    }
+  });
 }
 
 function combinedQuotationTotal(quotation = {}, items = []) {
@@ -373,8 +465,10 @@ function buildQuotationFromContext(context) {
           ? Number(service.sourceServiceIndex)
           : sourceServiceIndex,
         serviceAddedBy: service.createdByName || service.createdByEmail || '',
+        servicesOffered: service.servicesOffered || '',
+        applicableService: service.applicableService || '',
         industryType: service.industryType || '',
-        serviceCategory: '',
+        serviceCategory: service.eprCategory || '',
         serviceStartDate: normalizeDateInputValue(service.serviceStartDate),
         serviceEndDate: normalizeDateInputValue(service.serviceEndDate),
         servicesForYear: service.firstAnnualReturnYearApplicable || service.annualYear || '',
@@ -600,6 +694,9 @@ export default function Quotations() {
   const [successModal, setSuccessModal] = useState(null);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
   const [itemDrafts, setItemDrafts] = useState({});
+  const [financialYearItemIndex, setFinancialYearItemIndex] = useState(null);
+  const [financialYearDraft, setFinancialYearDraft] = useState(null);
+  const financialYearNeedsEprData = requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [loading, setLoading] = useState(true);
@@ -681,6 +778,10 @@ export default function Quotations() {
     return [...groups.values()].sort((left, right) => left.company.localeCompare(right.company));
   }, [filteredQuotations]);
   const totalPages = Math.max(1, Math.ceil(companyGroups.length / rowsPerPage));
+  const scopeBasicAmount = quotation.pricingMode === 'combined'
+    ? Number(quotation.combinedBasicAmount) || 0
+    : quotationItemsTotal(quotation.items);
+  const eligibleScopePresetKey = scopePresetKeyForAmount(scopeBasicAmount);
   const visibleCompanyGroups = companyGroups.slice((page - 1) * rowsPerPage, page * rowsPerPage);
 
   useEffect(() => {
@@ -1041,13 +1142,93 @@ export default function Quotations() {
     return draft[field] ?? fallback;
   }
 
+  function setServiceStartDate(index, value) {
+    setItemDrafts((drafts) => {
+      const draft = { ...emptyItem, ...(quotation.items[index] || {}), ...(drafts[index] || {}), serviceStartDate: value };
+      return { ...drafts, [index]: { ...draft, serviceEndDate: serviceEndDateFrom(value, draft.servicePeriod) } };
+    });
+  }
+
+  function openFinancialYearModal(index) {
+    const item = { ...emptyItem, ...(quotation.items[index] || {}), ...(itemDrafts[index] || {}) };
+    const sourceIndex = Number.isInteger(Number(item.sourceServiceIndex)) ? Number(item.sourceServiceIndex) : index;
+    const leadServices = Array.isArray(selectedLead?.serviceSelections) && selectedLead.serviceSelections.length
+      ? selectedLead.serviceSelections
+      : (selectedLead ? [selectedLead] : []);
+    const sourceService = leadServices[sourceIndex] || {};
+    const sourceApplicant = quotationApplicantSelection(sourceService);
+    const selectedYears = Array.isArray(item.annualReturnYears) ? item.annualReturnYears : [];
+    setFinancialYearItemIndex(index);
+    setFinancialYearDraft({
+      ...item,
+      eprCategory: sourceService.eprCategory || item.eprCategory || '',
+      serviceCategory: sourceService.eprCategory || item.eprCategory || item.serviceCategory || '',
+      piboParent: sourceApplicant.parent || item.piboParent || '',
+      piboCategory: sourceApplicant.child || item.piboCategory || '',
+      servicesOffered: sourceService.servicesOffered || item.servicesOffered || '',
+      validityPeriod: String(item.validityPeriod || selectedYears.length || 1),
+      servicePeriod: String(item.servicePeriod || 1),
+      annualReturnYears: selectedYears
+    });
+  }
+
+  function toggleAnnualReturnYear(year) {
+    setFinancialYearDraft((current) => {
+      const selected = current.annualReturnYears || [];
+      if (selected.includes(year)) return { ...current, annualReturnYears: selected.filter((value) => value !== year) };
+      const limit = Math.max(1, Number(current.validityPeriod) || 1);
+      if (selected.length >= limit) return current;
+      return { ...current, annualReturnYears: [...selected, year].sort() };
+    });
+  }
+
+  function saveFinancialYearSelection() {
+    const eprYearRequired = requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
+    const validityPeriod = Math.max(1, Number(financialYearDraft?.validityPeriod) || 1);
+    const annualReturnYears = financialYearDraft?.annualReturnYears || [];
+    if (eprYearRequired && !annualReturnYears.length) {
+      setError('Select at least one Annual Return EPR Year.');
+      return;
+    }
+    if (eprYearRequired && annualReturnYears.length > validityPeriod) {
+      setError(`You can select maximum ${validityPeriod} Annual Return year(s).`);
+      return;
+    }
+    const sortedYears = eprYearRequired ? [...annualReturnYears].sort() : [];
+    const financialYear = !sortedYears.length ? '' : sortedYears.length === 1 ? sortedYears[0] : `${sortedYears[0]} to ${sortedYears.at(-1)}`;
+    const update = {
+      validityPeriod: eprYearRequired ? validityPeriod : '',
+      servicePeriod: Math.max(1, Number(financialYearDraft?.servicePeriod) || 1),
+      annualReturnYears: sortedYears,
+      financialYear,
+      serviceCategory: financialYearDraft.serviceCategory || '',
+      eprCategory: financialYearDraft.eprCategory || '',
+      piboParent: financialYearDraft.piboParent || '',
+      piboCategory: financialYearDraft.piboCategory || '',
+      servicesOffered: financialYearDraft.servicesOffered || '',
+      applicableService: financialYearDraft.applicableService || ''
+    };
+    const existingStartDate = normalizeDateInputValue(quotation.items[financialYearItemIndex]?.serviceStartDate || itemDrafts[financialYearItemIndex]?.serviceStartDate);
+    if (existingStartDate) {
+      update.serviceStartDate = existingStartDate;
+      update.serviceEndDate = serviceEndDateFrom(existingStartDate, update.servicePeriod);
+    }
+    setQuotation((current) => ({ ...current, items: current.items.map((item, index) => index === financialYearItemIndex ? { ...item, ...update } : item) }));
+    setItemDrafts((current) => ({ ...current, [financialYearItemIndex]: { ...emptyItem, ...(current[financialYearItemIndex] || quotation.items[financialYearItemIndex]), ...update } }));
+    setFinancialYearItemIndex(null);
+    setFinancialYearDraft(null);
+    setError('');
+  }
+
   function saveItem(index) {
     const draft = { ...emptyItem, ...(itemDrafts[index] || {}) };
     const parent = draft.piboParent || draft.piboCategoryParent || inferPiboParent(draft.piboCategory);
     const serviceStartDate = normalizeDateInputValue(draft.serviceStartDate);
     const serviceEndDate = normalizeDateInputValue(draft.serviceEndDate);
     if (!serviceStartDate) {
-      setError('Select Service Start Date before saving the quotation item.');
+      setError(requiresEprDataYear(draft.eprCategory || draft.serviceCategory)
+        ? 'Select EPR Data Year and Annual Return EPR Year before saving the quotation item.'
+        : 'Select Service Start Date and Service Period before saving the quotation item.');
       return;
     }
     if (!serviceEndDate) {
@@ -1088,19 +1269,23 @@ export default function Quotations() {
     else setEditingItemIndex(null);
   }
 
-  function addTerm() {
-    setQuotation((current) => ({ ...current, terms: [...current.terms, ''] }));
-  }
-
-  function setTerm(index, value) {
+  function togglePaymentTerm(term) {
     setQuotation((current) => ({
       ...current,
-      terms: current.terms.map((term, termIndex) => termIndex === index ? value : term)
+      terms: [term, ...current.terms.filter((item) => !PAYMENT_TERM_OPTIONS.includes(item))]
     }));
   }
 
-  function removeTerm(index) {
-    setQuotation((current) => ({ ...current, terms: current.terms.filter((_, termIndex) => termIndex !== index) }));
+  function addCustomTerm() {
+    setQuotation((current) => ({ ...current, terms: [...current.terms, ''] }));
+  }
+
+  function setCustomTerm(termIndex, value) {
+    setQuotation((current) => ({ ...current, terms: current.terms.map((term, index) => index === termIndex ? value : term) }));
+  }
+
+  function removeCustomTerm(termIndex) {
+    setQuotation((current) => ({ ...current, terms: current.terms.filter((_, index) => index !== termIndex) }));
   }
 
   function addScopeItem() {
@@ -1127,7 +1312,7 @@ export default function Quotations() {
     }
     setError('');
     setNotice(`${presetLabel} package scope of work applied. You can still edit the lines below.`);
-    setQuotation((current) => ({ ...current, scopeOfWork: [...preset] }));
+    setQuotation((current) => ({ ...current, scopeOfWork: preset.map(cleanScopePresetItem) }));
   }
 
   async function saveQuotation(status = quotation.status) {
@@ -1139,6 +1324,10 @@ export default function Quotations() {
     }
     if (gstNumber && !gstPattern.test(gstNumber)) {
       setError('Please enter a valid 15-character GST Number.');
+      return;
+    }
+    if (quotation.terms.filter((term) => PAYMENT_TERM_OPTIONS.includes(term)).length !== 1) {
+      setError('Select exactly one Terms & Conditions payment option before saving the quotation.');
       return;
     }
     if (!quotation.items.length) {
@@ -1177,7 +1366,9 @@ export default function Quotations() {
     if (invalidDateIndex >= 0) {
       const item = quotation.items[invalidDateIndex] || {};
       if (!normalizeDateInputValue(item.serviceStartDate)) {
-        setError(`Quotation item ${invalidDateIndex + 1}: select Service Start Date.`);
+        setError(requiresEprDataYear(item.eprCategory || item.serviceCategory)
+          ? `Quotation item ${invalidDateIndex + 1}: select EPR Data Year and Annual Return EPR Year.`
+          : `Quotation item ${invalidDateIndex + 1}: select Service Start Date and Service Period.`);
       } else if (!normalizeDateInputValue(item.serviceEndDate)) {
         setError(`Quotation item ${invalidDateIndex + 1}: select Service End Date.`);
       } else {
@@ -1242,7 +1433,7 @@ export default function Quotations() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Quotation, company, lead or contact..." className="h-11 w-64 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100" />
+              <input value={String(query ?? '')} onChange={(event) => setQuery(event.target.value)} placeholder="Quotation, company, lead or contact..." className="h-11 w-64 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100" />
               <select value={validityFilter} onChange={(event) => setValidityFilter(event.target.value)} className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-600"><option value="">Any validity</option><option value="valid">Valid</option><option value="expired">Expired</option></select>
               <select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} className="h-11 w-60 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100">
                 <option value="">Filter by User</option>
@@ -1495,10 +1686,10 @@ export default function Quotations() {
               {!quotation.pricingMode ? null : quotation.items.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No quotation items added.</div>
               ) : (
-                <table className="w-full min-w-[1180px] text-left text-sm">
+                <table className="w-full min-w-[1120px] text-left text-sm [&_td:nth-child(3)]:hidden [&_th:nth-child(3)]:hidden">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
-                      {['Sr.No', 'Industry Type', 'Service Category', 'Service Start Date', 'Service End Date', 'EPR Category', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
+                      {['Sr.No', 'EPR / Service Period', 'Industry Type', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
                         <th key={header} className="px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -1507,22 +1698,21 @@ export default function Quotations() {
                     {quotation.items.map((item, index) => (
                       <tr key={index} className="align-middle">
                         <td className="px-3 py-4 text-center font-black">{index + 1}</td>
+                        <td className="px-3 py-4"><button type="button" onClick={() => openFinancialYearModal(index)} className="min-w-40 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left font-black text-[#30737B] shadow-sm transition hover:border-teal-400 hover:bg-teal-100"><span className="block text-[10px] uppercase tracking-wider text-teal-600">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? 'Select EPR Data Year' : 'Select Service Period'}</span><span className="mt-0.5 block">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? (item.financialYear || 'Select EPR Data Year') : `${Math.max(1, Number(item.servicePeriod) || 1)} Year(s)`}</span></button></td>
                         {editingItemIndex === index ? (
                           <>
                             {selectedLead ? <>
                               <td className="px-3 py-4 font-black text-slate-700">{item.industryType || '-'}</td>
-                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'serviceCategory', item.serviceCategory || '')} options={allServiceCategoryOptions} placeholder="Select service category" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
-                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate))} onChange={(event) => setItemDraft(index, 'serviceStartDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
-                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate))} onChange={(event) => setItemDraft(index, 'serviceEndDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
-                              <td className="px-3 py-4 font-black text-slate-700">{item.eprCategory || '-'}</td>
+                              <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
+                              <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate)) ?? '')} onChange={(event) => setServiceStartDate(index, event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
+                              <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className="h-10 w-40 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" /></td>
                               <td className="px-3 py-4 font-black text-slate-700">{displayPiboChild(item)}</td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </> : <>
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'industryType', item.industryType || '')} options={allIndustryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('industryType', name) : undefined} /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'serviceCategory', item.serviceCategory || '')} options={allServiceCategoryOptions} placeholder="Select service category" onChange={(value) => setItemDraft(index, 'serviceCategory', value)} onAddOption={canManageDropdownOptions ? addServiceCategory : undefined} /></td>
-                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate))} onChange={(event) => setItemDraft(index, 'serviceStartDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
-                              <td className="px-3 py-4"><input type="date" value={readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate))} onChange={(event) => setItemDraft(index, 'serviceEndDate', event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
-                              <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'eprCategory', item.eprCategory || '')} options={allEprCategoryOptions} placeholder="EPR - PLASTIC WASTE" onChange={(value) => setItemDraft(index, 'eprCategory', value)} categoryLabel="EPR Category" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('eprCategory', name) : undefined} /></td>
+                              <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
+                              <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate)) ?? '')} onChange={(event) => setServiceStartDate(index, event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
+                              <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className="h-10 w-40 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" /></td>
                               <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={readItemDraftValue(index, 'piboParent', item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory))} value={readItemDraftValue(index, 'piboCategory', item.piboCategory || '')} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={canManageDropdownOptions ? addPiboCategory : undefined} /></td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </>}
@@ -1530,7 +1720,7 @@ export default function Quotations() {
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
                                 <span className="grid w-10 place-items-center border-r border-slate-200 font-black text-slate-800">₹</span>
-                                <input type="number" value={readItemDraftValue(index, 'basicAmount', item.basicAmount || '')} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
+                                <input type="number" value={String(readItemDraftValue(index, 'basicAmount', item.basicAmount || '') ?? '')} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
                               </div>
                             </td>}
                             {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="min-w-56 border-l border-slate-100 bg-emerald-50/60 px-3 py-4 align-middle"><label className="block text-[11px] font-black uppercase tracking-wider text-emerald-700">Combined Basic Amount</label><div className="mt-2 flex h-11 overflow-hidden rounded-lg border border-emerald-300 bg-white focus-within:ring-4 focus-within:ring-emerald-100"><span className="grid w-10 place-items-center border-r border-emerald-100 font-black">₹</span><input type="number" min="0" value={quotation.combinedBasicAmount ?? ''} onChange={(event) => setQuotation((current) => ({ ...current, combinedBasicAmount: event.target.value }))} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="50000" /></div></td>}
@@ -1544,10 +1734,9 @@ export default function Quotations() {
                         ) : (
                           <>
                             <td className="px-3 py-4 font-black">{item.industryType || '-'}</td>
-                            <td className="px-3 py-4 font-black uppercase">{item.serviceCategory || '-'}</td>
+                            <td className="px-3 py-4 font-black uppercase">{item.eprCategory || item.serviceCategory || '-'}</td>
                             <td className="px-3 py-4 font-black">{formatServiceDate(item.serviceStartDate)}</td>
                             <td className="px-3 py-4 font-black">{formatServiceDate(item.serviceEndDate)}</td>
-                            <td className="px-3 py-4 font-black uppercase">{item.eprCategory || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{displayPiboChild(item)}</td>
                             <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.unit || '-'}</td>
@@ -1572,29 +1761,17 @@ export default function Quotations() {
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">Terms & Conditions</h2>
-          <div className="mt-4 space-y-3">
-            {quotation.terms.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No terms added.</div>
-            ) : quotation.terms.map((term, index) => (
-              <div key={index} className="flex items-center gap-3">
-                <span className="w-8 text-right font-black text-slate-900">{index + 1}.</span>
-                <input value={String(term ?? '')} onChange={(event) => setTerm(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter term or condition" />
-                <button type="button" onClick={() => removeTerm(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50">
-                  <X className="h-4 w-4" /> Remove
-                </button>
-              </div>
-            ))}
-          </div>
-          <button type="button" onClick={addTerm} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 font-black text-slate-700 hover:bg-slate-50">
-            <Plus className="h-4 w-4" /> Add Term
-          </button>
+          <p className="mt-1 text-sm font-bold text-slate-500">Select exactly one payment term. Additional custom terms can be added below.</p>
+          <div className="mt-4 grid gap-3">{PAYMENT_TERM_OPTIONS.map((term) => { const checked = quotation.terms.includes(term); return <label key={term} className={`flex cursor-pointer items-center gap-4 rounded-xl border p-4 transition ${checked ? 'border-emerald-400 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-100' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200'}`}><input type="radio" name="quotation-payment-term" checked={checked} onChange={() => togglePaymentTerm(term)} className="h-5 w-5 border-slate-300 accent-emerald-700" /><span className="font-black">{term}</span></label>; })}</div>
+          <div className="mt-4 space-y-3">{quotation.terms.map((term, index) => PAYMENT_TERM_OPTIONS.includes(term) ? null : <div key={`custom-term-${index}`} className="flex items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-xs font-black text-slate-500">+</span><input value={String(term || '')} onChange={(event) => setCustomTerm(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter additional term or condition" /><button type="button" onClick={() => removeCustomTerm(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50"><X className="h-4 w-4" />Remove</button></div>)}</div>
+          <button type="button" onClick={addCustomTerm} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 font-black text-slate-700 hover:bg-slate-50"><Plus className="h-4 w-4" />Add Term</button>
         </section>
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">Scope of Work</h2>
-          <p className="mt-1 text-sm font-bold text-slate-500">Add each deliverable or activity as a separate line, or load a package preset.</p>
+          <p className="mt-1 text-sm font-bold text-slate-500">The available package is selected from the Basic Amount: up to ₹50,000 Basic, up to ₹1,00,000 Premium, and above ₹1,00,000 Super Premium.</p>
           <div className="mt-4 flex flex-wrap gap-3">
-            {QUOTATION_SCOPE_PRESET_OPTIONS.map((option) => (
+            {QUOTATION_SCOPE_PRESET_OPTIONS.filter((option) => option.key === eligibleScopePresetKey).map((option) => (
               <button
                 key={option.key}
                 type="button"
@@ -1610,6 +1787,7 @@ export default function Quotations() {
                 {option.label}
               </button>
             ))}
+            {!eligibleScopePresetKey && <p className="py-3 text-sm font-black text-slate-400">Enter the Basic Amount to view the applicable scope package.</p>}
           </div>
           <p className="mt-2 text-xs font-bold text-slate-500">Selecting a package replaces the current scope list with the standard package deliverables from your EPR package matrix.</p>
           <div className="mt-4 space-y-3">
@@ -1626,6 +1804,29 @@ export default function Quotations() {
           <button type="button" onClick={showQuotationList} className="btn-lift min-h-11 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-600">Cancel</button>
         </div>
       </div>
+      {financialYearDraft && createPortal((
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm">
+          <section className="max-h-[92vh] w-full max-w-[1450px] overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_35px_100px_rgba(15,23,42,.4)]">
+            <header className="flex items-start justify-between border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-orange-50 px-6 py-5"><div><p className="text-[11px] font-black uppercase tracking-[.2em] text-emerald-700">{financialYearNeedsEprData ? 'EPR Data Year Mapping' : 'Service Period Mapping'}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{financialYearNeedsEprData ? 'Select EPR data validity and Annual Return years' : 'Select Service Period'}</h2><p className="mt-1 text-sm font-bold text-slate-500">Quotation item #{Number(financialYearItemIndex) + 1}</p></div><button type="button" onClick={() => { setFinancialYearDraft(null); setFinancialYearItemIndex(null); }} className="grid h-11 w-11 place-items-center rounded-xl border bg-white text-slate-500"><X className="h-5 w-5" /></button></header>
+            <div className="max-h-[calc(92vh-165px)] overflow-y-auto p-6">
+              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <table className={`w-full text-left text-sm ${financialYearNeedsEprData ? 'min-w-[1250px]' : 'min-w-[850px]'}`}>
+                  <thead className="bg-gradient-to-r from-teal-50 to-cyan-50 text-[10px] uppercase tracking-[.13em] text-teal-900"><tr>{['Sr. No', ...(financialYearNeedsEprData ? ['EPR Data Validity'] : []), 'Service Period', ...(financialYearNeedsEprData ? ['Annual Return EPR Year'] : []), 'Service Category', 'Applicant Type', 'Services Offered'].map((heading) => <th key={heading} className="px-4 py-4">{heading}</th>)}</tr></thead>
+                  <tbody><tr className="align-top">
+                    <td className="p-4"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 font-black">{Number(financialYearItemIndex) + 1}</span></td>
+                    {financialYearNeedsEprData && <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max="50" value={financialYearDraft.validityPeriod || ''} onChange={(event) => { const limit = Math.max(1, Math.min(50, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, validityPeriod: String(limit), annualReturnYears: (current.annualReturnYears || []).slice(0, limit) })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">Year</span></div></td>}
+                    <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max="50" value={financialYearDraft.servicePeriod || ''} onChange={(event) => { const period = Math.max(1, Math.min(50, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, servicePeriod: String(period), serviceEndDate: serviceEndDateFrom(current.serviceStartDate, period) })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">Year</span></div></td>
+                    {financialYearNeedsEprData && <td className="p-4"><div className="grid w-72 grid-cols-2 gap-2">{quotationFyOptions().map((year) => { const checked = (financialYearDraft.annualReturnYears || []).includes(year); const limitReached = !checked && (financialYearDraft.annualReturnYears || []).length >= Math.max(1, Number(financialYearDraft.validityPeriod) || 1); return <label key={year} className={`flex items-center gap-2 rounded-xl border px-3 py-2 font-black ${checked ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : limitReached ? 'cursor-not-allowed bg-slate-50 text-slate-300' : 'cursor-pointer bg-white text-slate-600'}`}><input type="checkbox" checked={checked} disabled={limitReached} onChange={() => toggleAnnualReturnYear(year)} />{year}</label>; })}</div></td>}
+                    <td className="p-4 font-black text-slate-700">{financialYearDraft.serviceCategory || financialYearDraft.eprCategory || '-'}</td><td className="p-4 font-black text-slate-700">{displayPiboChild(financialYearDraft)}</td><td className="p-4 font-black text-teal-700">{financialYearDraft.servicesOffered || '-'}</td>
+                  </tr></tbody>
+                </table>
+              </div>
+              <div className="mt-5 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-700">Service Period Validity Note</p><p className="mt-2 text-lg font-black text-slate-900">Your service period is {Math.max(1, Number(financialYearDraft.servicePeriod) || 1)} year(s){financialYearDraft.serviceStartDate ? ` (${formatServiceDate(financialYearDraft.serviceStartDate)} to ${formatServiceDate(serviceEndDateFrom(financialYearDraft.serviceStartDate, financialYearDraft.servicePeriod || 1))})` : ''}{financialYearDraft.serviceCategory ? ` for ${financialYearDraft.serviceCategory}` : ''}.</p><p className="mt-1 text-sm font-bold text-slate-600">{financialYearDraft.serviceStartDate ? `Renewal will be applicable from ${formatServiceDate(renewalDateFrom(financialYearDraft.serviceStartDate, financialYearDraft.servicePeriod || 1))}.` : 'Select the Service Start Date in the quotation row to calculate the Service End Date and renewal date automatically.'}</p></div>
+            </div>
+            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" onClick={() => { setFinancialYearDraft(null); setFinancialYearItemIndex(null); }} className="rounded-xl border bg-white px-5 py-3 font-black text-slate-600">Cancel</button><button type="button" onClick={saveFinancialYearSelection} className="rounded-xl bg-[#30737B] px-6 py-3 font-black text-white shadow-lg">{financialYearNeedsEprData ? 'Apply EPR Data Year' : 'Apply Service Period'}</button></footer>
+          </section>
+        </div>
+      ), document.body)}
       {successModal && (
         <SuccessDialog
           title={successModal.title}
@@ -1697,25 +1898,23 @@ function QuotationItemsPanel({ quotation, items }) {
   const combinedTotal = combinedQuotationTotal(quotation, items);
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-      <table className="w-full min-w-[1120px] text-left text-sm">
+      <table className="w-full min-w-[900px] text-left text-sm">
         <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
           <tr>
-            {['Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'EPR Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
+            {['Service Category', 'Service Period', 'Basic Amount (INR)', 'EPR Category', 'Unit', 'Line Total'].map((header) => (
               <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.length === 0 ? (
-            <tr><td colSpan={8} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
+            <tr><td colSpan={6} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
           ) : items.map((item, index) => (
             <tr key={index} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.serviceCategory || '-'}</td>
-              <td className="px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
-              <td className="px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
+              <td className="px-4 py-4">{formatServiceDate(item.serviceStartDate)} – {formatServiceDate(item.serviceEndDate)}</td>
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
               <td className="px-4 py-4">{item.eprCategory || '-'}</td>
-              <td className="px-4 py-4">{displayPiboChild(item)}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="px-4 py-4 align-middle text-center font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
             </tr>
@@ -2104,10 +2303,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
   }
 
   async function handleDownloadPdf() {
-    if (downloadingPdf || !documentRef.current || !quotationLogoUrl) {
-      if (!quotationLogoUrl) setDownloadError('Company logo is loading. Please retry in a moment.');
-      return;
-    }
+    if (downloadingPdf || !documentRef.current) return;
     setDownloadingPdf(true);
     setDownloadError('');
     try {
@@ -2132,14 +2328,15 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
       let canvas;
       try {
         canvas = await html2canvas(documentRef.current, {
-          scale: 2,
+          scale: 1.5,
           useCORS: true,
           backgroundColor: '#ffffff',
           logging: false,
           // Keep desktop breakpoints active in the cloned canvas document. Using the
           // element width here stacked the two-column header and made the PDF too tall/narrow.
           windowWidth: Math.max(window.innerWidth, 1200),
-          windowHeight: documentRef.current.scrollHeight
+          windowHeight: documentRef.current.scrollHeight,
+          onclone: sanitizePdfClone
         });
       } finally {
         documentRef.current.style.boxShadow = previousStyles.boxShadow;
@@ -2153,14 +2350,22 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
       const margin = 5;
       const printableWidth = pageWidth - (margin * 2);
       const printableHeight = pageHeight - (margin * 2);
-      const widthScale = printableWidth / canvas.width;
-      const imageWidth = printableWidth;
-      const imageHeight = canvas.height * widthScale;
-      const imageData = canvas.toDataURL('image/jpeg', 0.95);
-      const pageCount = Math.max(1, Math.ceil(imageHeight / printableHeight));
+      const pagePixelHeight = Math.floor((canvas.width * printableHeight) / printableWidth);
+      const pageCount = Math.max(1, Math.ceil(canvas.height / pagePixelHeight));
       for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
         if (pageIndex > 0) pdf.addPage();
-        pdf.addImage(imageData, 'JPEG', margin, margin - (pageIndex * printableHeight), imageWidth, imageHeight, undefined, 'FAST');
+        const sourceY = pageIndex * pagePixelHeight;
+        const sourceHeight = Math.min(pagePixelHeight, canvas.height - sourceY);
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sourceHeight;
+        const pageContext = pageCanvas.getContext('2d');
+        if (!pageContext) throw new Error('Unable to create PDF page canvas.');
+        pageContext.fillStyle = '#ffffff';
+        pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+        pageContext.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
+        const pageImageHeight = (sourceHeight / canvas.width) * printableWidth;
+        pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', margin, margin, printableWidth, pageImageHeight, undefined, 'FAST');
       }
       const filename = `${String(quotation.quotationNumber || 'quotation').replace(/[^a-z0-9_-]+/gi, '-')}.pdf`;
       pdf.save(filename);
@@ -2193,10 +2398,10 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
         </div>
         <div className="hidden-scrollbar flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_36%,#eef2f7_100%)] p-5 sm:p-8">
           {downloadError && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600">{downloadError}</div>}
-          <div ref={documentRef} className="mx-auto max-w-[760px]">
+          <div ref={documentRef} data-quotation-pdf className="mx-auto max-w-[760px]">
             <section className="min-h-[1020px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
               <div className="flex items-center justify-between pb-2">
-                <img data-pdf-logo src={quotationLogoUrl} alt="Anant Tattva" className="h-14 w-32 object-contain object-left" />
+                <img data-pdf-logo src={quotationLogoUrl || ANANT_LOGO_SOURCE_URL} alt="Anant Tattva" className="h-14 w-32 object-contain object-left" />
                 <div className="text-xl font-black uppercase tracking-[0.2em] text-orange-500">Quotation</div>
               </div>
               <div className="border-t border-slate-950 pt-5">
@@ -2206,6 +2411,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                     <p>Krunal Goda</p>
                     <p>AnantTattva Private Limited</p>
                     <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Andheri East, Mumbai - 400059</p>
+                    <p>GST Number: {ANANT_TATTVA_GST_NUMBER}</p>
                   </div>
                   <div className="text-right text-[11px] font-normal leading-5 text-slate-950">
                     <p>Quotation Date: {date}</p>
@@ -2227,22 +2433,21 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                 <p>Pincode: {details.pinCode || '-'}</p>
                 <p>GST Number: {details.gstNumber || '-'}</p>
               </div>
-              <div className="mt-5 overflow-hidden border border-slate-950">
+              {combined && <div className="mt-5 px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
+              <div className={`${combined ? '' : 'mt-5'} overflow-hidden border border-slate-950`}>
                 <table className="w-full table-fixed text-[10px]">
-                  <colgroup><col className="w-[18%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[18%]" /><col className="w-[16%]" /><col className="w-[6%]" /><col className="w-[14%]" /></colgroup>
+                  <colgroup><col className="w-[24%]" /><col className="w-[25%]" /><col className="w-[25%]" /><col className="w-[8%]" /><col className="w-[18%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
-                      {['Service Category', 'Service Start Date', 'Service End Date', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
+                      {['Service Category', 'EPR / Service Period', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((item, index) => (
                       <tr key={index} className="font-black uppercase">
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.serviceCategory || '-'}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{formatServiceDate(item.serviceStartDate)}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{formatServiceDate(item.serviceEndDate)}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || '-'}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{displayPiboChild(item)}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || item.serviceCategory || '-'}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{formatServiceDate(item.serviceStartDate)} – {formatServiceDate(item.serviceEndDate)}</td>
+                        <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{item.unit || '-'}</td>
                         {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-t border-slate-950 px-1.5 py-2 text-center align-middle">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                       </tr>
@@ -2250,13 +2455,18 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                   </tbody>
                 </table>
               </div>
+              <div className="financial-year-print-table mt-5 overflow-hidden bg-white">
+                <div className="bg-white px-3 py-2.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-950">EPR / Service Period Mapping</div>
+                <table className="w-full table-fixed text-[10px] font-bold leading-4 text-slate-950">
+                  <colgroup><col className="w-[10%]" /><col className="w-[30%]" /><col className="w-[30%]" /><col className="w-[30%]" /></colgroup>
+                  <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th><th className="border-r border-t border-slate-950 px-2 py-3">EPR / Service Period</th><th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
+                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? `${item.validityPeriod || '-'} year(s) · ${(item.annualReturnYears || []).join(', ') || item.financialYear || '-'}` : `${Math.max(1, Number(item.servicePeriod) || 1)} Year(s)`}</td><td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-[10px] font-bold leading-5 text-slate-700"><p className="font-black uppercase tracking-wider text-emerald-700">Service Period Validity Note</p>{items.map((item, index) => { const period = Math.max(1, Number(item.servicePeriod) || 1); const startDate = normalizeDateInputValue(item.serviceStartDate); const endDate = serviceEndDateFrom(startDate, period); const renewalDate = renewalDateFrom(startDate, period); return <p key={index} className="mt-1 text-[11px] font-black text-slate-950">{index + 1}. Your service period is {period} year(s){startDate ? ` (${formatServiceDate(startDate)} to ${formatServiceDate(endDate)})` : ''}{item.serviceCategory ? ` for ${item.serviceCategory}` : ''}{renewalDate ? ` and renewal will be applicable from ${formatServiceDate(renewalDate)}` : ''}.</p>; })}</div>
               <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
                 <p className="font-black">Terms & Conditions:</p>
                 {(quotation.terms || []).length ? quotation.terms.map((term, index) => <p key={index}>{index + 1}. {term}</p>) : <p>No terms added.</p>}
-              </div>
-              <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
-                <p className="font-black">Scope of Work:</p>
-                <p>Scope of work has been attached below.</p>
               </div>
               <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
                 <p className="font-black text-red-600">Important Note:</p>
@@ -2268,7 +2478,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                 <p className="mt-5 text-[10px] font-black text-slate-950">This is a computer-generated quotation and does not require a signature.</p>
               </div>
             </section>
-            <section className="mt-6 min-h-[1020px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
+            <section className="mt-6 flex min-h-[1020px] flex-col rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
               <div className="border-b border-slate-950 pb-3">
                 <p className="text-lg font-black uppercase tracking-[0.18em] text-orange-500">Scope of Work</p>
               </div>
@@ -2281,6 +2491,10 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                 ) : (
                   <p className="mt-3">No scope of work added.</p>
                 )}
+              </div>
+              <div className="mt-auto border-t border-slate-950 pt-3 text-center">
+                <p className="text-[10px] font-black text-slate-950">For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p>
+                <p className="mt-5 text-[10px] font-black text-slate-950">This is a computer-generated quotation and does not require a signature.</p>
               </div>
             </section>
           </div>
@@ -2328,11 +2542,9 @@ function buildQuotationPrintHtml(quotation) {
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const rows = items.map((item, index) => `
     <tr>
-      <td>${escapeHtml(item.serviceCategory || '-')}</td>
-      <td>${escapeHtml(formatServiceDate(item.serviceStartDate))}</td>
-      <td>${escapeHtml(formatServiceDate(item.serviceEndDate))}</td>
-      <td>${escapeHtml(item.eprCategory || '-')}</td>
-      <td>${escapeHtml(displayPiboChild(item))}</td>
+      <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
+      <td>${escapeHtml(requiresEprDataYear(item.eprCategory || item.serviceCategory) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || '-') : `${Math.max(1, Number(item.servicePeriod) || 1)} Year(s)`)}</td>
+      <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(item.unit || '-')}</td>
       ${!combined || index === 0 ? `<td class="amount${combined ? ' combined-amount' : ''}"${combined ? ` rowspan="${items.length}"` : ''}>${escapeHtml(formatInr(combined ? combinedTotal : item.basicAmount))}</td>` : ''}
     </tr>
@@ -2343,6 +2555,7 @@ function buildQuotationPrintHtml(quotation) {
   const scopeOfWork = (quotation.scopeOfWork || []).length
     ? `<ol>${quotation.scopeOfWork.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ol>`
     : '<p>No scope of work added.</p>';
+  const combinedPackageHeader = combined ? '<div class="package-header">Bulk Product Package Service</div>' : '';
 
   return `<!doctype html>
 <html>
@@ -2372,6 +2585,8 @@ function buildQuotationPrintHtml(quotation) {
       td.amount { font-weight: 800; }
       td.combined-amount { text-align: center; vertical-align: middle; font-size: 11px; }
       .center { text-align: center; }
+      .package-header { margin-top: 4px; color: #020617; padding: 8px 2px; font-size: 10px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
+      .package-header + table { margin-top: 0; }
       .terms { margin-top: 16px; line-height: 1.45; }
       .terms p { margin: 2px 0; font-weight: 400; }
       .terms li, .scope-page li { margin: 0 0 6px; font-weight: 400; }
@@ -2379,7 +2594,8 @@ function buildQuotationPrintHtml(quotation) {
       .important-title { color: #ef0000; font-weight: 900; }
       .footer { margin-top: 16px; border-top: 1px solid #020617; padding-top: 14px; text-align: center; font-weight: 900; }
       .signature { margin-top: 16px; }
-      .scope-page { padding-top: 18px; }
+      .scope-page { padding-top: 18px; display: flex; flex-direction: column; }
+      .scope-page .footer { margin-top: auto; }
       .scope-page-title { color: #f97316; font-size: 18px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; border-bottom: 1px solid #020617; padding-bottom: 10px; margin-bottom: 18px; }
       @media print {
         html, body { width: 210mm; min-height: 297mm; }
@@ -2398,6 +2614,7 @@ function buildQuotationPrintHtml(quotation) {
           <p>Krunal Goda</p>
           <p class="strong">AnantTattva Private Limited</p>
           <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Next to J B Nagar Metro Chakala, Andheri East, Mumbai - 400059</p>
+          <p><span class="strong">GST Number:</span> ${ANANT_TATTVA_GST_NUMBER}</p>
         </div>
         <div class="right">
           <p>Quotation Date: ${escapeHtml(createdDate)}</p>
@@ -2418,18 +2635,17 @@ function buildQuotationPrintHtml(quotation) {
         <p><span class="strong">Pincode:</span> ${escapeHtml(details.pinCode || '-')}</p>
         <p><span class="strong">GST Number:</span> ${escapeHtml(details.gstNumber || '-')}</p>
       </section>
+      ${combinedPackageHeader}
       <table>
-        <colgroup><col style="width:18%"><col style="width:14%"><col style="width:14%"><col style="width:18%"><col style="width:16%"><col style="width:6%"><col style="width:14%"></colgroup>
+        <colgroup><col style="width:24%"><col style="width:25%"><col style="width:25%"><col style="width:8%"><col style="width:18%"></colgroup>
         <thead>
-          <tr><th>Service Category</th><th>Service Start Date</th><th>Service End Date</th><th>EPR Category</th><th>Applicant Type</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Service Category</th><th>EPR / Service Period</th><th>Services Offered</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
         </thead>
-        <tbody>${rows || '<tr><td colspan="7" class="center">No quotation items added.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="5" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
       <section class="terms">
         <p class="label">Terms & Conditions:</p>
         ${terms}
-        <h3>Scope of Work</h3>
-        <p>Scope of work has been attached below.</p>
       </section>
       <section class="important">
         <p class="important-title">Important Note:</p>
@@ -2446,6 +2662,10 @@ function buildQuotationPrintHtml(quotation) {
       <section class="terms">
         <p class="label">Scope of Work:</p>
         ${scopeOfWork}
+      </section>
+      <section class="footer">
+        <p>For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p>
+        <p class="signature">This is a computer-generated quotation and does not require a signature.</p>
       </section>
     </main>
   </body>

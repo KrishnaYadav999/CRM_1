@@ -13,6 +13,7 @@ const { notifyNewFinancialYear } = require('../services/leadFinancialYearNotific
 const { notifyAdditionalLeadServices } = require('../services/leadServiceContributorNotifications');
 const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
+const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
@@ -70,6 +71,8 @@ function cleanBody(body) {
     'lastEmailSent',
     'mobileNo1',
     'mobileNo2',
+    'whatsappNo',
+    'linkedinUrl',
     'businessCardUrl',
     'referredBy',
     'source',
@@ -148,6 +151,8 @@ function cleanBody(body) {
           emails: String(row?.emails || '').trim(),
           mobileNo1: String(row?.mobileNo1 || '').replace(/\D/g, '').slice(0, 10),
           mobileNo2: String(row?.mobileNo2 || '').replace(/\D/g, '').slice(0, 10),
+          whatsappNo: String(row?.whatsappNo || '').replace(/\D/g, '').slice(0, 10),
+          linkedinUrl: String(row?.linkedinUrl || '').trim(),
           referredBy: String(row?.referredBy || '').trim(),
           source: String(row?.source || '').trim(),
           businessCardUrl: String(row?.businessCardUrl || '').trim()
@@ -165,7 +170,16 @@ function cleanBody(body) {
           assignedStaff: String(row?.assignedStaff || '').trim(),
           assignedStaffText: String(row?.assignedStaffText || '').trim(),
           assignedStaffEmail: String(row?.assignedStaffEmail || '').trim(),
-          assignedBy: String(row?.assignedBy || '').trim()
+          assignedBy: String(row?.assignedBy || '').trim(),
+          poStatus: ['received', 'provisional'].includes(String(row?.poStatus || '')) ? String(row.poStatus) : '',
+          poYearRows: Array.isArray(row?.poYearRows) ? row.poYearRows.slice(0, 25).map((po) => ({
+            fy: String(po?.fy || '').trim(), poNumber: String(po?.poNumber || '').trim(),
+            poFileUrl: String(po?.poFileUrl || '').trim(), poFileName: String(po?.poFileName || '').trim(),
+            services: Array.isArray(po?.services) ? po.services.map((service) => String(service || '').trim()).filter(Boolean) : []
+          })) : [],
+          closureApprovalProofUrl: String(row?.closureApprovalProofUrl || '').trim(),
+          closureApprovalProofName: String(row?.closureApprovalProofName || '').trim(),
+          provisionalCloseExpiresAt: String(row?.provisionalCloseExpiresAt || '').trim()
         })) : [];
         return;
       }
@@ -205,6 +219,41 @@ function validateSubmittedLead(data) {
   if (contacts.some((row) => !row.salutation || !row.contactPerson || !row.designation || !row.emails || !row.mobileNo1 || !row.referredBy || !row.source)) return 'All contact fields except Mobile No. 2 and Business Card are required';
   if (contacts.some((row) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.emails || '')))) return 'Every contact must have a valid email address';
   if (contacts.some((row) => !/^\d{10}$/.test(String(row.mobileNo1 || '')))) return 'Every primary mobile number must contain exactly 10 digits';
+  if (contacts.some((row) => row.whatsappNo && !/^\d{10}$/.test(String(row.whatsappNo)))) return 'Every WhatsApp number must contain exactly 10 digits';
+  if (contacts.some((row) => row.linkedinUrl && !/^(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\//i.test(String(row.linkedinUrl)))) return 'Every LinkedIn value must be a valid linkedin.com URL';
+  return '';
+}
+
+const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'firstAnnualReturnYearApplicable'];
+
+function validateDuplicateServiceSelections(data = {}) {
+  const rows = Array.isArray(data.serviceSelections) ? data.serviceSelections : [];
+  const seen = new Map();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || {};
+    const complete = SERVICE_DUPLICATE_FIELDS.every((field) => field === 'piboCategory' && usesDirectApplicantType(row.eprCategory)
+      ? true
+      : Boolean(String(row[field] || '').trim()));
+    if (!complete) continue;
+    const identity = SERVICE_DUPLICATE_FIELDS.map((field) => String(row[field] || '').trim().toLowerCase()).join('|');
+    if (seen.has(identity)) return `Service row ${index + 1} duplicates row ${seen.get(identity) + 1}. Change at least one service field.`;
+    seen.set(identity, index);
+  }
+  return '';
+}
+
+function validateClosureAssignments(data = {}) {
+  const rows = Array.isArray(data.assignments) ? data.assignments : [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || {};
+    if (!row.closedBy) continue;
+    if (row.poStatus === 'received') {
+      const poRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
+      if (!poRows.length || poRows.some((po) => !po.fy || !po.poNumber || !po.poFileUrl || !Array.isArray(po.services) || !po.services.length)) return `Assignment row ${index + 1}: complete every PO detail before closing.`;
+    } else if (row.poStatus === 'provisional') {
+      if (!row.closureApprovalProofUrl || !row.provisionalCloseExpiresAt) return `Assignment row ${index + 1}: Super Admin approval proof is required for closure without PO.`;
+    } else return `Assignment row ${index + 1}: choose whether the PO was received before closing.`;
+  }
   return '';
 }
 
@@ -219,6 +268,14 @@ async function getNextLeadCode() {
 
 async function createLeadRecord(rawBody, userId) {
   const data = cleanBody(rawBody);
+  const duplicateServiceError = validateDuplicateServiceSelections(data);
+  if (duplicateServiceError) {
+    const validationError = new Error(duplicateServiceError);
+    validationError.statusCode = 409;
+    throw validationError;
+  }
+  const closureError = validateClosureAssignments(data);
+  if (closureError) { const validationError = new Error(closureError); validationError.statusCode = 400; throw validationError; }
   data.companyIdentity = normalizeCompanyIdentity(data.company);
   data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : 'draft';
 
@@ -361,6 +418,7 @@ function bulkContactRow(source = {}) {
     salutation: String(source.salutation || '').trim(), contactPerson: String(source.contactPerson || '').trim(),
     designation: String(source.designation || '').trim(), emails: String(source.emails || '').trim(),
     mobileNo1: String(source.mobileNo1 || '').replace(/\D/g, '').slice(0, 10), mobileNo2: String(source.mobileNo2 || '').replace(/\D/g, '').slice(0, 10),
+    whatsappNo: String(source.whatsappNo || '').replace(/\D/g, '').slice(0, 10), linkedinUrl: String(source.linkedinUrl || '').trim(),
     referredBy: String(source.referredBy || '').trim(), source: String(source.source || '').trim(), businessCardUrl: String(source.businessCardUrl || '').trim()
   };
 }
@@ -397,7 +455,7 @@ function buildBulkMergeData(existing = {}, incoming = {}, user = {}) {
     communicationMode: fill('communicationMode'), status: fill('status'), addressLine1: fill('addressLine1'), addressLine2: fill('addressLine2'),
     addressLine3: fill('addressLine3'), landmark: fill('landmark'), state: fill('state'), city: fill('city'), pinCode: fill('pinCode'),
     existingClient: fill('existingClient'), website: fill('website'), salutation: fill('salutation'), contactPerson: fill('contactPerson'),
-    designation: fill('designation'), emails: fill('emails'), mobileNo1: fill('mobileNo1'), mobileNo2: fill('mobileNo2'),
+    designation: fill('designation'), emails: fill('emails'), mobileNo1: fill('mobileNo1'), mobileNo2: fill('mobileNo2'), whatsappNo: fill('whatsappNo'), linkedinUrl: fill('linkedinUrl'),
     businessCardUrl: fill('businessCardUrl'), referredBy: fill('referredBy'), source: fill('source'), notes: fill('notes'),
     workflowStatus: 'draft'
   };
@@ -427,6 +485,7 @@ exports.searchCompanies = async (req, res) => {
 };
 
 exports.listLeads = async (req, res) => {
+  await processExpiredProvisionalClosures();
   const scope = await getVisibleUserScope(req.user);
   const leads = await Lead.find(ownerFilter(scope, 'createdBy', 'assignedTo', [
     'assignedToText',
@@ -501,6 +560,10 @@ exports.updateLead = async (req, res) => {
     }
 
     const data = cleanBody(req.body);
+    const duplicateServiceError = validateDuplicateServiceSelections({ ...lead.toObject(), ...data });
+    if (duplicateServiceError) return res.status(409).json({ error: duplicateServiceError, code: 'DUPLICATE_SERVICE_COMBINATION' });
+    const closureError = validateClosureAssignments({ ...lead.toObject(), ...data });
+    if (closureError) return res.status(400).json({ error: closureError, code: 'INVALID_LEAD_CLOSURE' });
     if (Object.prototype.hasOwnProperty.call(data, 'company')) {
       data.companyIdentity = normalizeCompanyIdentity(data.company);
     }
@@ -526,6 +589,8 @@ exports.updateLead = async (req, res) => {
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
     await lead.save();
+    await notifyNewProvisionalClosures({ beforeLead, afterLead: lead.toObject(), actor: req.user })
+      .catch((error) => console.error('Provisional lead closure email failed', error));
     await sendLeadClosureKickoffEmail({ beforeLead, lead: lead.toObject() })
       .catch((error) => console.error('Lead closure kick-off email failed', error));
     if (Array.isArray(data.assignments)) {
@@ -926,4 +991,56 @@ exports._test = {
   alignBulkAssignments,
   buildBulkCreateData,
   buildBulkMergeData
+};
+
+const LeadServiceCatalog = require('../models/LeadServiceCatalog');
+
+function cleanCatalogValue(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+exports.listServiceCatalog = async (req, res) => {
+  const entries = await LeadServiceCatalog.find().sort({ category: 1 }).lean();
+  return res.json({ catalog: entries.map((entry) => ({
+    category: entry.category,
+    servicesOffered: [...(entry.servicesOffered || [])].sort((a, b) => a.localeCompare(b))
+  })) });
+};
+
+exports.createServiceCatalogCategory = async (req, res) => {
+  const category = cleanCatalogValue(req.body.category);
+  if (!category) return res.status(400).json({ error: 'Service Category is required.' });
+  if (category.length > 100) return res.status(400).json({ error: 'Service Category must be 100 characters or fewer.' });
+  try {
+    const entry = await LeadServiceCatalog.create({
+      category,
+      normalizedCategory: category.toLowerCase(),
+      servicesOffered: [],
+      createdBy: req.user?._id,
+      updatedBy: req.user?._id
+    });
+    return res.status(201).json({ catalog: { category: entry.category, servicesOffered: [] } });
+  } catch (error) {
+    if (error?.code === 11000) return res.status(409).json({ error: 'This Service Category already exists.' });
+    throw error;
+  }
+};
+
+exports.addServiceCatalogOffering = async (req, res) => {
+  const category = cleanCatalogValue(req.params.category);
+  const requestedServices = (Array.isArray(req.body.services) ? req.body.services : [req.body.service])
+    .map(cleanCatalogValue)
+    .filter(Boolean);
+  const uniqueServices = [...new Map(requestedServices.map((service) => [service.toLowerCase(), service])).values()];
+  if (!uniqueServices.length) return res.status(400).json({ error: 'At least one Services Offered value is required.' });
+  if (uniqueServices.some((service) => service.length > 100)) return res.status(400).json({ error: 'Each Services Offered value must be 100 characters or fewer.' });
+  const entry = await LeadServiceCatalog.findOne({ normalizedCategory: category.toLowerCase() });
+  if (!entry) return res.status(404).json({ error: 'Service Category was not found.' });
+  const existing = new Set(entry.servicesOffered.map((value) => value.toLowerCase()));
+  const servicesToAdd = uniqueServices.filter((service) => !existing.has(service.toLowerCase()));
+  if (!servicesToAdd.length) return res.status(409).json({ error: 'All entered Services Offered values already exist in the selected category.' });
+  entry.servicesOffered.push(...servicesToAdd);
+  entry.updatedBy = req.user?._id;
+  await entry.save();
+  return res.status(201).json({ catalog: { category: entry.category, servicesOffered: entry.servicesOffered }, addedServices: servicesToAdd });
 };

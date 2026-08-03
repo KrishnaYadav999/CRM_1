@@ -27,6 +27,9 @@ const API_ENDPOINTS = {
     ,claimRoyalty: (id) => `/leads/${encodePathValue(id)}/royalty-claims`
     ,duplicateApprovals: '/leads/duplicate-approvals'
     ,duplicateApproval: (id) => `/leads/duplicate-approvals/${encodePathValue(id)}`
+    ,serviceCatalog: '/leads/service-catalog'
+    ,serviceCatalogCategories: '/leads/service-catalog/categories'
+    ,serviceCatalogServices: (category) => `/leads/service-catalog/categories/${encodePathValue(category)}/services`
   },
   clients: {
     list: '/clients',

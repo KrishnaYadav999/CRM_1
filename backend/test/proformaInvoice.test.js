@@ -15,7 +15,10 @@ test('proforma payload preserves quotation, PO and calculated item totals', () =
   assert.equal(payload.quotationNumber, 'AT/26-27/292');
   assert.equal(payload.poNumber, 'PO-1001');
   assert.equal(payload.companyName, 'Example Limited');
-  assert.equal(payload.grandTotal, 60000);
+  assert.equal(payload.subtotal, 60000);
+  assert.equal(payload.gstRate, 18);
+  assert.equal(payload.gstAmount, 10800);
+  assert.equal(payload.grandTotal, 70800);
   assert.equal(payload.poYearCount, 1);
   assert.deepEqual(payload.poYearRows[0].serviceCategory, ['CONSULTANCY FEE']);
   assert.equal(payload.poYearRows[0].value, 60000);

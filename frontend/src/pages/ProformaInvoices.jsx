@@ -8,15 +8,20 @@ import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { uploadMedia } from '../services/mediaUpload'
 
 const blankLead = { referredBy: '', salutation: '', contactPerson: '', designation: '', mobileNo1: '', mobileNo2: '', companyName: '', addressLine1: '', addressLine2: '', addressLine3: '', state: '', city: '', pinCode: '', gstNumber: '' }
-const blankItem = { serviceCategory: '', servicesForYear: '', eprCategory: '', piboParent: '', piboCategory: '', unit: '1', basicAmount: '' }
+const blankItem = { serviceCategory: '', servicesForYear: '', eprCategory: '', piboParent: '', piboCategory: '', unit: '1', basicAmount: '', financialYear: '', validityPeriod: '', annualReturnYears: [], servicesOffered: '', applicableService: '', serviceStartDate: '', serviceEndDate: '' }
 const blankPoYearRow = { fy: '', poNumber: '', annualReturnYear: '', quotationNo: '', compliancePoDate: '', compliancePoFile: '', serviceCategory: [], value: '' }
 const blankForm = { quotationId: '', quotationNumber: '', poNumber: '', leadId: '', leadCode: '', leadDetails: { ...blankLead }, invoiceDate: new Date().toISOString().slice(0, 10), validUntil: '', pricingMode: '', combinedBasicAmount: '', items: [{ ...blankItem }], poYearCount: 1, poYearRows: [{ ...blankPoYearRow }], terms: [''], scopeOfWork: [''], status: 'issued' }
 const leadFields = [['referredBy', 'Referred By'], ['salutation', 'Salutation'], ['contactPerson', 'Contact Person'], ['designation', 'Designation'], ['mobileNo1', 'Mobile No. 1'], ['mobileNo2', 'Mobile No. 2'], ['companyName', 'Company Name'], ['addressLine1', 'Address Line 1'], ['addressLine2', 'Address Line 2'], ['addressLine3', 'Address Line 3'], ['state', 'State'], ['city', 'City'], ['pinCode', 'Pincode'], ['gstNumber', 'GST Number']]
 
 function amount(items = []) { return items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0) }
-function invoiceTotal(row = {}) { return row.pricingMode === 'combined' ? (Number(row.combinedBasicAmount) || Number(row.grandTotal) || 0) : amount(row.items) }
+function invoiceTotal(row = {}) { return row.pricingMode === 'combined' ? (Number(row.combinedBasicAmount) || Number(row.subtotal) || Number(row.grandTotal) || 0) : amount(row.items) }
+function gstAmount(row = {}) { const subtotal = invoiceTotal(row); return Number.isFinite(Number(row.gstAmount)) && Number(row.gstAmount) > 0 ? Number(row.gstAmount) : Math.round(subtotal * 18) / 100 }
+function totalWithGst(row = {}) { return invoiceTotal(row) + gstAmount(row) }
 function money(value) { return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` }
 function displayDate(value) { if (!value) return '-'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB') }
+const EPR_DATA_YEAR_CATEGORIES = new Set(['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'].map((value) => value.toLowerCase()))
+function needsEprData(item = {}) { return EPR_DATA_YEAR_CATEGORIES.has(String(item.eprCategory || item.serviceCategory || '').trim().toLowerCase()) }
+function eprOrServicePeriod(item = {}) { return needsEprData(item) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || item.servicesForYear || '-') : `${Math.max(1, Number(item.servicePeriod) || 1)} Year(s)` }
 function normalizeLeadContextValue(value) { return String(value || '').trim().toLowerCase() }
 function matchesLeadContext(row = {}, context = {}) {
   if (!context) return true
@@ -280,12 +285,11 @@ async function downloadProforma(row) {
   y += 8
 
   const columns = [
-    { label: 'Service Category', x: page.left, width: 124 },
-    { label: 'Services For The Year', x: page.left + 124, width: 82 },
-    { label: 'EPR Category', x: page.left + 206, width: 74 },
-    { label: 'Applicant Type', x: page.left + 280, width: 112 },
-    { label: 'Unit', x: page.left + 392, width: 45 },
-    { label: 'Basic Amount (INR)', x: page.left + 437, width: 94 }
+    { label: 'Service Category', x: page.left, width: 128 },
+    { label: 'EPR / Service Period', x: page.left + 128, width: 118 },
+    { label: 'Services Offered', x: page.left + 246, width: 142 },
+    { label: 'Unit', x: page.left + 388, width: 48 },
+    { label: 'Basic Amount (INR)', x: page.left + 436, width: 95 }
   ]
   const drawTableHeader = () => {
     pdf.setFillColor(249, 115, 22)
@@ -294,13 +298,16 @@ async function downloadProforma(row) {
     y += 24
   }
 
+  if (row.pricingMode === 'combined') {
+    text('BULK PRODUCT PACKAGE SERVICE', page.left, y, { bold: true, size: 8 })
+    y += 14
+  }
   drawTableHeader()
   items.forEach((item, itemIndex) => {
-    const pibo = item.piboCategory || '-'
     const displayedAmount = row.pricingMode === 'combined'
       ? (itemIndex === 0 ? invoiceTotal(row) : '')
       : ((Number(item.unit) || 1) * Number(item.basicAmount || 0))
-    const values = [item.serviceCategory || '-', item.servicesForYear || '-', item.eprCategory || '-', pibo, item.unit || '1', displayedAmount === '' ? '' : inr(displayedAmount)]
+    const values = [item.eprCategory || item.serviceCategory || '-', eprOrServicePeriod(item), item.servicesOffered || '-', item.unit || '1', displayedAmount === '' ? '' : inr(displayedAmount)]
     const lines = values.map((value, index) => pdf.splitTextToSize(String(value), columns[index].width - 10))
     const rowHeight = Math.max(24, ...lines.map((lineList) => lineList.length * 8 + 12))
     ensurePage(rowHeight + 40)
@@ -308,15 +315,22 @@ async function downloadProforma(row) {
     pdf.setDrawColor(15, 23, 42)
     columns.forEach((column, index) => {
       pdf.rect(column.x, y, column.width, rowHeight)
-      text(lines[index], column.x + (index === 5 ? column.width - 6 : 5), y + 12, { size: 6.5, bold: index === 0 || index === 5, align: index === 5 ? 'right' : undefined })
+      text(lines[index], column.x + (index === 4 ? column.width - 6 : 5), y + 12, { size: 6.5, bold: index === 0 || index === 4, align: index === 4 ? 'right' : undefined })
     })
     y += rowHeight
   })
-  pdf.rect(page.left, y, contentWidth - 94, 22)
-  pdf.rect(page.left + contentWidth - 94, y, 94, 22)
-  text('GRAND TOTAL', page.left + contentWidth - 100, y + 14, { bold: true, size: 6.5, align: 'right' })
-  text(inr(row.grandTotal || amount(items)), page.left + contentWidth - 6, y + 14, { bold: true, size: 6.5, color: [249, 115, 22], align: 'right' })
-  y += 42
+  ;[
+    ['SUBTOTAL', invoiceTotal(row), false],
+    ['GST (18%)', gstAmount(row), false],
+    ['GRAND TOTAL', totalWithGst(row), true]
+  ].forEach(([label, value, highlight]) => {
+    pdf.rect(page.left, y, contentWidth - 95, 22)
+    pdf.rect(page.left + contentWidth - 95, y, 95, 22)
+    text(label, page.left + contentWidth - 101, y + 14, { bold: true, size: 6.5, align: 'right' })
+    text(inr(value), page.left + contentWidth - 6, y + 14, { bold: true, size: 6.5, color: highlight ? [249, 115, 22] : [15, 23, 42], align: 'right' })
+    y += 22
+  })
+  y += 20
 
   ensurePage(120)
   text('Terms & Conditions:', page.left, y, { bold: true, size: 7 })
@@ -380,12 +394,15 @@ function ProformaDetail({ row, onClose, onEdit }) {
             <section className="space-y-1 md:text-right"><p>Proforma Date: {displayDate(row.invoiceDate)}</p><p>Proforma No.: {row.proformaNumber || '-'}</p><p>Quotation No.: {row.quotationNumber || '-'}</p><p>PO Number: {row.poNumber || '-'}</p><p>Valid Until: {displayDate(row.validUntil)}</p><p>Prepared By: {row.createdBy?.name || '-'}</p></section>
           </div>
           <section className="py-5"><p className="mb-2 font-black">To:</p><p className="font-black">{[details.salutation, details.contactPerson, details.designation].filter(Boolean).join(' ') || 'Client Contact'}</p><p>Mobile No.: {details.mobileNo1 || '-'}</p><p className="font-black">{row.companyName || details.companyName || '-'}</p><p>{address || 'Address not provided'}</p><p>State: {details.state || '-'}</p><p>City: {details.city || '-'}</p><p>Pincode: {details.pinCode || '-'}</p><p>GST Number: {details.gstNumber || '-'}</p></section>
-          <div className="overflow-x-auto"><table className="w-full min-w-[700px] border-collapse text-left text-[10px]"><thead><tr className="bg-orange-500 text-white">{['Service Category', 'Services For The Year', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((heading) => <th key={heading} className="border border-slate-950 p-2 font-black uppercase">{heading}</th>)}</tr></thead><tbody>{(row.items || []).map((item, index) => <tr key={index}><td className="border border-slate-950 p-2 font-black">{item.serviceCategory || '-'}</td><td className="border border-slate-950 p-2 font-bold">{item.servicesForYear || '-'}</td><td className="border border-slate-950 p-2 font-bold">{item.eprCategory || '-'}</td><td className="border border-slate-950 p-2 font-bold">{item.piboCategory || '-'}</td><td className="border border-slate-950 p-2 text-center font-black">{item.unit || 1}</td>{(row.pricingMode !== 'combined' || index === 0) && <td rowSpan={row.pricingMode === 'combined' ? row.items.length : undefined} className="border border-slate-950 p-2 text-center align-middle font-black">{money(row.pricingMode === 'combined' ? invoiceTotal(row) : ((Number(item.unit) || 1) * Number(item.basicAmount || 0)))}</td>}</tr>)}</tbody><tfoot><tr><td colSpan="5" className="border border-slate-950 p-2 text-right font-black uppercase">Grand Total</td><td className="border border-slate-950 p-2 text-right font-black text-orange-600">{money(row.grandTotal || invoiceTotal(row))}</td></tr></tfoot></table></div>
+          {row.pricingMode === 'combined' && <div className="px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
+          <div className="overflow-x-auto"><table className="w-full min-w-[700px] border-collapse text-left text-[10px]"><thead><tr className="bg-orange-500 text-white">{['Service Category', 'EPR / Service Period', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((heading) => <th key={heading} className="border border-slate-950 p-2 font-black uppercase">{heading}</th>)}</tr></thead><tbody>{(row.items || []).map((item, index) => <tr key={index}><td className="border border-slate-950 p-2 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border border-slate-950 p-2 font-bold">{eprOrServicePeriod(item)}</td><td className="break-words border border-slate-950 p-2 font-bold">{item.servicesOffered || '-'}</td><td className="border border-slate-950 p-2 text-center font-black">{item.unit || 1}</td>{(row.pricingMode !== 'combined' || index === 0) && <td rowSpan={row.pricingMode === 'combined' ? row.items.length : undefined} className="border border-slate-950 p-2 text-center align-middle font-black">{money(row.pricingMode === 'combined' ? invoiceTotal(row) : ((Number(item.unit) || 1) * Number(item.basicAmount || 0)))}</td>}</tr>)}</tbody><tfoot><tr><td colSpan="4" className="border border-slate-950 p-2 text-right font-black uppercase">Subtotal</td><td className="border border-slate-950 p-2 text-right font-black">{money(invoiceTotal(row))}</td></tr><tr><td colSpan="4" className="border border-slate-950 p-2 text-right font-black uppercase">GST (18%)</td><td className="border border-slate-950 p-2 text-right font-black">{money(gstAmount(row))}</td></tr><tr><td colSpan="4" className="border border-slate-950 p-2 text-right font-black uppercase">Grand Total</td><td className="border border-slate-950 p-2 text-right font-black text-orange-600">{money(totalWithGst(row))}</td></tr></tfoot></table></div>
+          <section className="mt-5 overflow-hidden bg-white"><h3 className="px-1 py-2 text-[11px] font-black uppercase tracking-widest text-slate-950">EPR / Service Period Mapping</h3><div className="overflow-x-auto"><table className="w-full min-w-[620px] table-fixed text-left text-[10px] font-bold text-slate-950"><thead className="bg-orange-500 text-white"><tr>{['Sr.No', 'Service Category', 'EPR / Service Period', 'Services Offered'].map((heading) => <th key={heading} className="border border-slate-950 px-3 py-3">{heading}</th>)}</tr></thead><tbody>{(row.items || []).map((item, index) => <tr key={index} className="bg-white"><td className="border border-slate-950 px-3 py-3 text-center font-black">{index + 1}</td><td className="border border-slate-950 px-3 py-3">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border border-slate-950 px-3 py-3">{eprOrServicePeriod(item)}</td><td className="border border-slate-950 px-3 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody></table></div></section>
+          <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[10px] font-bold leading-5 text-slate-700"><p className="font-black uppercase tracking-wider text-emerald-700">Validity Note</p><p className="mt-1 text-[11px] font-black text-slate-950">Your services are valid for {Math.max(1, ...(row.items || []).map((item) => Number(item.validityPeriod) || 1))} year(s).</p><p>Annual Return EPR years follow each service validity period. Service Start Date and Service End Date are manually selected in the quotation.</p></div>
           <section className="mt-6"><p className="font-black">Terms & Conditions:</p><ol className="mt-2 list-decimal space-y-1 pl-5">{(row.terms || []).filter(Boolean).map((term, index) => <li key={index}>{term}</li>)}</ol></section>
           <section className="mt-6"><p className="font-black text-red-600">Important Note:</p><ol className="mt-2 list-decimal space-y-1 pl-5"><li>GST will be extra @ 18%.</li><li>Any Government Charges to be paid by Client directly.</li></ol></section>
           <footer className="mt-8 border-t-2 border-slate-900 pt-4 text-center"><p className="font-black">For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p><p className="mt-4 font-black">This is a computer-generated proforma invoice and does not require a signature.</p></footer>
         </article>
-        <article className="mx-auto mt-8 min-h-[900px] w-full max-w-[850px] rounded-[28px] border border-slate-200 bg-white px-7 py-7 text-[11px] leading-relaxed text-slate-950 shadow-xl sm:px-10 sm:py-9" style={{ pageBreakBefore: 'always', breakBefore: 'page' }}>
+        <article className="mx-auto mt-8 flex min-h-[900px] w-full max-w-[850px] flex-col rounded-[28px] border border-slate-200 bg-white px-7 py-7 text-[11px] leading-relaxed text-slate-950 shadow-xl sm:px-10 sm:py-9" style={{ pageBreakBefore: 'always', breakBefore: 'page' }}>
           <div className="border-b-2 border-slate-900 pb-4">
             <p className="text-lg font-black uppercase tracking-[.22em] text-orange-500">Scope of Work</p>
           </div>
@@ -399,6 +416,7 @@ function ProformaDetail({ row, onClose, onEdit }) {
               <p className="mt-3">No scope of work added.</p>
             )}
           </section>
+          <footer className="mt-auto border-t-2 border-slate-900 pt-4 text-center"><p className="font-black">For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p><p className="mt-4 font-black">This is a computer-generated proforma invoice and does not require a signature.</p></footer>
         </article>
       </div>
       <footer className="flex justify-end gap-2 border-t bg-white px-5 py-4"><button type="button" onClick={() => onEdit(row)} className="rounded-xl border border-orange-200 bg-orange-50 px-5 py-3 font-black text-orange-600 transition hover:bg-orange-100">Edit Invoice</button><button type="button" onClick={() => downloadProforma(row)} className="rounded-xl bg-orange-500 px-6 py-3 font-black text-white shadow-lg transition hover:bg-orange-600">Download Proforma Invoice</button></footer>
@@ -504,7 +522,8 @@ export default function ProformaInvoices() {
     if (form.pricingMode === 'individual' && form.items.some((item) => !(Number(item.basicAmount) > 0))) { setError('Every item requires a valid Basic Amount.'); return }
     setSaving(true); setError(''); setNotice('')
     try {
-      const payload = { ...form, poNumber: form.poYearRows?.[0]?.poNumber || '', items: form.items.map((item) => ({ ...item, basicAmount: form.pricingMode === 'combined' ? 0 : item.basicAmount })), companyName: form.leadDetails.companyName, subtotal: total, grandTotal: total }
+      const tax = Math.round(total * 18) / 100
+      const payload = { ...form, poNumber: form.poYearRows?.[0]?.poNumber || '', items: form.items.map((item) => ({ ...item, basicAmount: form.pricingMode === 'combined' ? 0 : item.basicAmount })), companyName: form.leadDetails.companyName, subtotal: total, gstRate: 18, gstAmount: tax, grandTotal: total + tax }
       const response = editingId ? await api.put(API_ENDPOINTS.proformaInvoices.detail(editingId), payload) : await api.post(API_ENDPOINTS.proformaInvoices.create, payload)
       setNotice(`${response.data.proformaInvoice?.proformaNumber || 'Proforma Invoice'} saved successfully.`)
       setForm({ ...blankForm, leadDetails: { ...blankLead }, items: [{ ...blankItem }], terms: [''] }); setEditingId(''); await load()

@@ -138,6 +138,12 @@ function cleanItems(items, user = null) {
           : undefined,
         serviceAddedBy: cleanString(item.serviceAddedBy),
         industryType: cleanString(item.industryType),
+        financialYear: cleanString(item.financialYear),
+        validityPeriod: Math.max(1, Math.min(50, Number(item.validityPeriod) || 1)),
+        servicePeriod: Math.max(1, Math.min(50, Number(item.servicePeriod) || 1)),
+        annualReturnYears: [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(cleanString).filter(Boolean))],
+        servicesOffered: cleanString(item.servicesOffered),
+        applicableService: cleanString(item.applicableService),
         serviceCategory: cleanString(item.serviceCategory),
         serviceStartDate,
         serviceEndDate,
@@ -156,6 +162,16 @@ function cleanItems(items, user = null) {
 function cleanTerms(terms) {
   if (!Array.isArray(terms)) return [];
   return terms.map(cleanString).filter(Boolean);
+}
+
+const PAYMENT_TERM_OPTIONS = [
+  '100% after completion of work',
+  '50% advance and 50% after completion of work',
+  '100% advance payment'
+];
+
+function validatePaymentTerms(terms = []) {
+  return terms.filter((term) => PAYMENT_TERM_OPTIONS.includes(term)).length === 1 ? '' : 'Select exactly one Terms & Conditions payment option.';
 }
 
 async function validateQuotationPiboItems(items = []) {
@@ -408,6 +424,8 @@ exports.createQuotation = async (req, res) => {
   const gstError = validateGstNumber(req.body.leadDetails?.gstNumber);
   if (gstError) return res.status(400).json({ error: gstError });
   const data = cleanBody(req.body, req.user);
+  const termsError = validatePaymentTerms(data.terms);
+  if (termsError) return res.status(400).json({ error: termsError });
   try {
     validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);
@@ -437,6 +455,8 @@ exports.updateQuotation = async (req, res) => {
   // Every revision, including a one-field edit, starts a completely new approval cycle.
   // Client-supplied status is deliberately ignored.
   const data = cleanBody(req.body, req.user);
+  const termsError = validatePaymentTerms(data.terms);
+  if (termsError) return res.status(400).json({ error: termsError });
   try {
     validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);

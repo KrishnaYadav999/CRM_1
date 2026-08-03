@@ -3,6 +3,13 @@ const mongoose = require('mongoose');
 const ProformaItemSchema = new mongoose.Schema({
   serviceCategory: { type: String, trim: true },
   servicesForYear: { type: String, trim: true },
+  financialYear: { type: String, trim: true },
+  validityPeriod: { type: Number, min: 1, max: 50 },
+  annualReturnYears: { type: [String], default: [] },
+  servicesOffered: { type: String, trim: true },
+  applicableService: { type: String, trim: true },
+  serviceStartDate: { type: String, trim: true },
+  serviceEndDate: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
   piboParent: { type: String, trim: true },
   piboCategory: { type: String, trim: true },
@@ -42,6 +49,8 @@ const ProformaInvoiceSchema = new mongoose.Schema({
   terms: { type: [String], default: [] },
   scopeOfWork: { type: [String], default: [] },
   subtotal: { type: Number, default: 0 },
+  gstRate: { type: Number, default: 18 },
+  gstAmount: { type: Number, default: 0 },
   grandTotal: { type: Number, default: 0 },
   status: { type: String, enum: ['draft', 'issued', 'cancelled'], default: 'issued', index: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }

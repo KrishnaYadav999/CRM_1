@@ -18,6 +18,7 @@ const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } =
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
 const { startLeadServiceApprovalReminderScheduler, runLeadServiceApprovalReminders } = require('./services/leadServiceApprovalReminders');
+const { startProvisionalLeadClosureScheduler } = require('./services/provisionalLeadClosureWorkflow');
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception', err);
@@ -52,6 +53,7 @@ function connectAndStartServices() {
       startLeadWorkflowReminderScheduler();
       startStaffOnboardingWorkflowScheduler();
       startLeadServiceApprovalReminderScheduler();
+      startProvisionalLeadClosureScheduler();
       schedulerStarted = true;
     }
   });

@@ -6739,8 +6739,8 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 /* Lead service/applicant matrix. */
 .lead-service-matrix{overflow:hidden;border:1px solid #cfe2e7;border-radius:15px;background:#fff;box-shadow:0 5px 16px rgba(15,23,42,.04)}
 .lead-service-matrix-title{display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(90deg,#ecfdf5,#f0f8ff);padding:14px 16px}.lead-service-matrix-title p{color:#0f172a;font-size:14px;font-weight:950}.lead-service-matrix-title span{display:block;margin-top:3px;color:#64748b;font-size:10px;font-weight:750}.lead-service-matrix-title>button{display:flex;min-height:38px;align-items:center;gap:7px;border-radius:10px;background:#087d66;padding:0 15px;color:#fff;font-size:11px;font-weight:950;box-shadow:0 6px 14px rgba(5,150,105,.18)}
-.lead-service-matrix-head,.lead-service-matrix-row{display:grid;grid-template-columns:48px minmax(180px,.85fr) minmax(190px,.95fr) minmax(190px,.9fr) minmax(225px,1.1fr) minmax(210px,1fr) minmax(210px,1fr) minmax(155px,.7fr) 60px;align-items:center;gap:9px;min-width:1600px}.lead-service-matrix-head{min-height:43px;border-top:1px solid #dbe7ec;border-bottom:1px solid #dbe7ec;background:#f8fafc;padding:0 10px;color:#64748b;font-size:9px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.lead-service-matrix-head b{color:#ef4444}
-.lead-service-matrix-row{border-bottom:1px solid #e5edf1;padding:10px}.lead-service-matrix-row:last-child{border-bottom:0}.lead-service-matrix-row>div:not(.lead-service-not-applicable){min-width:0}.lead-service-matrix-row .searchable-select-trigger{min-height:44px!important}
+.lead-service-matrix-head,.lead-service-matrix-row{display:grid;grid-template-columns:48px minmax(180px,.85fr) minmax(240px,1.08fr) minmax(210px,.92fr) minmax(225px,1fr) minmax(240px,1.08fr) minmax(155px,.7fr) 52px;align-items:center;column-gap:14px;min-width:1500px}.lead-service-matrix-head{min-height:46px;border-top:1px solid #dbe7ec;border-bottom:1px solid #dbe7ec;background:#f8fafc;padding:0 12px;color:#64748b;font-size:9px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.lead-service-matrix-head>span{display:flex;align-items:center;gap:3px;white-space:nowrap}.lead-service-matrix-head b{position:relative;top:-1px;color:#ef4444;font-size:12px;line-height:1}
+.lead-service-matrix-row{align-items:start;border-bottom:1px solid #e5edf1;padding:12px}.lead-service-matrix-row:last-child{border-bottom:0}.lead-service-matrix-row>div:not(.lead-service-not-applicable){min-width:0}.lead-service-matrix-row .searchable-select-trigger{min-height:44px!important}.lead-service-select-cell{display:grid;min-width:0;gap:7px;overflow:hidden}.lead-service-select-cell>div{width:100%;min-width:0;max-width:100%;overflow:hidden}.lead-service-select-cell input{width:0;min-width:0}.lead-service-catalog-add{display:inline-flex;width:max-content;max-width:100%;align-items:center;gap:4px;border-radius:7px;padding:3px 6px;color:#047857;font-size:10px;font-weight:900;line-height:1.2;transition:.15s}.lead-service-catalog-add:hover{background:#ecfdf5;color:#065f46}.lead-service-catalog-add svg{flex:none}
 .lead-service-row-number{display:grid;width:38px;height:42px;place-items:center;border:1px solid #d6e2e9;border-radius:10px;background:#f8fafc;color:#334155;font-size:11px;font-weight:950}
 .lead-service-not-applicable{display:flex;min-height:44px;align-items:center;gap:7px;border:1px solid #bae9d6;border-radius:10px;background:#ecfdf5;padding:0 11px;color:#047857;font-size:10px;font-weight:900}
 .lead-matrix-inline-add{display:grid;width:43px;height:44px;flex:none;place-items:center;border:1px solid #9be8c9;border-radius:10px;background:#ecfdf5;color:#047857}.lead-matrix-inline-add:disabled{cursor:not-allowed;opacity:.45}.lead-matrix-remove{display:grid;width:38px;height:38px;place-items:center;border:1px solid #fecaca;border-radius:10px;background:#fff7f7;color:#dc2626}.lead-matrix-remove:disabled{cursor:not-allowed;border-color:#e2e8f0;background:#f8fafc;color:#cbd5e1}
@@ -6854,7 +6854,7 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 .lead-contact-matrix::-webkit-scrollbar,.lead-assign-matrix::-webkit-scrollbar{height:10px}
 .lead-contact-matrix::-webkit-scrollbar-track,.lead-assign-matrix::-webkit-scrollbar-track{background:#edf6f4}
 .lead-contact-matrix::-webkit-scrollbar-thumb,.lead-assign-matrix::-webkit-scrollbar-thumb{border:2px solid #edf6f4;border-radius:999px;background:#83a9a1}
-.lead-contact-head,.lead-contact-row{display:grid;grid-template-columns:48px 125px 205px 180px 245px 165px 165px 205px 175px 190px 55px;align-items:center;gap:9px;width:1860px;min-width:1860px;padding:0 10px}
+.lead-contact-head,.lead-contact-row{display:grid;grid-template-columns:48px 125px 205px 180px 245px 165px 165px 175px 245px 205px 175px 190px 55px;align-items:center;gap:9px;width:2295px;min-width:2295px;padding:0 10px}
 .lead-contact-head,.lead-assign-head{min-height:44px;border-bottom:1px solid #dbe7ec;background:linear-gradient(90deg,#f0fdf8,#f1f8ff);color:#64748b;font-size:9px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}
 .lead-contact-row{padding-top:10px;padding-bottom:10px}
 .lead-contact-row>*{min-width:0}
@@ -6871,3 +6871,59 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 .lead-communication-head{min-height:42px;border-top:1px solid #dbe7ec;border-bottom:1px solid #dbe7ec;background:#f8fafc;color:#64748b;font-size:9px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}
 .lead-communication-row{padding-top:11px;padding-bottom:11px}
 @media(max-width:640px){.lead-communication-head,.lead-communication-row{grid-template-columns:1fr}.lead-communication-head{display:none}}
+
+/* Quotation financial-year checkbox dropdown */
+[class~="z-[120]"] [class~="grid-cols-2"][class~="w-72"] {
+  position: relative;
+  display: block;
+  width: 18rem;
+  max-height: 3rem;
+  overflow: hidden;
+  padding: .25rem;
+  border: 1px solid #cbd5e1;
+  border-radius: .9rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .08);
+  transition: max-height .22s ease, box-shadow .22s ease;
+}
+
+[class~="z-[120]"] [class~="grid-cols-2"][class~="w-72"]::before {
+  content: "Select Annual Return EPR years  ▾";
+  display: block;
+  height: 2.4rem;
+  padding: .65rem .7rem;
+  color: #334155;
+  font-size: .75rem;
+  font-weight: 900;
+}
+
+[class~="z-[120]"] [class~="grid-cols-2"][class~="w-72"]:hover,
+[class~="z-[120]"] [class~="grid-cols-2"][class~="w-72"]:focus-within {
+  z-index: 20;
+  max-height: 22rem;
+  overflow-y: auto;
+  box-shadow: 0 18px 45px rgba(15, 118, 110, .2);
+}
+
+[class~="z-[120]"] [class~="grid-cols-2"][class~="w-72"] > label {
+  margin: .25rem;
+}
+
+.financial-year-print-table,
+.financial-year-print-table table,
+.financial-year-print-table thead,
+.financial-year-print-table tbody,
+.financial-year-print-table tr,
+.financial-year-print-table th,
+.financial-year-print-table td {
+  background: #fff !important;
+  color: #020617 !important;
+  border-color: #020617 !important;
+}
+
+.financial-year-print-table { border: 0 !important; }
+.financial-year-print-table table { border: 1px solid #020617 !important; }
+.financial-year-print-table thead th {
+  background: #f97316 !important;
+  color: #fff !important;
+}

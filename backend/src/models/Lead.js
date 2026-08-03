@@ -38,6 +38,8 @@ const LeadSchema = new mongoose.Schema({
   lastEmailSent: { type: String, trim: true },
   mobileNo1: { type: String, trim: true },
   mobileNo2: { type: String, trim: true },
+  whatsappNo: { type: String, trim: true },
+  linkedinUrl: { type: String, trim: true },
   businessCardUrl: { type: String },
   referredBy: { type: String, trim: true },
   source: { type: String, trim: true },

@@ -6,6 +6,9 @@ const { ADMIN_ROLES } = require('../constants/roles');
 const quotationCtrl = require('../controllers/quotationController');
 
 router.get('/', requireAuth, leadCtrl.listLeads);
+router.get('/service-catalog', requireAuth, leadCtrl.listServiceCatalog);
+router.post('/service-catalog/categories', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.createServiceCatalogCategory);
+router.post('/service-catalog/categories/:category/services', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.addServiceCatalogOffering);
 router.get('/search/company', requireAuth, leadCtrl.searchCompanies);
 router.get('/duplicate-approvals', requireAuth, leadCtrl.listDuplicateLeadApprovals);
 router.post('/duplicate-approvals', requireAuth, leadCtrl.requestDuplicateLeadApproval);

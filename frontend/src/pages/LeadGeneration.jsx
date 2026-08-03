@@ -54,6 +54,8 @@ const emptyLead = {
   lastEmailSent: '',
   mobileNo1: '',
   mobileNo2: '',
+  whatsappNo: '',
+  linkedinUrl: '',
   businessCardUrl: '',
   referredBy: '',
   source: '',
@@ -186,8 +188,6 @@ const options = {
   communicationMode: ['TeleCalling', 'Referral', 'Physical Visit', 'Campaign', 'Existing Client', 'Web Database', 'Webinar', 'Seminar', 'Exhibition', 'Associate Reference', 'Government'],
   status: ['Potential - Registered', 'Potential - Unregistered', 'Existing Client', 'Existing Client - Not Renewed'],
   industryType: ["Automotive", "Chemicals", "Construction", "Consumer Goods", "E-commerce" , "Electronics" , "Energy" , "FMCG","Financial Services" , "Healthcare" , "Hospitality", "IT & Software" , "Logistics" , "Manufacturing","Pharmaceuticals", "Renewables", "Retail", "Telecom", "Waste Management", "Other" , "Food Manufacturing" , "Mechinical Industry" ,"Petrochemical", "Packaging Manufacture" , "Plastic Recycling" , "E-Waste Recycler" , "E-Waste Recycling"],
-  eprCategory:  ["EPR - Plastic Waste", "EPR - E-Waste", "EPR - Battery Waste", "EPR - Paper Waste", "EPR - Water Waste", "EPR - C&D Waste", "EPR - Tyre Waste" , "EPR - Used Oil Waste" , "EPR - End of Life Vehicles" , "EPR - Non Ferrous"],
-  servicesOffered:["EPR - Plastic Compliance", "Monthly Patraka", "ISO Certification", "N/A" , "CTE-CTO/CCA" , "EPR - E-Waste Compliance", "EPR - Battery Waste Compliance", "EPR - Waste Tyre Compliance" , "C & D WASTE CONSULTANCY" , "EPR DIGITAL CREDIT" , "EPR - Used Oil Compliance" , "EPR - Waster Waste Compliance" , "EPR ETP Portal handling" , "Registration for Compositable Plastic"],
   states: [
   "Andhra Pradesh",
   "Arunachal Pradesh",
@@ -334,6 +334,18 @@ function createServiceSelection(source = {}) {
   };
 }
 
+const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'firstAnnualReturnYearApplicable'];
+
+function serviceSelectionIdentity(row = {}) {
+  return SERVICE_DUPLICATE_FIELDS.map((field) => String(row[field] || '').trim().toLowerCase()).join('|');
+}
+
+function isCompleteServiceSelection(row = {}) {
+  return SERVICE_DUPLICATE_FIELDS.every((field) => field === 'piboCategory' && directApplicantOptions(row.eprCategory)
+    ? true
+    : Boolean(String(row[field] || '').trim()));
+}
+
 function normalizeLegacyServiceSelections(source = {}) {
   const saved = (Array.isArray(source.serviceSelections) ? source.serviceSelections : []).map((row) => createServiceSelection(row));
   const topLevel = createServiceSelection({
@@ -379,6 +391,8 @@ function createContactRow(source = {}) {
     emails: source.emails || '',
     mobileNo1: source.mobileNo1 || '',
     mobileNo2: source.mobileNo2 || '',
+    whatsappNo: source.whatsappNo || '',
+    linkedinUrl: source.linkedinUrl || '',
     referredBy: source.referredBy || '',
     source: source.source || '',
     businessCardUrl: source.businessCardUrl || ''
@@ -396,7 +410,12 @@ function createAssignmentRow(source = {}) {
     assignedStaff: source.assignedStaff?._id || source.assignedStaff || '',
     assignedStaffText: source.assignedStaffText || source.assignedStaff?.name || '',
     assignedStaffEmail: source.assignedStaffEmail || source.assignedStaff?.email || '',
-    assignedBy: source.assignedBy || ''
+    assignedBy: source.assignedBy || '',
+    poStatus: source.poStatus || '',
+    poYearRows: Array.isArray(source.poYearRows) ? source.poYearRows : [],
+    closureApprovalProofUrl: source.closureApprovalProofUrl || '',
+    closureApprovalProofName: source.closureApprovalProofName || '',
+    provisionalCloseExpiresAt: source.provisionalCloseExpiresAt || ''
   };
 }
 
@@ -456,6 +475,13 @@ export default function LeadGeneration() {
   const [specifyNote, setSpecifyNote] = useState('');
   const [royaltyClaiming, setRoyaltyClaiming] = useState(false);
   const [royaltyClaimed, setRoyaltyClaimed] = useState(false);
+  const [closureDialog, setClosureDialog] = useState(null);
+  const [closureUploading, setClosureUploading] = useState(false);
+  const [serviceCatalog, setServiceCatalog] = useState([]);
+  const [catalogDialog, setCatalogDialog] = useState(null);
+  const [catalogValue, setCatalogValue] = useState('');
+  const [catalogServices, setCatalogServices] = useState(['']);
+  const [catalogSaving, setCatalogSaving] = useState(false);
   const navigate = useNavigate();
   const { leadId: complianceRouteLeadId } = useParams();
 
@@ -466,6 +492,9 @@ export default function LeadGeneration() {
   const ownershipRequired = Boolean(!editingLeadId && !serviceOnlyMode && lead.company.trim() && !generatedForConfirmed);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const canUseExcelBulkImport = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+  const canManageServiceCatalog = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+  const serviceCategoryOptions = serviceCatalog.map((entry) => entry.category);
+  const servicesForCategory = (category) => serviceCatalog.find((entry) => entry.category === category)?.servicesOffered || [];
 
   const staffOptions = useMemo(() => {
     const seen = new Set();
@@ -537,7 +566,12 @@ export default function LeadGeneration() {
       source.createdByCrmUserId,
       source.createdByEmail,
       source.createdByName,
-      source.importedCreatedBy
+      source.importedCreatedBy,
+      source.createdBy?._id,
+      source.createdBy?.id,
+      source.createdBy?.crmUserId,
+      source.createdBy?.email,
+      source.createdBy?.name
     ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
     const currentTokens = [
       currentUser?._id,
@@ -550,7 +584,7 @@ export default function LeadGeneration() {
     const creatorGroups = serviceRows
       .map((row, index) => {
         const tokens = identityTokens(row);
-        return tokens.length ? tokens : index < frozenServiceRowCount ? originalTokens : [];
+        return tokens.length ? tokens : index < frozenServiceRowCount ? originalTokens : currentTokens;
       })
       .filter((tokens) => tokens.length);
     const distinctCreators = [];
@@ -561,6 +595,17 @@ export default function LeadGeneration() {
     const currentUserIsOriginal = originalTokens.some((token) => currentTokens.includes(token));
     return distinctCreators.length >= 2 && currentUserContributed && !currentUserIsOriginal;
   }, [serviceOnlyMode, selectedSearchLead, currentUser, serviceRows, frozenServiceRowCount]);
+  const royaltyClaimRowIndex = useMemo(() => {
+    if (!canClaimRoyalty) return -1;
+    const currentTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name]
+      .filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const ownedIndexes = serviceRows.map((row, index) => ({
+      index,
+      tokens: [row.createdByCrmUserId, row.createdByEmail, row.createdByName]
+        .filter(Boolean).map((value) => String(value).trim().toLowerCase())
+    })).filter(({ index, tokens }) => tokens.some((token) => currentTokens.includes(token)) || (index >= frozenServiceRowCount && !tokens.length));
+    return ownedIndexes.at(-1)?.index ?? -1;
+  }, [canClaimRoyalty, currentUser, frozenServiceRowCount, serviceRows]);
   const approvedRoyalty = useMemo(() => duplicateLeadApprovals.find((item) =>
     item.type === 'lead_royalty'
     && item.approvalStatus === 'APPROVED'
@@ -573,9 +618,18 @@ export default function LeadGeneration() {
     if (field === 'eprCategory') {
       next[index].applicantType = '';
       next[index].piboCategory = '';
+      next[index].servicesOffered = '';
+      next[index].applicableService = '';
     }
     if (field === 'applicantType') next[index].piboCategory = '';
     if (field === 'servicesOffered') next[index].applicableService = '';
+    if (isCompleteServiceSelection(next[index])) {
+      const duplicateIndex = next.findIndex((row, rowIndex) => rowIndex !== index && isCompleteServiceSelection(row) && serviceSelectionIdentity(row) === serviceSelectionIdentity(next[index]));
+      if (duplicateIndex >= 0) {
+        showToast(`This service combination already exists in row ${duplicateIndex + 1}. Please change at least one field.`, 'warning');
+        return;
+      }
+    }
     const first = next[0];
     const direct = Boolean(directApplicantOptions(first.eprCategory));
     setLead((current) => ({
@@ -591,6 +645,44 @@ export default function LeadGeneration() {
       applicableService: first.applicableService
       ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
     }));
+  }
+
+  function openCatalogDialog(type, rowIndex = null, category = '') {
+    setCatalogValue('');
+    setCatalogServices(['']);
+    setCatalogDialog({ type, rowIndex, category });
+  }
+
+  async function submitCatalogDialog() {
+    const value = catalogValue.trim();
+    const services = [...new Map(catalogServices.map((service) => String(service || '').trim()).filter(Boolean).map((service) => [service.toLowerCase(), service])).values()];
+    if (catalogSaving || !catalogDialog || (catalogDialog.type === 'category' ? !value : !services.length)) return;
+    setCatalogSaving(true);
+    try {
+      if (catalogDialog.type === 'category') {
+        const response = await api.post(API_ENDPOINTS.leads.serviceCatalogCategories, { category: value });
+        const entry = response.data.catalog;
+        setServiceCatalog((current) => [...current, entry].sort((a, b) => a.category.localeCompare(b.category)));
+        setCatalogValue('');
+        setCatalogServices(['']);
+        setCatalogDialog({ type: 'service', rowIndex: catalogDialog.rowIndex, category: entry.category, afterCategory: true });
+        if (Number.isInteger(catalogDialog.rowIndex)) updateServiceRow(catalogDialog.rowIndex, 'eprCategory', entry.category);
+        showToast(`${entry.category} Service Category added. Now add its Services Offered.`, 'success');
+      } else {
+        const response = await api.post(API_ENDPOINTS.leads.serviceCatalogServices(catalogDialog.category), { services });
+        const entry = response.data.catalog;
+        setServiceCatalog((current) => current.map((item) => item.category === entry.category ? entry : item));
+        if (Number.isInteger(catalogDialog.rowIndex)) updateServiceRow(catalogDialog.rowIndex, 'servicesOffered', response.data.addedServices?.[0] || services[0]);
+        setCatalogDialog(null);
+        setCatalogValue('');
+        setCatalogServices(['']);
+        showToast(`${response.data.addedServices?.length || services.length} Services Offered added under ${entry.category}.`, 'success');
+      }
+    } catch (requestError) {
+      showToast(requestError?.response?.data?.error || 'Unable to update the service catalog.', 'error');
+    } finally {
+      setCatalogSaving(false);
+    }
   }
 
   function addServiceRow() {
@@ -760,7 +852,7 @@ export default function LeadGeneration() {
     }
   }
 
-  function updateAssignmentRow(index, field, value) {
+  function updateAssignmentRow(index, field, value, extra = {}) {
     const user = staff.find((item) => [item._id, item.id, item.crmUserId, item.userId].filter(Boolean).some((id) => String(id) === String(value)));
     const next = assignmentRows.map((row) => ({ ...row }));
     next[index] = field === 'assignedTo'
@@ -772,7 +864,8 @@ export default function LeadGeneration() {
             closedBy: value,
             closedByText: user?.name || user?.email || '',
             closedByEmail: user?.email || '',
-            ...(!value ? { assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '' } : {})
+            ...(!value ? { assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '', poStatus: '', poYearRows: [], closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '' } : {}),
+            ...extra
           };
     setLead((current) => ({
       ...current,
@@ -785,6 +878,42 @@ export default function LeadGeneration() {
       closedByCrmUserId: next[0].closedBy,
       assignedBy: currentUser?.name || currentUser?.email || ''
     }));
+  }
+
+  function requestLeadClosure(index, value) {
+    if (!value) return updateAssignmentRow(index, 'closedBy', '');
+    const matchingService = serviceRows[index] || {};
+    const reviewMode = assignmentRows[index]?.poStatus === 'provisional';
+    setClosureDialog({ index, value, reviewMode, choice: reviewMode ? 'yes' : '', poYearRows: [{ fy: matchingService.firstAnnualReturnYearApplicable || '', poNumber: '', poFileUrl: '', poFileName: '', services: matchingService.servicesOffered ? [matchingService.servicesOffered] : [] }], approvalProofUrl: '', approvalProofName: '' });
+  }
+
+  async function uploadClosureFile(event, type, rowIndex = 0) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setClosureUploading(true);
+    try {
+      const uploaded = await uploadMedia(file, type === 'po' ? 'crm/leads/purchase-orders' : 'crm/leads/closure-approvals');
+      setClosureDialog((current) => type === 'po'
+        ? { ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, poFileUrl: uploaded.secureUrl, poFileName: file.name } : row) }
+        : { ...current, approvalProofUrl: uploaded.secureUrl, approvalProofName: file.name });
+    } catch (uploadError) {
+      showToast(uploadError?.message || 'File upload failed.', 'error');
+    } finally { setClosureUploading(false); }
+  }
+
+  function confirmLeadClosure() {
+    if (!closureDialog?.choice) return showToast('Please select Yes or No.', 'warning');
+    if (closureDialog.choice === 'yes') {
+      const incomplete = closureDialog.poYearRows.some((row) => !row.fy || !row.poNumber.trim() || !row.poFileUrl || !row.services.length);
+      if (incomplete) return showToast('Complete FY Year, PO Number, PO Upload, and Services for every PO row.', 'warning');
+      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'received', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '' });
+    } else {
+      if (!closureDialog.approvalProofUrl) return showToast('Upload Super Admin approval proof before closing without PO.', 'warning');
+      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() });
+    }
+    setClosureDialog(null);
+    showToast(closureDialog.choice === 'no' ? 'Special approval closure added. Submit to notify the user and Super Admin.' : 'PO details added. Submit the form to close this service.', 'success');
   }
 
   function addAssignmentRow() {
@@ -1075,11 +1204,12 @@ export default function LeadGeneration() {
         setStaff(staffList);
       }
 
-      const [crmLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult] = await Promise.allSettled([
+      const [crmLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult, serviceCatalogResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.leads.list),
         api.get(API_ENDPOINTS.quotations.list),
         api.get(API_ENDPOINTS.quotations.piboCategories),
-        api.get(API_ENDPOINTS.leads.duplicateApprovals)
+        api.get(API_ENDPOINTS.leads.duplicateApprovals),
+        api.get(API_ENDPOINTS.leads.serviceCatalog)
       ]);
       const crmLeads = crmLeadsResult.status === 'fulfilled'
         ? (crmLeadsResult.value.data.leads || [])
@@ -1099,6 +1229,7 @@ export default function LeadGeneration() {
       setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
       setPiboCategories(piboCategoriesResult.status === 'fulfilled' ? (piboCategoriesResult.value.data.categories || []) : []);
       setDuplicateLeadApprovals(duplicateApprovalsResult.status === 'fulfilled' ? (duplicateApprovalsResult.value.data.approvals || []) : []);
+      setServiceCatalog(serviceCatalogResult.status === 'fulfilled' ? (serviceCatalogResult.value.data.catalog || []) : []);
       setPiboCategoriesLoading(false);
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to fetch lead data.');
@@ -1182,7 +1313,7 @@ export default function LeadGeneration() {
       'Communication Mode', 'Lead ID', 'Status', 'Company', 'Industry', 'EPR Category', 'Applicant Type', 'PIBO Subcategory',
       'Services Offered', 'Applicable Services', 'Financial Year', 'Address', 'Address Line 2', 'Address Line 3', 'Landmark',
       'State', 'City', 'PIN', 'Existing Client', 'Website', 'Salutation', 'Contact Person', 'Designation', 'Email',
-      'Emails Sent Count', 'Last Email Sent', 'Mobile 1', 'Mobile 2', 'Business Card URL', 'Referred By', 'Source', 'Notes',
+      'Emails Sent Count', 'Last Email Sent', 'Mobile 1', 'Mobile 2', 'WhatsApp No', 'LinkedIn URL', 'Business Card URL', 'Referred By', 'Source', 'Notes',
       'Assigned To', 'Assigned By', 'Created By', 'Lead Date', 'Next Follow-Up Date', 'Next Follow-Up Time',
       'Follow-Up Remarks', 'Created At', 'Updated At'
     ];
@@ -1203,6 +1334,7 @@ export default function LeadGeneration() {
           Designation: item.designation || item.contacts?.[0]?.designation || '', Email: item.emails || item.contacts?.[0]?.emails || '',
           'Emails Sent Count': item.emailsSentCount || 0, 'Last Email Sent': item.lastEmailSent || '',
           'Mobile 1': item.mobileNo1 || item.contacts?.[0]?.mobileNo1 || '', 'Mobile 2': item.mobileNo2 || item.contacts?.[0]?.mobileNo2 || '',
+          'WhatsApp No': item.whatsappNo || item.contacts?.[0]?.whatsappNo || '', 'LinkedIn URL': item.linkedinUrl || item.contacts?.[0]?.linkedinUrl || '',
           'Business Card URL': item.businessCardUrl || item.contacts?.[0]?.businessCardUrl || '', 'Referred By': item.referredBy || item.contacts?.[0]?.referredBy || '',
           Source: item.source || item.contacts?.[0]?.source || '', Notes: item.notes || '', 'Assigned To': assignment.assignedToText || assignment.assignedTo?.name || item.assignedToText || item.assignedTo?.name || '',
           'Assigned By': assignment.assignedBy || item.assignedBy || '', 'Created By': service.createdByName || item.importedCreatedBy || item.createdBy?.name || '',
@@ -1317,8 +1449,14 @@ export default function LeadGeneration() {
     const missing = required.find((field) => !String(lead[field] ?? '').trim());
     if (missing) return `${missing.replace(/([A-Z])/g, ' $1')} is required before submit.`;
     if (workflowStatus === 'submitted') {
-      const incompleteRow = serviceRows.findIndex((row) => !row.applicantType || !row.servicesOffered || (!directApplicantOptions(row.eprCategory) && !row.piboCategory) || (applicableServiceOptions(row.servicesOffered).length && !row.applicableService));
-      if (incompleteRow >= 0) return `Complete Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Category, '}Services Offered${applicableServiceOptions(serviceRows[incompleteRow].servicesOffered).length ? ', and Applicable Services' : ''} in service row ${incompleteRow + 1}.`;
+      const incompleteRow = serviceRows.findIndex((row) => !row.eprCategory || !row.applicantType || !row.servicesOffered || (!directApplicantOptions(row.eprCategory) && !row.piboCategory));
+      if (incompleteRow >= 0) return `Complete Service Category, Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Sub Applicant Type, and '}Services Offered in service row ${incompleteRow + 1}.`;
+      const seenServices = new Map();
+      for (let index = 0; index < serviceRows.length; index += 1) {
+        const identity = serviceSelectionIdentity(serviceRows[index]);
+        if (seenServices.has(identity)) return `Service row ${index + 1} duplicates row ${seenServices.get(identity) + 1}. Change at least one service field.`;
+        seenServices.set(identity, index);
+      }
       const incompleteAddress = addressRows.findIndex((row) => !row.addressLine1 || !row.state || !row.city || !row.pinCode);
       if (incompleteAddress >= 0) return `Complete Address Line 1, State, City, and PIN in address row ${incompleteAddress + 1}.`;
       const invalidPin = addressRows.findIndex((row) => !/^\d{6}$/.test(String(row.pinCode || '')));
@@ -1329,6 +1467,10 @@ export default function LeadGeneration() {
       if (invalidContactEmail >= 0) return `Enter a valid email address in contact row ${invalidContactEmail + 1}.`;
       const invalidContactMobile = contactRows.findIndex((row) => !/^\d{10}$/.test(String(row.mobileNo1 || '').replace(/\D/g, '')));
       if (invalidContactMobile >= 0) return `Mobile No. 1 must contain exactly 10 digits in contact row ${invalidContactMobile + 1}.`;
+      const invalidWhatsApp = contactRows.findIndex((row) => row.whatsappNo && !/^\d{10}$/.test(String(row.whatsappNo).replace(/\D/g, '')));
+      if (invalidWhatsApp >= 0) return `WhatsApp No. must contain exactly 10 digits in contact row ${invalidWhatsApp + 1}.`;
+      const invalidLinkedIn = contactRows.findIndex((row) => row.linkedinUrl && !/^(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\//i.test(String(row.linkedinUrl).trim()));
+      if (invalidLinkedIn >= 0) return `Enter a valid LinkedIn URL in contact row ${invalidLinkedIn + 1}.`;
     }
     const invalidEmail = String(lead.emails || '').split(',').map((email) => email.trim()).filter(Boolean).find((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
     if (invalidEmail) return `Invalid email: ${invalidEmail}`;
@@ -1912,9 +2054,9 @@ export default function LeadGeneration() {
                   )}
                 </section>
                 <div className={`lead-service-matrix ${ownershipRequired ? 'pointer-events-none select-none opacity-45' : ''}`} aria-disabled={ownershipRequired}>
-                  <div className="lead-service-matrix-title"><div><p>Service &amp; Applicant</p><span>Add one or more EPR service combinations for this lead.</span></div><button type="button" onClick={addServiceRow}><Plus className="h-4 w-4" />Add</button></div>
+                  <div className="lead-service-matrix-title"><div><p>Service &amp; Applicant</p><span>Add one or more service combinations for this lead.</span></div><button type="button" onClick={addServiceRow}><Plus className="h-4 w-4" />Add</button></div>
                   <div className="overflow-x-auto">
-                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>Applicant Type <b>*</b></span><span>Sub Applicant Type <b>*</b></span><span>Services Offered <b>*</b></span><span>Applicable Services</span><span>Financial Year</span><span>Action</span></div>
+                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>Service Category <b aria-label="required">*</b></span><span>Applicant Type <b aria-label="required">*</b></span><span>Sub Applicant Type <b aria-label="required">*</b></span><span>Services Offered <b aria-label="required">*</b></span><span>Financial Year</span><span>Action</span></div>
                     {serviceRows.map((row, index) => {
                       const currentIds = [currentUser?._id, currentUser?.id, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
                       const rowOwners = [row.createdByCrmUserId, row.createdByEmail, row.createdByName, (!row.createdByCrmUserId && index < frozenServiceRowCount) ? selectedSearchLead?.createdByCrmUserId : '', (!row.createdByName && index < frozenServiceRowCount) ? selectedSearchLead?.importedCreatedBy : ''].filter(Boolean).map((value) => String(value).toLowerCase());
@@ -1930,11 +2072,10 @@ export default function LeadGeneration() {
                       return <div className="lead-service-matrix-row" key={index}>
                         <span className="lead-service-row-number">{index + 1}</span>
                         <SearchableSelect disabled={rowFrozen} value={row.industryType} options={options.industryType} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" />
-                        <SearchableSelect disabled={rowFrozen} value={row.eprCategory} options={options.eprCategory} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select EPR category" />
+                        <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen} value={row.eprCategory} options={serviceCategoryOptions} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select Service Category" />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openCatalogDialog('category', index)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Service Category</button>}</div>
                         <SearchableSelect disabled={rowFrozen} value={row.applicantType} options={applicantOptions} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder="Select or type Applicant Type" />
                         {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />No separate SIMP category required</div> : <div className="flex gap-2"><div className="min-w-0 flex-1"><SearchableSelect value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} /></div><button type="button" disabled={rowFrozen || !row.applicantType} onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: `${row.applicantType} category` }); }} className="lead-matrix-inline-add" title="Add category"><Plus className="h-4 w-4" /></button></div>}
-                        <SearchableSelect disabled={rowFrozen} value={row.servicesOffered} options={options.servicesOffered} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder="Select service" />
-                        <SearchableSelect disabled={rowFrozen || !applicableServiceOptions(row.servicesOffered).length} value={row.applicableService || ''} options={applicableServiceOptions(row.servicesOffered)} onChange={(value) => updateServiceRow(index, 'applicableService', value)} placeholder={applicableServiceOptions(row.servicesOffered).length ? 'Select applicable service' : 'Not applicable'} />
+                        <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen || !row.eprCategory} value={row.servicesOffered} options={servicesForCategory(row.eprCategory)} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder={row.eprCategory ? 'Select Services Offered' : 'Select category first'} />{canManageServiceCatalog && !rowFrozen && row.eprCategory && <button type="button" onClick={() => openCatalogDialog('service', index, row.eprCategory)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Services Offered</button>}</div>
                         <SearchableSelect disabled={rowFrozen} value={row.firstAnnualReturnYearApplicable || ''} options={annualReturnYearOptions} onChange={(value) => updateServiceRow(index, 'firstAnnualReturnYearApplicable', value)} placeholder="Select FY" />
                         <button type="button" disabled={rowFrozen || serviceRows.length === 1} onClick={() => removeServiceRow(index)} className="lead-matrix-remove" title="Remove row"><X className="h-4 w-4" /></button>
                       </div>;
@@ -1976,9 +2117,9 @@ export default function LeadGeneration() {
 
             {activeTab === 'contact' && (
               <fieldset className="min-w-0 max-w-full">
-                <div className="lead-address-title"><div><h2>Contact Information</h2><p>Add one or more company contacts. Mobile No. 2 is optional.</p></div><button type="button" onClick={addContactRow}><Plus className="h-4 w-4" />Add Contact</button></div>
+                <div className="lead-address-title"><div><h2>Contact Information</h2><p>Add company contacts, including optional WhatsApp and LinkedIn information.</p></div><button type="button" onClick={addContactRow}><Plus className="h-4 w-4" />Add Contact</button></div>
                 <div className="lead-contact-matrix mt-5">
-                  <div className="lead-contact-head"><span>#</span><span>Salutation *</span><span>Contact Person *</span><span>Designation *</span><span>Email *</span><span>Mobile No. 1 *</span><span>Mobile No. 2</span><span>Referred By *</span><span>Source *</span><span>Business Card</span><span>Action</span></div>
+                  <div className="lead-contact-head"><span>#</span><span>Salutation *</span><span>Contact Person *</span><span>Designation *</span><span>Email *</span><span>Mobile No. 1 *</span><span>Mobile No. 2</span><span>WhatsApp No.</span><span>LinkedIn</span><span>Referred By *</span><span>Source *</span><span>Business Card</span><span>Action</span></div>
                   {contactRows.map((row, index) => {
                     const rowFrozen = serviceOnlyMode && index < frozenContactRowCount;
                     return <div className="lead-contact-row" key={index}>
@@ -1989,6 +2130,8 @@ export default function LeadGeneration() {
                     <input disabled={rowFrozen} className="form-input" type="email" value={row.emails} onChange={(event) => updateContactRow(index, 'emails', event.target.value)} placeholder="email@example.com" />
                     <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.mobileNo1} onChange={(event) => updateContactRow(index, 'mobileNo1', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile" />
                     <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.mobileNo2} onChange={(event) => updateContactRow(index, 'mobileNo2', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional" />
+                    <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.whatsappNo} onChange={(event) => updateContactRow(index, 'whatsappNo', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="WhatsApp number" />
+                    <input disabled={rowFrozen} className="form-input" type="url" value={row.linkedinUrl} onChange={(event) => updateContactRow(index, 'linkedinUrl', event.target.value)} placeholder="linkedin.com/in/..." />
                     <SearchableSelect disabled={rowFrozen} value={row.referredBy} options={[...new Set(staffOptions.map((item) => item.label))]} onChange={(value) => updateContactRow(index, 'referredBy', value)} placeholder="Select staff" />
                     <SearchableSelect disabled={rowFrozen} value={row.source} options={options.source} onChange={(value) => updateContactRow(index, 'source', value)} placeholder="Select source" />
                     <div className="lead-contact-upload"><label className={rowFrozen ? 'pointer-events-none opacity-60' : ''}><Upload className="h-4 w-4" />{row.businessCardUrl ? 'Replace' : 'Upload'}<input disabled={rowFrozen} type="file" accept="image/*,.pdf" onChange={(event) => uploadContactBusinessCard(index, event)} className="sr-only" /></label>{row.businessCardUrl && <button type="button" onClick={() => window.open(row.businessCardUrl, '_blank', 'noopener,noreferrer')}><Eye className="h-4 w-4" />View</button>}</div>
@@ -2001,8 +2144,8 @@ export default function LeadGeneration() {
             {activeTab === 'assign' && (
               <fieldset className="min-w-0 max-w-full">
                 <div className="lead-address-title"><div><h2>Assign Lead</h2><p>Add one or more responsible staff and closure owners.</p></div><button type="button" onClick={addAssignmentRow}><Plus className="h-4 w-4" />Add Assignment</button></div>
-                <div className="lead-assign-matrix lead-assign-with-sub-applicant mt-5">
-                  <div className="lead-assign-head"><span>#</span><span>Industry Type</span><span>EPR Category</span><span>{assignmentApplicantLabel} <b className="text-red-500">*</b></span><span>Services Offered</span><span>Applicable Services</span><span>Lead Closed By</span><span>Assign To Manager</span><span>Manager Assigned to Staff</span><span>Claim Royalty</span><span>Action</span></div>
+                <div className="lead-assign-matrix mt-5">
+                  <div className="lead-assign-head"><span>#</span><span>Industry Type</span><span>Service Category</span><span>{assignmentApplicantLabel} <b className="text-red-500">*</b></span><span>Services Offered</span><span>Lead Closed By</span><span>Assign To Manager</span><span>Manager Assigned to Staff</span><span>Claim Royalty</span><span>Action</span></div>
                   {assignmentRows.map((row, index) => {
                     const matchingService = serviceRows[index] || serviceRows[serviceRows.length - 1] || {};
                     const currentUserIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId].filter(Boolean).map(String);
@@ -2051,16 +2194,15 @@ export default function LeadGeneration() {
                     <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.eprCategory || '-'}</div>
                     <div className="form-input flex min-h-11 items-center bg-violet-50 font-black text-violet-800">{/plastic\s+waste/i.test(String(matchingService.eprCategory || '')) ? (matchingService.piboCategory || '-') : (matchingService.applicantType || '-')}</div>
                     <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.servicesOffered || '-'}</div>
-                    <div className="form-input flex min-h-11 items-center bg-emerald-50 font-black text-emerald-800">{matchingService.applicableService || '-'}</div>
-                    <SearchableSelect disabled={rowFrozen} value={row.closedBy} options={closedByOptions} placeholder="Select user who closed the lead" onChange={(value) => updateAssignmentRow(index, 'closedBy', value)} />
+                    <div className="flex items-center gap-2"><div className="min-w-0 flex-1"><SearchableSelect disabled={rowFrozen} value={row.closedBy} options={closedByOptions} placeholder="Select user who closed the lead" onChange={(value) => requestLeadClosure(index, value)} /></div>{row.poStatus === 'provisional' && <button type="button" onClick={() => requestLeadClosure(index, row.closedBy)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-amber-200 bg-amber-50 text-amber-700" title="Review provisional closure and upload PO"><RefreshCw className="h-4 w-4" /></button>}</div>
                     <SearchableSelect disabled={rowFrozen || !leadClosed} value={row.assignedTo} options={assignedManagerOptions} placeholder={leadClosed ? 'Select manager' : 'Close lead first'} onChange={(value) => updateAssignmentRow(index, 'assignedTo', value)} />
                     <SearchableSelect disabled={!canAssignStaff} value={row.assignedStaff} options={assignedStaffOptions} placeholder={canAssignStaff ? 'Select staff member' : 'Assigned manager only'} onChange={(value) => updateAssignmentRow(index, 'assignedStaff', value)} />
                     <div className="flex justify-center">
-                      {approvedRoyalty && index === assignmentRows.length - 1 ? (
+                      {approvedRoyalty && index === royaltyClaimRowIndex ? (
                         <span className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
                           Original {approvedRoyalty.payload?.originalCreatorRatio}% · Claimant {approvedRoyalty.payload?.claimantRatio}%
                         </span>
-                      ) : canClaimRoyalty && index === assignmentRows.length - 1 ? (
+                      ) : canClaimRoyalty && index === royaltyClaimRowIndex ? (
                         <button type="button" disabled={royaltyClaiming || royaltyClaimed} onClick={claimRoyalty} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-500 px-4 text-xs font-black text-white shadow-sm disabled:opacity-60">
                           <BadgeIndianRupee className="h-4 w-4" />{royaltyClaimed ? 'Claim Sent' : royaltyClaiming ? 'Sending...' : 'Claim Royalty'}
                         </button>
@@ -2127,6 +2269,39 @@ export default function LeadGeneration() {
                 <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setDuplicateDecisionOpen(false)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black">Continue Search</button><button type="button" disabled={duplicateApprovalSaving} onClick={sendDuplicateApprovalRequest} className="min-h-11 rounded-xl bg-orange-600 px-5 font-black text-white disabled:opacity-60">{duplicateApprovalSaving ? 'Sending...' : 'Send to Admin / Super Admin'}</button></div>
               </div>
             )}
+          </section>
+        </div>
+      )}
+      {closureDialog && (
+        <div className="fixed inset-0 z-[125] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <section className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <header className="flex items-start justify-between border-b bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Closure Verification</p><h2 className="mt-1 text-2xl font-black">Have you received the Purchase Order?</h2><p className="mt-1 text-sm font-bold text-slate-500">PO or Super Admin approval proof is required before closing this service.</p></div><button type="button" onClick={() => setClosureDialog(null)} className="grid h-10 w-10 place-items-center rounded-xl border bg-white"><X className="h-5 w-5" /></button></header>
+            <div className="max-h-[calc(92vh-170px)] overflow-y-auto p-6">
+              {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter all PO details before closure.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
+              {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 10-minute deadline to keep it closed.</p></div>}
+              {closureDialog.choice === 'yes' && <div className="mt-6"><div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-slate-500">PO received for no. of years</p><strong className="text-2xl">{closureDialog.poYearRows.length}</strong></div><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, poYearRows: [...current.poYearRows, { fy: '', poNumber: '', poFileUrl: '', poFileName: '', services: [] }] }))} className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white"><Plus className="mr-1 inline h-4 w-4" />Add Next Year</button></div><div className="mt-4 grid gap-3">{closureDialog.poYearRows.map((po, rowIndex) => <div key={rowIndex} className="grid items-center gap-3 rounded-2xl border bg-slate-50 p-4 md:grid-cols-[48px_150px_1fr_180px_1fr_40px]"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white font-black">{rowIndex + 1}</span><select className="form-input" value={po.fy} onChange={(event) => setClosureDialog((current) => ({ ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, fy: event.target.value } : row) }))}><option value="">FY Year</option>{annualReturnYearOptions.map((fy) => <option key={fy}>{fy}</option>)}</select><input className="form-input" value={po.poNumber} onChange={(event) => setClosureDialog((current) => ({ ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, poNumber: event.target.value } : row) }))} placeholder="PO Number" /><label className="flex min-h-12 cursor-pointer items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-black text-emerald-700"><Upload className="mr-2 h-4 w-4" />{po.poFileName || 'Choose File'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'po', rowIndex)} /></label><select className="form-input" value={po.services[0] || ''} onChange={(event) => setClosureDialog((current) => ({ ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, services: event.target.value ? [event.target.value] : [] } : row) }))}><option value="">Select Services</option>{[...new Set(serviceRows.map((row) => row.servicesOffered).filter(Boolean))].map((service) => <option key={service}>{service}</option>)}</select><button type="button" disabled={closureDialog.poYearRows.length === 1} onClick={() => setClosureDialog((current) => ({ ...current, poYearRows: current.poYearRows.filter((_, index) => index !== rowIndex) }))} className="grid h-10 w-10 place-items-center rounded-xl text-red-500 disabled:opacity-30"><X className="h-4 w-4" /></button></div>)}</div></div>}
+              {closureDialog.choice === 'no' && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Close under special approval</h3><p className="mt-2 text-sm font-bold leading-6 text-amber-900">This service will be closed provisionally and the user and Super Admin will be notified by email. The PO must be uploaded within 10 minutes. If it is still missing after the deadline, only this service will reopen automatically; services with received POs will remain closed.</p><label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.approvalProofName || 'Upload Super Admin approval proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'approval')} /></label><p className="mt-2 text-xs font-bold text-amber-700">Accepted formats: image or PDF.</p></div>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading} onClick={confirmLeadClosure} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : 'Confirm Lead Closure'}</button></footer>
+          </section>
+        </div>
+      )}
+      {catalogDialog && (
+        <div className="fixed inset-0 z-[115] grid place-items-center bg-slate-950/50 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="catalog-title">
+          <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl shadow-slate-950/25">
+            <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-emerald-50 to-cyan-50 px-6 py-5">
+              <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Admin Service Catalog</p><h2 id="catalog-title" className="mt-1 text-xl font-black text-slate-950">{catalogDialog.type === 'category' ? 'Please add Service Category' : 'Please enter Services Offered'}</h2>{catalogDialog.type === 'service' && <p className="mt-1 text-sm font-bold text-slate-500">For {catalogDialog.category}</p>}</div>
+              <button type="button" onClick={() => setCatalogDialog(null)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500" aria-label="Close"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="p-6">
+              {catalogDialog.type === 'category' ? <Field label="Service Category" required><input autoFocus className="form-input" value={catalogValue} onChange={(event) => setCatalogValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); submitCatalogDialog(); } }} placeholder="e.g. EPR - Plastic Waste" /></Field> : <div>
+                <div className="flex items-center justify-between gap-3"><label className="text-sm font-black text-slate-700">Services Offered <span className="text-red-500">*</span></label><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">{catalogServices.length} {catalogServices.length === 1 ? 'service' : 'services'}</span></div>
+                <div className="mt-2 grid max-h-[300px] gap-2.5 overflow-y-auto pr-1">{catalogServices.map((service, index) => <div key={index} className="flex items-center gap-2"><span className="grid h-10 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-xs font-black text-slate-500">{index + 1}</span><input autoFocus={index === 0} className="form-input min-w-0 flex-1" value={service} onChange={(event) => setCatalogServices((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (service.trim()) setCatalogServices((current) => [...current, '']); } }} placeholder={`Service offered for ${catalogDialog.category}`} />{catalogServices.length > 1 && <button type="button" onClick={() => setCatalogServices((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-red-100 text-red-500 hover:bg-red-50" aria-label={`Remove service ${index + 1}`}><X className="h-4 w-4" /></button>}</div>)}</div>
+                <button type="button" onClick={() => setCatalogServices((current) => [...current, ''])} disabled={!catalogServices.at(-1)?.trim()} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-dashed border-emerald-300 bg-emerald-50 px-4 text-xs font-black text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" />Add Another Service</button>
+              </div>}
+              {catalogDialog.afterCategory && <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">Service Category saved. Add its first Services Offered value to complete the mapping.</p>}
+              <div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setCatalogDialog(null)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700">Cancel</button><button type="button" onClick={submitCatalogDialog} disabled={(catalogDialog.type === 'category' ? !catalogValue.trim() : !catalogServices.some((service) => service.trim())) || catalogSaving} className="min-h-11 rounded-xl bg-emerald-700 px-6 font-black text-white disabled:opacity-50">{catalogSaving ? 'Saving...' : `Save${catalogDialog.type === 'service' && catalogServices.filter((service) => service.trim()).length > 1 ? ` ${catalogServices.filter((service) => service.trim()).length} Services` : ''}`}</button></div>
+            </div>
           </section>
         </div>
       )}
@@ -3241,6 +3416,13 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const ownedServiceOptions = detailServices.map((service, index) => ({ service, index, ownerTokens: [service.createdByCrmUserId, service.createdByEmail, service.createdByName].filter(Boolean).map((item) => String(item).trim().toLowerCase()) }))
     .filter(({ ownerTokens }) => ownerTokens.some((token) => currentUserTokens.includes(token)))
     .map(({ service, index }) => ({ value: String(index), label: `${service.servicesOffered || service.applicableService || `Service ${index + 1}`} · ${service.createdByName || service.createdByEmail || 'You'}` }));
+  const currentUserHasOpenService = ownedServiceOptions.some((option) => {
+    const index = Number(option.value);
+    const service = detailServices[index] || {};
+    const assignment = detailAssignments[index] || {};
+    return !(service.closedBy || service.closedByText || service.closedAt || assignment.closedBy || assignment.closedByText || assignment.closedAt);
+  });
+  const showCurrentUserServiceActions = canEdit || !leadIsClosed || currentUserHasOpenService;
   const isManager = String(currentUser?.role || '').toLowerCase() === 'manager';
   const isAssignmentAdmin = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
   const detailStaffOptions = staff.flatMap((user) => {
@@ -3356,6 +3538,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     ['Designation', activeLead.designation, ContactRound],
     ['Mobile 1', activeLead.mobileNo1, Phone],
     ['Mobile 2', activeLead.mobileNo2, Phone],
+    ['WhatsApp', activeLead.whatsappNo, Phone],
+    ['LinkedIn', activeLead.linkedinUrl, Eye],
     ['Email', activeLead.emails, Mail],
     ['Referred By', activeLead.referredBy, UserCheck]
   ];
@@ -3518,8 +3702,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          {(!leadIsClosed || canEdit) && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
-          {(!leadIsClosed || canEdit) && (
+          {showCurrentUserServiceActions && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
+          {showCurrentUserServiceActions && (
             <>
               <LeadToolbarMenu
                 label="Quotation"
@@ -4134,6 +4318,10 @@ function mapExcelRowToLead(row, staff) {
     mobileno2: 'mobileNo2',
     mobile2: 'mobileNo2',
     phone2: 'mobileNo2',
+    whatsappno: 'whatsappNo',
+    whatsappnumber: 'whatsappNo',
+    linkedin: 'linkedinUrl',
+    linkedinurl: 'linkedinUrl',
     businesscardurl: 'businessCardUrl',
     referredby: 'referredBy',
     source: 'source',
