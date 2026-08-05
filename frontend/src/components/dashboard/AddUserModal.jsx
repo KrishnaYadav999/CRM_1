@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { ImagePlus, Trash2, X } from 'lucide-react'
 import ToastMessage from '../ToastMessage'
-import { defaultTeams, roles, roleLabels } from '../../constants/dashboard'
+import { defaultTeams } from '../../constants/dashboard'
 import { uploadMedia } from '../../services/mediaUpload'
+import RoleSelectManager from './RoleSelectManager'
 
-export default function AddUserModal({ form, saving, error, teams: savedTeams = [], onChange, onClose, onSubmit }) {
+export default function AddUserModal({ form, saving, error, teams: savedTeams = [], roles, onAddRole, canAddRole, onChange, onClose, onSubmit }) {
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [teamDraft, setTeamDraft] = useState({ name: '', description: '' })
   const [avatarError, setAvatarError] = useState('')
@@ -133,13 +134,7 @@ export default function AddUserModal({ form, saving, error, teams: savedTeams = 
 
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           <Field label="Role">
-            <select value={form.role} onChange={(event) => onChange({ ...form, role: event.target.value })} className="form-input">
-              {roles.map((role) => (
-                <option key={role} value={role}>
-                  {roleLabels[role]}
-                </option>
-              ))}
-            </select>
+            <RoleSelectManager value={form.role} roles={roles} saving={saving} canAddRole={canAddRole} onAddRole={onAddRole} onChange={(role) => onChange({ ...form, role })} />
           </Field>
 
           <Field label="Status">

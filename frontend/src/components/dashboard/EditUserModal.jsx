@@ -1,9 +1,10 @@
 import React from 'react'
 import { ImagePlus, Trash2, X } from 'lucide-react'
-import { defaultTeams, roles, roleLabels } from '../../constants/dashboard'
+import { defaultTeams } from '../../constants/dashboard'
 import { uploadMedia } from '../../services/mediaUpload'
+import RoleSelectManager from './RoleSelectManager'
 
-export default function EditUserModal({ form, saving, onChange, onClose, onSubmit }) {
+export default function EditUserModal({ form, saving, roles, onAddRole, canAddRole, onChange, onClose, onSubmit }) {
   async function handleAvatarChange(event) {
     const file = event.target.files?.[0]
     if (!file) return
@@ -75,13 +76,7 @@ export default function EditUserModal({ form, saving, onChange, onClose, onSubmi
 
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           <Field label="Role">
-            <select value={form.role} onChange={(event) => onChange({ ...form, role: event.target.value })} className="form-input">
-              {roles.map((role) => (
-                <option key={role} value={role}>
-                  {roleLabels[role]}
-                </option>
-              ))}
-            </select>
+            <RoleSelectManager value={form.role} roles={roles} saving={saving} canAddRole={canAddRole} onAddRole={onAddRole} onChange={(role) => onChange({ ...form, role })} />
           </Field>
 
           <Field label="Status">

@@ -4,10 +4,15 @@ import { API_ENDPOINTS } from './apiEndpoints'
 const productionBaseURL = '/api'
 const defaultBaseURL = productionBaseURL
 const configuredBaseURL = import.meta.env.VITE_CRM_API_URL || import.meta.env.VITE_API_URL
-const baseURL =
-  configuredBaseURL?.includes('localhost:8081') || configuredBaseURL?.includes('crm-1-1-jepi.onrender.com')
-    ? defaultBaseURL
-    : configuredBaseURL || defaultBaseURL
+
+function normalizeApiBaseURL(value) {
+  const configured = String(value || '').trim().replace(/\/+$/, '')
+  if (!configured) return defaultBaseURL
+  if (configured === '/api' || /\/api$/i.test(configured)) return configured
+  return `${configured}/api`
+}
+
+const baseURL = normalizeApiBaseURL(configuredBaseURL)
 
 const api = axios.create({
   baseURL,
@@ -129,3 +134,4 @@ api.interceptors.response.use(
 
 export default api
 export { API_ENDPOINTS }
+export { normalizeApiBaseURL }

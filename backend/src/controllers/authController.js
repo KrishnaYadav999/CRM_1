@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Role = require('../models/Role');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { getMailDebugConfig, sendMail } = require('../utils/mailer');
@@ -13,6 +14,19 @@ const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const PASSWORD_RESET_EXPIRY_MS = 10 * 60 * 1000;
 const APP_NAME = 'CRM';
 const ADMIN_LOGIN_ROLES = ['admin', 'superadmin'];
+
+function roleLabel(name) {
+  const fixed = { superadmin: 'Super Admin', compliance: 'Compliance Manager' };
+  return fixed[name] || String(name || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function roleKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+async function isAvailableRole(name) {
+  return ROLES.includes(name) || Boolean(await Role.exists({ name }));
+}
 
 function normalizeLoginMode(value) {
   return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
@@ -393,7 +407,7 @@ exports.createUserByAdmin = async (req, res) => {
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').toLowerCase().trim();
   const password = String(req.body.password || '');
-  const role = String(req.body.role || '').trim();
+  const role = roleKey(req.body.role);
   const team = String(req.body.team || 'No team assigned').trim();
   const teamId = String(req.body.teamId || '').trim() || undefined;
   const managerId = String(req.body.managerId || '').trim() || undefined;
@@ -409,7 +423,7 @@ exports.createUserByAdmin = async (req, res) => {
  
   if (!email || !role) return res.status(400).json({ error: 'Email and role required' });
   if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (!(await isAvailableRole(role))) return res.status(400).json({ error: 'Please select a valid role' });
   let existing = await User.findOne({ email });
   if (existing) return res.status(400).json({ error: 'User already exists' });
   const user = new User({ name, email, password: await bcrypt.hash(password, 10), role, team, teamId, managerId, operationHeadId, isActive, avatarUrl, createdBy: req.user?._id });
@@ -422,7 +436,7 @@ exports.updateUserByAdmin = async (req, res) => {
   const userId = req.params.id;
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').toLowerCase().trim();
-  const role = String(req.body.role || '').trim();
+  const role = roleKey(req.body.role);
   const team = String(req.body.team || 'No team assigned').trim();
   const teamId = String(req.body.teamId || '').trim() || undefined;
   const managerId = String(req.body.managerId || '').trim() || undefined;
@@ -437,7 +451,7 @@ exports.updateUserByAdmin = async (req, res) => {
   }
  
   if (!email || !role) return res.status(400).json({ error: 'Email and role required' });
-  if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (!(await isAvailableRole(role))) return res.status(400).json({ error: 'Please select a valid role' });
  
   const user = await User.findById(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -457,6 +471,30 @@ exports.updateUserByAdmin = async (req, res) => {
   await user.save();
   await ensureCrmUserId(user);
   res.json({ ok: true, user: publicUser(user) });
+};
+
+exports.listRoles = async (_req, res) => {
+  const savedRoles = await Role.find({}).sort({ createdAt: 1, name: 1 }).lean();
+  const byName = new Map(ROLES.map((name) => [name, { name, label: roleLabel(name), system: true }]));
+  savedRoles.forEach((role) => byName.set(role.name, {
+    name: role.name,
+    label: role.label || roleLabel(role.name),
+    system: ROLES.includes(role.name)
+  }));
+  res.json({ ok: true, roles: [...byName.values()] });
+};
+
+exports.createRole = async (req, res) => {
+  const label = String(req.body.label || req.body.name || '').trim().replace(/\s+/g, ' ');
+  const name = roleKey(label);
+  if (label.length < 2 || label.length > 50 || !name) {
+    return res.status(400).json({ error: 'Role name must be between 2 and 50 characters' });
+  }
+  if (ROLES.includes(name) || await Role.exists({ name })) {
+    return res.status(409).json({ error: 'This role already exists' });
+  }
+  const role = await Role.create({ name, label, permissions: [] });
+  res.status(201).json({ ok: true, role: { name: role.name, label: role.label, system: false } });
 };
  
 exports.me = async (req, res) => {

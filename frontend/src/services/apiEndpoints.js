@@ -12,6 +12,7 @@ const API_ENDPOINTS = {
     forgotPassword: '/auth/forgot-password',
     resetPassword: '/auth/reset-password',
     users: '/auth/users',
+    roles: '/auth/roles',
     adminUsers: '/auth/admin/users',
     createUser: '/auth/admin/create-user',
     adminUser: (id) => `/auth/admin/users/${encodePathValue(id)}`

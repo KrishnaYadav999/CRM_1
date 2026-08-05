@@ -58,7 +58,7 @@ import UserActionsMenu from '../components/dashboard/UserActionsMenu'
 import UserDetailsModal from '../components/dashboard/UserDetailsModal'
 import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
-import { adminRoles, defaultUserForm, roleLabels } from '../constants/dashboard'
+import { adminRoles, defaultUserForm, roleLabels, roles as defaultRoles } from '../constants/dashboard'
 import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
@@ -4209,6 +4209,7 @@ export default function AdminDashboard() {
   })
   const [users, setUsers] = useState([])
   const [teams, setTeams] = useState([])
+  const [availableRoles, setAvailableRoles] = useState(() => defaultRoles.map((name) => ({ name, label: roleLabels[name] || name })))
   const [clients, setClients] = useState([])
   const [leads, setLeads] = useState([])
   const [quotations, setQuotations] = useState([])
@@ -4545,6 +4546,11 @@ export default function AdminDashboard() {
       storeSessionUser(user)
       setLoading(false)
 
+      if (adminRoles.includes(user.role)) {
+        const rolesResponse = await api.get(API_ENDPOINTS.auth.roles, requestConfig)
+        setAvailableRoles(rolesResponse.data.roles || [])
+      }
+
       if (isUserManagementView) {
         if (adminRoles.includes(user.role)) {
           const [usersResponse, teamsResponse] = await Promise.all([
@@ -4687,6 +4693,14 @@ export default function AdminDashboard() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handleCreateRole(label) {
+    const response = await api.post(API_ENDPOINTS.auth.roles, { label })
+    const role = response.data.role
+    setAvailableRoles((current) => current.some((item) => item.name === role.name) ? current : [...current, role])
+    setNotice(`${role.label} role added successfully.`)
+    return role
   }
 
   async function handleUpdateUser(event) {
@@ -5392,6 +5406,9 @@ export default function AdminDashboard() {
           onClose={closeModal}
           onSubmit={handleCreateUser}
           teams={teams}
+          roles={availableRoles}
+          onAddRole={handleCreateRole}
+          canAddRole={adminRoles.includes(currentUser?.role)}
         />
       )}
       {teamModalOpen && (
@@ -5417,6 +5434,9 @@ export default function AdminDashboard() {
         <EditUserModal
           form={editForm}
           saving={saving}
+          roles={availableRoles}
+          onAddRole={handleCreateRole}
+          canAddRole={adminRoles.includes(currentUser?.role)}
           onChange={setEditForm}
           onClose={() => {
             if (saving) return

@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const { ROLES } = require('../constants/roles');
 
 const UserSchema = new mongoose.Schema({
   name: { type: String, trim: true },
@@ -8,7 +7,7 @@ const UserSchema = new mongoose.Schema({
   source: { type: String, trim: true, default: 'crm' },
   password: { type: String }, // used for seeded admin only
   avatarUrl: { type: String },
-  role: { type: String, enum: ROLES, default: 'operation' },
+  role: { type: String, trim: true, default: 'operation', index: true },
   team: { type: String, default: 'No team assigned' },
   teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
   managerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

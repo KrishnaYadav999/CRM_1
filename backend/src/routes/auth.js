@@ -14,6 +14,8 @@ router.get('/me', requireAuth, authCtrl.me);
 router.put('/me', requireAuth, authCtrl.updateMe);
 router.put('/me/password', requireAuth, authCtrl.updatePassword);
 router.get('/users', requireAuth, authCtrl.listActiveUsers);
+router.get('/roles', requireAuth, authCtrl.listRoles);
+router.post('/roles', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.createRole);
 router.get('/admin/users', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.listUsers);
 router.post('/admin/create-user', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.createUserByAdmin);
 router.put('/admin/users/:id', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.updateUserByAdmin);
