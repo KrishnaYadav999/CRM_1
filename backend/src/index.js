@@ -13,6 +13,7 @@ const notificationRoutes = require('./routes/notifications');
 const assetRoutes = require('./routes/assets');
 const teamRoutes = require('./routes/teams');
 const calendarItemRoutes = require('./routes/calendarItems');
+const supportTicketRoutes = require('./routes/supportTickets');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
@@ -105,6 +106,7 @@ app.use('/api/annual-returns', annualReturnRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/calendar-items', calendarItemRoutes);
+app.use('/api/support-tickets', supportTicketRoutes);
 
 app.get('/', (req, res) => res.send({ ok: true, env: process.env.NODE_ENV }));
 

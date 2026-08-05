@@ -67,9 +67,6 @@ function LeadGuideContent() {
           Lead Workflow Guide
         </div>
         <h3 className="mt-4 text-2xl font-bold text-slate-900">CRM Instruction Guide</h3>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-          A complete walkthrough from `your-app.html` for generating, managing, following up, and closing leads inside the CRM.
-        </p>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -252,13 +249,6 @@ function LeadGuideContent() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">Guide source</p>
-            <h4 className="mt-2 text-lg font-semibold text-slate-900">Same content, cleaner UI</h4>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              This Lead view now mirrors the workflow from <span className="font-semibold text-slate-900">your-app.html</span>, but it is shown directly inside the CRM help page with tighter cards and reduced left-right empty space.
-            </p>
-          </div>
         </div>
       </div>
     </div>
@@ -314,7 +304,7 @@ export default function HelpYourself() {
               ) : (
                 <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-6 text-slate-700">
                   <p className="text-lg font-semibold text-slate-900">{selectedCard?.title} help content is coming soon.</p>
-                  <p className="mt-3 max-w-2xl text-sm leading-6">We will add the full help guide for this workflow. For now, the Lead topic uses the exact instruction content from `your-app.html` in the new compact layout.</p>
+                  <p className="mt-3 max-w-2xl text-sm leading-6">A complete help guide for this workflow will be available here soon.</p>
                 </div>
               )}
             </div>

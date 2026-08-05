@@ -8,6 +8,7 @@ import {
   Gauge,
   Home,
   Megaphone,
+  LifeBuoy,
   UserRound,
   Users
 } from 'lucide-react'
@@ -88,6 +89,11 @@ export const navSections = [
         label: 'Help Yourself',
         icon: FileText,
         path: '/help-yourself'
+      },
+      {
+        label: 'Support Tickets',
+        icon: LifeBuoy,
+        path: '/support-tickets'
       }
     ]
   }

@@ -14,6 +14,7 @@ const { notifyAdditionalLeadServices } = require('../services/leadServiceContrib
 const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
+const LeadDropdownOption = require('../models/LeadDropdownOption');
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
@@ -27,6 +28,30 @@ const { ADMIN_ROLES } = require('../constants/roles');
 
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
+
+exports.listLeadDropdownOptions = async (_req, res) => {
+  const rows = await LeadDropdownOption.find().sort({ field: 1, name: 1 }).lean();
+  const options = rows.reduce((result, row) => {
+    if (!result[row.field]) result[row.field] = [];
+    result[row.field].push(row.name);
+    return result;
+  }, {});
+  res.json({ ok: true, options });
+};
+
+exports.createLeadDropdownOption = async (req, res) => {
+  const field = String(req.body.field || '').trim();
+  const name = String(req.body.name || '').trim().replace(/\s+/g, ' ');
+  if (!LeadDropdownOption.ALLOWED_FIELDS.includes(field)) return res.status(400).json({ error: 'This dropdown cannot be customized.' });
+  if (name.length < 2) return res.status(400).json({ error: 'Enter at least 2 characters.' });
+  try {
+    const option = await LeadDropdownOption.create({ field, name, normalizedName: name.toLowerCase(), createdBy: req.user._id });
+    return res.status(201).json({ ok: true, option });
+  } catch (error) {
+    if (error?.code === 11000) return res.status(409).json({ error: 'This option already exists.' });
+    throw error;
+  }
+};
 
 function usesDirectApplicantType(eprCategory) {
   const category = String(eprCategory || '').toLowerCase();

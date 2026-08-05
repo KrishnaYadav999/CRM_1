@@ -19,6 +19,7 @@ import ProformaInvoices from './pages/ProformaInvoices'
 import ComplianceHealthDashboard from './pages/ComplianceHealthDashboard'
 import PendingLeads from './pages/PendingLeads'
 import HelpYourself from './pages/HelpYourself'
+import SupportTickets from './pages/SupportTickets'
 
 function App(){
   return (
@@ -50,6 +51,7 @@ function App(){
         <Route path="/sales/quotations" element={<ProtectedRoute><Quotations/></ProtectedRoute>} />
         <Route path="/sales/proforma-invoices" element={<ProtectedRoute><ProformaInvoices/></ProtectedRoute>} />
         <Route path="/help-yourself" element={<ProtectedRoute><HelpYourself/></ProtectedRoute>} />
+        <Route path="/support-tickets" element={<ProtectedRoute><SupportTickets/></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>

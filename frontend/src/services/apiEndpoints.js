@@ -28,6 +28,7 @@ const API_ENDPOINTS = {
     ,duplicateApprovals: '/leads/duplicate-approvals'
     ,duplicateApproval: (id) => `/leads/duplicate-approvals/${encodePathValue(id)}`
     ,serviceCatalog: '/leads/service-catalog'
+    ,dropdownOptions: '/leads/dropdown-options'
     ,serviceCatalogCategories: '/leads/service-catalog/categories'
     ,serviceCatalogServices: (category) => `/leads/service-catalog/categories/${encodePathValue(category)}/services`
   },
@@ -71,6 +72,11 @@ const API_ENDPOINTS = {
     list: '/calendar-items',
     create: '/calendar-items',
     detail: (id) => `/calendar-items/${encodePathValue(id)}`
+  },
+  supportTickets: {
+    list: '/support-tickets',
+    create: '/support-tickets',
+    detail: (id) => `/support-tickets/${encodePathValue(id)}`
   },
   teams: {
     list: '/teams',

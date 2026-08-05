@@ -478,10 +478,14 @@ export default function LeadGeneration() {
   const [closureDialog, setClosureDialog] = useState(null);
   const [closureUploading, setClosureUploading] = useState(false);
   const [serviceCatalog, setServiceCatalog] = useState([]);
+  const [customDropdownOptions, setCustomDropdownOptions] = useState({});
   const [catalogDialog, setCatalogDialog] = useState(null);
   const [catalogValue, setCatalogValue] = useState('');
   const [catalogServices, setCatalogServices] = useState(['']);
   const [catalogSaving, setCatalogSaving] = useState(false);
+  const [dropdownDialog, setDropdownDialog] = useState(null);
+  const [dropdownValue, setDropdownValue] = useState('');
+  const [dropdownSaving, setDropdownSaving] = useState(false);
   const navigate = useNavigate();
   const { leadId: complianceRouteLeadId } = useParams();
 
@@ -495,6 +499,41 @@ export default function LeadGeneration() {
   const canManageServiceCatalog = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
   const serviceCategoryOptions = serviceCatalog.map((entry) => entry.category);
   const servicesForCategory = (category) => serviceCatalog.find((entry) => entry.category === category)?.servicesOffered || [];
+  const withCustomOptions = (field, base = []) => [...new Map([...(base || []), ...(customDropdownOptions[field] || [])].filter(Boolean).map((item) => [String(item).trim().toLowerCase(), item])).values()];
+
+  async function addCustomDropdownOption(field, name, label) {
+    try {
+      const response = await api.post(API_ENDPOINTS.leads.dropdownOptions, { field, name });
+      const added = response.data.option.name;
+      setCustomDropdownOptions((current) => ({ ...current, [field]: withCustomOptions(field, [...(current[field] || []), added]) }));
+      showToast(`${added} added to ${label}.`, 'success');
+      return added;
+    } catch (requestError) {
+      showToast(requestError?.response?.data?.error || `Unable to add ${label}.`, 'error');
+      return '';
+    }
+  }
+
+  function openDropdownDialog(config) {
+    setDropdownValue('');
+    setDropdownDialog(config);
+  }
+
+  async function submitDropdownDialog() {
+    const name = dropdownValue.trim();
+    if (!dropdownDialog || !name || dropdownSaving) return;
+    setDropdownSaving(true);
+    const added = await addCustomDropdownOption(dropdownDialog.field, name, dropdownDialog.label);
+    if (added) {
+      if (dropdownDialog.scope === 'lead') updateField(dropdownDialog.targetField, added);
+      if (dropdownDialog.scope === 'service') updateServiceRow(dropdownDialog.index, dropdownDialog.targetField, added);
+      if (dropdownDialog.scope === 'address') updateAddressRow(dropdownDialog.index, dropdownDialog.targetField, added);
+      if (dropdownDialog.scope === 'contact') updateContactRow(dropdownDialog.index, dropdownDialog.targetField, added);
+      setDropdownDialog(null);
+      setDropdownValue('');
+    }
+    setDropdownSaving(false);
+  }
 
   const staffOptions = useMemo(() => {
     const seen = new Set();
@@ -1204,12 +1243,13 @@ export default function LeadGeneration() {
         setStaff(staffList);
       }
 
-      const [crmLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult, serviceCatalogResult] = await Promise.allSettled([
+      const [crmLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult, serviceCatalogResult, dropdownOptionsResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.leads.list),
         api.get(API_ENDPOINTS.quotations.list),
         api.get(API_ENDPOINTS.quotations.piboCategories),
         api.get(API_ENDPOINTS.leads.duplicateApprovals),
-        api.get(API_ENDPOINTS.leads.serviceCatalog)
+        api.get(API_ENDPOINTS.leads.serviceCatalog),
+        api.get(API_ENDPOINTS.leads.dropdownOptions)
       ]);
       const crmLeads = crmLeadsResult.status === 'fulfilled'
         ? (crmLeadsResult.value.data.leads || [])
@@ -1230,6 +1270,7 @@ export default function LeadGeneration() {
       setPiboCategories(piboCategoriesResult.status === 'fulfilled' ? (piboCategoriesResult.value.data.categories || []) : []);
       setDuplicateLeadApprovals(duplicateApprovalsResult.status === 'fulfilled' ? (duplicateApprovalsResult.value.data.approvals || []) : []);
       setServiceCatalog(serviceCatalogResult.status === 'fulfilled' ? (serviceCatalogResult.value.data.catalog || []) : []);
+      setCustomDropdownOptions(dropdownOptionsResult.status === 'fulfilled' ? (dropdownOptionsResult.value.data.options || {}) : {});
       setPiboCategoriesLoading(false);
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to fetch lead data.');
@@ -2044,8 +2085,8 @@ export default function LeadGeneration() {
                   <h2>Client Communication Mode</h2>
                   <div className="lead-communication-head"><span>Client Communication Mode</span><span>Status *</span></div>
                   <div className="lead-communication-row">
-                    <SearchableSelect disabled={serviceOnlyMode} value={lead.communicationMode} options={options.communicationMode} onChange={(value) => requestSpecification('communicationMode', value, 'Communication mode')} placeholder="Select communication mode" />
-                    <SearchableSelect disabled={serviceOnlyMode} value={lead.status} options={options.status} onChange={(value) => updateField('status', value)} placeholder="Select status" />
+                    <div className="lead-service-select-cell"><SearchableSelect disabled={serviceOnlyMode} value={lead.communicationMode} options={withCustomOptions('communicationMode', options.communicationMode)} onChange={(value) => requestSpecification('communicationMode', value, 'Communication mode')} placeholder="Select communication mode" allowCustom={false} />{canManageServiceCatalog && !serviceOnlyMode && <button type="button" onClick={() => openDropdownDialog({ field: 'communicationMode', label: 'Communication Mode', scope: 'lead', targetField: 'communicationMode' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Communication Mode</button>}</div>
+                    <div className="lead-service-select-cell"><SearchableSelect disabled={serviceOnlyMode} value={lead.status} options={withCustomOptions('status', options.status)} onChange={(value) => updateField('status', value)} placeholder="Select status" allowCustom={false} />{canManageServiceCatalog && !serviceOnlyMode && <button type="button" onClick={() => openDropdownDialog({ field: 'status', label: 'Status', scope: 'lead', targetField: 'status' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Status</button>}</div>
                   </div>
                   {lead.communicationModeNote && (
                     <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-slate-700">
@@ -2071,12 +2112,12 @@ export default function LeadGeneration() {
                       const categoryOptions = direct ? [] : normalizePiboCategories(piboCategories).filter((category) => category.parent === row.applicantType).map((category) => category.name);
                       return <div className="lead-service-matrix-row" key={index}>
                         <span className="lead-service-row-number">{index + 1}</span>
-                        <SearchableSelect disabled={rowFrozen} value={row.industryType} options={options.industryType} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" />
+                        <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.industryType} options={withCustomOptions('industryType', options.industryType)} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'industryType', label: 'Industry Type', scope: 'service', index, targetField: 'industryType' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Industry Type</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen} value={row.eprCategory} options={serviceCategoryOptions} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select Service Category" />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openCatalogDialog('category', index)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Service Category</button>}</div>
-                        <SearchableSelect disabled={rowFrozen} value={row.applicantType} options={applicantOptions} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder="Select or type Applicant Type" />
-                        {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />No separate SIMP category required</div> : <div className="flex gap-2"><div className="min-w-0 flex-1"><SearchableSelect value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} /></div><button type="button" disabled={rowFrozen || !row.applicantType} onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: `${row.applicantType} category` }); }} className="lead-matrix-inline-add" title="Add category"><Plus className="h-4 w-4" /></button></div>}
+                        <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.applicantType} options={withCustomOptions('applicantType', applicantOptions)} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder="Select Applicant Type" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'applicantType', label: 'Applicant Type', scope: 'service', index, targetField: 'applicantType' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Applicant Type</button>}</div>
+                        {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />No separate SIMP category required</div> : <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} />{canManageServiceCatalog && !rowFrozen && row.applicantType && <button type="button" onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: 'Sub Applicant Type' }); }} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Sub Applicant Type</button>}</div>}
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen || !row.eprCategory} value={row.servicesOffered} options={servicesForCategory(row.eprCategory)} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder={row.eprCategory ? 'Select Services Offered' : 'Select category first'} />{canManageServiceCatalog && !rowFrozen && row.eprCategory && <button type="button" onClick={() => openCatalogDialog('service', index, row.eprCategory)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Services Offered</button>}</div>
-                        <SearchableSelect disabled={rowFrozen} value={row.firstAnnualReturnYearApplicable || ''} options={annualReturnYearOptions} onChange={(value) => updateServiceRow(index, 'firstAnnualReturnYearApplicable', value)} placeholder="Select FY" />
+                        <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.firstAnnualReturnYearApplicable || ''} options={withCustomOptions('financialYear', annualReturnYearOptions)} onChange={(value) => updateServiceRow(index, 'firstAnnualReturnYearApplicable', value)} placeholder="Select FY" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'financialYear', label: 'Financial Year', scope: 'service', index, targetField: 'firstAnnualReturnYearApplicable' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Financial Year</button>}</div>
                         <button type="button" disabled={rowFrozen || serviceRows.length === 1} onClick={() => removeServiceRow(index)} className="lead-matrix-remove" title="Remove row"><X className="h-4 w-4" /></button>
                       </div>;
                     })}
@@ -2103,8 +2144,8 @@ export default function LeadGeneration() {
                         <input disabled={rowFrozen} className="form-input" value={row.addressLine2} onChange={(event) => updateAddressRow(index, 'addressLine2', event.target.value)} placeholder="Address line 2" />
                         <input disabled={rowFrozen} className="form-input" value={row.addressLine3} onChange={(event) => updateAddressRow(index, 'addressLine3', event.target.value)} placeholder="Address line 3" />
                         <input disabled={rowFrozen} className="form-input" value={row.landmark} onChange={(event) => updateAddressRow(index, 'landmark', event.target.value)} placeholder="Landmark" />
-                        <SearchableSelect value={row.state} options={countryStates.length ? countryStates : options.states} disabled={rowFrozen || (locationLoading.states && !countryStates.length && !options.states.length)} onChange={(value) => updateAddressRow(index, 'state', value)} placeholder={locationLoading.states ? 'Loading states...' : 'Select state'} />
-                        <SearchableSelect value={row.city} options={rowCities} disabled={rowFrozen || !row.state || citiesLoading} onChange={(value) => updateAddressRow(index, 'city', value)} placeholder={!row.state ? 'State first' : citiesLoading ? 'Loading cities...' : 'Select city'} />
+                        <div className="lead-service-select-cell"><SearchableSelect value={row.state} options={withCustomOptions('state', countryStates.length ? countryStates : options.states)} disabled={rowFrozen || (locationLoading.states && !countryStates.length && !options.states.length)} onChange={(value) => updateAddressRow(index, 'state', value)} placeholder={locationLoading.states ? 'Loading states...' : 'Select state'} allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'state', label: 'State', scope: 'address', index, targetField: 'state' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add State</button>}</div>
+                        <div className="lead-service-select-cell"><SearchableSelect value={row.city} options={withCustomOptions('city', rowCities)} disabled={rowFrozen || !row.state || citiesLoading} onChange={(value) => updateAddressRow(index, 'city', value)} placeholder={!row.state ? 'State first' : citiesLoading ? 'Loading cities...' : 'Select city'} allowCustom={false} />{canManageServiceCatalog && !rowFrozen && row.state && <button type="button" onClick={() => openDropdownDialog({ field: 'city', label: 'City', scope: 'address', index, targetField: 'city' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add City</button>}</div>
                         <input disabled={rowFrozen} className="form-input" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={row.pinCode} onChange={(event) => updateAddressRow(index, 'pinCode', event.target.value)} placeholder="6-digit PIN" />
                         <input disabled={rowFrozen} className="form-input" value={row.website} onChange={(event) => updateAddressRow(index, 'website', event.target.value)} placeholder="https://" />
                         <button type="button" disabled={rowFrozen || addressRows.length === 1} onClick={() => removeAddressRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
@@ -2124,16 +2165,16 @@ export default function LeadGeneration() {
                     const rowFrozen = serviceOnlyMode && index < frozenContactRowCount;
                     return <div className="lead-contact-row" key={index}>
                     <span className="lead-service-row-number">{index + 1}</span>
-                    <SearchableSelect disabled={rowFrozen} value={row.salutation} options={options.salutations} onChange={(value) => updateContactRow(index, 'salutation', value)} placeholder="Select" />
+                    <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.salutation} options={withCustomOptions('salutation', options.salutations)} onChange={(value) => updateContactRow(index, 'salutation', value)} placeholder="Select" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'salutation', label: 'Salutation', scope: 'contact', index, targetField: 'salutation' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Salutation</button>}</div>
                     <input disabled={rowFrozen} className="form-input" value={row.contactPerson} onChange={(event) => updateContactRow(index, 'contactPerson', event.target.value)} placeholder="Contact person" />
-                    <SearchableSelect disabled={rowFrozen} value={row.designation} options={options.designation} onChange={(value) => updateContactRow(index, 'designation', value)} placeholder="Designation" />
+                    <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.designation} options={withCustomOptions('designation', options.designation)} onChange={(value) => updateContactRow(index, 'designation', value)} placeholder="Designation" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'designation', label: 'Designation', scope: 'contact', index, targetField: 'designation' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Designation</button>}</div>
                     <input disabled={rowFrozen} className="form-input" type="email" value={row.emails} onChange={(event) => updateContactRow(index, 'emails', event.target.value)} placeholder="email@example.com" />
                     <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.mobileNo1} onChange={(event) => updateContactRow(index, 'mobileNo1', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile" />
                     <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.mobileNo2} onChange={(event) => updateContactRow(index, 'mobileNo2', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional" />
                     <input disabled={rowFrozen} className="form-input" inputMode="numeric" maxLength={10} value={row.whatsappNo} onChange={(event) => updateContactRow(index, 'whatsappNo', event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="WhatsApp number" />
                     <input disabled={rowFrozen} className="form-input" type="url" value={row.linkedinUrl} onChange={(event) => updateContactRow(index, 'linkedinUrl', event.target.value)} placeholder="linkedin.com/in/..." />
                     <SearchableSelect disabled={rowFrozen} value={row.referredBy} options={[...new Set(staffOptions.map((item) => item.label))]} onChange={(value) => updateContactRow(index, 'referredBy', value)} placeholder="Select staff" />
-                    <SearchableSelect disabled={rowFrozen} value={row.source} options={options.source} onChange={(value) => updateContactRow(index, 'source', value)} placeholder="Select source" />
+                    <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.source} options={withCustomOptions('source', options.source)} onChange={(value) => updateContactRow(index, 'source', value)} placeholder="Select source" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'source', label: 'Source', scope: 'contact', index, targetField: 'source' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Source</button>}</div>
                     <div className="lead-contact-upload"><label className={rowFrozen ? 'pointer-events-none opacity-60' : ''}><Upload className="h-4 w-4" />{row.businessCardUrl ? 'Replace' : 'Upload'}<input disabled={rowFrozen} type="file" accept="image/*,.pdf" onChange={(event) => uploadContactBusinessCard(index, event)} className="sr-only" /></label>{row.businessCardUrl && <button type="button" onClick={() => window.open(row.businessCardUrl, '_blank', 'noopener,noreferrer')}><Eye className="h-4 w-4" />View</button>}</div>
                     <button type="button" disabled={rowFrozen || contactRows.length === 1} onClick={() => removeContactRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
                   </div>})}
@@ -2305,15 +2346,30 @@ export default function LeadGeneration() {
           </section>
         </div>
       )}
+      {dropdownDialog && (
+        <div className="fixed inset-0 z-[116] grid place-items-center bg-slate-950/55 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="dropdown-option-title">
+          <section className="w-full max-w-lg overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-2xl shadow-slate-950/25">
+            <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-emerald-50 via-white to-cyan-50 px-6 py-5">
+              <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Admin Dropdown Manager</p><h2 id="dropdown-option-title" className="mt-1 text-xl font-black text-slate-950">Add {dropdownDialog.label}</h2><p className="mt-1 text-sm font-bold text-slate-500">Create a new option for the {dropdownDialog.label} dropdown.</p></div>
+              <button type="button" onClick={() => setDropdownDialog(null)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50" aria-label="Close"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="p-6">
+              <Field label={dropdownDialog.label} required><input autoFocus className="form-input" value={dropdownValue} maxLength={120} onChange={(event) => setDropdownValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); submitDropdownDialog(); } }} placeholder={`Enter new ${dropdownDialog.label}`} /></Field>
+              <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs font-bold leading-5 text-emerald-800">After saving, this value will be available in the dropdown for every CRM user and selected automatically in this row.</div>
+              <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setDropdownDialog(null)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700 hover:bg-slate-50">Cancel</button><button type="button" onClick={submitDropdownDialog} disabled={!dropdownValue.trim() || dropdownSaving} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50">{dropdownSaving ? 'Saving...' : <><Plus className="h-4 w-4" />Save {dropdownDialog.label}</>}</button></div>
+            </div>
+          </section>
+        </div>
+      )}
       {specifyDialog && (
         <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/50 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="specify-title">
           <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl shadow-slate-950/25">
             <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-emerald-50 to-cyan-50 px-6 py-5">
-              <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Additional details</p><h2 id="specify-title" className="mt-1 text-xl font-black text-slate-950">Please Specify</h2><p className="mt-1 text-sm font-bold text-slate-500">{specifyDialog.label}{specifyDialog.value ? `: ${specifyDialog.value}` : ''}</p></div>
+              <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">{Number.isInteger(specifyDialog.categoryRow) ? 'Admin Dropdown Manager' : 'Additional details'}</p><h2 id="specify-title" className="mt-1 text-xl font-black text-slate-950">{Number.isInteger(specifyDialog.categoryRow) ? 'Add Sub Applicant Type' : 'Please Specify'}</h2><p className="mt-1 text-sm font-bold text-slate-500">{Number.isInteger(specifyDialog.categoryRow) ? `Create a new option under ${specifyDialog.applicantType}.` : `${specifyDialog.label}${specifyDialog.value ? `: ${specifyDialog.value}` : ''}`}</p></div>
               <button type="button" onClick={() => setSpecifyDialog(null)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50" aria-label="Close"><X className="h-5 w-5" /></button>
             </header>
             <div className="p-6">
-              <label className="block text-sm font-black text-slate-700">Note <span className="text-red-500">*</span>
+              <label className="block text-sm font-black text-slate-700">{Number.isInteger(specifyDialog.categoryRow) ? 'Sub Applicant Type' : 'Note'} <span className="text-red-500">*</span>
                 <textarea autoFocus value={specifyNote} onChange={(event) => setSpecifyNote(event.target.value)} className="form-input mt-2 min-h-[120px] resize-y py-3" placeholder={Number.isInteger(specifyDialog.categoryRow) ? `Enter new ${specifyDialog.applicantType} category` : 'Add relevant details or remarks...'} />
               </label>
               <div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setSpecifyDialog(null)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700 hover:bg-slate-50">Cancel</button><button type="button" onClick={submitSpecification} disabled={!specifyNote.trim()} className="min-h-11 rounded-xl bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50">Submit</button></div>

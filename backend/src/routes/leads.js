@@ -7,6 +7,8 @@ const quotationCtrl = require('../controllers/quotationController');
 
 router.get('/', requireAuth, leadCtrl.listLeads);
 router.get('/service-catalog', requireAuth, leadCtrl.listServiceCatalog);
+router.get('/dropdown-options', requireAuth, leadCtrl.listLeadDropdownOptions);
+router.post('/dropdown-options', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.createLeadDropdownOption);
 router.post('/service-catalog/categories', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.createServiceCatalogCategory);
 router.post('/service-catalog/categories/:category/services', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.addServiceCatalogOffering);
 router.get('/search/company', requireAuth, leadCtrl.searchCompanies);

@@ -1,0 +1,72 @@
+const SupportTicket = require('../models/SupportTicket');
+const { notifyTicketRaised, notifyTicketResolved } = require('../services/supportTicketEmails');
+
+const ADMIN_ROLES = ['admin', 'superadmin'];
+const CATEGORIES = ['Lead', 'Quotation', 'Client Master', 'Proforma Invoice'];
+const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
+const STATUSES = ['Open', 'In Progress', 'Resolved', 'Closed'];
+
+function isAdmin(user) {
+  return ADMIN_ROLES.includes(String(user?.role || '').toLowerCase());
+}
+
+async function nextTicketNumber() {
+  const prefix = `TKT-${new Date().getFullYear()}-`;
+  const latest = await SupportTicket.findOne({ ticketNumber: new RegExp(`^${prefix}`) }).sort({ ticketNumber: -1 }).select('ticketNumber').lean();
+  const next = (Number(String(latest?.ticketNumber || '').split('-').pop()) || 0) + 1;
+  return `${prefix}${String(next).padStart(5, '0')}`;
+}
+
+exports.listTickets = async (req, res) => {
+  const query = isAdmin(req.user) ? {} : { createdBy: req.user._id };
+  if (req.query.status && STATUSES.includes(req.query.status)) query.status = req.query.status;
+  if (req.query.category && CATEGORIES.includes(req.query.category)) query.category = req.query.category;
+  const tickets = await SupportTicket.find(query).sort({ updatedAt: -1 }).lean();
+  res.json({ ok: true, tickets });
+};
+
+exports.createTicket = async (req, res) => {
+  const category = String(req.body.category || '').trim();
+  const subject = String(req.body.subject || '').trim();
+  const description = String(req.body.description || '').trim();
+  const priority = PRIORITIES.includes(req.body.priority) ? req.body.priority : 'Medium';
+  if (!CATEGORIES.includes(category)) return res.status(400).json({ error: 'Please select a valid ticket category' });
+  if (!subject) return res.status(400).json({ error: 'Subject is required' });
+  if (!description) return res.status(400).json({ error: 'Issue description is required' });
+
+  const ticket = await SupportTicket.create({
+    ticketNumber: await nextTicketNumber(), category, subject, description, priority,
+    referenceNumber: String(req.body.referenceNumber || '').trim(),
+    createdBy: req.user._id, createdByName: req.user.name || '', createdByEmail: req.user.email || '',
+    messages: [{ message: description, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role }]
+  });
+  await notifyTicketRaised(ticket.toObject()).catch((error) => console.error(`Support ticket ${ticket.ticketNumber} notification failed`, error.message));
+  res.status(201).json({ ok: true, ticket });
+};
+
+exports.updateTicket = async (req, res) => {
+  const ticket = await SupportTicket.findById(req.params.id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  const ownsTicket = String(ticket.createdBy) === String(req.user._id);
+  if (!ownsTicket && !isAdmin(req.user)) return res.status(403).json({ error: 'You cannot update this ticket' });
+
+  const previousStatus = ticket.status;
+  const message = String(req.body.message || '').trim();
+  if (message) ticket.messages.push({ message, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role });
+  if (req.body.status && isAdmin(req.user)) {
+    if (!STATUSES.includes(req.body.status)) return res.status(400).json({ error: 'Invalid ticket status' });
+    if (['Resolved', 'Closed'].includes(req.body.status) && !message) return res.status(400).json({ error: `A ${req.body.status.toLowerCase()} note is required` });
+    ticket.status = req.body.status;
+    ticket.resolvedAt = ['Resolved', 'Closed'].includes(req.body.status) ? new Date() : undefined;
+    ticket.assignedTo = ticket.assignedTo || req.user._id;
+  }
+  if (!message && !req.body.status) return res.status(400).json({ error: 'Add a reply or status update' });
+  await ticket.save();
+  const completedStatusChanged = previousStatus !== ticket.status && ['Resolved', 'Closed'].includes(ticket.status);
+  if (completedStatusChanged) {
+    await notifyTicketResolved(ticket.toObject(), req.user, message).catch((error) => console.error(`Support ticket ${ticket.ticketNumber} resolution email failed`, error.message));
+  }
+  res.json({ ok: true, ticket });
+};
+
+module.exports.__test = { isAdmin };
