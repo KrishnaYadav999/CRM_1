@@ -5,7 +5,7 @@ const productionBaseURL = '/api'
 const defaultBaseURL = productionBaseURL
 const configuredBaseURL = import.meta.env.VITE_CRM_API_URL || import.meta.env.VITE_API_URL
 const baseURL =
-  configuredBaseURL?.includes('localhost:8081') || configuredBaseURL?.includes('crm-1-eight.vercel.app')
+  configuredBaseURL?.includes('localhost:8081') || configuredBaseURL?.includes('crm-1-1-jepi.onrender.com')
     ? defaultBaseURL
     : configuredBaseURL || defaultBaseURL
 
