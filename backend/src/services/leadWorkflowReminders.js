@@ -8,6 +8,7 @@ const { sendMail } = require('../utils/mailer');
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
+const THIRTY_MINUTES = 30 * 60 * 1000;
 const TEN_MINUTES = 10 * 60 * 1000;
 let started = false;
 let running = false;
@@ -198,26 +199,26 @@ async function remindFollowUps(leads, now) {
     if (!followUpDate) continue;
     const due = new Date(`${followUpDate}T${followUpTime || '09:00'}:00`);
     if (!due.getTime()) continue;
-    const delta = now - due.getTime();
-    let stage = '';
-    // Escalation now advances in ten-minute windows: before due, overdue, then red flag.
-    if (delta >= 2 * TEN_MINUTES) stage = 'RED_FLAG_20M';
-    else if (delta >= TEN_MINUTES) stage = 'OVERDUE_10M';
-    else if (delta >= -TEN_MINUTES) stage = 'DUE_IN_10M';
+    const stage = followUpEscalationStage(due.getTime(), now);
     if (!stage) continue;
     const key = `${leadId(lead)}:service-${serviceIndex}:${followUpDate}:${followUpTime || ''}:${stage}`;
     if (await Notification.exists({ kind: 'lead_followup_escalation', 'metadata.key': key })) continue;
     const recipients = await followUpRecipients(lead, [service]);
     if (!recipients.length) continue;
-    const labels = { DUE_IN_10M: 'is due within 10 minutes', OVERDUE_10M: 'is overdue by at least 10 minutes', RED_FLAG_20M: 'is overdue by 20 minutes and has been red-flagged' };
+    const labels = {
+      DUE_IN_30M: 'is due within 30 minutes', OVERDUE_30M: 'is overdue by at least 30 minutes',
+      OVERDUE_60M: 'is overdue by at least 60 minutes', RED_FLAG_24H: 'is overdue by 24 hours and has been red-flagged',
+      PERMANENT_RED_48H: 'is overdue by 48 hours and now has a permanent red flag'
+    };
     const company = lead.company || 'Lead';
     const pendingServices = [service];
     const contributorNames = [...new Set(pendingServices.map((row) => row?.createdByName || row?.createdByEmail).filter(Boolean))];
     const serviceNames = [...new Set(pendingServices.map((row) => row?.servicesOffered || row?.applicableService).filter(Boolean))];
     const description = `${company} follow-up ${labels[stage]}. ${contributorNames.join(', ') || 'Assigned user'} added ${serviceNames.join(', ') || 'a service'} but has not closed it.`;
-    const isRedFlag = stage === 'RED_FLAG_20M';
+    const isPermanentRed = stage === 'PERMANENT_RED_48H';
+    const isRedFlag = stage === 'RED_FLAG_24H' || isPermanentRed;
     const priority = service.followUpPriority || (serviceIndex === 0 ? lead.followUpPriority : '') || 'Medium';
-    const item = await Notification.create({ title: isRedFlag ? 'RED FLAG: Service follow-up overdue' : 'Service follow-up reminder', description, tag: isRedFlag ? 'Red Flag' : 'Follow-Up', kind: 'lead_followup_escalation', audience: recipients.map((user) => user._id), visibleToRoles: ['admin', 'superadmin'], metadata: { key, stage, leadId: leadId(lead), serviceIndex, dueAt: due.toISOString(), priority, contributorNames, serviceNames } });
+    const item = await Notification.create({ title: isPermanentRed ? 'PERMANENT RED FLAG: Follow-up not completed' : isRedFlag ? 'RED FLAG: Service follow-up overdue' : 'Service follow-up reminder', description, tag: isPermanentRed ? 'Permanent Red Flag' : isRedFlag ? 'Red Flag' : 'Follow-Up', kind: 'lead_followup_escalation', audience: recipients.map((user) => user._id), visibleToRoles: ['admin', 'superadmin'], metadata: { key, stage, leadId: leadId(lead), serviceIndex, dueAt: due.toISOString(), priority, contributorNames, serviceNames } });
     item.crmNotificationId = String(item._id); await item.save();
     const primary = recipients.find((user) => contributorNames.some((name) => [user.name, user.email].includes(name))) || recipients[0];
     if (primary?.email) {
@@ -230,11 +231,27 @@ async function remindFollowUps(leads, now) {
         isRedFlag,
       });
       const cc = recipients.map((user) => user.email).filter((email) => email && email !== primary.email);
-      await sendMail(primary.email, `${isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false, cc }).catch(() => null);
+      await sendMail(primary.email, `${isPermanentRed ? 'PERMANENT RED FLAG' : isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false, cc }).catch(() => null);
     }
-    if (isRedFlag) await updateCcpLead(leadId(lead), { followUpFlag: 'RED' }).catch(() => false);
+    if (isRedFlag) await updateCcpLead(leadId(lead), { followUpFlag: isPermanentRed ? 'PERMANENT_RED' : 'RED' }).catch(() => false);
     }
   }
+}
+
+function followUpEscalationStage(dueAt, now) {
+  const delta = Number(now) - Number(dueAt);
+  if (delta >= 48 * HOUR) return 'PERMANENT_RED_48H';
+  if (delta >= 24 * HOUR) return 'RED_FLAG_24H';
+  if (delta >= HOUR) return 'OVERDUE_60M';
+  if (delta >= THIRTY_MINUTES) return 'OVERDUE_30M';
+  if (delta >= -THIRTY_MINUTES) return 'DUE_IN_30M';
+  return '';
+}
+
+function indiaMonthKeyOnFirst(now) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(now)).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  return parts.day === '01' ? `${parts.year}-${parts.month}` : '';
 }
 
 function parseServiceDate(value) {
@@ -355,22 +372,23 @@ async function remindApprovals(now) {
 }
 
 async function remindOldDrafts(leads, now) {
+  const monthKey = indiaMonthKeyOnFirst(now);
+  if (!monthKey) return;
   const rows = leads.filter((lead) => {
-    const created = new Date(lead.createdAt || lead.importedCreatedAt || lead.leadDate || 0);
     const assignmentClosed = (Array.isArray(lead.assignments) ? lead.assignments : []).some((row) => row?.closedBy || row?.closedByText);
-    return created.getTime() && now - created.getTime() >= 15 * 60 * 1000 && !lead.closedBy && !lead.closedByText && !assignmentClosed;
+    return !lead.closedBy && !lead.closedByText && !assignmentClosed;
   });
   if (!rows.length) return;
   for (const lead of rows) {
     const superAdmins = await admins(['superadmin']);
     const recipient = await resolveLeadUser(lead) || superAdmins.find((user) => user.email);
     if (!recipient) continue;
-    const key = `${leadId(lead)}:15m`;
-    if (await Notification.exists({ kind: 'unclosed_lead_15m', 'metadata.key': key })) continue;
+    const key = `${leadId(lead)}:${monthKey}`;
+    if (await Notification.exists({ kind: 'unclosed_lead_monthly', 'metadata.key': key })) continue;
     const company = lead.company || 'Lead';
-    const description = `${company} has remained unclosed for at least 15 minutes. Please review and close the lead or update its status.`;
+    const description = `${company} is still pending. This is the monthly reminder for ${monthKey}. Please review and close the lead or update its status.`;
     const audience = [...new Set([recipient._id, ...superAdmins.map((user) => user._id)].map(String))];
-    const item = await Notification.create({ title: 'Lead pending for 15 minutes', description, tag: 'Pending Leads', kind: 'unclosed_lead_15m', audience, visibleToRoles: ['superadmin'], metadata: { key, leadId: leadId(lead), company } });
+    const item = await Notification.create({ title: 'Monthly pending lead reminder', description, tag: 'Pending Leads', kind: 'unclosed_lead_monthly', audience, visibleToRoles: ['superadmin'], metadata: { key, monthKey, leadId: leadId(lead), company } });
     item.crmNotificationId = String(item._id); await item.save();
     if (recipient.email) {
       const services = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [lead])
@@ -380,7 +398,7 @@ async function remindOldDrafts(leads, now) {
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
           <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;overflow:hidden;border:1px solid #dbe5e7;border-radius:16px;background:#fff">
             <tr><td style="height:7px;background:#0f766e"></td></tr>
-            <tr><td style="padding:30px 34px 18px"><span style="display:inline-block;border-radius:99px;background:#fff7ed;padding:7px 11px;color:#c2410c;font-size:11px;font-weight:700;letter-spacing:.8px">ACTION REQUIRED</span><h1 style="margin:16px 0 8px;color:#0f766e;font-size:27px">Lead pending for 15 minutes</h1><p style="margin:0;color:#64748b;line-height:1.6">${escapeHtml(description)}</p></td></tr>
+            <tr><td style="padding:30px 34px 18px"><span style="display:inline-block;border-radius:99px;background:#fff7ed;padding:7px 11px;color:#c2410c;font-size:11px;font-weight:700;letter-spacing:.8px">MONTHLY ACTION REQUIRED</span><h1 style="margin:16px 0 8px;color:#0f766e;font-size:27px">Pending lead reminder</h1><p style="margin:0;color:#64748b;line-height:1.6">${escapeHtml(description)}</p></td></tr>
             <tr><td style="padding:0 34px 30px"><table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
               <tr style="background:#f8fafc"><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0;font-weight:700">Company</td><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0">${escapeHtml(company)}</td></tr>
               <tr><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0;font-weight:700">Lead ID</td><td style="padding:13px 15px;border-bottom:1px solid #e2e8f0">${escapeHtml(lead.leadCode || leadId(lead) || '-')}</td></tr>
@@ -426,13 +444,13 @@ function startLeadWorkflowReminderScheduler() {
   if (started) return;
   started = true;
   setTimeout(() => runLeadWorkflowReminders().catch((error) => console.error('Lead workflow reminders failed', error)), 10000);
-  // Check every minute so the 15-minute pending reminder is not delayed by an
-  // additional five-minute scheduler window.
+  // Follow-up stages are checked every minute. Monthly pending reminders run
+  // only on the first day in India and are deduplicated by month.
   setInterval(() => runLeadWorkflowReminders().catch((error) => console.error('Lead workflow reminders failed', error)), 60 * 1000);
 }
 
 module.exports = {
   runLeadWorkflowReminders,
   startLeadWorkflowReminderScheduler,
-  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr }
+  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr, followUpEscalationStage, indiaMonthKeyOnFirst }
 };

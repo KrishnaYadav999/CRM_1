@@ -198,9 +198,11 @@ function getRedFlagStage(item = {}, now = new Date()) {
   const dueAt = getFollowUpDueAt(item)
   if (!dueAt) return null
   const delta = now.getTime() - dueAt.getTime()
-  if (delta >= 20 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 20+ minutes', rank: 3 }
-  if (delta >= 10 * 60 * 1000) return { key: 'overdue-10', label: '10 min overdue', detail: 'Overdue reminder window crossed', rank: 2 }
-  if (delta >= -10 * 60 * 1000) return { key: 'due-10', label: 'Due in 10 min', detail: 'First reminder window', rank: 1 }
+  if (delta >= 48 * 60 * 60 * 1000) return { key: 'permanent-red', label: 'Permanent Red Flag', detail: 'No action for 48+ hours', rank: 5 }
+  if (delta >= 24 * 60 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 24+ hours', rank: 4 }
+  if (delta >= 60 * 60 * 1000) return { key: 'overdue-60', label: '60 min overdue', detail: 'Third overdue reminder reached', rank: 3 }
+  if (delta >= 30 * 60 * 1000) return { key: 'overdue-30', label: '30 min overdue', detail: 'Second reminder window crossed', rank: 2 }
+  if (delta >= -30 * 60 * 1000) return { key: 'due-30', label: 'Due in 30 min', detail: 'First reminder window', rank: 1 }
   return null
 }
 
@@ -215,10 +217,12 @@ function buildRedFlagHistory(item = {}, stage = {}) {
   const dueAt = getFollowUpDueAt(item)
   const events = [
     { title: 'Follow-up scheduled', detail: item.description || 'Follow-up created', at: item.createdAt || dueAt },
-    { title: '10 min before', detail: 'First reminder window reached.', at: dueAt ? new Date(dueAt.getTime() - 10 * 60 * 1000) : null }
+    { title: '30 min before', detail: 'First reminder window reached.', at: dueAt ? new Date(dueAt.getTime() - 30 * 60 * 1000) : null }
   ]
-  if (stage.rank >= 2) events.push({ title: '10 min after', detail: 'No action recorded; overdue reminder reached.', at: new Date(dueAt.getTime() + 10 * 60 * 1000) })
-  if (stage.rank >= 3) events.push({ title: '20 min after', detail: 'Follow-up still open; marked as a red flag.', at: new Date(dueAt.getTime() + 20 * 60 * 1000) })
+  if (stage.rank >= 2) events.push({ title: '30 min after', detail: 'No action recorded; overdue reminder reached.', at: new Date(dueAt.getTime() + 30 * 60 * 1000) })
+  if (stage.rank >= 3) events.push({ title: '60 min after', detail: 'Follow-up remains open; third reminder reached.', at: new Date(dueAt.getTime() + 60 * 60 * 1000) })
+  if (stage.rank >= 4) events.push({ title: '24 hours after', detail: 'Follow-up still open; marked as a red flag.', at: new Date(dueAt.getTime() + 24 * 60 * 60 * 1000) })
+  if (stage.rank >= 5) events.push({ title: '48 hours after', detail: 'No corrective action; permanent red flag applied.', at: new Date(dueAt.getTime() + 48 * 60 * 60 * 1000) })
   ;(Array.isArray(item.followUpHistory) ? item.followUpHistory : []).forEach((entry) => events.push({
     title: entry.title || entry.reason || 'Follow-up history',
     detail: entry.remarks || entry.description || entry.followUpRemarks || 'Follow-up updated',
@@ -242,11 +246,11 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
     <>
       <section className="red-flag-audit">
         <header>
-          <div><span>Action control</span><h2>{title}</h2><p>10 min before, 10 min overdue and 20-minute red-flag escalation in one place.</p></div>
+          <div><span>Action control</span><h2>{title}</h2><p>30 minutes before through the permanent 48-hour red-flag escalation in one place.</p></div>
           <div className="red-flag-audit-summary">
-            <b>{counts['red-flag'] || 0}<small>Red flags</small></b>
-            <b>{counts['overdue-10'] || 0}<small>Missed</small></b>
-            <b>{counts['due-10'] || 0}<small>Due soon</small></b>
+            <b>{(counts['permanent-red'] || 0) + (counts['red-flag'] || 0)}<small>Red flags</small></b>
+            <b>{(counts['overdue-60'] || 0) + (counts['overdue-30'] || 0)}<small>Missed</small></b>
+            <b>{counts['due-30'] || 0}<small>Due soon</small></b>
           </div>
         </header>
         <div className="red-flag-table-wrap">

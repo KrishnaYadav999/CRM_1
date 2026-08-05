@@ -38,7 +38,12 @@ const reminderTimeline = [
   },
   {
     title: '24 hours after',
-    description: 'The lead is marked as a red flag for that user if the follow-up is still not closed.',
+    description: 'The lead is marked as a red flag if the follow-up is still not updated.',
+    tone: 'rose'
+  },
+  {
+    title: '48 hours after',
+    description: 'If no action is recorded, the lead receives a permanent red flag. Saving a new follow-up action resets it to green.',
     tone: 'rose'
   }
 ]

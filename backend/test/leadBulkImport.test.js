@@ -88,3 +88,10 @@ test('bulk service ownership uses the resolved row creator instead of the upload
   assert.equal(created.serviceSelections[0].createdByName, 'Lead Owner');
   assert.equal(created.serviceSelections[0].createdByEmail, 'owner@example.com');
 });
+
+test('saving a new follow-up identifies the service row whose red flag must reset', () => {
+  const before = { serviceSelections: [{ nextFollowUpDate: '2026-08-05', nextFollowUpTime: '10:00', followUpRemarks: 'Call client' }] };
+  const after = { serviceSelections: [{ nextFollowUpDate: '2026-08-06', nextFollowUpTime: '11:00', followUpRemarks: 'Call client again' }] };
+  assert.deepEqual(_test.changedFollowUpIndexes(before, after), [0]);
+  assert.deepEqual(_test.changedFollowUpIndexes(before, before), []);
+});

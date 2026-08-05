@@ -151,6 +151,8 @@ function cleanBody(body) {
           nextFollowUpTime: String(row?.nextFollowUpTime || '').trim(),
           followUpRemarks: String(row?.followUpRemarks || '').trim(),
           followUpPriority: String(row?.followUpPriority || 'Medium').trim(),
+          followUpUpdatedAt: String(row?.followUpUpdatedAt || '').trim(),
+          followUpFlag: String(row?.followUpFlag || '').trim(),
           followUpHistory: Array.isArray(row?.followUpHistory) ? row.followUpHistory.slice(0, 100) : [],
           createdByCrmUserId: String(row?.createdByCrmUserId || '').trim(),
           createdByName: String(row?.createdByName || '').trim(),
@@ -393,6 +395,17 @@ function bulkServiceRow(source = {}, user = {}) {
   };
 }
 
+function changedFollowUpIndexes(beforeLead = {}, data = {}) {
+  if (!Array.isArray(data.serviceSelections)) return [];
+  const beforeRows = Array.isArray(beforeLead.serviceSelections) ? beforeLead.serviceSelections : [];
+  return data.serviceSelections.map((row, index) => {
+    const before = beforeRows[index] || {};
+    const currentKey = [row?.nextFollowUpDate, row?.nextFollowUpTime, row?.followUpRemarks].map((value) => String(value || '').trim()).join('|');
+    const beforeKey = [before?.nextFollowUpDate, before?.nextFollowUpTime, before?.followUpRemarks].map((value) => String(value || '').trim()).join('|');
+    return currentKey && currentKey !== beforeKey ? index : -1;
+  }).filter((index) => index >= 0);
+}
+
 function normalizeBulkUserIdentity(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -612,6 +625,11 @@ exports.updateLead = async (req, res) => {
     }
 
     const data = cleanBody(req.body);
+    const followUpChangedIndexes = changedFollowUpIndexes(beforeLead, data);
+    if (followUpChangedIndexes.length) {
+      data.followUpFlag = 'GREEN';
+      data.serviceSelections = data.serviceSelections.map((row, index) => followUpChangedIndexes.includes(index) ? { ...row, followUpFlag: 'GREEN' } : row);
+    }
     const duplicateServiceError = validateDuplicateServiceSelections({ ...lead.toObject(), ...data });
     if (duplicateServiceError) return res.status(409).json({ error: duplicateServiceError, code: 'DUPLICATE_SERVICE_COMBINATION' });
     const closureError = validateClosureAssignments({ ...lead.toObject(), ...data });
@@ -641,6 +659,16 @@ exports.updateLead = async (req, res) => {
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
     await lead.save();
+    if (followUpChangedIndexes.length) {
+      const completedAt = new Date().toISOString();
+      await CalendarItem.updateMany({
+        leadId: String(lead._id), type: 'followup', status: { $ne: 'completed' },
+        'metadata.serviceIndex': { $in: followUpChangedIndexes }
+      }, {
+        $set: { status: 'completed', completedAt, completionRemarks: 'Follow-up updated; red flag reset to green.' },
+        $push: { completionHistory: { at: completedAt, by: req.user?.name || req.user?.email || 'CRM User', remarks: 'Follow-up updated; red flag reset to green.' } }
+      });
+    }
     await notifyNewProvisionalClosures({ beforeLead, afterLead: lead.toObject(), actor: req.user })
       .catch((error) => console.error('Provisional lead closure email failed', error));
     await sendLeadClosureKickoffEmail({ beforeLead, lead: lead.toObject() })
@@ -1056,7 +1084,8 @@ exports._test = {
   buildBulkCreateData,
   buildBulkMergeData,
   buildBulkUserIndex,
-  resolveBulkCreator
+  resolveBulkCreator,
+  changedFollowUpIndexes
 };
 
 const LeadServiceCatalog = require('../models/LeadServiceCatalog');
