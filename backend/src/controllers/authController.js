@@ -24,6 +24,10 @@ function roleKey(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function isAvailableRole(name) {
   return ROLES.includes(name) || Boolean(await Role.exists({ name }));
 }
@@ -486,13 +490,24 @@ exports.listRoles = async (_req, res) => {
 
 exports.createRole = async (req, res) => {
   const label = String(req.body.label || req.body.name || '').trim().replace(/\s+/g, ' ');
-  const name = roleKey(label);
-  if (label.length < 2 || label.length > 50 || !name) {
+  const requestedName = roleKey(label);
+  if (label.length < 2 || label.length > 50 || !requestedName) {
     return res.status(400).json({ error: 'Role name must be between 2 and 50 characters' });
   }
-  if (ROLES.includes(name) || await Role.exists({ name })) {
+
+  const matchesSystemLabel = ROLES.some((systemRole) => roleLabel(systemRole).toLowerCase() === label.toLowerCase());
+  const duplicateConditions = [{ label: { $regex: `^${escapeRegExp(label)}$`, $options: 'i' } }];
+  if (!ROLES.includes(requestedName)) duplicateConditions.push({ name: requestedName });
+  const duplicateCustomRole = await Role.exists({ $or: duplicateConditions });
+  if (matchesSystemLabel || duplicateCustomRole) {
     return res.status(409).json({ error: 'This role already exists' });
   }
+
+  // A legacy system key can have a more specific display label. For example,
+  // `compliance` displays as "Compliance Manager". Keep a new "Compliance"
+  // role distinct without changing the protected system role.
+  const name = ROLES.includes(requestedName) ? `custom-${requestedName}` : requestedName;
+  if (await Role.exists({ name })) return res.status(409).json({ error: 'This role already exists' });
   const role = await Role.create({ name, label, permissions: [] });
   res.status(201).json({ ok: true, role: { name: role.name, label: role.label, system: false } });
 };

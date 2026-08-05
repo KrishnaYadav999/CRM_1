@@ -16,3 +16,10 @@ test('user schema accepts database-backed custom roles', () => {
   assert.doesNotMatch(schema, /role:\s*\{[^}]*enum:\s*ROLES/);
   assert.match(schema, /role:\s*\{[^}]*default:\s*'operation'/);
 });
+
+test('a custom label can coexist with a legacy key that has a different display label', () => {
+  const controller = read('src/controllers/authController.js');
+  assert.match(controller, /matchesSystemLabel/);
+  assert.match(controller, /if \(!ROLES\.includes\(requestedName\)\) duplicateConditions\.push\(\{ name: requestedName \}\)/);
+  assert.match(controller, /ROLES\.includes\(requestedName\) \? `custom-\$\{requestedName\}` : requestedName/);
+});
