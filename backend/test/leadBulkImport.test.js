@@ -48,6 +48,7 @@ test('bulk merge appends one service and keeps assignment rows aligned', () => {
   assert.equal(merged.assignments[1].assignedToText, 'Manager Two');
   assert.equal(merged.assignments[2].assignedToText, 'Manager Three');
   assert.equal(merged.workflowStatus, 'draft');
+  assert.equal(merged.bulkImported, true);
 });
 
 test('new bulk lead creates matching service and assignment arrays as a draft', () => {
@@ -66,4 +67,24 @@ test('incomplete draft rows still reserve aligned service and assignment rows', 
   const merged = _test.buildBulkMergeData(created, { company: 'Draft Company' }, { _id: 'admin-1', name: 'Admin' });
   assert.equal(merged.serviceSelections.length, 2);
   assert.equal(merged.assignments.length, 2);
+});
+
+test('bulk Created By resolves each row to its exact CRM user identity', () => {
+  const users = [
+    { _id: 'user-1', crmUserId: 'ATPL-001', name: 'Shivani Sharma', email: 'shivani@example.com' },
+    { _id: 'user-2', crmUserId: 'ATPL-002', name: 'Ashmita Kundu', email: 'ashmita@example.com' }
+  ];
+  const index = _test.buildBulkUserIndex(users);
+  assert.equal(_test.resolveBulkCreator(index, 'Shivani Sharma')._id, 'user-1');
+  assert.equal(_test.resolveBulkCreator(index, 'ashmita@example.com')._id, 'user-2');
+  assert.equal(_test.resolveBulkCreator(index, 'ATPL-001').email, 'shivani@example.com');
+  assert.equal(_test.resolveBulkCreator(index, 'Unknown User'), null);
+});
+
+test('bulk service ownership uses the resolved row creator instead of the uploader', () => {
+  const creator = { _id: 'creator-1', name: 'Lead Owner', email: 'owner@example.com' };
+  const created = _test.buildBulkCreateData({ company: 'Owned Company', ...firstService, importedCreatedBy: creator.name }, creator);
+  assert.equal(created.serviceSelections[0].createdByCrmUserId, 'creator-1');
+  assert.equal(created.serviceSelections[0].createdByName, 'Lead Owner');
+  assert.equal(created.serviceSelections[0].createdByEmail, 'owner@example.com');
 });

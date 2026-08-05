@@ -150,7 +150,13 @@ async function resolveManager(value) {
 }
 
 async function resolveLeadUser(lead) {
-  const assignment = [...(Array.isArray(lead.assignments) ? lead.assignments : [])].reverse().find((row) => row?.assignedStaff || row?.assignedTo) || lead;
+  // Bulk Excel ownership is explicitly supplied per row. For those records,
+  // the Created By user must receive the pending-lead reminder even when the
+  // uploader or an assignment belongs to someone else. Manual leads retain
+  // the existing assignment-first recipient behavior.
+  const assignment = lead.bulkImported
+    ? {}
+    : ([...(Array.isArray(lead.assignments) ? lead.assignments : [])].reverse().find((row) => row?.assignedStaff || row?.assignedTo) || lead);
   const creatorRow = (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : []).find((row) => row?.createdByCrmUserId || row?.createdByEmail || row?.createdByName) || {};
   const id = String(assignment.assignedStaff || assignment.assignedTo || lead.createdByCrmUserId || creatorRow.createdByCrmUserId || '').trim();
   const email = String(assignment.assignedStaffEmail || assignment.assignedToEmail || lead.createdByEmail || creatorRow.createdByEmail || '').trim().toLowerCase();

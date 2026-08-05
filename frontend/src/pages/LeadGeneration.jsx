@@ -1392,7 +1392,8 @@ export default function LeadGeneration() {
       Required: required.has(field) ? 'Yes' : 'No (draft import)',
       Guidance: field === 'Company' ? 'Required. Repeated company names append service rows to one lead.'
         : field === 'PIN' ? 'Use exactly 6 digits. Format the Excel cell as Text to preserve leading zeroes.'
-          : field === 'Assigned To' ? 'Enter an existing CRM staff name; exact names are matched automatically.'
+            : field === 'Assigned To' ? 'Enter an existing CRM staff name; exact names are matched automatically.'
+            : field === 'Created By' ? 'Bulk upload only: enter the exact active CRM user name, email, or CRM User ID. This user becomes the lead creator and receives pending-lead reminders.'
             : ['Industry', 'EPR Category', 'Applicant Type', 'PIBO Subcategory', 'Services Offered', 'Applicable Services', 'Financial Year'].includes(field) ? 'This value belongs to the service row.'
               : 'Optional for draft import; existing CRM business rules remain applicable.'
     }));
@@ -4412,6 +4413,18 @@ function mapExcelRowToLead(row, staff) {
     const raw = normalizePersonName(data.assignedToText);
     const match = staff.find((user) => normalizePersonName(user.name) === raw);
     if (match) data.assignedTo = match._id || match.id;
+  }
+
+  if (data.importedCreatedBy && Array.isArray(staff) && staff.length) {
+    const raw = normalizePersonName(data.importedCreatedBy);
+    const match = staff.find((user) => [user.name, user.email, user.crmUserId, user._id, user.id]
+      .some((value) => normalizePersonName(value) === raw));
+    if (match) {
+      data.createdByCrmUserId = match._id || match.id || match.crmUserId || '';
+      data.createdByName = match.name || match.email || '';
+      data.createdByEmail = match.email || '';
+      data.importedCreatedBy = data.createdByName;
+    }
   }
 
   if (data.piboCategory) {

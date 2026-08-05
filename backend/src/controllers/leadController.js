@@ -109,6 +109,9 @@ function cleanBody(body) {
     'assignedStaffEmail',
     'assignedBy',
     'importedCreatedBy',
+    'createdByCrmUserId',
+    'createdByName',
+    'createdByEmail',
     'updatedBy',
     'closedBy',
     'closedByText',
@@ -124,6 +127,7 @@ function cleanBody(body) {
     'importedCreatedAt',
     'importedUpdatedAt',
     'workflowStatus',
+    'bulkImported',
     'recordStatus',
     'complianceHealthReport'
   ].forEach((key) => {
@@ -389,6 +393,29 @@ function bulkServiceRow(source = {}, user = {}) {
   };
 }
 
+function normalizeBulkUserIdentity(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function buildBulkUserIndex(users = []) {
+  const index = new Map();
+  users.forEach((user = {}) => {
+    const name = String(user.name || '').trim().replace(/\s+/g, ' ');
+    const email = String(user.email || '').trim().toLowerCase();
+    const tokens = [user._id, user.id, user.crmUserId, name, email, name && email ? `${name} (${email})` : '']
+      .map(normalizeBulkUserIdentity).filter(Boolean);
+    tokens.forEach((token) => {
+      if (!index.has(token)) index.set(token, user);
+      else if (String(index.get(token)?._id || '') !== String(user._id || '')) index.set(token, null);
+    });
+  });
+  return index;
+}
+
+function resolveBulkCreator(userIndex, value) {
+  return userIndex.get(normalizeBulkUserIdentity(value)) || null;
+}
+
 function hasBulkService(row = {}) {
   return ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable']
     .some((key) => String(row[key] || '').trim());
@@ -482,7 +509,7 @@ function buildBulkMergeData(existing = {}, incoming = {}, user = {}) {
     existingClient: fill('existingClient'), website: fill('website'), salutation: fill('salutation'), contactPerson: fill('contactPerson'),
     designation: fill('designation'), emails: fill('emails'), mobileNo1: fill('mobileNo1'), mobileNo2: fill('mobileNo2'), whatsappNo: fill('whatsappNo'), linkedinUrl: fill('linkedinUrl'),
     businessCardUrl: fill('businessCardUrl'), referredBy: fill('referredBy'), source: fill('source'), notes: fill('notes'),
-    workflowStatus: 'draft'
+    workflowStatus: 'draft', bulkImported: true
   };
 }
 
@@ -694,13 +721,15 @@ exports.bulkCreateLeads = async (req, res) => {
   const failures = [];
   let created = 0;
   let updated = 0;
-  const staff = await User.find({ isActive: { $ne: false } }).select('_id name email').lean();
+  const staff = await User.find({ isActive: { $ne: false } }).select('_id crmUserId name email').lean();
   const staffByName = new Map(staff.map((user) => [String(user.name || '').trim().replace(/\s+/g, ' ').toLowerCase(), user]));
+  const staffByIdentity = buildBulkUserIndex(staff);
 
   for (let index = 0; index < rows.length; index += 1) {
     try {
       const data = cleanBody(rows[index]);
       data.workflowStatus = 'draft';
+      data.bulkImported = true;
       data.companyIdentity = normalizeCompanyIdentity(data.company);
       if (!data.companyIdentity) throw new Error('Company is required');
       if (data.pinCode && !/^\d{6}$/.test(String(data.pinCode))) throw new Error('PIN must contain exactly 6 digits');
@@ -713,6 +742,16 @@ exports.bulkCreateLeads = async (req, res) => {
         data.assignedToEmail = matchedStaff.email || '';
       }
 
+      const requestedCreator = String(data.importedCreatedBy || '').trim();
+      const creator = requestedCreator ? resolveBulkCreator(staffByIdentity, requestedCreator) : req.user;
+      if (requestedCreator && !creator) {
+        throw new Error(`Created By user "${requestedCreator}" was not found or is not unique. Use the exact active CRM user name, email, or CRM User ID.`);
+      }
+      data.createdByCrmUserId = String(creator?._id || creator?.id || '').trim();
+      data.createdByName = String(creator?.name || creator?.email || '').trim();
+      data.createdByEmail = String(creator?.email || '').trim().toLowerCase();
+      data.importedCreatedBy = data.createdByName;
+
       let lead = await Lead.findOne({ companyIdentity: data.companyIdentity });
       if (!lead) {
         const escapedCompany = String(data.company || '').trim().split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -721,12 +760,12 @@ exports.bulkCreateLeads = async (req, res) => {
       }
 
       if (lead) {
-        lead.set(buildBulkMergeData(lead.toObject(), data, req.user));
+        lead.set(buildBulkMergeData(lead.toObject(), data, creator));
         lead.companyIdentity = data.companyIdentity;
         await lead.save();
         updated += 1;
       } else {
-        lead = await createLeadRecord(buildBulkCreateData(data, req.user), req.user?._id);
+        lead = await createLeadRecord(buildBulkCreateData(data, creator), creator?._id || req.user?._id);
         created += 1;
       }
       leads.push(lead);
@@ -1015,7 +1054,9 @@ exports._test = {
   normalizeLegacyBulkServices,
   alignBulkAssignments,
   buildBulkCreateData,
-  buildBulkMergeData
+  buildBulkMergeData,
+  buildBulkUserIndex,
+  resolveBulkCreator
 };
 
 const LeadServiceCatalog = require('../models/LeadServiceCatalog');

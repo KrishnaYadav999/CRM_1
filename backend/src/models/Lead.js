@@ -51,6 +51,9 @@ const LeadSchema = new mongoose.Schema({
   assignedStaffEmail: { type: String, trim: true, lowercase: true },
   assignedBy: { type: String, trim: true },
   importedCreatedBy: { type: String, trim: true },
+  createdByCrmUserId: { type: String, trim: true, index: true },
+  createdByName: { type: String, trim: true },
+  createdByEmail: { type: String, trim: true, lowercase: true },
   updatedBy: { type: String, trim: true },
   closedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   closedByText: { type: String, trim: true },
@@ -68,6 +71,7 @@ const LeadSchema = new mongoose.Schema({
   recordStatus: { type: String, trim: true, default: 'ACTIVE' },
   complianceHealthReport: { type: mongoose.Schema.Types.Mixed },
   workflowStatus: { type: String, enum: ['draft', 'submitted'], default: 'draft' },
+  bulkImported: { type: Boolean, default: false, index: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   sync: {
     source: { type: String, trim: true, default: 'crm' },
