@@ -96,7 +96,7 @@ jobs:
         if: steps.deployment_config.outputs.ready != 'true'
         shell: bash
         run: |
-          production_url="https://crm-1-eight.vercel.app"
+          production_url="https://crmananttattva.vercel.app"
           for attempt in {1..12}; do
             if curl --fail --silent --show-error --location --max-time 20 "$production_url" > /dev/null; then
               echo "Native Vercel production deployment is reachable: $production_url"
@@ -120,6 +120,6 @@ jobs:
               echo "- URL: ${{ steps.deploy.outputs.url }}"
             else
               echo "- Mode: Native Vercel Git integration"
-              echo "- URL: https://crm-1-eight.vercel.app"
+              echo "- URL: https://crmananttattva.vercel.app"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
