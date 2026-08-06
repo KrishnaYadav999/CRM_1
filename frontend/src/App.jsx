@@ -32,7 +32,7 @@ function App(){
         <Route path="/forget-password" element={<Navigate to="/forgot-password" replace />} />
         <Route path="/forgotpassword" element={<Navigate to="/forgot-password" replace />} />
         <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
-        <Route path="/dashboard/users" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
+        <Route path="/dashboard/users" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminDashboard/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />
         <Route path="/pending-leads" element={<Navigate to="/pending-leads/open" replace />} />
         <Route path="/pending-leads/open" element={<ProtectedRoute><PendingLeads mode="open"/></ProtectedRoute>} />

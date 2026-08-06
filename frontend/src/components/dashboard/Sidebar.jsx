@@ -39,8 +39,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   function canShowItem(item) {
     if (Array.isArray(item.roles) && !item.roles.includes(String(currentUser?.role || '').toLowerCase())) return false
     if (item.label !== 'User Management') return true
-    const role = String(currentUser?.role || '').trim().toLowerCase()
-    return adminRoles.includes(currentUser?.role) || role === 'manager' || role.includes('operation head')
+    return adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase())
   }
 
   const canChooseDashboard = adminRoles.includes(currentUser?.role) || ['admin', 'superadmin', 'super admin'].includes(String(currentUser?.role || '').trim().toLowerCase())

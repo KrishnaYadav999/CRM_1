@@ -4,11 +4,13 @@ import BrandLoader from './BrandLoader'
 import api, { clearStoredSession, hasStoredAuthToken, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 
-export default function ProtectedRoute({ children }) {
+export default function ProtectedRoute({ children, allowedRoles }) {
+  const roleAllowed = (user) => !allowedRoles?.length || allowedRoles.includes(String(user?.role || '').trim().toLowerCase())
   const [state, setState] = useState(() => {
     if (!hasStoredAuthToken()) return { loading: true, allowed: false }
     try {
-      return localStorage.getItem('user') ? { loading: false, allowed: true } : { loading: true, allowed: false }
+      const storedUser = JSON.parse(localStorage.getItem('user') || 'null')
+      return storedUser ? { loading: false, allowed: roleAllowed(storedUser), authenticated: true } : { loading: true, allowed: false }
     } catch {
       return { loading: true, allowed: false }
     }
@@ -26,7 +28,7 @@ export default function ProtectedRoute({ children }) {
         if (response.data?.user) {
           storeSessionUser(response.data.user)
         }
-        setState({ loading: false, allowed: true })
+        setState({ loading: false, allowed: roleAllowed(response.data?.user), authenticated: true })
       })
       .catch(() => {
         clearStoredSession()
@@ -38,5 +40,6 @@ export default function ProtectedRoute({ children }) {
     return <BrandLoader message="Checking secure access" />
   }
 
-  return state.allowed ? children : <Navigate to="/" replace />
+  if (state.allowed) return children
+  return <Navigate to={state.authenticated ? '/dashboard' : '/'} replace />
 }

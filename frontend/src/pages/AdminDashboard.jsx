@@ -4255,7 +4255,7 @@ export default function AdminDashboard() {
   const isUserManagementView = location.pathname === '/dashboard/users'
 
   const routeRole = normalizeKey(currentUser?.role)
-  const canManageUsers = adminRoles.includes(currentUser?.role) || routeRole === 'manager' || routeRole.includes('operation head')
+  const canManageUsers = adminRoles.includes(routeRole)
   const currentRole = normalizeKey(currentUser?.role)
   const showDashboardSwitcher = !isUserManagementView && canSwitchDashboard(currentUser)
   const isSalesDashboardView = !isUserManagementView && (isSalesDashboardUser(currentUser) || (showDashboardSwitcher && dashboardMode === 'sales'))
