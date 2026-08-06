@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   EPR_SERVICE_FILENAME,
   COMPANY_PROFILE_FILENAME,
+  COMPANY_PROFILE_URL,
   buildLeadIntroductionEmail,
   getIntroductionAttachments,
   getLeadEmailRecipients
@@ -22,6 +23,7 @@ test('lead introduction email is professionally formatted with the company closi
   assert.match(email.html, /Sustainability-Based Market Intelligence/);
   assert.match(email.html, /EPR Compliance Service/);
   assert.match(email.html, /AnantTattva Company Profile/);
+  assert.ok(email.html.includes(COMPANY_PROFILE_URL));
   assert.match(email.html, /Thanks and regards,/);
   assert.match(email.html, /Team AnantTattva/);
   assert.doesNotMatch(email.html, /Team AnantTattva Private Limited/);
@@ -36,9 +38,10 @@ test('lead introduction is addressed to unique customer contact emails', () => {
   }), ['primary@example.com', 'second@example.com']);
 });
 
-test('lead introduction includes both supplied PDF attachments', () => {
+test('lead introduction attaches the EPR PDF and links the large company profile', () => {
   const attachments = getIntroductionAttachments();
-  assert.deepEqual(attachments.map(({ filename }) => filename), [EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME]);
+  assert.deepEqual(attachments.map(({ filename }) => filename), [EPR_SERVICE_FILENAME]);
+  assert.equal(COMPANY_PROFILE_FILENAME, 'Company Profile - AnantTattva Private Limited.pdf');
   for (const attachment of attachments) {
     assert.equal(attachment.contentType, 'application/pdf');
     assert.ok(Buffer.isBuffer(attachment.content));
