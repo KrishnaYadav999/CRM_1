@@ -50,7 +50,14 @@ function kickoffRecipients(lead = {}) {
 }
 
 function isKickoffReady(lead = {}) {
-  return isClosed(lead) && hasCompletedAssignment(lead) && kickoffRecipients(lead).length > 0;
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const hasConsentedCompletedAssignment = assignments.some((row) => (
+    row?.kickoffEmailConsent === 'yes'
+    && (row?.closedBy || row?.closedByText)
+    && (row?.assignedTo || row?.assignedToText || row?.assignedToEmail)
+    && (row?.assignedStaff || row?.assignedStaffText || row?.assignedStaffEmail)
+  ));
+  return isClosed(lead) && hasConsentedCompletedAssignment && kickoffRecipients(lead).length > 0;
 }
 
 async function sendLeadClosureKickoffEmail({ beforeLead = {}, lead = {} }) {

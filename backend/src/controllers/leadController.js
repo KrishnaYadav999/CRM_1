@@ -212,7 +212,8 @@ function cleanBody(body) {
           })) : [],
           closureApprovalProofUrl: String(row?.closureApprovalProofUrl || '').trim(),
           closureApprovalProofName: String(row?.closureApprovalProofName || '').trim(),
-          provisionalCloseExpiresAt: String(row?.provisionalCloseExpiresAt || '').trim()
+          provisionalCloseExpiresAt: String(row?.provisionalCloseExpiresAt || '').trim(),
+          kickoffEmailConsent: row?.kickoffEmailConsent === 'yes' ? 'yes' : row?.kickoffEmailConsent === 'no' ? 'no' : ''
         })) : [];
         return;
       }

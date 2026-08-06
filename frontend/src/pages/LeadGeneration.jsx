@@ -415,7 +415,8 @@ function createAssignmentRow(source = {}) {
     poYearRows: Array.isArray(source.poYearRows) ? source.poYearRows : [],
     closureApprovalProofUrl: source.closureApprovalProofUrl || '',
     closureApprovalProofName: source.closureApprovalProofName || '',
-    provisionalCloseExpiresAt: source.provisionalCloseExpiresAt || ''
+    provisionalCloseExpiresAt: source.provisionalCloseExpiresAt || '',
+    kickoffEmailConsent: source.kickoffEmailConsent === 'yes' ? 'yes' : source.kickoffEmailConsent === 'no' ? 'no' : ''
   };
 }
 
@@ -476,6 +477,7 @@ export default function LeadGeneration() {
   const [royaltyClaiming, setRoyaltyClaiming] = useState(false);
   const [royaltyClaimed, setRoyaltyClaimed] = useState(false);
   const [closureDialog, setClosureDialog] = useState(null);
+  const [kickoffDialog, setKickoffDialog] = useState(null);
   const [closureUploading, setClosureUploading] = useState(false);
   const [serviceCatalog, setServiceCatalog] = useState([]);
   const [customDropdownOptions, setCustomDropdownOptions] = useState({});
@@ -913,7 +915,7 @@ export default function LeadGeneration() {
             closedBy: value,
             closedByText: user?.name || user?.email || '',
             closedByEmail: user?.email || '',
-            ...(!value ? { assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '', poStatus: '', poYearRows: [], closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '' } : {}),
+            ...(!value ? { assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '', poStatus: '', poYearRows: [], closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' } : {}),
             ...extra
           };
     setLead((current) => ({
@@ -956,13 +958,22 @@ export default function LeadGeneration() {
     if (closureDialog.choice === 'yes') {
       const incomplete = closureDialog.poYearRows.some((row) => !row.fy || !row.poNumber.trim() || !row.poFileUrl || !row.services.length);
       if (incomplete) return showToast('Complete FY Year, PO Number, PO Upload, and Services for every PO row.', 'warning');
-      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'received', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '' });
+      setKickoffDialog({ index: closureDialog.index, value: closureDialog.value, closureType: 'received', extra: { poStatus: 'received', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '' } });
     } else {
       if (!closureDialog.approvalProofUrl) return showToast('Upload Super Admin approval proof before closing without PO.', 'warning');
-      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() });
+      setKickoffDialog({ index: closureDialog.index, value: closureDialog.value, closureType: 'provisional', extra: { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() } });
     }
     setClosureDialog(null);
-    showToast(closureDialog.choice === 'no' ? 'Special approval closure added. Submit to notify the user and Super Admin.' : 'PO details added. Submit the form to close this service.', 'success');
+  }
+
+  function confirmKickoffEmail(sendEmail) {
+    if (!kickoffDialog) return;
+    updateAssignmentRow(kickoffDialog.index, 'closedBy', kickoffDialog.value, { ...kickoffDialog.extra, kickoffEmailConsent: sendEmail ? 'yes' : 'no' });
+    const closureType = kickoffDialog.closureType;
+    setKickoffDialog(null);
+    showToast(sendEmail
+      ? 'Lead closure added. The kick-off email will be sent when the assignment is complete and the form is submitted.'
+      : closureType === 'provisional' ? 'Special approval closure added without a kick-off email.' : 'PO details added. The lead will close without a kick-off email.', 'success');
   }
 
   function addAssignmentRow() {
@@ -2381,6 +2392,23 @@ export default function LeadGeneration() {
               </div>}
               {catalogDialog.afterCategory && <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">Service Category saved. Add its first Services Offered value to complete the mapping.</p>}
               <div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setCatalogDialog(null)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700">Cancel</button><button type="button" onClick={submitCatalogDialog} disabled={(catalogDialog.type === 'category' ? !catalogValue.trim() : !catalogServices.some((service) => service.trim())) || catalogSaving} className="min-h-11 rounded-xl bg-emerald-700 px-6 font-black text-white disabled:opacity-50">{catalogSaving ? 'Saving...' : `Save${catalogDialog.type === 'service' && catalogServices.filter((service) => service.trim()).length > 1 ? ` ${catalogServices.filter((service) => service.trim()).length} Services` : ''}`}</button></div>
+            </div>
+          </section>
+        </div>
+      )}
+      {kickoffDialog && (
+        <div className="fixed inset-0 z-[130] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="kickoff-email-title">
+          <section className="w-full max-w-lg overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-2xl">
+            <div className="p-7 sm:p-8">
+              <span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><Mail className="h-7 w-7" /></span>
+              <p className="mt-5 text-xs font-black uppercase tracking-[.18em] text-emerald-700">Kick-Off Communication</p>
+              <h2 id="kickoff-email-title" className="mt-2 text-2xl font-black text-slate-950">Send the kick-off email?</h2>
+              <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">Would you like to send the client a virtual kick-off meeting email for this closed service? The email will be sent when the manager and staff assignment is complete.</p>
+              <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-900">Choose <strong>Yes</strong> to enable the email. Choose <strong>No</strong> to close the lead without sending any kick-off email.</div>
+            </div>
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => confirmKickoffEmail(false)} className="min-h-12 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 hover:bg-slate-100">No, Continue Without Email</button>
+              <button type="button" onClick={() => confirmKickoffEmail(true)} className="min-h-12 rounded-xl bg-emerald-700 px-5 text-sm font-black text-white shadow-lg shadow-emerald-200 hover:bg-emerald-800">Yes, Send Kick-Off Email</button>
             </div>
           </section>
         </div>

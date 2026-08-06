@@ -9,7 +9,8 @@ const contact = { emails: 'Client@Example.com' };
 const closedAssignment = {
   closedByText: 'Closer',
   assignedToText: 'Manager',
-  assignedToEmail: 'manager@example.com'
+  assignedToEmail: 'manager@example.com',
+  kickoffEmailConsent: 'yes'
 };
 
 test('kick-off becomes ready when staff is assigned after the lead was closed', () => {
@@ -31,6 +32,17 @@ test('kick-off requires a contact recipient and a complete assignment', () => {
     contacts: [contact],
     assignments: [{ ...closedAssignment, assignedStaffText: 'Staff' }]
   }), true);
+});
+
+test('kick-off is disabled when the user declines the email', () => {
+  assert.equal(isKickoffReady({
+    contacts: [contact],
+    assignments: [{ ...closedAssignment, assignedStaffText: 'Staff', kickoffEmailConsent: 'no' }]
+  }), false);
+  assert.equal(isKickoffReady({
+    contacts: [contact],
+    assignments: [{ ...closedAssignment, assignedStaffText: 'Staff', kickoffEmailConsent: '' }]
+  }), false);
 });
 
 test('contact recipients are normalized and deduplicated', () => {
