@@ -400,6 +400,31 @@ function bulkServiceRow(source = {}, user = {}) {
   };
 }
 
+function validateServiceRemovalPermission(beforeLead = {}, incomingRows = [], user = {}) {
+  const beforeRows = Array.isArray(beforeLead.serviceSelections) ? beforeLead.serviceSelections : [];
+  if (!beforeRows.length || !Array.isArray(incomingRows)) return '';
+  if (ADMIN_ROLES.includes(String(user.role || '').trim().toLowerCase())) return '';
+  const identity = (row = {}) => [row.industryType, row.eprCategory, row.applicantType, row.subApplicantType || row.piboCategory, row.servicesOffered, row.firstAnnualReturnYearApplicable]
+    .map((value) => String(value || '').trim().toLowerCase()).join('|');
+  const incomingCounts = new Map();
+  incomingRows.forEach((row) => incomingCounts.set(identity(row), (incomingCounts.get(identity(row)) || 0) + 1));
+  const removedRows = beforeRows.filter((row) => {
+    const key = identity(row);
+    const remaining = incomingCounts.get(key) || 0;
+    if (!remaining) return true;
+    incomingCounts.set(key, remaining - 1);
+    return false;
+  });
+  const userTokens = royaltyIdentityTokens(user._id, user.id, user.crmUserId, user.userId, user.email, user.name);
+  const leadOwnerTokens = royaltyIdentityTokens(beforeLead.createdBy, beforeLead.createdByCrmUserId, beforeLead.createdByEmail, beforeLead.createdByName, beforeLead.importedCreatedBy);
+  const forbidden = removedRows.find((row) => {
+    const ownerTokens = royaltyIdentityTokens(row.createdByCrmUserId, row.createdByEmail, row.createdByName);
+    const effectiveOwners = ownerTokens.length ? ownerTokens : leadOwnerTokens;
+    return !effectiveOwners.some((token) => userTokens.includes(token));
+  });
+  return forbidden ? 'You can remove only services that you created.' : '';
+}
+
 function changedFollowUpIndexes(beforeLead = {}, data = {}) {
   if (!Array.isArray(data.serviceSelections)) return [];
   const beforeRows = Array.isArray(beforeLead.serviceSelections) ? beforeLead.serviceSelections : [];
@@ -645,6 +670,10 @@ exports.updateLead = async (req, res) => {
     }
     const duplicateServiceError = validateDuplicateServiceSelections({ ...lead.toObject(), ...data });
     if (duplicateServiceError) return res.status(409).json({ error: duplicateServiceError, code: 'DUPLICATE_SERVICE_COMBINATION' });
+    if (Array.isArray(data.serviceSelections)) {
+      const removalPermissionError = validateServiceRemovalPermission(beforeLead, data.serviceSelections, req.user);
+      if (removalPermissionError) return res.status(403).json({ error: removalPermissionError, code: 'SERVICE_REMOVAL_FORBIDDEN' });
+    }
     const closureError = validateClosureAssignments({ ...lead.toObject(), ...data });
     if (closureError) return res.status(400).json({ error: closureError, code: 'INVALID_LEAD_CLOSURE' });
     if (Object.prototype.hasOwnProperty.call(data, 'company')) {
@@ -1105,7 +1134,8 @@ exports._test = {
   buildBulkMergeData,
   buildBulkUserIndex,
   resolveBulkCreator,
-  changedFollowUpIndexes
+  changedFollowUpIndexes,
+  validateServiceRemovalPermission
 };
 
 const LeadServiceCatalog = require('../models/LeadServiceCatalog');

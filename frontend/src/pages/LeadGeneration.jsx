@@ -732,26 +732,30 @@ export default function LeadGeneration() {
   }
 
   function removeServiceRow(index) {
-    if (serviceRows.length === 1) return;
-    const next = serviceRows.filter((_, rowIndex) => rowIndex !== index);
-    const nextAssignments = assignmentRows.filter((_, rowIndex) => rowIndex !== index);
-    const first = next[0];
-    const direct = Boolean(directApplicantOptions(first.eprCategory));
-    setLead((current) => ({
-      ...current,
-      serviceSelections: next,
-      assignments: nextAssignments,
-      industryType: first.industryType,
-      eprCategory: first.eprCategory,
-      applicantType: first.applicantType,
-      piboParent: direct ? '' : first.applicantType,
-      piboCategoryParent: '',
-      piboCategory: direct ? '' : first.piboCategory,
-      subApplicantType: direct ? '' : first.piboCategory,
-      servicesOffered: first.servicesOffered,
-      applicableService: first.applicableService
-      ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
-    }));
+    setLead((current) => {
+      const currentRows = normalizeLegacyServiceSelections(current);
+      if (currentRows.length === 1 || index < 0 || index >= currentRows.length) return current;
+      const next = currentRows.filter((_, rowIndex) => rowIndex !== index);
+      const currentAssignments = Array.isArray(current.assignments) ? current.assignments : [];
+      const nextAssignments = currentAssignments.filter((_, rowIndex) => rowIndex !== index);
+      const first = next[0];
+      const direct = Boolean(directApplicantOptions(first.eprCategory));
+      return {
+        ...current,
+        serviceSelections: next,
+        assignments: nextAssignments,
+        industryType: first.industryType,
+        eprCategory: first.eprCategory,
+        applicantType: first.applicantType,
+        piboParent: direct ? '' : first.applicantType,
+        piboCategoryParent: '',
+        piboCategory: direct ? '' : first.piboCategory,
+        subApplicantType: direct ? '' : first.piboCategory,
+        servicesOffered: first.servicesOffered,
+        applicableService: first.applicableService,
+        firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
+      };
+    });
     if (index < frozenServiceRowCount) {
       setFrozenServiceRowCount((count) => Math.max(0, count - 1));
       setFrozenAssignmentRowCount((count) => Math.max(0, count - 1));
