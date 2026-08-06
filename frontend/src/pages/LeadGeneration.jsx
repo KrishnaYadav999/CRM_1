@@ -909,7 +909,7 @@ export default function LeadGeneration() {
     next[index] = field === 'assignedTo'
       ? { ...next[index], assignedTo: value, assignedToText: user?.name || user?.email || '', assignedToEmail: user?.email || '' }
       : field === 'assignedStaff'
-        ? { ...next[index], assignedStaff: value, assignedStaffText: user?.name || user?.email || '', assignedStaffEmail: user?.email || '' }
+        ? { ...next[index], assignedStaff: value, assignedStaffText: user?.name || user?.email || '', assignedStaffEmail: user?.email || '', ...extra }
         : {
             ...next[index],
             closedBy: value,
@@ -958,22 +958,27 @@ export default function LeadGeneration() {
     if (closureDialog.choice === 'yes') {
       const incomplete = closureDialog.poYearRows.some((row) => !row.fy || !row.poNumber.trim() || !row.poFileUrl || !row.services.length);
       if (incomplete) return showToast('Complete FY Year, PO Number, PO Upload, and Services for every PO row.', 'warning');
-      setKickoffDialog({ index: closureDialog.index, value: closureDialog.value, closureType: 'received', extra: { poStatus: 'received', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '' } });
+      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'received', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' });
     } else {
       if (!closureDialog.approvalProofUrl) return showToast('Upload Super Admin approval proof before closing without PO.', 'warning');
-      setKickoffDialog({ index: closureDialog.index, value: closureDialog.value, closureType: 'provisional', extra: { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() } });
+      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), kickoffEmailConsent: '' });
     }
     setClosureDialog(null);
+    showToast(closureDialog.choice === 'no' ? 'Special approval closure added. Submit to notify the user and Super Admin.' : 'PO details added. Submit the form to close this service.', 'success');
+  }
+
+  function requestStaffAssignment(index, value) {
+    if (!value) return updateAssignmentRow(index, 'assignedStaff', '', { kickoffEmailConsent: '' });
+    setKickoffDialog({ index, value });
   }
 
   function confirmKickoffEmail(sendEmail) {
     if (!kickoffDialog) return;
-    updateAssignmentRow(kickoffDialog.index, 'closedBy', kickoffDialog.value, { ...kickoffDialog.extra, kickoffEmailConsent: sendEmail ? 'yes' : 'no' });
-    const closureType = kickoffDialog.closureType;
+    updateAssignmentRow(kickoffDialog.index, 'assignedStaff', kickoffDialog.value, { kickoffEmailConsent: sendEmail ? 'yes' : 'no' });
     setKickoffDialog(null);
     showToast(sendEmail
-      ? 'Lead closure added. The kick-off email will be sent when the assignment is complete and the form is submitted.'
-      : closureType === 'provisional' ? 'Special approval closure added without a kick-off email.' : 'PO details added. The lead will close without a kick-off email.', 'success');
+      ? 'Staff assigned. The kick-off email will be sent when the form is submitted.'
+      : 'Staff assigned without a kick-off email.', 'success');
   }
 
   function addAssignmentRow() {
@@ -2287,7 +2292,7 @@ export default function LeadGeneration() {
                     <div className="form-input flex min-h-11 items-center bg-slate-50 font-black text-slate-700">{matchingService.servicesOffered || '-'}</div>
                     <div className="flex items-center gap-2"><div className="min-w-0 flex-1"><SearchableSelect disabled={rowFrozen} value={row.closedBy} options={closedByOptions} placeholder="Select user who closed the lead" onChange={(value) => requestLeadClosure(index, value)} /></div>{row.poStatus === 'provisional' && <button type="button" onClick={() => requestLeadClosure(index, row.closedBy)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-amber-200 bg-amber-50 text-amber-700" title="Review provisional closure and upload PO"><RefreshCw className="h-4 w-4" /></button>}</div>
                     <SearchableSelect disabled={rowFrozen || !leadClosed} value={row.assignedTo} options={assignedManagerOptions} placeholder={leadClosed ? 'Select manager' : 'Close lead first'} onChange={(value) => updateAssignmentRow(index, 'assignedTo', value)} />
-                    <SearchableSelect disabled={!canAssignStaff} value={row.assignedStaff} options={assignedStaffOptions} placeholder={canAssignStaff ? 'Select staff member' : 'Assigned manager only'} onChange={(value) => updateAssignmentRow(index, 'assignedStaff', value)} />
+                    <SearchableSelect disabled={!canAssignStaff} value={row.assignedStaff} options={assignedStaffOptions} placeholder={canAssignStaff ? 'Select staff member' : 'Assigned manager only'} onChange={(value) => requestStaffAssignment(index, value)} />
                     <div className="flex justify-center">
                       {approvedRoyalty && index === royaltyClaimRowIndex ? (
                         <span className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
@@ -2403,8 +2408,8 @@ export default function LeadGeneration() {
               <span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><Mail className="h-7 w-7" /></span>
               <p className="mt-5 text-xs font-black uppercase tracking-[.18em] text-emerald-700">Kick-Off Communication</p>
               <h2 id="kickoff-email-title" className="mt-2 text-2xl font-black text-slate-950">Send the kick-off email?</h2>
-              <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">Would you like to send the client a virtual kick-off meeting email for this closed service? The email will be sent when the manager and staff assignment is complete.</p>
-              <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-900">Choose <strong>Yes</strong> to enable the email. Choose <strong>No</strong> to close the lead without sending any kick-off email.</div>
+              <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">You are assigning this lead to a staff member. Would you also like to send the client a virtual kick-off meeting email when this assignment is submitted?</p>
+              <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-900">Choose <strong>Yes</strong> to assign the staff member and enable the kick-off email. Choose <strong>No</strong> to assign the staff member without sending the email.</div>
             </div>
             <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => confirmKickoffEmail(false)} className="min-h-12 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 hover:bg-slate-100">No, Continue Without Email</button>
