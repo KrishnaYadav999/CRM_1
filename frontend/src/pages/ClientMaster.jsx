@@ -522,7 +522,7 @@ const emptyClient = {
     productName: '',
     productManufacturer: '',
     productImage: null,
-    category: '',
+    category: [],
     numberOfEmployees: ''
   },
   basic: { clientLegalName: '', tradeName: '', piboCategory: '', eprCategory: '', onboardingYear: '', firstAnnualReturnYear: '' },
@@ -908,7 +908,7 @@ export default function ClientMaster() {
       const itemKeys = getClientDraftKeys(data, item.selectedLead);
       if (!itemKeys.some((key) => leadKeys.includes(key))) return false;
       const targetIndustry = normalizeDraftKey(selectedLead?.industryType);
-      const savedIndustry = normalizeDraftKey(data.companyOverview?.category || data.selectedLeadSnapshot?.industryType);
+      const savedIndustry = normalizeDraftKey(data.selectedLeadSnapshot?.industryType);
       const targetEpr = normalizeDraftKey(selectedLead?.eprCategory);
       const savedEpr = normalizeDraftKey(data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory);
       if (targetIndustry && savedIndustry) return targetIndustry === savedIndustry;
@@ -982,7 +982,9 @@ export default function ClientMaster() {
         companyName: current.companyOverview?.companyName || company || '',
         productName: current.companyOverview?.productName || selectedLead.productName || '',
         productManufacturer: current.companyOverview?.productManufacturer || selectedLead.productManufacturer || '',
-        category: selectedLead.industryType || selectedLead.companyCategory || '',
+        category: Array.isArray(current.companyOverview?.category)
+          ? current.companyOverview.category
+          : companyOverviewCategories.includes(current.companyOverview?.category) ? [current.companyOverview.category] : [],
         numberOfEmployees: current.companyOverview?.numberOfEmployees || selectedLead.numberOfEmployees || ''
       },
       selectedLeadSnapshot: {
@@ -1261,6 +1263,10 @@ export default function ClientMaster() {
     try {
       const normalizedClient = {
         ...client,
+        companyOverview: {
+          ...client.companyOverview,
+          category: normalizeCompanyOverviewCategories(client.companyOverview?.category)
+        },
         basic: {
           ...client.basic,
           clientLegalName: client.basic?.clientLegalName || client.companyOverview?.companyName || '',
@@ -1557,7 +1563,52 @@ export default function ClientMaster() {
   );
 }
 
-const companyOverviewCategories = ['Cat |', 'Cat ||', 'Cat |||', 'Cat ||||'];
+const companyOverviewCategories = ['Cat I', 'Cat II', 'Cat III', 'Cat IV'];
+
+function normalizeCompanyOverviewCategories(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(',');
+  return companyOverviewCategories.filter((option) => values.some((item) => String(item || '').trim().toLowerCase() === option.toLowerCase()));
+}
+
+function CompanyCategoryMultiSelect({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const selected = normalizeCompanyOverviewCategories(value);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOutside = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOutside);
+    return () => document.removeEventListener('mousedown', closeOutside);
+  }, [open]);
+
+  function toggle(option) {
+    onChange(selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option]);
+  }
+
+  return (
+    <Field label="Category">
+      <div ref={rootRef} className="relative">
+        <button type="button" onClick={() => setOpen((current) => !current)} className={`form-input flex min-h-12 h-auto items-center justify-between gap-3 py-2 text-left ${open ? 'border-emerald-400 ring-4 ring-emerald-100' : ''}`} aria-haspopup="listbox" aria-expanded={open}>
+          <span className="flex min-w-0 flex-1 flex-wrap gap-2">
+            {selected.length ? selected.map((option) => <span key={option} className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-black text-emerald-700">{option}</span>) : <span className="text-slate-400">Select categories</span>}
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-emerald-700 transition ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && (
+          <div className="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-xl border border-emerald-100 bg-white p-2 shadow-2xl" role="listbox" aria-multiselectable="true">
+            {companyOverviewCategories.map((option) => {
+              const checked = selected.includes(option);
+              return <button key={option} type="button" role="option" aria-selected={checked} onClick={() => toggle(option)} className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm font-black transition ${checked ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}><span>{option}</span>{checked && <Check className="h-4 w-4" />}</button>;
+            })}
+          </div>
+        )}
+      </div>
+    </Field>
+  );
+}
 
 function CompanyOverviewTab({ client, setValue }) {
   const overview = client?.companyOverview || {};
@@ -1619,7 +1670,7 @@ function CompanyOverviewTab({ client, setValue }) {
         </div>
         <Field label="Product Name"><input className="form-input" value={overview.productName || ''} onChange={(event) => setValue('companyOverview', 'productName', event.target.value)} /></Field>
         <Field label="Product Manufacturer"><input className="form-input" value={overview.productManufacturer || ''} onChange={(event) => setValue('companyOverview', 'productManufacturer', event.target.value)} /></Field>
-        <SelectLike label="Category" value={overview.category || ''} options={companyOverviewCategories} onChange={(value) => setValue('companyOverview', 'category', value)} placeholder="Select category" />
+        <CompanyCategoryMultiSelect value={overview.category} onChange={(value) => setValue('companyOverview', 'category', value)} />
         <Field label="Product Image Upload"><UploadButton value={overview.productImage} onChange={(value) => setValue('companyOverview', 'productImage', value)} /></Field>
       </div>
     </Card>
@@ -1664,7 +1715,7 @@ function ClientViewModal({ client, quotations = [], proformaInvoices = [], staff
     ['Overview Points', Array.isArray(data.companyOverview?.overviewItems) ? data.companyOverview.overviewItems.filter(Boolean).join(' | ') : '', ClipboardList],
     ['Product Name', data.companyOverview?.productName, FileText],
     ['Product Manufacturer', data.companyOverview?.productManufacturer, Building2],
-    ['Product Category', data.companyOverview?.category, FolderCheck],
+    ['Product Category', normalizeCompanyOverviewCategories(data.companyOverview?.category).join(', '), FolderCheck],
     ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound],
     ['Client Name', clientName, Building2],
     ['Trade Name', data.basic?.tradeName, Building2],
@@ -1682,7 +1733,7 @@ function ClientViewModal({ client, quotations = [], proformaInvoices = [], staff
     ['Overview Points', Array.isArray(data.companyOverview?.overviewItems) ? data.companyOverview.overviewItems.filter(Boolean).join(' | ') : '', ClipboardList],
     ['Product Name', data.companyOverview?.productName, FileText],
     ['Product Manufacturer', data.companyOverview?.productManufacturer, Building2],
-    ['Product Category', data.companyOverview?.category, FolderCheck],
+    ['Product Category', normalizeCompanyOverviewCategories(data.companyOverview?.category).join(', '), FolderCheck],
     ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound]
   ];
   const contactRows = [
