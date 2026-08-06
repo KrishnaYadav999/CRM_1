@@ -3045,12 +3045,6 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8">
       <div className="space-y-7">
-        <LeadStoryStats
-          activeFilter={metricFilter}
-          onFilterChange={(filter) => setMetricFilter((current) => (current === filter ? '' : filter))}
-          stats={metricStats} 
-        />
-
         {selectedMetric && (
           <MetricOutputCard
             stat={selectedMetric}
