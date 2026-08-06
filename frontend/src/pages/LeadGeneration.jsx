@@ -486,6 +486,7 @@ export default function LeadGeneration() {
   const [dropdownDialog, setDropdownDialog] = useState(null);
   const [dropdownValue, setDropdownValue] = useState('');
   const [dropdownSaving, setDropdownSaving] = useState(false);
+  const [serviceRemoveIndex, setServiceRemoveIndex] = useState(null);
   const navigate = useNavigate();
   const { leadId: complianceRouteLeadId } = useParams();
 
@@ -2126,11 +2127,30 @@ export default function LeadGeneration() {
                         {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />Not applicable</div> : <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} />{canManageServiceCatalog && !rowFrozen && row.applicantType && <button type="button" onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: 'Sub Applicant Type' }); }} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Sub Applicant Type</button>}</div>}
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen || !row.eprCategory} value={row.servicesOffered} options={servicesForCategory(row.eprCategory)} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder={row.eprCategory ? 'Select Services Offered' : 'Select category first'} />{canManageServiceCatalog && !rowFrozen && row.eprCategory && <button type="button" onClick={() => openCatalogDialog('service', index, row.eprCategory)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Services Offered</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.firstAnnualReturnYearApplicable || ''} options={withCustomOptions('financialYear', annualReturnYearOptions)} onChange={(value) => updateServiceRow(index, 'firstAnnualReturnYearApplicable', value)} placeholder="Select FY" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'financialYear', label: 'Financial Year', scope: 'service', index, targetField: 'firstAnnualReturnYearApplicable' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Financial Year</button>}</div>
-                        <button type="button" disabled={rowFrozen || serviceRows.length === 1} onClick={() => removeServiceRow(index)} className="lead-matrix-remove" title="Remove row"><X className="h-4 w-4" /></button>
+                        <button type="button" disabled={rowFrozen || serviceRows.length === 1} onClick={() => setServiceRemoveIndex(index)} className="lead-matrix-remove" title="Remove row"><X className="h-4 w-4" /></button>
                       </div>;
                     })}
                   </div>
                 </div>
+                {Number.isInteger(serviceRemoveIndex) && (
+                  <div className="fixed inset-0 z-[10020] grid place-items-center bg-slate-950/55 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="remove-service-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setServiceRemoveIndex(null); }}>
+                    <section className="w-full max-w-md overflow-hidden rounded-3xl border border-red-100 bg-white shadow-2xl">
+                      <div className="p-6 sm:p-7">
+                        <span className="grid h-14 w-14 place-items-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100"><CircleAlert className="h-7 w-7" /></span>
+                        <h2 id="remove-service-title" className="mt-5 text-2xl font-black text-slate-950">Remove this service?</h2>
+                        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">Are you sure you want to remove service row {serviceRemoveIndex + 1}? This will also remove its matching assignment details.</p>
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                          <strong className="block text-sm text-slate-900">{serviceRows[serviceRemoveIndex]?.eprCategory || 'Selected service'}</strong>
+                          <span className="mt-1 block text-xs font-bold text-slate-500">{serviceRows[serviceRemoveIndex]?.servicesOffered || serviceRows[serviceRemoveIndex]?.applicantType || 'Service details'}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:justify-end">
+                        <button type="button" onClick={() => setServiceRemoveIndex(null)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 hover:bg-slate-100">No, Keep It</button>
+                        <button type="button" onClick={() => { const index = serviceRemoveIndex; setServiceRemoveIndex(null); removeServiceRow(index); }} className="min-h-11 rounded-xl bg-red-600 px-5 text-sm font-black text-white shadow-lg shadow-red-200 hover:bg-red-700">Yes, Remove</button>
+                      </div>
+                    </section>
+                  </div>
+                )}
               </div>
             )}
 
