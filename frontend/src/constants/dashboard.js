@@ -50,10 +50,11 @@ export const navSections = [
         icon: Home,
         children: [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard' },
-          { label: 'Pending Approval', icon: Clock3, path: '/pending-approval' },
+          { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: adminRoles },
           {
             label: 'Pending Leads',
             icon: ClipboardList,
+            roles: adminRoles,
             children: [
               { label: 'Lead Open', icon: Clock3, path: '/pending-leads/open' },
               { label: 'Lead Close', icon: ClipboardList, path: '/pending-leads/closed' }
