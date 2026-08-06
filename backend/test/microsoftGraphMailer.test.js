@@ -104,3 +104,40 @@ test('Microsoft Graph access token is reused until it nears expiry', async () =>
     }
   });
 });
+
+test('large PDF attachments use a Microsoft Graph upload session before sending', async () => {
+  await withGraphEnvironment(async () => {
+    const previousFetch = global.fetch;
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+      calls.push({ url: String(url), options });
+      if (String(url).includes('/oauth2/v2.0/token')) {
+        return new Response(JSON.stringify({ access_token: 'large-token', expires_in: 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (String(url).endsWith('/messages')) {
+        return new Response(JSON.stringify({ id: 'draft-123' }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (String(url).endsWith('/attachments/createUploadSession')) {
+        return new Response(JSON.stringify({ uploadUrl: 'https://upload.example/session' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (String(url) === 'https://upload.example/session') {
+        const range = options.headers['Content-Range'];
+        return new Response(null, { status: range.includes('/5728035') && range.startsWith('bytes 3276800-') ? 201 : 202 });
+      }
+      if (String(url).endsWith('/messages/draft-123/send')) return new Response(null, { status: 202 });
+      throw new Error(`Unexpected Graph request: ${url}`);
+    };
+
+    try {
+      const result = await sendMail('admin@example.com', 'Company profile', '<p>Attached</p>', {
+        branded: false,
+        attachments: [{ filename: 'profile.pdf', contentType: 'application/pdf', content: Buffer.alloc(5728035, 1) }]
+      });
+      assert.equal(calls.filter((call) => call.url === 'https://upload.example/session').length, 2);
+      assert.ok(calls.some((call) => call.url.endsWith('/messages/draft-123/send')));
+      assert.equal(result.raw.largeAttachmentUpload, true);
+    } finally {
+      global.fetch = previousFetch;
+    }
+  });
+});

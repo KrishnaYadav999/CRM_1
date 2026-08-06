@@ -202,11 +202,84 @@ function toGraphAttachments(attachments = []) {
   });
 }
 
+function attachmentBuffer(attachment = {}) {
+  if (attachment.content === undefined || attachment.content === null) {
+    throw new Error(`Microsoft Graph attachment "${attachment.filename || attachment.name || 'attachment'}" has no content`);
+  }
+  return Buffer.isBuffer(attachment.content) ? attachment.content : Buffer.from(String(attachment.content));
+}
+
+async function graphRequest(url, accessToken, options = {}, expectedStatuses = [200, 201, 202]) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.headers || {})
+    }
+  });
+  if (!expectedStatuses.includes(response.status)) {
+    throw new Error(await readGraphError(response, `Microsoft Graph request failed (${response.status})`));
+  }
+  return response;
+}
+
+async function sendMicrosoftGraphMailWithLargeAttachments({ config, accessToken, message, attachments }) {
+  const graphUserUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(config.senderEmail)}`;
+  const draftResponse = await graphRequest(`${graphUserUrl}/messages`, accessToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(message)
+  }, [201]);
+  const draft = await draftResponse.json();
+  if (!draft.id) throw new Error('Microsoft Graph did not return a draft message ID');
+
+  for (const attachment of attachments) {
+    const content = attachmentBuffer(attachment);
+    const name = attachment.filename || attachment.name || 'attachment';
+    const sessionResponse = await graphRequest(`${graphUserUrl}/messages/${encodeURIComponent(draft.id)}/attachments/createUploadSession`, accessToken, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        AttachmentItem: {
+          attachmentType: 'file',
+          name,
+          size: content.length,
+          contentType: attachment.contentType || 'application/octet-stream'
+        }
+      })
+    }, [200, 201]);
+    const session = await sessionResponse.json();
+    if (!session.uploadUrl) throw new Error(`Microsoft Graph did not return an upload URL for "${name}"`);
+
+    const chunkSize = 320 * 1024 * 10;
+    for (let start = 0; start < content.length; start += chunkSize) {
+      const end = Math.min(start + chunkSize, content.length) - 1;
+      const chunk = content.subarray(start, end + 1);
+      const uploadResponse = await fetch(session.uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Length': String(chunk.length),
+          'Content-Range': `bytes ${start}-${end}/${content.length}`
+        },
+        body: chunk
+      });
+      if (![200, 201, 202].includes(uploadResponse.status)) {
+        throw new Error(await readGraphError(uploadResponse, `Microsoft Graph attachment upload failed (${uploadResponse.status})`));
+      }
+    }
+  }
+
+  await graphRequest(`${graphUserUrl}/messages/${encodeURIComponent(draft.id)}/send`, accessToken, { method: 'POST' }, [202]);
+  return draft.id;
+}
+
 async function sendMicrosoftGraphMail(recipients, subject, messageHtml, options = {}) {
   const config = readGraphConfig();
   const accessToken = await getGraphAccessToken(config);
   const replyTo = String(process.env.MAIL_REPLY_TO || config.senderEmail || '').trim();
-  const attachments = Array.isArray(options.attachments) ? toGraphAttachments(options.attachments) : [];
+  const rawAttachments = Array.isArray(options.attachments) ? options.attachments : [];
+  const largeAttachments = rawAttachments.filter((attachment) => attachmentBuffer(attachment).length > 3 * 1024 * 1024);
+  const attachments = largeAttachments.length ? [] : toGraphAttachments(rawAttachments);
   const ccRecipients = normalizeRecipients(options.cc);
   const message = {
     subject: String(subject || ''),
@@ -216,6 +289,20 @@ async function sendMicrosoftGraphMail(recipients, subject, messageHtml, options 
   if (ccRecipients.length) message.ccRecipients = toGraphRecipients(ccRecipients);
   if (replyTo) message.replyTo = toGraphRecipients([replyTo]);
   if (attachments.length) message.attachments = attachments;
+
+  if (largeAttachments.length) {
+    const draftId = await sendMicrosoftGraphMailWithLargeAttachments({ config, accessToken, message, attachments: rawAttachments });
+    return {
+      raw: { provider: 'microsoft-graph', status: 202, draftId, largeAttachmentUpload: true },
+      summary: {
+        provider: 'microsoft-graph',
+        sender: config.senderEmail,
+        accepted: recipients,
+        rejected: [],
+        response: 'Accepted by Microsoft Graph with large attachment upload'
+      }
+    };
+  }
 
   const response = await fetch(
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(config.senderEmail)}/sendMail`,
