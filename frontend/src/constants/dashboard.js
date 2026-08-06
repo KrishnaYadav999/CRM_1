@@ -69,10 +69,10 @@ export const navSections = [
     ]
   },
   {
-    label: 'Sales',
+    label: 'Customer Hub',
     items: [
       {
-        label: 'Sales',
+        label: 'Customer Hub',
         icon: BriefcaseBusiness,
         children: [
           { label: 'Lead Generation', icon: ClipboardList, path: '/sales/lead-generation' },

@@ -15,6 +15,7 @@ const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
 const LeadDropdownOption = require('../models/LeadDropdownOption');
+const { sendLeadIntroductionEmail } = require('../services/leadIntroductionEmail');
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
@@ -598,6 +599,16 @@ exports.createLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
+    if (lead.workflowStatus === 'submitted') {
+      await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user })
+        .then(async (result) => {
+          if (result?.sent) {
+            lead.introductionEmailSentAt = new Date();
+            await lead.save();
+          }
+        })
+        .catch((error) => console.error('Lead introduction email failed', error));
+    }
     res.status(201).json({ ok: true, lead });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to save lead' });
@@ -665,6 +676,16 @@ exports.updateLead = async (req, res) => {
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
     await lead.save();
+    if (lead.workflowStatus === 'submitted' && beforeLead.workflowStatus !== 'submitted' && !lead.introductionEmailSentAt) {
+      await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user })
+        .then(async (result) => {
+          if (result?.sent) {
+            lead.introductionEmailSentAt = new Date();
+            await lead.save();
+          }
+        })
+        .catch((error) => console.error('Lead introduction email failed', error));
+    }
     if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
       await Lead.collection.updateOne({ _id: lead._id }, { $unset: { piboCategory: '' } });
     }

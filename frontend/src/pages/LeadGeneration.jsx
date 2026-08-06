@@ -1967,7 +1967,7 @@ export default function LeadGeneration() {
                 <ArrowLeft className="h-5 w-5" />
               </button>
               <div>
-                <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Sales</p>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Customer Hub</p>
                 <h1 className="mt-1 text-3xl font-black text-slate-950">Lead Generation</h1>
               </div>
             </div>
@@ -2087,7 +2087,7 @@ export default function LeadGeneration() {
                   <div className="lead-communication-head"><span>Client Communication Mode</span><span>Status *</span></div>
                   <div className="lead-communication-row">
                     <div className="lead-service-select-cell"><SearchableSelect disabled={serviceOnlyMode} value={lead.communicationMode} options={withCustomOptions('communicationMode', options.communicationMode)} onChange={(value) => requestSpecification('communicationMode', value, 'Communication mode')} placeholder="Select communication mode" allowCustom={false} />{canManageServiceCatalog && !serviceOnlyMode && <button type="button" onClick={() => openDropdownDialog({ field: 'communicationMode', label: 'Communication Mode', scope: 'lead', targetField: 'communicationMode' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Communication Mode</button>}</div>
-                    <div className="lead-service-select-cell"><SearchableSelect disabled={serviceOnlyMode} value={lead.status} options={withCustomOptions('status', options.status)} onChange={(value) => updateField('status', value)} placeholder="Select status" allowCustom={false} />{canManageServiceCatalog && !serviceOnlyMode && <button type="button" onClick={() => openDropdownDialog({ field: 'status', label: 'Status', scope: 'lead', targetField: 'status' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Status</button>}</div>
+                    <div className="lead-service-select-cell"><SearchableSelect multiple disabled={serviceOnlyMode} value={lead.status} options={withCustomOptions('status', options.status)} onChange={(value) => updateField('status', value)} placeholder="Select one or more statuses" allowCustom={false} />{canManageServiceCatalog && !serviceOnlyMode && <button type="button" onClick={() => openDropdownDialog({ field: 'status', label: 'Status', scope: 'lead', targetField: 'status' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Status</button>}</div>
                   </div>
                   {lead.communicationModeNote && (
                     <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-slate-700">
