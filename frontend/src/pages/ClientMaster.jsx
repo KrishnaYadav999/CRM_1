@@ -1583,7 +1583,21 @@ function CompanyCategoryMultiSelect({ value, onChange }) {
     const positionMenu = () => {
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      setMenuPosition({ left: rect.left, top: rect.bottom + 8, width: rect.width });
+      const gap = 4;
+      const viewportPadding = 8;
+      const desiredHeight = 124;
+      const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+      const spaceAbove = rect.top - viewportPadding;
+      const openAbove = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+      const availableHeight = Math.max(72, openAbove ? spaceAbove - gap : spaceBelow - gap);
+      const menuHeight = Math.min(desiredHeight, availableHeight);
+      const menuWidth = Math.min(rect.width, window.innerWidth - (viewportPadding * 2));
+      setMenuPosition({
+        left: Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - menuWidth - viewportPadding)),
+        top: openAbove ? Math.max(viewportPadding, rect.top - gap - menuHeight) : rect.bottom + gap,
+        width: menuWidth,
+        maxHeight: menuHeight
+      });
     };
     const closeOutside = (event) => {
       if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setOpen(false);
@@ -1613,10 +1627,10 @@ function CompanyCategoryMultiSelect({ value, onChange }) {
           <ChevronDown className={`h-4 w-4 shrink-0 text-emerald-700 transition ${open ? 'rotate-180' : ''}`} />
         </button>
         {open && menuPosition && createPortal(
-          <div ref={menuRef} className="fixed z-[10050] overflow-hidden rounded-xl border border-emerald-100 bg-white p-2 shadow-2xl" style={menuPosition} role="listbox" aria-multiselectable="true">
+          <div ref={menuRef} className="fixed z-[10050] overflow-y-auto rounded-xl border border-emerald-100 bg-white p-1 shadow-2xl" style={menuPosition} role="listbox" aria-multiselectable="true">
             {companyOverviewCategories.map((option) => {
               const checked = selected.includes(option);
-              return <button key={option} type="button" role="option" aria-selected={checked} onClick={() => toggle(option)} className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm font-black transition ${checked ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}><span>{option}</span>{checked && <Check className="h-4 w-4" />}</button>;
+              return <button key={option} type="button" role="option" aria-selected={checked} onClick={() => toggle(option)} className={`flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs font-black transition ${checked ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}><span>{option}</span>{checked && <Check className="h-4 w-4" />}</button>;
             })}
           </div>, document.body
         )}
