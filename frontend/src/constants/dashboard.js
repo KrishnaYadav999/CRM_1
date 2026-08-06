@@ -49,7 +49,7 @@ export const navSections = [
         label: 'Home',
         icon: Home,
         children: [
-          { label: 'Dashboard', icon: Gauge, path: '/dashboard' },
+          { label: 'Dashboard', icon: Gauge, path: '/dashboard', roles: adminRoles },
           { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: adminRoles },
           {
             label: 'Pending Leads',
