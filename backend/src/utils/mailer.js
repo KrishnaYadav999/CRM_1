@@ -279,7 +279,8 @@ async function sendMicrosoftGraphMail(recipients, subject, messageHtml, options 
   const replyTo = String(process.env.MAIL_REPLY_TO || config.senderEmail || '').trim();
   const rawAttachments = Array.isArray(options.attachments) ? options.attachments : [];
   const largeAttachments = rawAttachments.filter((attachment) => attachmentBuffer(attachment).length > 3 * 1024 * 1024);
-  const attachments = largeAttachments.length ? [] : toGraphAttachments(rawAttachments);
+  const inlineAttachments = rawAttachments.filter((attachment) => attachmentBuffer(attachment).length <= 3 * 1024 * 1024);
+  const attachments = toGraphAttachments(inlineAttachments);
   const ccRecipients = normalizeRecipients(options.cc);
   const message = {
     subject: String(subject || ''),
@@ -291,7 +292,7 @@ async function sendMicrosoftGraphMail(recipients, subject, messageHtml, options 
   if (attachments.length) message.attachments = attachments;
 
   if (largeAttachments.length) {
-    const draftId = await sendMicrosoftGraphMailWithLargeAttachments({ config, accessToken, message, attachments: rawAttachments });
+    const draftId = await sendMicrosoftGraphMailWithLargeAttachments({ config, accessToken, message, attachments: largeAttachments });
     return {
       raw: { provider: 'microsoft-graph', status: 202, draftId, largeAttachmentUpload: true },
       summary: {

@@ -53,18 +53,27 @@ function getIntroductionAttachments() {
   }));
 }
 
+function getLeadEmailRecipients(lead = {}) {
+  const values = [lead.emails, ...(Array.isArray(lead.contacts) ? lead.contacts.map((contact) => contact?.emails) : [])];
+  return [...new Set(values.flatMap((value) => String(value || '').split(/[;,\s]+/))
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))];
+}
+
 async function sendLeadIntroductionEmail({ lead, creator }) {
   const admins = await User.find({ role: { $in: ['admin', 'superadmin'] }, isActive: { $ne: false }, email: { $ne: '' } }).select('email').lean();
-  const recipients = [...new Set(admins.map((user) => String(user.email || '').trim().toLowerCase()).filter(Boolean))];
-  if (!recipients.length) return { skipped: true, reason: 'no-admin-recipients' };
+  const adminEmails = [...new Set(admins.map((user) => String(user.email || '').trim().toLowerCase()).filter(Boolean))];
+  const recipients = getLeadEmailRecipients(lead);
+  if (!recipients.length) return { skipped: true, reason: 'no-lead-email-recipients' };
   const creatorEmail = String(creator?.email || lead?.createdByEmail || '').trim().toLowerCase();
+  const cc = [...new Set([creatorEmail, ...adminEmails].filter((email) => email && !recipients.includes(email)))];
   const content = buildLeadIntroductionEmail(lead);
   await sendMail(recipients, content.subject, content.html, {
     branded: false,
-    cc: creatorEmail ? [creatorEmail] : [],
+    cc,
     attachments: getIntroductionAttachments()
   });
-  return { sent: true, recipients, cc: creatorEmail ? [creatorEmail] : [], attachments: [EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME] };
+  return { sent: true, recipients, cc, attachments: [EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME] };
 }
 
-module.exports = { EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME, buildLeadIntroductionEmail, getIntroductionAttachments, sendLeadIntroductionEmail };
+module.exports = { EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME, buildLeadIntroductionEmail, getIntroductionAttachments, getLeadEmailRecipients, sendLeadIntroductionEmail };

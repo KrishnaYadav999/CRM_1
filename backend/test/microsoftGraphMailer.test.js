@@ -141,3 +141,35 @@ test('large PDF attachments use a Microsoft Graph upload session before sending'
     }
   });
 });
+
+test('mixed-size PDFs keep the small attachment inline and upload only the large attachment', async () => {
+  await withGraphEnvironment(async () => {
+    const previousFetch = global.fetch;
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+      calls.push({ url: String(url), options });
+      if (String(url).includes('/oauth2/v2.0/token')) return new Response(JSON.stringify({ access_token: 'mixed-token', expires_in: 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (String(url).endsWith('/messages')) return new Response(JSON.stringify({ id: 'draft-mixed' }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      if (String(url).endsWith('/attachments/createUploadSession')) return new Response(JSON.stringify({ uploadUrl: 'https://upload.example/mixed' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (String(url) === 'https://upload.example/mixed') return new Response(null, { status: 201 });
+      if (String(url).endsWith('/messages/draft-mixed/send')) return new Response(null, { status: 202 });
+      throw new Error(`Unexpected Graph request: ${url}`);
+    };
+
+    try {
+      await sendMail('customer@example.com', 'Introduction', '<p>Attached</p>', {
+        branded: false,
+        attachments: [
+          { filename: 'small.pdf', contentType: 'application/pdf', content: Buffer.alloc(100_000, 1) },
+          { filename: 'large.pdf', contentType: 'application/pdf', content: Buffer.alloc(4_000_000, 1) }
+        ]
+      });
+      const draftCall = calls.find((call) => call.url.endsWith('/messages'));
+      const draftMessage = JSON.parse(draftCall.options.body);
+      assert.deepEqual(draftMessage.attachments.map((attachment) => attachment.name), ['small.pdf']);
+      assert.equal(calls.filter((call) => call.url.endsWith('/attachments/createUploadSession')).length, 1);
+    } finally {
+      global.fetch = previousFetch;
+    }
+  });
+});

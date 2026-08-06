@@ -29,6 +29,7 @@ const { ADMIN_ROLES } = require('../constants/roles');
 
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
+const INTRODUCTION_EMAIL_VERSION = 2;
 
 exports.listLeadDropdownOptions = async (_req, res) => {
   const rows = await LeadDropdownOption.find().sort({ field: 1, name: 1 }).lean();
@@ -625,13 +626,17 @@ exports.createLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    if (lead.workflowStatus === 'submitted' && !lead.introductionEmailSentAt) {
-      // Claim this one-time email before sending. Retries and later lead edits must
-      // never produce a duplicate introduction email for the same lead.
-      lead.introductionEmailSentAt = new Date();
-      await lead.save();
-      await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user })
-        .catch((error) => console.error('Lead introduction email failed', error));
+    if (lead.workflowStatus === 'submitted' && Number(lead.introductionEmailVersion || 0) < INTRODUCTION_EMAIL_VERSION) {
+      try {
+        const result = await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user });
+        if (result?.sent) {
+          lead.introductionEmailSentAt = new Date();
+          lead.introductionEmailVersion = INTRODUCTION_EMAIL_VERSION;
+          await lead.save();
+        }
+      } catch (error) {
+        console.error('Lead introduction email failed; it remains eligible for retry', error);
+      }
     }
     res.status(201).json({ ok: true, lead });
   } catch (err) {
@@ -730,6 +735,18 @@ exports.updateLead = async (req, res) => {
     const managerId = String(req.body?.assignedToCrmUserId || req.body?.assignedTo || lead.assignedTo || '').trim();
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
+    }
+    if (lead.workflowStatus === 'submitted' && Number(lead.introductionEmailVersion || 0) < INTRODUCTION_EMAIL_VERSION) {
+      try {
+        const result = await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user });
+        if (result?.sent) {
+          lead.introductionEmailSentAt = new Date();
+          lead.introductionEmailVersion = INTRODUCTION_EMAIL_VERSION;
+          await lead.save();
+        }
+      } catch (error) {
+        console.error('Lead introduction email retry failed; it remains eligible for retry', error);
+      }
     }
     if (req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead: lead.toObject(), submittedPayload: req.body, actor: req.user }).catch((error) => console.error('Financial year notification failed', error));

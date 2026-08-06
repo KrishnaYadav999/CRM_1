@@ -39,6 +39,7 @@ const LeadSchema = new mongoose.Schema({
   emailsSentCount: { type: Number, default: 0 },
   lastEmailSent: { type: String, trim: true },
   introductionEmailSentAt: { type: Date },
+  introductionEmailVersion: { type: Number, default: 0 },
   mobileNo1: { type: String, trim: true },
   mobileNo2: { type: String, trim: true },
   whatsappNo: { type: String, trim: true },

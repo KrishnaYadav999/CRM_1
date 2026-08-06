@@ -4,7 +4,8 @@ const {
   EPR_SERVICE_FILENAME,
   COMPANY_PROFILE_FILENAME,
   buildLeadIntroductionEmail,
-  getIntroductionAttachments
+  getIntroductionAttachments,
+  getLeadEmailRecipients
 } = require('../src/services/leadIntroductionEmail');
 
 test('lead introduction email is professionally formatted with the company closing', () => {
@@ -26,6 +27,13 @@ test('lead introduction email is professionally formatted with the company closi
   assert.doesNotMatch(email.html, /Team AnantTattva Private Limited/);
   assert.doesNotMatch(email.html, /CRM Lead:/);
   assert.doesNotMatch(email.html, /Lead ID:/);
+});
+
+test('lead introduction is addressed to unique customer contact emails', () => {
+  assert.deepEqual(getLeadEmailRecipients({
+    emails: 'Primary@Example.com',
+    contacts: [{ emails: 'primary@example.com' }, { emails: 'second@example.com' }]
+  }), ['primary@example.com', 'second@example.com']);
 });
 
 test('lead introduction includes both supplied PDF attachments', () => {
