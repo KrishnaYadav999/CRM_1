@@ -6,6 +6,7 @@ const PendingApproval = require('../models/PendingApproval');
 const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
 const { notifyPoSpecialApproval } = require('../services/poApprovalNotifications');
 const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
+const { notifyClientApprovalDecision } = require('../services/clientApprovalDecisionNotifications');
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
@@ -1227,6 +1228,8 @@ exports.updateClientApproval = async (req, res) => {
       );
     }
 
+    await notifyClientApprovalDecision({ record: approvalRecord || req.body, client: createdClient, status, remarks, reviewer: req.user })
+      .catch((error) => console.error('Client approval decision email failed', error));
     return res.json({ ok: true, client: createdClient });
   }
 
@@ -1275,6 +1278,8 @@ exports.updateClientApproval = async (req, res) => {
     );
   }
 
+  await notifyClientApprovalDecision({ record: approvalRecord || req.body, client, status, remarks, reviewer: req.user })
+    .catch((error) => console.error('Client approval decision email failed', error));
   res.json({ ok: true, client });
 };
 
@@ -1286,13 +1291,15 @@ exports.approveAllPendingClients = async (req, res) => {
 
   for (const record of records) {
     try {
-      await applyClientApprovalStatus(record, 'APPROVED', req.user?._id, remarks);
+      const approvedClient = await applyClientApprovalStatus(record, 'APPROVED', req.user?._id, remarks);
       record.approvalStatus = 'APPROVED';
       record.nextReminderAt = null;
       record.actionBy = req.user?._id;
       record.actionAt = new Date();
       record.remarks = remarks;
       await record.save();
+      await notifyClientApprovalDecision({ record, client: approvedClient, status: 'APPROVED', remarks, reviewer: req.user })
+        .catch((error) => console.error('Client bulk approval decision email failed', error));
       approved += 1;
     } catch (err) {
       failures.push({
