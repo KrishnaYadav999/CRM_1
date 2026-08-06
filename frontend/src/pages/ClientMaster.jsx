@@ -898,16 +898,29 @@ export default function ClientMaster() {
   }
 
   function findClientDraftForLead(selectedLead, leadValue) {
-    const leadKeys = getLeadIdentityValues(selectedLead).concat([
+    const strongLeadKeys = [
       leadValue,
-      selectedLead?.company,
-      selectedLead?.companyName,
-      selectedLead?.clientName
-    ]).map(normalizeDraftKey).filter(Boolean);
+      selectedLead?._id,
+      selectedLead?.id,
+      selectedLead?.sourceLeadId,
+      selectedLead?.leadCode,
+      selectedLead?.uniqueId,
+      selectedLead?.leadId
+    ].map(normalizeDraftKey).filter(Boolean);
     const matchedClient = clients.find((item) => {
       const data = readClientData(item);
-      const itemKeys = getClientDraftKeys(data, item.selectedLead);
-      if (!itemKeys.some((key) => leadKeys.includes(key))) return false;
+      const itemKeys = [
+        item.selectedLead,
+        typeof item.selectedLead === 'object' ? item.selectedLead?._id : '',
+        typeof item.selectedLead === 'object' ? item.selectedLead?.leadCode : '',
+        data.selectedLead,
+        data.selectedLeadSnapshot?.id,
+        data.selectedLeadSnapshot?.sourceLeadId,
+        data.selectedLeadSnapshot?.leadCode,
+        data.importMeta?.leadNumber,
+        data.importMeta?.uniqueId
+      ].map(normalizeDraftKey).filter(Boolean);
+      if (!itemKeys.some((key) => strongLeadKeys.includes(key))) return false;
       const targetIndustry = normalizeDraftKey(selectedLead?.industryType);
       const savedIndustry = normalizeDraftKey(data.selectedLeadSnapshot?.industryType);
       const targetEpr = normalizeDraftKey(selectedLead?.eprCategory);
@@ -926,7 +939,7 @@ export default function ClientMaster() {
     }
     return Array.isArray(selectedLead?.serviceSelections) && selectedLead.serviceSelections.length > 1
       ? null
-      : findCachedClientDraft(leadKeys);
+      : findCachedClientDraft(strongLeadKeys);
   }
 
   function handleLeadSelect(value, selectedService = null) {
@@ -960,33 +973,30 @@ export default function ClientMaster() {
     const company = selectedLead.company || selectedLead.companyName || selectedLead.clientName || '';
     const email = String(selectedLead.emails || selectedLead.email || '').split(/[,\s;]+/).find(Boolean) || '';
 
-    setClient((current) => ({
-      ...current,
+    setClient({
+      ...emptyClient,
       selectedLead: leadValue,
       basic: {
-        ...current.basic,
-        clientLegalName: current.basic.clientLegalName || company || '',
-        tradeName: current.basic.tradeName || company || '',
+        ...emptyClient.basic,
+        clientLegalName: company || '',
+        tradeName: company || '',
         piboCategory: selectedLead.piboCategory || '',
         eprCategory: selectedLead.eprCategory || ''
       },
       importMeta: {
-        ...current.importMeta,
-        leadNumber: current.importMeta?.leadNumber || leadCode,
-        uniqueId: current.importMeta?.uniqueId || leadCode,
-        companyName: current.importMeta?.companyName || company,
-        createdBy: current.importMeta?.createdBy || selectedLead.importedCreatedBy || selectedLead.referredBy || '',
-        assignedTo: current.importMeta?.assignedTo || selectedLead.assignedToText || selectedLead.assignedTo?.name || ''
+        leadNumber: leadCode,
+        uniqueId: leadCode,
+        companyName: company,
+        createdBy: selectedLead.importedCreatedBy || selectedLead.referredBy || '',
+        assignedTo: selectedLead.assignedToText || selectedLead.assignedTo?.name || ''
       },
       companyOverview: {
-        ...current.companyOverview,
-        companyName: current.companyOverview?.companyName || company || '',
-        productName: current.companyOverview?.productName || selectedLead.productName || '',
-        productManufacturer: current.companyOverview?.productManufacturer || selectedLead.productManufacturer || '',
-        category: Array.isArray(current.companyOverview?.category)
-          ? current.companyOverview.category
-          : companyOverviewCategories.includes(current.companyOverview?.category) ? [current.companyOverview.category] : [],
-        numberOfEmployees: current.companyOverview?.numberOfEmployees || selectedLead.numberOfEmployees || ''
+        ...emptyClient.companyOverview,
+        companyName: company || '',
+        productName: selectedLead.productName || '',
+        productManufacturer: selectedLead.productManufacturer || '',
+        category: [],
+        numberOfEmployees: selectedLead.numberOfEmployees || ''
       },
       selectedLeadSnapshot: {
         id: leadValue,
@@ -1003,44 +1013,26 @@ export default function ClientMaster() {
         source: selectedLead.source || ''
       },
       registeredAddress: {
-        ...current.registeredAddress,
-        address1: current.registeredAddress.address1 || selectedLead.addressLine1 || '',
-        address2: current.registeredAddress.address2 || selectedLead.addressLine2 || '',
-        address3: current.registeredAddress.address3 || selectedLead.addressLine3 || '',
-        state: current.registeredAddress.state || selectedLead.state || '',
-        city: current.registeredAddress.city || selectedLead.city || '',
-        pincode: current.registeredAddress.pincode || selectedLead.pinCode || ''
+        address1: selectedLead.addressLine1 || '', address2: selectedLead.addressLine2 || '', address3: selectedLead.addressLine3 || '',
+        state: selectedLead.state || '', city: selectedLead.city || '', pincode: selectedLead.pinCode || ''
       },
       communicationAddress: {
-        ...current.communicationAddress,
-        address1: current.communicationAddress.address1 || selectedLead.addressLine1 || '',
-        address2: current.communicationAddress.address2 || selectedLead.addressLine2 || '',
-        address3: current.communicationAddress.address3 || selectedLead.addressLine3 || '',
-        state: current.communicationAddress.state || selectedLead.state || '',
-        city: current.communicationAddress.city || selectedLead.city || '',
-        pincode: current.communicationAddress.pincode || selectedLead.pinCode || ''
+        address1: selectedLead.addressLine1 || '', address2: selectedLead.addressLine2 || '', address3: selectedLead.addressLine3 || '',
+        state: selectedLead.state || '', city: selectedLead.city || '', pincode: selectedLead.pinCode || ''
       },
       otp: {
-        ...current.otp,
-        mobile: current.otp.mobile || selectedLead.mobileNo1 || '',
-        personName: current.otp.personName || selectedLead.contactPerson || '',
-        designation: current.otp.designation || selectedLead.designation || ''
+        mobile: selectedLead.mobileNo1 || '', personName: selectedLead.contactPerson || '', designation: selectedLead.designation || ''
       },
       authorised: {
-        ...current.authorised,
-        name: current.authorised.name || selectedLead.contactPerson || '',
-        designation: current.authorised.designation || selectedLead.designation || '',
-        mobile: current.authorised.mobile || selectedLead.mobileNo1 || '',
-        email: current.authorised.email || email || ''
+        name: selectedLead.contactPerson || '', designation: selectedLead.designation || '', mobile: selectedLead.mobileNo1 || '', email
       },
       coordinating: {
-        ...current.coordinating,
-        name: current.coordinating.name || selectedLead.contactPerson || '',
-        designation: current.coordinating.designation || selectedLead.designation || '',
-        mobile: current.coordinating.mobile || selectedLead.mobileNo1 || '',
-        email: current.coordinating.email || email || ''
+        name: selectedLead.contactPerson || '', designation: selectedLead.designation || '', mobile: selectedLead.mobileNo1 || '', email
       }
-    }));
+    });
+    setEditingClientId('');
+    setNotice('Selected lead details loaded.');
+    setError('');
   }
 
   function setAdmin(field, value) {

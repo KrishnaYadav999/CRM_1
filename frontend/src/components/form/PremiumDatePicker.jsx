@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-const MONTH_FORMATTER = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' });
 const DISPLAY_FORMATTER = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+const MONTHS = Array.from({ length: 12 }, (_, month) => new Intl.DateTimeFormat('en-IN', { month: 'long' }).format(new Date(2000, month, 1)));
 
 function parseDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
@@ -73,11 +73,25 @@ export default function PremiumDatePicker({ value = '', onChange, disabled = fal
     setOpen(false);
   };
 
+  const minYear = parseDate(min)?.getFullYear() || 1900;
+  const maxYear = parseDate(max)?.getFullYear() || Math.max(new Date().getFullYear() + 50, 2100);
+  const years = useMemo(() => Array.from({ length: maxYear - minYear + 1 }, (_, index) => maxYear - index), [minYear, maxYear]);
+
   const popup = open && createPortal(
     <div ref={popupRef} className="premium-date-popover" style={{ top: position.top, left: position.left, width: position.width }} role="dialog" aria-label="Choose date">
       <div className="premium-date-popover__accent" />
       <div className="premium-date-popover__header">
-        <div><span>Choose a date</span><strong>{MONTH_FORMATTER.format(viewDate)}</strong></div>
+        <div className="premium-date-popover__title">
+          <span>Choose a date</span>
+          <div className="premium-date-popover__selectors">
+            <select aria-label="Select month" value={viewDate.getMonth()} onChange={(event) => setViewDate(new Date(viewDate.getFullYear(), Number(event.target.value), 1))}>
+              {MONTHS.map((month, index) => <option key={month} value={index}>{month}</option>)}
+            </select>
+            <select aria-label="Select year" value={viewDate.getFullYear()} onChange={(event) => setViewDate(new Date(Number(event.target.value), viewDate.getMonth(), 1))}>
+              {years.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </div>
+        </div>
         <div className="premium-date-popover__nav">
           <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} aria-label="Previous month"><ChevronLeft /></button>
           <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} aria-label="Next month"><ChevronRight /></button>
