@@ -11,6 +11,8 @@ const API_ENDPOINTS = {
     resendOtp: '/auth/resend-otp',
     forgotPassword: '/auth/forgot-password',
     resetPassword: '/auth/reset-password',
+    logout: '/auth/logout',
+    auditLogs: '/auth/admin/logs',
     users: '/auth/users',
     roles: '/auth/roles',
     adminUsers: '/auth/admin/users',

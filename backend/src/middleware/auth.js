@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { activityAudit } = require('./activityAudit');
 
 async function requireAuth(req, res, next) {
   try {
@@ -18,7 +19,8 @@ async function requireAuth(req, res, next) {
     }
 
     req.user = user;
-    next();
+    req.authSessionId = payload.sid || '';
+    activityAudit(req, res, next);
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }

@@ -30,6 +30,7 @@ import {
   FileCheck2,
   FileClock,
   FileText,
+  Download,
   Gauge,
   Eye,
   FolderOpen,
@@ -185,6 +186,79 @@ function buildLeadFollowUpItems(leads = []) {
         serviceContributor: service.createdByName || service.createdByEmail || ''
       }))
     })
+}
+
+function formatDuration(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds) || 0)
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remaining = seconds % 60
+  return [hours ? `${hours}h` : '', minutes ? `${minutes}m` : '', `${remaining}s`].filter(Boolean).join(' ')
+}
+
+function UserLogsModal({ onClose }) {
+  const [rows, setRows] = useState([])
+  const [modules, setModules] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [expanded, setExpanded] = useState('')
+  const [filters, setFilters] = useState({ search: '', role: 'all', status: 'all', module: 'all', from: '', to: '' })
+
+  async function loadLogs() {
+    setLoading(true); setError('')
+    try {
+      const params = Object.fromEntries(Object.entries(filters).filter(([key, value]) => key !== 'search' && value && value !== 'all'))
+      const response = await api.get(API_ENDPOINTS.auth.auditLogs, { params, timeout: 15000 })
+      setRows(response.data.rows || []); setModules(response.data.modules || [])
+    } catch (err) { setError(err?.response?.data?.error || 'Unable to load user logs.') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { loadLogs() }, [filters.role, filters.status, filters.module, filters.from, filters.to])
+  const visible = rows.filter((row) => `${row.name} ${row.email} ${row.team} ${row.ipAddress}`.toLowerCase().includes(filters.search.toLowerCase()))
+
+  function exportLogs() {
+    const sessionRows = visible.map((row) => ({
+      Name: row.name, Email: row.email, Role: row.role, Team: row.team, 'User Status': row.userStatus,
+      Login: row.loginAt ? new Date(row.loginAt).toLocaleString('en-IN') : '',
+      'Last Activity': row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleString('en-IN') : '',
+      Logout: row.logoutAt ? new Date(row.logoutAt).toLocaleString('en-IN') : '',
+      'Session Status': row.sessionStatus, Duration: formatDuration(row.durationSeconds), Activities: row.activityCount,
+      'IP Address': row.ipAddress, Device: row.device
+    }))
+    const activityRows = visible.flatMap((row) => (row.activities || []).map((item) => ({
+      Name: row.name, Email: row.email, Role: row.role, Module: item.module, Action: item.action,
+      Description: item.description, Date: item.occurredAt ? new Date(item.occurredAt).toLocaleString('en-IN') : '',
+      'HTTP Status': item.statusCode
+    })))
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sessionRows), 'Login Sessions')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(activityRows), 'CRM Activities')
+    XLSX.writeFile(workbook, `CRM_User_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="flex max-h-[94vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-5">
+        <div><p className="text-xs font-black uppercase tracking-[.24em] text-emerald-700">Security & activity audit</p><h2 className="mt-1 text-2xl font-black text-slate-950">User Login & CRM Logs</h2><p className="text-sm font-semibold text-slate-500">Login duration, last activity, logout, device and every CRM change.</p></div>
+        <div className="flex gap-2"><button type="button" onClick={exportLogs} disabled={!visible.length} className="inline-flex h-11 items-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-black text-white disabled:opacity-50"><Download className="h-4 w-4"/>Download Excel</button><button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5"/></button></div>
+      </header>
+      <div className="grid gap-2 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-6">
+        <input value={filters.search} onChange={(e) => setFilters((v) => ({ ...v, search: e.target.value }))} placeholder="Search name, email, IP" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold xl:col-span-2"/>
+        <select value={filters.role} onChange={(e) => setFilters((v) => ({ ...v, role: e.target.value }))} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="all">All roles</option>{[...new Set(rows.map((r) => r.role).filter(Boolean))].map((role) => <option key={role} value={role}>{roleLabels[role] || role}</option>)}</select>
+        <select value={filters.status} onChange={(e) => setFilters((v) => ({ ...v, status: e.target.value }))} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="all">All users</option><option value="active">Active users</option><option value="inactive">Inactive users</option></select>
+        <select value={filters.module} onChange={(e) => setFilters((v) => ({ ...v, module: e.target.value }))} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="all">All CRM modules</option>{modules.map((item) => <option key={item}>{item}</option>)}</select>
+        <button type="button" onClick={loadLogs} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white text-sm font-black text-emerald-700"><RefreshCw className="h-4 w-4"/>Refresh</button>
+        <label className="text-xs font-black text-slate-500">From<input type="date" value={filters.from} onChange={(e) => setFilters((v) => ({ ...v, from: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2"/></label>
+        <label className="text-xs font-black text-slate-500">To<input type="date" value={filters.to} onChange={(e) => setFilters((v) => ({ ...v, to: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2"/></label>
+      </div>
+      <div className="overflow-auto p-4">
+        {error && <ToastMessage type="error">{error}</ToastMessage>}
+        {loading ? <div className="p-12 text-center font-black text-slate-500">Loading user logs...</div> : <table className="w-full min-w-[1250px] border-separate border-spacing-y-2 text-left text-sm"><thead><tr className="text-xs uppercase text-slate-500">{['User','Role / Team','Login','Last activity','Logout','Duration','Status','Actions','IP / Device','Details'].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{visible.map((row) => <React.Fragment key={row.id}><tr className="bg-slate-50 font-semibold text-slate-700"><td className="rounded-l-xl px-3 py-3"><strong className="block text-slate-950">{row.name}</strong><small>{row.email}</small></td><td className="px-3"><strong>{roleLabels[row.role] || row.role}</strong><small className="block">{row.team}</small></td><td className="px-3">{formatDateTime(row.loginAt)}</td><td className="px-3">{formatDateTime(row.lastActivityAt)}</td><td className="px-3">{row.logoutAt ? formatDateTime(row.logoutAt) : '-'}</td><td className="px-3 font-black">{formatDuration(row.durationSeconds)}</td><td className="px-3"><span className={`rounded-full px-2 py-1 text-xs font-black ${row.sessionStatus === 'Online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{row.sessionStatus}</span></td><td className="px-3 font-black">{row.activityCount}</td><td className="max-w-[230px] px-3"><strong>{row.ipAddress || '-'}</strong><small className="block truncate" title={row.device}>{row.device || '-'}</small></td><td className="rounded-r-xl px-3"><button type="button" onClick={() => setExpanded((v) => v === row.id ? '' : row.id)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-black text-emerald-700">{expanded === row.id ? 'Hide' : 'View'}</button></td></tr>{expanded === row.id && <tr><td colSpan="10" className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{row.activities?.length ? row.activities.map((item) => <article key={item.id} className="rounded-xl bg-white p-3 shadow-sm"><div className="flex justify-between gap-2"><strong className="text-emerald-800">{item.module}</strong><small>{formatDateTime(item.occurredAt)}</small></div><p className="mt-1 font-bold text-slate-700">{item.description}</p></article>) : <p className="font-bold text-slate-500">No recorded CRM changes in this session.</p>}</div></td></tr>}</React.Fragment>)}</tbody></table>}
+        {!loading && !visible.length && <div className="p-12 text-center font-black text-slate-500">No logs match these filters.</div>}
+      </div>
+    </section>
+  </div>
 }
 
 function getFollowUpDueAt(item = {}) {
@@ -4242,6 +4316,7 @@ export default function AdminDashboard() {
   const [editingUser, setEditingUser] = useState(null)
   const [editForm, setEditForm] = useState(defaultUserForm)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [userLogsOpen, setUserLogsOpen] = useState(false)
   const [poDetailsRow, setPoDetailsRow] = useState(null)
   const [quotationDetailsRow, setQuotationDetailsRow] = useState(null)
   const [annualReturnRow, setAnnualReturnRow] = useState(null)
@@ -5275,6 +5350,7 @@ export default function AdminDashboard() {
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
                     </select>
+                    {canManageUsers && <button type="button" onClick={() => setUserLogsOpen(true)} className="btn-lift inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-black text-white"><Activity className="h-4 w-4"/>Logs</button>}
                     <button
                       type="button"
                       onClick={() => loadDashboard({ force: true })}
@@ -5455,6 +5531,7 @@ export default function AdminDashboard() {
           onSubmit={handleUpdateUser}
         />
       )}
+      {userLogsOpen && <UserLogsModal onClose={() => setUserLogsOpen(false)} />}
       {profileOpen && (
         <ProfileModal
           user={currentUser}

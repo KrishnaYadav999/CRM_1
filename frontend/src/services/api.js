@@ -28,6 +28,13 @@ export function getStoredToken() {
 }
 
 export function clearStoredSession() {
+  const token = getStoredToken()
+  if (token) {
+    fetch(`${baseURL}${API_ENDPOINTS.auth.logout}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      keepalive: true
+    }).catch(() => {})
+  }
   localStorage.removeItem('token')
   localStorage.removeItem('user')
   localStorage.removeItem('login_email')
