@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -1572,16 +1573,30 @@ function normalizeCompanyOverviewCategories(value) {
 
 function CompanyCategoryMultiSelect({ value, onChange }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const [menuPosition, setMenuPosition] = useState(null);
   const selected = normalizeCompanyOverviewCategories(value);
 
   useEffect(() => {
     if (!open) return undefined;
-    const closeOutside = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    const positionMenu = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuPosition({ left: rect.left, top: rect.bottom + 8, width: rect.width });
     };
+    const closeOutside = (event) => {
+      if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    positionMenu();
     document.addEventListener('mousedown', closeOutside);
-    return () => document.removeEventListener('mousedown', closeOutside);
+    window.addEventListener('resize', positionMenu);
+    window.addEventListener('scroll', positionMenu, true);
+    return () => {
+      document.removeEventListener('mousedown', closeOutside);
+      window.removeEventListener('resize', positionMenu);
+      window.removeEventListener('scroll', positionMenu, true);
+    };
   }, [open]);
 
   function toggle(option) {
@@ -1590,20 +1605,20 @@ function CompanyCategoryMultiSelect({ value, onChange }) {
 
   return (
     <Field label="Category">
-      <div ref={rootRef} className="relative">
-        <button type="button" onClick={() => setOpen((current) => !current)} className={`form-input flex min-h-12 h-auto items-center justify-between gap-3 py-2 text-left ${open ? 'border-emerald-400 ring-4 ring-emerald-100' : ''}`} aria-haspopup="listbox" aria-expanded={open}>
+      <div className="relative">
+        <button ref={triggerRef} type="button" onClick={() => setOpen((current) => !current)} className={`form-input flex min-h-12 h-auto items-center justify-between gap-3 py-2 text-left ${open ? 'border-emerald-400 ring-4 ring-emerald-100' : ''}`} aria-haspopup="listbox" aria-expanded={open}>
           <span className="flex min-w-0 flex-1 flex-wrap gap-2">
             {selected.length ? selected.map((option) => <span key={option} className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-black text-emerald-700">{option}</span>) : <span className="text-slate-400">Select categories</span>}
           </span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-emerald-700 transition ${open ? 'rotate-180' : ''}`} />
         </button>
-        {open && (
-          <div className="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-xl border border-emerald-100 bg-white p-2 shadow-2xl" role="listbox" aria-multiselectable="true">
+        {open && menuPosition && createPortal(
+          <div ref={menuRef} className="fixed z-[10050] overflow-hidden rounded-xl border border-emerald-100 bg-white p-2 shadow-2xl" style={menuPosition} role="listbox" aria-multiselectable="true">
             {companyOverviewCategories.map((option) => {
               const checked = selected.includes(option);
               return <button key={option} type="button" role="option" aria-selected={checked} onClick={() => toggle(option)} className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm font-black transition ${checked ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}><span>{option}</span>{checked && <Check className="h-4 w-4" />}</button>;
             })}
-          </div>
+          </div>, document.body
         )}
       </div>
     </Field>
