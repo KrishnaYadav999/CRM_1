@@ -743,7 +743,9 @@ export default function LeadGeneration() {
       eprCategory: first.eprCategory,
       applicantType: first.applicantType,
       piboParent: direct ? '' : first.applicantType,
+      piboCategoryParent: '',
       piboCategory: direct ? '' : first.piboCategory,
+      subApplicantType: direct ? '' : first.piboCategory,
       servicesOffered: first.servicesOffered,
       applicableService: first.applicableService
       ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
@@ -2109,11 +2111,20 @@ export default function LeadGeneration() {
                     <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>Service Category <b aria-label="required">*</b></span><span>Applicant Type <b aria-label="required">*</b></span><span>Sub Applicant Type <b aria-label="required">*</b></span><span>Services Offered <b aria-label="required">*</b></span><span>Financial Year</span><span>Action</span></div>
                     {serviceRows.map((row, index) => {
                       const currentIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
-                      const rowOwners = [row.createdByCrmUserId, row.createdByEmail, row.createdByName, (!row.createdByCrmUserId && index < frozenServiceRowCount) ? selectedSearchLead?.createdByCrmUserId : '', (!row.createdByName && index < frozenServiceRowCount) ? selectedSearchLead?.importedCreatedBy : ''].filter(Boolean).map((value) => String(value).toLowerCase());
+                      const rowOwners = [
+                        row.createdByCrmUserId, row.createdByEmail, row.createdByName,
+                        (!row.createdByCrmUserId && index < frozenServiceRowCount) ? selectedSearchLead?.createdByCrmUserId : '',
+                        (!row.createdByEmail && index < frozenServiceRowCount) ? selectedSearchLead?.createdByEmail : '',
+                        (!row.createdByName && index < frozenServiceRowCount) ? selectedSearchLead?.importedCreatedBy : '',
+                        (!row.createdByCrmUserId && index < frozenServiceRowCount) ? selectedSearchLead?.createdBy?._id : '',
+                        (!row.createdByEmail && index < frozenServiceRowCount) ? selectedSearchLead?.createdBy?.email : '',
+                        (!row.createdByName && index < frozenServiceRowCount) ? selectedSearchLead?.createdBy?.name : ''
+                      ].filter(Boolean).map((value) => String(value).toLowerCase());
                       // Ownership protection applies only to rows that were already
                       // persisted. A newly added row must remain editable even when
                       // the lead is being generated on behalf of another user.
-                      const ownedByAnotherUser = index < frozenServiceRowCount && rowOwners.length > 0 && !rowOwners.some((value) => currentIds.includes(value));
+                      const isAdminUser = adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase());
+                      const ownedByAnotherUser = !isAdminUser && index < frozenServiceRowCount && rowOwners.length > 0 && !rowOwners.some((value) => currentIds.includes(value));
                       const rowFrozen = ownedByAnotherUser;
                       const directOptions = directApplicantOptions(row.eprCategory);
                       const direct = Boolean(directOptions);
