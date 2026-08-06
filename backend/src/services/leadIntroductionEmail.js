@@ -15,13 +15,15 @@ function buildLeadIntroductionEmail(lead = {}) {
   return {
     subject: `Introduction - AnantTattva Private Limited | ${lead.company || 'New Lead'}`,
     html: `<div style="margin:0;background:#f8fafc;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#111827">
-      <div style="max-width:920px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:32px;font-size:15px;line-height:1.65">
+      <div style="max-width:920px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;font-size:15px;line-height:1.65">
+        <div style="margin:0;background:#f45a00;padding:14px 24px;text-align:center;color:#fff;font-size:30px;line-height:1.2;font-weight:800">AnantTattva Pvt Ltd</div>
+        <div style="padding:32px">
         <p style="margin:0 0 22px">Dear Sir,</p>
         <p style="margin:0 0 18px"><strong>Greetings from AnantTattva Private Limited!</strong></p>
         <p>It was a pleasure connecting with you.</p>
         <p>We are pleased to introduce <strong>AnantTattva Private Limited</strong>, India&rsquo;s leading Government Policy Advocacy organisation, providing specialised 360-degree services related to Circular Economy and Sustainability Policies across more than 70 countries.</p>
         <p style="margin-bottom:6px">AnantTattva is recognised for facilitating industry-stakeholder interactions with government authorities, including the Ministry of MSME, DCPC, FSSAI, MoEF&amp;CC, NITI Aayog, the Department of Customs, the Ministry of Heavy Industries and the Ministry of Finance, and for policies related to:</p>
-        ${numberedList(['EPR', 'ESG', 'PPWR', 'P-EPR'])}
+        ${numberedList(['EPR', 'ESG', 'PPWR', 'P-EPR', 'PPWR (Europe Policy)', 'P-EPR (UK Policy)'])}
         <p>We have a widespread network of more than 20,000 industry stakeholders, including trade associations and chambers of commerce. We regularly engage with them to spread awareness of government policy initiatives and support successful implementation, enabling industry and national growth.</p>
         <p style="margin-bottom:6px"><strong>Our specialised services include:</strong></p>
         ${numberedList(['EPR End-to-End Compliance, Annual Return and Registration', 'EPR Audit &amp; Regulatory Risk Management', 'Automated Compliance Risk Assessment', 'Policy Advocacy, Legal &amp; Regulatory Guidance and Government Representations', 'EPR corporate training for internal and external stakeholders', 'Sustainable Materials &amp; Circular Supply Chain Management', 'SKU-wise supply-chain material and financial forecasting', 'CTO/CTE compliance for internal operations and suppliers', 'ESG Sustainability Alignment', 'System data integration for SAP, Tally and ERP', 'EPR Due Diligence for Mergers &amp; Acquisitions, IPOs and Venture Capital'])}
@@ -36,6 +38,7 @@ function buildLeadIntroductionEmail(lead = {}) {
         <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;font-size:15px;line-height:1.7;color:#111827">
           <p style="margin:0">Thanks and regards,</p>
           <p style="margin:2px 0 0"><strong>Team AnantTattva</strong></p>
+        </div>
         </div>
       </div>
     </div>`

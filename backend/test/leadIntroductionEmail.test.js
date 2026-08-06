@@ -10,9 +10,12 @@ const {
 test('lead introduction email is professionally formatted with the company closing', () => {
   const email = buildLeadIntroductionEmail({ company: 'Example <Industries>', leadCode: 'ATPL-1001' });
   assert.match(email.subject, /Introduction - AnantTattva Private Limited/);
+  assert.match(email.html, /AnantTattva Pvt Ltd/);
   assert.match(email.html, /Greetings from AnantTattva Private Limited!/);
   assert.match(email.html, /EPR End-to-End Compliance/);
   assert.match(email.html, /PPWR/);
+  assert.match(email.html, /PPWR \(Europe Policy\)/);
+  assert.match(email.html, /P-EPR \(UK Policy\)/);
   assert.match(email.html, /Automated Compliance Risk Assessment/);
   assert.match(email.html, /System data integration for SAP, Tally and ERP/);
   assert.match(email.html, /Sustainability-Based Market Intelligence/);
