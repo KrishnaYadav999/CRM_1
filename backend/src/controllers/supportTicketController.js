@@ -6,6 +6,16 @@ const CATEGORIES = ['Lead', 'Quotation', 'Client Master', 'Proforma Invoice'];
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
 const STATUSES = ['Open', 'In Progress', 'Resolved', 'Closed'];
 
+function cleanAttachments(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 5).map((item) => ({
+    name: String(item?.name || '').trim().slice(0, 180),
+    url: String(item?.secureUrl || item?.url || '').trim(),
+    publicId: String(item?.publicId || '').trim().slice(0, 250),
+    type: String(item?.type || '').trim().slice(0, 100),
+    size: Math.max(0, Number(item?.size) || 0)
+  })).filter((item) => /^https:\/\//i.test(item.url) && (!item.type || item.type.startsWith('image/')));
+}
+
 function isAdmin(user) {
   return ADMIN_ROLES.includes(String(user?.role || '').toLowerCase());
 }
@@ -37,6 +47,7 @@ exports.createTicket = async (req, res) => {
   const ticket = await SupportTicket.create({
     ticketNumber: await nextTicketNumber(), category, subject, description, priority,
     referenceNumber: String(req.body.referenceNumber || '').trim(),
+    attachments: cleanAttachments(req.body.attachments),
     createdBy: req.user._id, createdByName: req.user.name || '', createdByEmail: req.user.email || '',
     messages: [{ message: description, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role }]
   });
@@ -62,11 +73,12 @@ exports.updateTicket = async (req, res) => {
   }
   if (!message && !req.body.status) return res.status(400).json({ error: 'Add a reply or status update' });
   await ticket.save();
+  const savedTicket = await SupportTicket.findById(ticket._id).lean();
   const completedStatusChanged = previousStatus !== ticket.status && ['Resolved', 'Closed'].includes(ticket.status);
   if (completedStatusChanged) {
-    await notifyTicketResolved(ticket.toObject(), req.user, message).catch((error) => console.error(`Support ticket ${ticket.ticketNumber} resolution email failed`, error.message));
+    await notifyTicketResolved(savedTicket, req.user, message).catch((error) => console.error(`Support ticket ${ticket.ticketNumber} resolution email failed`, error.message));
   }
-  res.json({ ok: true, ticket });
+  res.json({ ok: true, ticket: savedTicket });
 };
 
-module.exports.__test = { isAdmin };
+module.exports.__test = { isAdmin, cleanAttachments };

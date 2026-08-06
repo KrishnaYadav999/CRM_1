@@ -7,6 +7,14 @@ const TicketMessageSchema = new mongoose.Schema({
   authorRole: { type: String, trim: true, default: '' }
 }, { timestamps: true, _id: true });
 
+const TicketAttachmentSchema = new mongoose.Schema({
+  name: { type: String, trim: true, default: '' },
+  url: { type: String, required: true, trim: true },
+  publicId: { type: String, trim: true, default: '' },
+  type: { type: String, trim: true, default: '' },
+  size: { type: Number, default: 0 }
+}, { _id: false });
+
 const SupportTicketSchema = new mongoose.Schema({
   ticketNumber: { type: String, unique: true, index: true },
   category: { type: String, enum: ['Lead', 'Quotation', 'Client Master', 'Proforma Invoice'], required: true, index: true },
@@ -20,6 +28,7 @@ const SupportTicketSchema = new mongoose.Schema({
   createdByEmail: { type: String, trim: true, default: '' },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   resolvedAt: { type: Date },
+  attachments: { type: [TicketAttachmentSchema], default: [] },
   messages: { type: [TicketMessageSchema], default: [] }
 }, { timestamps: true });
 

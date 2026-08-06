@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const SupportTicket = require('../src/models/SupportTicket');
-const { isAdmin } = require('../src/controllers/supportTicketController').__test;
+const { isAdmin, cleanAttachments } = require('../src/controllers/supportTicketController').__test;
 const { SUPPORT_RECIPIENTS, buildRaisedEmail, buildResolvedEmail } = require('../src/services/supportTicketEmails');
 
 test('support tickets are mounted behind CRM authentication', () => {
@@ -24,6 +24,16 @@ test('only admin roles receive the all-ticket support view', () => {
 test('ticket model accepts every requested CRM support category', () => {
   const allowed = SupportTicket.schema.path('category').enumValues;
   assert.deepEqual(allowed, ['Lead', 'Quotation', 'Client Master', 'Proforma Invoice']);
+});
+
+test('ticket image attachments keep only valid secure image uploads', () => {
+  const attachments = cleanAttachments([
+    { name: 'error.png', secureUrl: 'https://res.cloudinary.com/demo/image/upload/error.png', type: 'image/png', size: 1200 },
+    { name: 'unsafe.png', url: 'javascript:alert(1)', type: 'image/png' },
+    { name: 'document.pdf', url: 'https://example.com/file.pdf', type: 'application/pdf' }
+  ]);
+  assert.equal(attachments.length, 1);
+  assert.equal(attachments[0].name, 'error.png');
 });
 
 test('new-ticket email goes to both IT mailboxes with user and issue details', () => {
