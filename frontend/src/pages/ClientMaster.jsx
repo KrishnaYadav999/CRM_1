@@ -1048,6 +1048,22 @@ export default function ClientMaster() {
     setViewMode('form');
   }
 
+  function openClientEdit(item) {
+    const savedData = readClientData(item);
+    setClient({
+      ...emptyClient,
+      ...savedData,
+      selectedLead: item.selectedLead?._id || item.selectedLead?.id || item.selectedLead || savedData.selectedLead || '',
+      adminControls: { ...emptyClient.adminControls, ...(item.adminControls || savedData.adminControls || {}) }
+    });
+    setEditingClientId(item._id || item.id || '');
+    setActiveTab('companyOverview');
+    setViewClient(null);
+    setError('');
+    setNotice('Client Master opened for editing.');
+    setViewMode('form');
+  }
+
   function openClientTab(tabId) {
     if (!['companyOverview', 'basic'].includes(tabId) && !isFirstStepReady) {
       setError('First enter Company Name, Client Legal Name, or Trade Name before moving to the next step.');
@@ -1371,6 +1387,8 @@ export default function ClientMaster() {
             error={error}
             onRefresh={loadPage}
             onView={setViewClient}
+            onEdit={openClientEdit}
+            canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
             onCreate={openClientForm}
             selectOptions={selectOptions}
           />

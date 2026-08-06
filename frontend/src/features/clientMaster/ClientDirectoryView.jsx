@@ -1,6 +1,6 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Building2, CheckCircle2, ChevronDown, Download, Eye, FileCheck2, FileText, FolderCheck, Plus, RefreshCw, Search, UserCheck, X } from 'lucide-react';
+import { Building2, CheckCircle2, ChevronDown, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Plus, RefreshCw, Search, UserCheck, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
 import {
   getAssignedName,
@@ -99,7 +99,7 @@ function clientMatchesSearch(item, term) {
     compactHaystack.includes(compactTerm);
 }
 
-function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRefresh, onView, onCreate, selectOptions = {}, totalClientCount }) {
+function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRefresh, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -297,6 +297,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRe
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
+                          {canEdit && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit Client Master" aria-label="Edit Client Master"><Edit3 className="h-4 w-4" /></button>}
                         </div>
                       </td>
                     </tr>
