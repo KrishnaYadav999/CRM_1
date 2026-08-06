@@ -1,16 +1,11 @@
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
 
-function escapeHtml(value) {
-  return String(value || '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-}
-
 function numberedList(items) {
   return `<ol style="margin:8px 0 20px;padding-left:28px">${items.map((item) => `<li style="margin:8px 0;line-height:1.55"><strong>${item}</strong></li>`).join('')}</ol>`;
 }
 
 function buildLeadIntroductionEmail(lead = {}) {
-  const company = escapeHtml(lead.company || 'New Lead');
   return {
     subject: `Introduction - AnantTattva Private Limited | ${lead.company || 'New Lead'}`,
     html: `<div style="margin:0;background:#f8fafc;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#111827">
@@ -29,8 +24,11 @@ function buildLeadIntroductionEmail(lead = {}) {
         <h3 style="margin:24px 0 8px;font-size:17px;text-decoration:underline">2. Business Advisory in the Sustainability Era</h3>
         ${numberedList(['Forward &amp; Backward Integration', 'Diversification', 'Government &amp; Private Collaboration', 'Mergers &amp; Acquisitions'])}
         <p>With our network of more than 20,000 stakeholders and our successful service track record, we are recognised by leading government departments such as Customs, MSME, DCPC and Pollution Control Boards, as well as non-government organisations including FICCI, industry trade associations and chambers of commerce. We are regarded as a preferred partner for creating mass awareness of EPR policy, compliance and audit mandates, and for supporting the development of sustainable material supply-chain ecosystems.</p>
-        <p style="margin-bottom:0">We are attaching a short brief for your reference and would be pleased to have a detailed discussion to explore the way forward.</p>
-        <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;color:#475569;font-size:13px"><strong>CRM Lead:</strong> ${company}${lead.leadCode ? ` &nbsp;|&nbsp; <strong>Lead ID:</strong> ${escapeHtml(lead.leadCode)}` : ''}</div>
+        <p>We are attaching a short brief for your reference and would be pleased to have a detailed discussion to explore the way forward.</p>
+        <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;font-size:15px;line-height:1.7;color:#111827">
+          <p style="margin:0">Thanks and regards,</p>
+          <p style="margin:2px 0 0"><strong>Team AnantTattva Private Limited</strong></p>
+        </div>
       </div>
     </div>`
   };
