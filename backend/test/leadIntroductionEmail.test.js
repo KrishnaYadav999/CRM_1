@@ -18,11 +18,11 @@ test('lead introduction email is professionally formatted with the company closi
   assert.doesNotMatch(email.html, /Lead ID:/);
 });
 
-test('lead introduction includes the supplied company profile PDF attachment', () => {
+test('lead introduction includes the supplied EPR compliance service PDF attachment', () => {
   const attachment = getCompanyProfileAttachment();
   assert.equal(attachment.filename, PROFILE_FILENAME);
   assert.equal(attachment.contentType, 'application/pdf');
   assert.ok(Buffer.isBuffer(attachment.content));
-  assert.ok(attachment.content.length > 5_000_000);
+  assert.ok(attachment.content.length > 100_000);
   assert.equal(attachment.content.subarray(0, 4).toString(), '%PDF');
 });

@@ -3,7 +3,7 @@ const path = require('path');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
 
-const PROFILE_FILENAME = 'Company Profile - AnantTattva Private Limited.pdf';
+const PROFILE_FILENAME = 'EPR Compliance Service.pdf';
 const PROFILE_PATH = path.join(__dirname, '..', '..', 'assets', PROFILE_FILENAME);
 
 function numberedList(items) {
@@ -31,7 +31,7 @@ function buildLeadIntroductionEmail(lead = {}) {
         <h3 style="margin:24px 0 8px;font-size:17px;text-decoration:underline">2. Business Advisory in the Sustainability Era</h3>
         ${numberedList(['Forward &amp; Backward Integration', 'Diversification', 'Government &amp; Private Collaboration', 'Mergers &amp; Acquisitions'])}
         <p>With our network of more than 20,000 stakeholders and our successful service track record, we are recognised by leading government departments such as Customs, MSME, DCPC and Pollution Control Boards, as well as non-government organisations including FICCI, industry trade associations and chambers of commerce. We are regarded as a preferred partner for creating mass awareness of EPR policy, compliance and audit mandates, and for supporting the development of sustainable material supply-chain ecosystems.</p>
-        <p>We are attaching a short brief for your reference and would be pleased to have a detailed discussion to explore the way forward.</p>
+        <p>Please find our <strong>EPR Compliance Service</strong> presentation attached for your reference. We would be pleased to arrange a detailed discussion to understand your requirements and explore the way forward.</p>
         <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;font-size:15px;line-height:1.7;color:#111827">
           <p style="margin:0">Thanks and regards,</p>
           <p style="margin:2px 0 0"><strong>Team AnantTattva</strong></p>
