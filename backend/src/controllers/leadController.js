@@ -600,14 +600,12 @@ exports.createLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    if (lead.workflowStatus === 'submitted') {
+    if (lead.workflowStatus === 'submitted' && !lead.introductionEmailSentAt) {
+      // Claim this one-time email before sending. Retries and later lead edits must
+      // never produce a duplicate introduction email for the same lead.
+      lead.introductionEmailSentAt = new Date();
+      await lead.save();
       await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user })
-        .then(async (result) => {
-          if (result?.sent) {
-            lead.introductionEmailSentAt = new Date();
-            await lead.save();
-          }
-        })
         .catch((error) => console.error('Lead introduction email failed', error));
     }
     res.status(201).json({ ok: true, lead });
@@ -677,16 +675,6 @@ exports.updateLead = async (req, res) => {
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
     await lead.save();
-    if (lead.workflowStatus === 'submitted' && beforeLead.workflowStatus !== 'submitted' && !lead.introductionEmailSentAt) {
-      await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user })
-        .then(async (result) => {
-          if (result?.sent) {
-            lead.introductionEmailSentAt = new Date();
-            await lead.save();
-          }
-        })
-        .catch((error) => console.error('Lead introduction email failed', error));
-    }
     if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
       await Lead.collection.updateOne({ _id: lead._id }, { $unset: { piboCategory: '' } });
     }

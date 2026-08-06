@@ -3502,6 +3502,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [followUpError, setFollowUpError] = useState('');
   const [assignmentSavingIndex, setAssignmentSavingIndex] = useState(-1);
+  const [detailKickoffDialog, setDetailKickoffDialog] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyData, setHistoryData] = useState({ events: [], summary: {} });
@@ -3554,7 +3555,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       .map((id) => ({ value: String(id), label }));
   });
 
-  async function assignStaffFromDetail(index, value) {
+  async function assignStaffFromDetail(index, value, kickoffEmailConsent = '') {
     const row = detailAssignments[index];
     const managerOwnsRow = currentUserTokens.includes(String(row?.assignedTo?._id || row?.assignedTo || ''));
     if ((!isManager || !managerOwnsRow) && !isAssignmentAdmin) return;
@@ -3564,7 +3565,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       ...item,
       assignedStaff: value,
       assignedStaffText: selected?.name || selected?.email || '',
-      assignedStaffEmail: selected?.email || ''
+      assignedStaffEmail: selected?.email || '',
+      kickoffEmailConsent: value ? kickoffEmailConsent : ''
     } : item);
     setAssignmentSavingIndex(index);
     try {
@@ -3603,6 +3605,22 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       setAssignmentSavingIndex(-1);
     }
   }
+
+  function requestStaffAssignmentFromDetail(index, value) {
+    if (!value) {
+      assignStaffFromDetail(index, '', '');
+      return;
+    }
+    setDetailKickoffDialog({ index, value });
+  }
+
+  function confirmDetailKickoffEmail(sendEmail) {
+    const pendingAssignment = detailKickoffDialog;
+    if (!pendingAssignment) return;
+    setDetailKickoffDialog(null);
+    assignStaffFromDetail(pendingAssignment.index, pendingAssignment.value, sendEmail ? 'yes' : 'no');
+  }
+
   const hasBusinessCard = Boolean(activeLead.businessCardUrl);
   const companyName = activeLead.company || 'Lead Details';
   const initials = companyName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'LD';
@@ -3813,6 +3831,21 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
 
   return (
     <div className="min-h-[calc(100vh-72px)] bg-[#f3f8f6] px-4 py-5 sm:px-6 lg:px-8">
+      {detailKickoffDialog && (
+        <div className="fixed inset-0 z-[10050] grid place-items-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm" onClick={() => setDetailKickoffDialog(null)}>
+          <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/25" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b border-slate-100 px-6 py-5">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Staff Assignment</p>
+              <h3 className="mt-1 text-2xl font-black text-slate-950">Send the kick-off email?</h3>
+              <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">The staff member will be assigned now. Would you also like to send the client the virtual kick-off email?</p>
+            </div>
+            <div className="flex flex-col-reverse gap-3 bg-slate-50 px-6 py-5 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => confirmDetailKickoffEmail(false)} className="min-h-11 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">No, Assign Without Email</button>
+              <button type="button" onClick={() => confirmDetailKickoffEmail(true)} className="min-h-11 rounded-lg bg-emerald-700 px-5 font-black text-white shadow-lg shadow-emerald-700/20">Yes, Assign &amp; Send Email</button>
+            </div>
+          </section>
+        </div>
+      )}
       <div className="relative z-[80] -mx-4 -mt-5 border-b border-slate-200/80 bg-white/90 px-4 py-4 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-center gap-3">
@@ -3937,7 +3970,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                           <td className="px-4 py-3">{row.assignedTo?.email || row.assignedToEmail || '-'}</td>
                           <td className="min-w-[270px] px-4 py-3">
                             {canAssignThisRow
-                              ? <SearchableSelect disabled={assignmentSavingIndex === index} value={row.assignedStaff?._id || row.assignedStaff || ''} options={selectedStaffOptions} placeholder="Select staff member" onChange={(value) => assignStaffFromDetail(index, value)} />
+                              ? <SearchableSelect allowCustom={false} disabled={assignmentSavingIndex === index} value={row.assignedStaff?._id || row.assignedStaff || ''} options={selectedStaffOptions} placeholder="Select staff member" onChange={(value) => requestStaffAssignmentFromDetail(index, value)} />
                               : <span className="font-black">{row.assignedStaff?.name || row.assignedStaffText || '-'}</span>}
                           </td>
                           <td className="px-4 py-3">{row.assignedStaff?.email || row.assignedStaffEmail || '-'}</td>

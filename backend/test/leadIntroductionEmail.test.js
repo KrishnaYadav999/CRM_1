@@ -9,7 +9,8 @@ test('lead introduction email is professionally formatted with the company closi
   assert.match(email.html, /EPR End-to-End Compliance/);
   assert.match(email.html, /Sustainability-Based Market Intelligence/);
   assert.match(email.html, /Thanks and regards,/);
-  assert.match(email.html, /Team AnantTattva Private Limited/);
+  assert.match(email.html, /Team AnantTattva/);
+  assert.doesNotMatch(email.html, /Team AnantTattva Private Limited/);
   assert.doesNotMatch(email.html, /CRM Lead:/);
   assert.doesNotMatch(email.html, /Lead ID:/);
 });

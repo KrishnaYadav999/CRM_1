@@ -27,7 +27,7 @@ function buildLeadIntroductionEmail(lead = {}) {
         <p>We are attaching a short brief for your reference and would be pleased to have a detailed discussion to explore the way forward.</p>
         <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;font-size:15px;line-height:1.7;color:#111827">
           <p style="margin:0">Thanks and regards,</p>
-          <p style="margin:2px 0 0"><strong>Team AnantTattva Private Limited</strong></p>
+          <p style="margin:2px 0 0"><strong>Team AnantTattva</strong></p>
         </div>
       </div>
     </div>`
