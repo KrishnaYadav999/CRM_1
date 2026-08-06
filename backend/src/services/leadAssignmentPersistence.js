@@ -78,7 +78,7 @@ function mergeAssignmentOverrides(rows = [], overrides = []) {
         industryType: serviceSelections[0]?.industryType || '',
         eprCategory: serviceSelections[0]?.eprCategory || '',
         applicantType: serviceSelections[0]?.applicantType || '',
-        piboCategory: serviceSelections[0]?.piboCategory || '',
+        piboCategory: serviceSelections[0]?.subApplicantType || serviceSelections[0]?.piboCategory || '',
         servicesOffered: serviceSelections[0]?.servicesOffered || '',
         firstAnnualReturnYearApplicable: serviceSelections[0]?.firstAnnualReturnYearApplicable || ''
       } : {})

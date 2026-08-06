@@ -313,7 +313,7 @@ async function remindServiceEndDates(now) {
         <td style="${cell}">${escapeHtml(formatServiceDate(row.serviceStartDate))}</td>
         <td style="${cell}color:#b91c1c">${escapeHtml(formatServiceDate(row.serviceEndDate))}</td>
         <td style="${cell}">${escapeHtml(row.eprCategory || '-')}</td>
-        <td style="${cell}">${escapeHtml(row.piboCategory || row.piboParent || '-')}</td>
+        <td style="${cell}">${escapeHtml(row.subApplicantType || row.piboCategory || row.piboParent || '-')}</td>
         <td style="${cell}color:#0f766e">${escapeHtml(row.serviceAddedBy || creator?.name || quotation.createdByName || 'CRM user')}</td>
         <td style="${cell}text-align:center">${escapeHtml(row.unit || '1')}</td>
         <td style="${cell}text-align:right;color:#0f766e">${escapeHtml(quotation.pricingMode === 'combined' ? (index === 0 ? formatInr(quotation.combinedBasicAmount) : 'Combined') : formatInr(row.basicAmount))}</td>

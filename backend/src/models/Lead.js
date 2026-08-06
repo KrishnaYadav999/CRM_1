@@ -13,7 +13,9 @@ const LeadSchema = new mongoose.Schema({
   eprCategory: { type: String, trim: true },
   piboParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
   piboCategoryParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
-  piboCategory: { type: String, trim: true },
+  // Canonical name for the selected PIBO/SIMP/PWP child. Legacy records may
+  // still contain piboCategory and are normalized by the lead controller.
+  subApplicantType: { type: String, trim: true },
   applicantType: { type: String, trim: true },
   serviceSelections: { type: Array, default: [] },
   servicesOffered: { type: String, trim: true },

@@ -5299,6 +5299,11 @@ export default function AdminDashboard() {
                   {visibleUsers.length ? visibleUsers.map((user) => {
                     const id = user._id || user.id
                     const initial = (user.name || user.email || 'U').slice(0, 1).toUpperCase()
+                    const assignedTeams = teams
+                      .filter((team) => [team.manager, team.operationHead, ...(team.members || [])]
+                        .some((entry) => String(entry?._id || entry?.id || entry || '') === String(id)))
+                      .map((team) => team.name)
+                    const department = assignedTeams.length ? assignedTeams.join(', ') : (user.team || 'No team assigned')
                     return (
                       <article key={id} className="relative overflow-visible rounded-xl border border-emerald-100 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl hover:shadow-emerald-900/10">
                         <div className="min-h-24 rounded-t-xl bg-emerald-50 p-4">
@@ -5326,7 +5331,7 @@ export default function AdminDashboard() {
                             <div className="grid grid-cols-2 gap-4 border-b border-slate-200 pb-3">
                               <div>
                                 <p className="text-xs font-bold text-slate-500">Department</p>
-                                <p className="mt-1 truncate text-sm font-black text-slate-950">{user.team || 'No team assigned'}</p>
+                                <p className="mt-1 text-sm font-black text-slate-950" title={department}>{department}</p>
                               </div>
                               <div>
                                 <p className="text-xs font-bold text-slate-500">Created Date</p>

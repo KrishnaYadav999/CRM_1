@@ -19,7 +19,7 @@ function latestFinancialYearRow(lead = {}) {
     industryType: service.industryType || '-',
     eprCategory: service.eprCategory || '-',
     applicantType: service.applicantType || '-',
-    piboCategory: service.piboCategory || 'Not applicable',
+    piboCategory: service.subApplicantType || service.piboCategory || 'Not applicable',
     servicesOffered: service.servicesOffered || '-',
     generatedBy: service.leadGeneratedBy || lead.importedCreatedBy || lead.createdByName || '-',
     closedBy: service.closedByName || assignment.closedByText || lead.closedByText || '-',

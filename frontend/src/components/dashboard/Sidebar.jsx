@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BriefcaseBusiness, ChevronDown, ChevronsLeft, Gauge, X } from 'lucide-react'
 import { adminRoles, navSections } from '../../constants/dashboard'
-import SidebarChatbot from './SidebarChatbot'
 
 export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onClose, dashboardMode = 'operations', onDashboardModeChange }) {
   const location = useLocation()
@@ -318,8 +317,6 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
           </div>
         ))}
       </nav>
-
-      <SidebarChatbot collapsed={collapsed} />
 
     </div>
   )

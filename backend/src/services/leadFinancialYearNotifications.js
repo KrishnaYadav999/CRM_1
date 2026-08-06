@@ -18,7 +18,7 @@ function rowsFor(lead, fallback = {}) {
     industryType: row.industryType || '-',
     eprCategory: row.eprCategory || '-',
     applicantType: row.applicantType || '-',
-    piboCategory: row.piboCategory || 'Not applicable',
+    piboCategory: row.subApplicantType || row.piboCategory || 'Not applicable',
     servicesOffered: row.servicesOffered || '-',
     generatedBy: row.leadGeneratedBy || fallback.generatedBy || lead.importedCreatedBy || lead.createdByName || '-',
     manager: row.assignedManagerName || assignment.assignedToText || lead.assignedToText || '-',

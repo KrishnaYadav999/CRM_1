@@ -71,6 +71,7 @@ function cleanBody(body) {
     'piboParent',
     'piboCategoryParent',
     'piboCategory',
+    'subApplicantType',
     'applicantType',
     'serviceSelections',
     'servicesOffered',
@@ -143,7 +144,7 @@ function cleanBody(body) {
           industryType: String(row?.industryType || '').trim(),
           eprCategory: String(row?.eprCategory || '').trim(),
           applicantType: String(row?.applicantType || '').trim(),
-          piboCategory: String(row?.piboCategory || '').trim(),
+          subApplicantType: String(row?.subApplicantType || row?.piboCategory || '').trim(),
           servicesOffered: String(row?.servicesOffered || '').trim(),
           applicableService: String(row?.applicableService || '').trim(),
           firstAnnualReturnYearApplicable: String(row?.firstAnnualReturnYearApplicable || '').trim(),
@@ -223,27 +224,29 @@ function cleanBody(body) {
     data.industryType = primaryService.industryType || data.industryType;
     data.eprCategory = primaryService.eprCategory || data.eprCategory;
     data.applicantType = primaryService.applicantType || data.applicantType;
-    data.piboCategory = primaryService.piboCategory || data.piboCategory;
+    data.subApplicantType = primaryService.subApplicantType || data.subApplicantType || data.piboCategory;
     data.servicesOffered = primaryService.servicesOffered || data.servicesOffered;
     data.firstAnnualReturnYearApplicable = primaryService.firstAnnualReturnYearApplicable || data.firstAnnualReturnYearApplicable;
   }
-  data.piboParent = normalizeParent(data.piboParent || data.piboCategoryParent) || inferPiboParent(data.piboCategory) || undefined;
+  data.subApplicantType = String(data.subApplicantType || data.piboCategory || '').trim();
+  data.piboParent = normalizeParent(data.piboParent || data.piboCategoryParent) || inferPiboParent(data.subApplicantType) || undefined;
   if (/\btyre\b/i.test(String(data.eprCategory || '')) && ['Producer', 'Recycler', 'Retreader'].includes(data.applicantType)) {
     const compatibility = data.applicantType === 'Producer'
-      ? { piboParent: 'PIBO', piboCategory: 'Producer' }
+      ? { piboParent: 'PIBO', subApplicantType: 'Producer' }
       : data.applicantType === 'Recycler'
-        ? { piboParent: 'PWP', piboCategory: 'Recycler' }
-        : { piboParent: 'PWP', piboCategory: 'PWP' };
+        ? { piboParent: 'PWP', subApplicantType: 'Recycler' }
+        : { piboParent: 'PWP', subApplicantType: 'PWP' };
     Object.assign(data, compatibility);
   }
   delete data.piboCategoryParent;
+  delete data.piboCategory;
   return data;
 }
 
 function validateSubmittedLead(data) {
   const missing = REQUIRED_FIELDS.filter((field) => !data[field]);
   if (missing.length) return `Missing required fields: ${missing.join(', ')}`;
-  if (!usesDirectApplicantType(data.eprCategory) && !data.piboCategory) return 'PIBO/SIMP/PWP Category is required';
+  if (!usesDirectApplicantType(data.eprCategory) && !data.subApplicantType) return 'Sub Applicant Type is required';
   const addresses = Array.isArray(data.addresses) && data.addresses.length ? data.addresses : [data];
   if (addresses.some((row) => !/^\d{6}$/.test(String(row?.pinCode || '')))) return 'Every PIN code must contain exactly 6 digits';
   const contacts = Array.isArray(data.contacts) && data.contacts.length ? data.contacts : [data];
@@ -255,14 +258,14 @@ function validateSubmittedLead(data) {
   return '';
 }
 
-const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'firstAnnualReturnYearApplicable'];
+const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'subApplicantType', 'servicesOffered', 'firstAnnualReturnYearApplicable'];
 
 function validateDuplicateServiceSelections(data = {}) {
   const rows = Array.isArray(data.serviceSelections) ? data.serviceSelections : [];
   const seen = new Map();
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index] || {};
-    const complete = SERVICE_DUPLICATE_FIELDS.every((field) => field === 'piboCategory' && usesDirectApplicantType(row.eprCategory)
+    const complete = SERVICE_DUPLICATE_FIELDS.every((field) => field === 'subApplicantType' && usesDirectApplicantType(row.eprCategory)
       ? true
       : Boolean(String(row[field] || '').trim()));
     if (!complete) continue;
@@ -310,10 +313,10 @@ async function createLeadRecord(rawBody, userId) {
   data.companyIdentity = normalizeCompanyIdentity(data.company);
   data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : 'draft';
 
-  if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.piboCategory) {
-    const selection = await validatePiboSelection({ parent: data.piboParent, child: data.piboCategory, required: true });
+  if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.subApplicantType) {
+    const selection = await validatePiboSelection({ parent: data.piboParent, child: data.subApplicantType, required: true });
     data.piboParent = selection.piboParent;
-    data.piboCategory = selection.piboCategory;
+    data.subApplicantType = selection.piboCategory;
   }
 
   if (data.workflowStatus === 'submitted') {
@@ -385,7 +388,7 @@ function bulkServiceRow(source = {}, user = {}) {
     industryType: String(source.industryType || '').trim(),
     eprCategory: String(source.eprCategory || '').trim(),
     applicantType: String(source.applicantType || source.piboParent || '').trim(),
-    piboCategory: String(source.piboCategory || '').trim(),
+    subApplicantType: String(source.subApplicantType || source.piboCategory || '').trim(),
     servicesOffered: String(source.servicesOffered || '').trim(),
     applicableService: String(source.applicableService || '').trim(),
     firstAnnualReturnYearApplicable: String(source.firstAnnualReturnYearApplicable || '').trim(),
@@ -430,12 +433,12 @@ function resolveBulkCreator(userIndex, value) {
 }
 
 function hasBulkService(row = {}) {
-  return ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable']
+  return ['industryType', 'eprCategory', 'applicantType', 'subApplicantType', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable']
     .some((key) => String(row[key] || '').trim());
 }
 
 function bulkServiceIdentity(row = {}) {
-  return ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable']
+  return ['industryType', 'eprCategory', 'applicantType', 'subApplicantType', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable']
     .map((key) => String(row[key] || '').trim().toLowerCase()).join('|');
 }
 
@@ -513,7 +516,7 @@ function buildBulkMergeData(existing = {}, incoming = {}, user = {}) {
     serviceSelections: services,
     assignments: assignments,
     industryType: primary.industryType || existing.industryType || '', eprCategory: primary.eprCategory || existing.eprCategory || '',
-    applicantType: primary.applicantType || existing.applicantType || '', piboCategory: primary.piboCategory || existing.piboCategory || '',
+    applicantType: primary.applicantType || existing.applicantType || '', subApplicantType: primary.subApplicantType || existing.subApplicantType || existing.piboCategory || '',
     servicesOffered: primary.servicesOffered || existing.servicesOffered || '', firstAnnualReturnYearApplicable: primary.firstAnnualReturnYearApplicable || existing.firstAnnualReturnYearApplicable || '',
     addresses: Array.isArray(existing.addresses) && existing.addresses.length ? existing.addresses : [bulkAddressRow(incoming)],
     contacts: Array.isArray(existing.contacts) && existing.contacts.length ? existing.contacts : [bulkContactRow(incoming)],
@@ -644,21 +647,27 @@ exports.updateLead = async (req, res) => {
       if (error) return res.status(400).json({ error });
     }
 
-    if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.piboCategory) {
+    if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.subApplicantType) {
       const current = lead.toObject();
       const selection = await validatePiboSelection({
         parent: data.piboParent || current.piboParent || current.piboCategoryParent,
-        child: data.piboCategory || current.piboCategory,
+        child: data.subApplicantType || current.subApplicantType || current.piboCategory,
         required: true
       });
       data.piboParent = selection.piboParent;
-      data.piboCategory = selection.piboCategory;
+      data.subApplicantType = selection.piboCategory;
     }
 
     Object.assign(lead, data);
+    if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
+      lead.piboCategory = undefined;
+    }
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
     await lead.save();
+    if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
+      await Lead.collection.updateOne({ _id: lead._id }, { $unset: { piboCategory: '' } });
+    }
     if (followUpChangedIndexes.length) {
       const completedAt = new Date().toISOString();
       await CalendarItem.updateMany({
@@ -1077,6 +1086,7 @@ exports.updateDuplicateLeadApproval = async (req, res) => {
 
 exports._test = {
   usesDirectApplicantType,
+  cleanBody,
   validateSubmittedLead,
   bulkServiceRow,
   normalizeLegacyBulkServices,

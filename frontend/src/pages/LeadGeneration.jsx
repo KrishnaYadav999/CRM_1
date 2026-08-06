@@ -324,7 +324,7 @@ function createServiceSelection(source = {}) {
     industryType: source.industryType || '',
     eprCategory: source.eprCategory || '',
     applicantType: source.applicantType || source.piboParent || source.piboCategoryParent || '',
-    piboCategory: source.piboCategory || '',
+    piboCategory: source.subApplicantType || source.piboCategory || '',
     servicesOffered: source.servicesOffered || '',
     applicableService: source.applicableService || '',
     firstAnnualReturnYearApplicable: source.firstAnnualReturnYearApplicable || '',
@@ -1351,7 +1351,7 @@ export default function LeadGeneration() {
 
   function downloadLeadImportTemplate() {
     const headers = [
-      'Communication Mode', 'Lead ID', 'Status', 'Company', 'Industry', 'EPR Category', 'Applicant Type', 'PIBO Subcategory',
+      'Communication Mode', 'Lead ID', 'Status', 'Company', 'Industry', 'Service Category', 'Applicant Type', 'Sub Applicant Type',
       'Services Offered', 'Applicable Services', 'Financial Year', 'Address', 'Address Line 2', 'Address Line 3', 'Landmark',
       'State', 'City', 'PIN', 'Existing Client', 'Website', 'Salutation', 'Contact Person', 'Designation', 'Email',
       'Emails Sent Count', 'Last Email Sent', 'Mobile 1', 'Mobile 2', 'WhatsApp No', 'LinkedIn URL', 'Business Card URL', 'Referred By', 'Source', 'Notes',
@@ -1365,8 +1365,8 @@ export default function LeadGeneration() {
         const assignment = assignments[index] || createAssignmentRow(item);
         return {
           'Communication Mode': item.communicationMode || '', 'Lead ID': item.sourceLeadId || item.leadCode || '', Status: item.status || '', Company: item.company || '',
-          Industry: service.industryType || '', 'EPR Category': service.eprCategory || '', 'Applicant Type': service.applicantType || '',
-          'PIBO Subcategory': service.piboCategory || '', 'Services Offered': service.servicesOffered || '', 'Applicable Services': service.applicableService || '',
+          Industry: service.industryType || '', 'Service Category': service.eprCategory || '', 'Applicant Type': service.applicantType || '',
+          'Sub Applicant Type': service.piboCategory || '', 'Services Offered': service.servicesOffered || '', 'Applicable Services': service.applicableService || '',
           'Financial Year': service.firstAnnualReturnYearApplicable || '', Address: item.addressLine1 || item.addresses?.[0]?.addressLine1 || '',
           'Address Line 2': item.addressLine2 || item.addresses?.[0]?.addressLine2 || '', 'Address Line 3': item.addressLine3 || item.addresses?.[0]?.addressLine3 || '',
           Landmark: item.landmark || item.addresses?.[0]?.landmark || '', State: item.state || item.addresses?.[0]?.state || '', City: item.city || item.addresses?.[0]?.city || '',
@@ -1394,7 +1394,7 @@ export default function LeadGeneration() {
         : field === 'PIN' ? 'Use exactly 6 digits. Format the Excel cell as Text to preserve leading zeroes.'
             : field === 'Assigned To' ? 'Enter an existing CRM staff name; exact names are matched automatically.'
             : field === 'Created By' ? 'Bulk upload only: enter the exact active CRM user name, email, or CRM User ID. This user becomes the lead creator and receives pending-lead reminders.'
-            : ['Industry', 'EPR Category', 'Applicant Type', 'PIBO Subcategory', 'Services Offered', 'Applicable Services', 'Financial Year'].includes(field) ? 'This value belongs to the service row.'
+            : ['Industry', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Applicable Services', 'Financial Year'].includes(field) ? 'This value belongs to the service row.'
               : 'Optional for draft import; existing CRM business rules remain applicable.'
     }));
     const helpSheet = XLSX.utils.json_to_sheet(helpRows);
@@ -1981,7 +1981,7 @@ export default function LeadGeneration() {
             <div className="min-w-0">
               <p className="text-sm font-black text-slate-950">Excel upload (Lead Import)</p>
               <p className="mt-1 text-xs font-bold text-slate-500">
-                Upload .xlsx with headers: Company, Status, Applicant Type, PIBO Subcategory, Services Offered, Address, City, PIN, State, Contact Person. Old “PIBO Category” files remain supported.
+                Upload .xlsx with headers: Company, Status, Service Category, Applicant Type, Sub Applicant Type, Services Offered, Address, City, PIN, State, Contact Person.
               </p>
               {excelFileName && (
                 <p className="mt-2 text-xs font-black text-slate-700">
@@ -2116,7 +2116,7 @@ export default function LeadGeneration() {
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.industryType} options={withCustomOptions('industryType', options.industryType)} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'industryType', label: 'Industry Type', scope: 'service', index, targetField: 'industryType' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Industry Type</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen} value={row.eprCategory} options={serviceCategoryOptions} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select Service Category" />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openCatalogDialog('category', index)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Service Category</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.applicantType} options={withCustomOptions('applicantType', applicantOptions)} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder="Select Applicant Type" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'applicantType', label: 'Applicant Type', scope: 'service', index, targetField: 'applicantType' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Applicant Type</button>}</div>
-                        {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />No separate SIMP category required</div> : <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} />{canManageServiceCatalog && !rowFrozen && row.applicantType && <button type="button" onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: 'Sub Applicant Type' }); }} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Sub Applicant Type</button>}</div>}
+                        {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />Not applicable</div> : <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} />{canManageServiceCatalog && !rowFrozen && row.applicantType && <button type="button" onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: 'Sub Applicant Type' }); }} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Sub Applicant Type</button>}</div>}
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen || !row.eprCategory} value={row.servicesOffered} options={servicesForCategory(row.eprCategory)} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder={row.eprCategory ? 'Select Services Offered' : 'Select category first'} />{canManageServiceCatalog && !rowFrozen && row.eprCategory && <button type="button" onClick={() => openCatalogDialog('service', index, row.eprCategory)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Services Offered</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.firstAnnualReturnYearApplicable || ''} options={withCustomOptions('financialYear', annualReturnYearOptions)} onChange={(value) => updateServiceRow(index, 'firstAnnualReturnYearApplicable', value)} placeholder="Select FY" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'financialYear', label: 'Financial Year', scope: 'service', index, targetField: 'firstAnnualReturnYearApplicable' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Financial Year</button>}</div>
                         <button type="button" disabled={rowFrozen || serviceRows.length === 1} onClick={() => removeServiceRow(index)} className="lead-matrix-remove" title="Remove row"><X className="h-4 w-4" /></button>
@@ -3006,8 +3006,8 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
       Industry: item.industryType || '',
       Status: item.status || '',
       'Applicant Type': item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory),
-      'PIBO Subcategory': item.piboCategory || '',
-      'EPR Category': item.eprCategory || '',
+      'Sub Applicant Type': item.subApplicantType || item.piboCategory || '',
+      'Service Category': item.eprCategory || '',
       'Services Offered': item.servicesOffered || '',
       Address: item.addressLine1 || '',
       City: item.city || '',
@@ -3094,7 +3094,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     ['PIN', 'w-[95px]'],
                     ['State', 'w-[130px]'],
                     ['Applicant Type', 'w-[150px]'],
-                    ['EPR Category', 'w-[170px]'],
+                    ['Service Category', 'w-[170px]'],
                     ['Contact Person', 'w-[170px]'],
                     ['Mobile 1', 'w-[130px]'],
                     ['Email', 'w-[210px]'],
@@ -3575,7 +3575,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     ['Company', activeLead.company, Building2],
     ['Industry', activeLead.industryType, Building2],
     ['Status', activeLead.status, CheckCircle2, 'pill'],
-    ['EPR Category', activeLead.eprCategory, FileText],
+    ['Service Category', activeLead.eprCategory, FileText],
     ['Applicant Type', activeLead.piboCategory, FileText],
     ['Services Offered', activeLead.servicesOffered, CheckCircle2],
     ['Source', activeLead.source, FileText]
@@ -3833,7 +3833,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   <div className="overflow-auto rounded-xl border border-slate-200">
                   <div className="border-b border-slate-200 bg-emerald-50 px-5 py-4"><h3 className="font-black text-slate-900">Service &amp; Applicant</h3></div>
                   <table className="w-full min-w-[980px] text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'EPR Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Applicable Services', 'Financial Year'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Applicable Services', 'Financial Year'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
                     <tbody>{(activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)]).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3">{row.piboCategory || 'No separate sub applicant type'}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-bold text-emerald-700">{row.applicableService || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody>
                   </table>
                   </div>
@@ -3847,7 +3847,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   </div>
                   <table className="w-full min-w-[1850px] text-left text-sm">
                     <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                      <tr>{['#', 'Industry Type', 'EPR Category', detailApplicantLabel, 'Services Offered', 'Applicable Services', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
+                      <tr>{['#', 'Industry Type', 'Service Category', detailApplicantLabel, 'Services Offered', 'Applicable Services', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
                     </thead>
                     <tbody>
                       {detailAssignments.map((row, index) => {
@@ -4337,10 +4337,12 @@ function mapExcelRowToLead(row, staff) {
     company: 'company',
     industry: 'industryType',
     industrytype: 'industryType',
+    servicecategory: 'eprCategory',
     eprcategory: 'eprCategory',
     applicanttype: 'applicantType',
     pibocategorytype: 'piboParent',
     pibosubcategory: 'piboCategory',
+    subapplicanttype: 'piboCategory',
     pibocategoryparent: 'piboParent',
     piboparent: 'piboParent',
     pibocategory: 'piboCategory',

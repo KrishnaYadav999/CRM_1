@@ -16,13 +16,13 @@ test('direct EPR applicant types submit without a separate PIBO category', () =>
   assert.equal(error, '');
 });
 
-test('plastic applicant hierarchy still requires a PIBO category', () => {
+test('plastic applicant hierarchy still requires a sub applicant type', () => {
   const error = _test.validateSubmittedLead({
     status: 'Qualified', company: 'Example Pvt Ltd', eprCategory: 'EPR - Plastic Waste',
     applicantType: 'PIBO', servicesOffered: 'EPR - Plastic Compliance',
     addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001'
   });
-  assert.equal(error, 'PIBO/SIMP/PWP Category is required');
+  assert.equal(error, 'Sub Applicant Type is required');
 });
 
 test('legacy top-level service and a different saved service are both preserved', () => {
@@ -58,6 +58,19 @@ test('new bulk lead creates matching service and assignment arrays as a draft', 
   assert.equal(created.assignments[0].assignedToText, 'Manager One');
   assert.equal(created.pinCode, '012345');
   assert.equal(created.workflowStatus, 'draft');
+  assert.equal(created.serviceSelections[0].subApplicantType, 'Producer');
+  assert.equal(Object.hasOwn(created.serviceSelections[0], 'piboCategory'), false);
+});
+
+test('lead persistence normalizes legacy PIBO category keys to sub applicant type', () => {
+  const cleaned = _test.cleanBody({
+    piboCategory: 'Producer',
+    serviceSelections: [{ eprCategory: 'Plastic Waste', piboCategory: 'Producer' }]
+  });
+  assert.equal(cleaned.subApplicantType, 'Producer');
+  assert.equal(cleaned.serviceSelections[0].subApplicantType, 'Producer');
+  assert.equal(Object.hasOwn(cleaned, 'piboCategory'), false);
+  assert.equal(Object.hasOwn(cleaned.serviceSelections[0], 'piboCategory'), false);
 });
 
 test('incomplete draft rows still reserve aligned service and assignment rows', () => {

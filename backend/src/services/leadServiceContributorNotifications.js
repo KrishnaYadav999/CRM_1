@@ -19,7 +19,7 @@ function serviceSignature(row = {}) {
     row.industryType,
     row.eprCategory,
     row.applicantType,
-    row.piboCategory,
+    row.subApplicantType || row.piboCategory,
     row.servicesOffered,
     row.applicableService,
     row.firstAnnualReturnYearApplicable
@@ -163,7 +163,7 @@ async function notifyAdditionalLeadServices({ beforeLead, afterLead, actor }) {
   const addedRows = addedServices.map((row) => `<tr>
     <td style="padding:10px;border-bottom:1px solid #e2e8f0">${escapeHtml(row.industryType || '-')}</td>
     <td style="padding:10px;border-bottom:1px solid #e2e8f0">${escapeHtml(row.eprCategory || '-')}</td>
-    <td style="padding:10px;border-bottom:1px solid #e2e8f0">${escapeHtml(row.applicantType || row.piboCategory || '-')}</td>
+    <td style="padding:10px;border-bottom:1px solid #e2e8f0">${escapeHtml(row.applicantType || row.subApplicantType || row.piboCategory || '-')}</td>
     <td style="padding:10px;border-bottom:1px solid #e2e8f0">${escapeHtml(row.servicesOffered || '-')}</td>
     <td style="padding:10px;border-bottom:1px solid #e2e8f0">${escapeHtml(row.applicableService || '-')}</td>
     <td style="padding:10px;border-bottom:1px solid #e2e8f0">${escapeHtml(row.firstAnnualReturnYearApplicable || '-')}</td>
