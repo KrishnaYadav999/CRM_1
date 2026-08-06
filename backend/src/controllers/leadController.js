@@ -29,7 +29,7 @@ const { ADMIN_ROLES } = require('../constants/roles');
 
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
-const INTRODUCTION_EMAIL_VERSION = 2;
+const INTRODUCTION_EMAIL_VERSION = 3;
 
 exports.listLeadDropdownOptions = async (_req, res) => {
   const rows = await LeadDropdownOption.find().sort({ field: 1, name: 1 }).lean();

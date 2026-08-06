@@ -1,6 +1,5 @@
 const express = require('express');
 const crypto = require('crypto');
-const path = require('path');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -41,11 +40,6 @@ router.get('/brand-logo', async (req, res) => {
   } catch (error) {
     return res.status(502).json({ error: 'Company logo is temporarily unavailable' });
   }
-});
-
-router.get('/company-profile', (_req, res) => {
-  const filename = 'Company Profile - AnantTattva Private Limited.pdf';
-  return res.download(path.join(__dirname, '..', '..', 'assets', filename), filename);
 });
 
 module.exports = router;
