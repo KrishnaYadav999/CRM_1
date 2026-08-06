@@ -800,21 +800,10 @@ export default function ClientMaster() {
     return candidates.some((candidate) => userTokens.includes(candidate));
   }
 
-  function getVisibleServiceRows(lead, user = currentUser) {
-    const services = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
+  function getVisibleServiceRows(lead) {
+    return Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
       ? lead.serviceSelections
       : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
-    if (!user || adminRoles.includes(String(user.role || '').toLowerCase())) return services;
-    const ownTokens = [user._id, user.id, user.crmUserId, user.userId, user.name, user.email]
-      .map(normalizePersonName).filter(Boolean);
-    const assignments = Array.isArray(lead?.assignments) ? lead.assignments : [];
-    const managerRole = ['manager', 'operation head', 'operations head', 'team manager'].includes(String(user.role || '').toLowerCase());
-    return services.filter((_, index) => {
-      const assignment = assignments[index] || assignments[assignments.length - 1] || {};
-      const staffTokens = [assignment.assignedStaff, assignment.assignedStaff?._id, assignment.assignedStaffText, assignment.assignedStaffEmail].map(normalizePersonName).filter(Boolean);
-      const managerTokens = [assignment.assignedTo, assignment.assignedTo?._id, assignment.assignedToText, assignment.assignedToEmail].map(normalizePersonName).filter(Boolean);
-      return staffTokens.some((token) => ownTokens.includes(token)) || (managerRole && managerTokens.some((token) => ownTokens.includes(token)));
-    });
   }
 
   async function loadPage() {
@@ -847,13 +836,7 @@ export default function ClientMaster() {
           || 'Unable to fetch saved clients.'
         );
       }
-      const scopedCrmClients = !adminRoles.includes(String(me?.role || '').toLowerCase())
-        ? crmClients.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
-        : crmClients;
-      const scopedCrmLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
-        ? crmLeads.filter((item) => recordBelongsToCurrentUser(item, me, staffList))
-        : crmLeads;
-      const visibleClients = enrichClientsFromLeads(getClientMasterRows(scopedCrmClients, []), scopedCrmLeads);
+      const visibleClients = enrichClientsFromLeads(getClientMasterRows(crmClients, []), crmLeads);
       setTotalClientCount(visibleClients.length);
       try {
         const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
@@ -864,7 +847,7 @@ export default function ClientMaster() {
         setAnnualReturnRecords([]);
         setClients(visibleClients);
       }
-      setLeads(scopedCrmLeads);
+      setLeads(crmLeads);
       try {
         const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);
         setQuotations(quotationsResponse.data.quotations || []);

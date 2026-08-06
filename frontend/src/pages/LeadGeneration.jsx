@@ -1280,11 +1280,8 @@ export default function LeadGeneration() {
       const crmLeads = crmLeadsResult.status === 'fulfilled'
         ? (crmLeadsResult.value.data.leads || [])
         : [];
-      const scopedCrmLeads = !adminRoles.includes(String(me?.role || '').toLowerCase())
-        ? crmLeads.filter((item) => leadBelongsToCurrentUser(item, me, staffList))
-        : crmLeads;
       setAllCcpLeads(crmLeads);
-      setLeads(scopedCrmLeads);
+      setLeads(crmLeads);
       if (crmLeadsResult.status === 'rejected') {
         setError(
           crmLeadsResult.reason?.response?.data?.detail
