@@ -83,14 +83,9 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                 const isOpen = Boolean(openGroups[item.label])
                 const hasChildren = Boolean(item.children?.length)
                 const isFlyoutOpen = activeFlyout === item.label
-                const isPrimaryActive =
-                  activeItem === item.label ||
-                  pathMatches(item.path) ||
-                  Boolean(item.children?.some((child) =>
-                    child.label === activeItem ||
-                    pathMatches(child.path) ||
-                    child.children?.some((entry) => entry.label === activeItem || pathMatches(entry.path))
-                  ))
+                // Child routes already have their own active treatment. Keep the
+                // parent highlighted only when the parent itself is selected.
+                const isPrimaryActive = activeItem === item.label || pathMatches(item.path)
                 return (
                   <div key={item.label} className="relative">
                     <button

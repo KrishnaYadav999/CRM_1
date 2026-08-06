@@ -725,17 +725,19 @@ export default function LeadGeneration() {
   }
 
   function addServiceRow() {
-    setLead((current) => ({ ...current, serviceSelections: [...serviceRows, createServiceSelection({ createdByCrmUserId: selectedGeneratedForUser?._id || selectedGeneratedForUser?.id, createdByName: selectedGeneratedForUser?.name || selectedGeneratedForUser?.email, createdByEmail: selectedGeneratedForUser?.email })] }));
+    setLead((current) => ({ ...current, serviceSelections: [...serviceRows, createServiceSelection({ createdByCrmUserId: currentUser?._id || currentUser?.id, createdByName: currentUser?.name || currentUser?.email, createdByEmail: currentUser?.email })] }));
   }
 
   function removeServiceRow(index) {
     if (serviceRows.length === 1) return;
     const next = serviceRows.filter((_, rowIndex) => rowIndex !== index);
+    const nextAssignments = assignmentRows.filter((_, rowIndex) => rowIndex !== index);
     const first = next[0];
     const direct = Boolean(directApplicantOptions(first.eprCategory));
     setLead((current) => ({
       ...current,
       serviceSelections: next,
+      assignments: nextAssignments,
       industryType: first.industryType,
       eprCategory: first.eprCategory,
       applicantType: first.applicantType,
@@ -745,6 +747,11 @@ export default function LeadGeneration() {
       applicableService: first.applicableService
       ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
     }));
+    if (index < frozenServiceRowCount) {
+      setFrozenServiceRowCount((count) => Math.max(0, count - 1));
+      setFrozenAssignmentRowCount((count) => Math.max(0, count - 1));
+    }
+    showToast(`Service row ${index + 1} removed.`, 'success');
   }
 
   function openExistingLeadDecision(item) {
@@ -2100,13 +2107,13 @@ export default function LeadGeneration() {
                   <div className="overflow-x-auto">
                     <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>Service Category <b aria-label="required">*</b></span><span>Applicant Type <b aria-label="required">*</b></span><span>Sub Applicant Type <b aria-label="required">*</b></span><span>Services Offered <b aria-label="required">*</b></span><span>Financial Year</span><span>Action</span></div>
                     {serviceRows.map((row, index) => {
-                      const currentIds = [currentUser?._id, currentUser?.id, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
+                      const currentIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
                       const rowOwners = [row.createdByCrmUserId, row.createdByEmail, row.createdByName, (!row.createdByCrmUserId && index < frozenServiceRowCount) ? selectedSearchLead?.createdByCrmUserId : '', (!row.createdByName && index < frozenServiceRowCount) ? selectedSearchLead?.importedCreatedBy : ''].filter(Boolean).map((value) => String(value).toLowerCase());
                       // Ownership protection applies only to rows that were already
                       // persisted. A newly added row must remain editable even when
                       // the lead is being generated on behalf of another user.
                       const ownedByAnotherUser = index < frozenServiceRowCount && rowOwners.length > 0 && !rowOwners.some((value) => currentIds.includes(value));
-                      const rowFrozen = (serviceOnlyMode && index < frozenServiceRowCount) || ownedByAnotherUser;
+                      const rowFrozen = ownedByAnotherUser;
                       const directOptions = directApplicantOptions(row.eprCategory);
                       const direct = Boolean(directOptions);
                       const applicantOptions = directOptions || PIBO_PARENTS;
