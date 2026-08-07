@@ -93,6 +93,15 @@ test('period controls appear in the mapping popup and not in the main quotation 
   assert.match(page, /periodDisplay\(financialYearDraft\.servicePeriod, financialYearDraft\.periodUnit\)/);
 });
 
+test('quotation views and printable tables omit period-unit and transition columns', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.doesNotMatch(page, /'Business Category', 'Service Category', 'Service Period', 'Select Period', 'Transition Period'/);
+  assert.doesNotMatch(page, /<th[^>]*>Select Period<\/th>/);
+  assert.doesNotMatch(page, /<th[^>]*>Transition Period<\/th>/);
+  assert.doesNotMatch(page, /QuoteModalStat label="(?:Select Period|Transition Period)"/);
+  assert.doesNotMatch(page, /\['Select Period', periodUnitLongLabel/);
+});
+
 test('quotation selects safely normalize object and string options before filtering', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /option && typeof option === 'object'/);

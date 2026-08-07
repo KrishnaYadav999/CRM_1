@@ -1968,24 +1968,22 @@ function QuotationItemsPanel({ quotation, items }) {
   const combinedTotal = combinedQuotationTotal(quotation, items);
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-      <table className="w-full min-w-[1200px] text-left text-sm">
+      <table className="w-full min-w-[960px] text-left text-sm">
         <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
           <tr>
-            {['Business Category', 'Service Category', 'Service Period', 'Select Period', 'Transition Period', 'Unit', 'Basic Amount (INR)', 'Start Date', 'End Date'].map((header) => (
+            {['Business Category', 'Service Category', 'Service Period', 'Unit', 'Basic Amount (INR)', 'Start Date', 'End Date'].map((header) => (
               <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.length === 0 ? (
-            <tr><td colSpan={9} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
+            <tr><td colSpan={7} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
           ) : items.map((item, index) => (
             <tr key={index} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.businessCategory || '-'}</td>
               <td className="px-4 py-4">{item.eprCategory || item.serviceCategory || '-'}</td>
               <td className="px-4 py-4">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
-              <td className="px-4 py-4">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
-              <td className="px-4 py-4">{item.transitionPeriod || 'No'}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
               <td className="px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
@@ -2108,20 +2106,18 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
             <QuoteModalStat label="Applicant Type" value={displayPiboChild(latestItem)} />
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-5">
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
             <QuoteModalStat label="Number of Revision" value={displayRevisionCount} tone="revision" />
             <QuoteModalStat label="Business Category" value={latestItem.businessCategory || '-'} />
             <QuoteModalStat label="Service Category" value={latestItem.serviceCategory || '-'} />
-            <QuoteModalStat label="Select Period" value={periodUnitLongLabel(latestItem.periodUnit || 'annual')} />
-            <QuoteModalStat label="Transition Period" value={latestItem.transitionPeriod || 'No'} />
           </div>
 
           <DetailSection title="Quotation Items">
             <div className="overflow-auto rounded-lg border border-slate-200">
-              <table className="w-full min-w-[1420px] text-left text-sm">
+              <table className="w-full min-w-[1180px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-black text-slate-600">
                   <tr>
-                    {['Sr.No', 'Business Category', 'Service Category', 'Service Period', 'Select Period', 'Transition Period', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
+                    {['Sr.No', 'Business Category', 'Service Category', 'Service Period', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
                       <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                     ))}
                   </tr>
@@ -2133,8 +2129,6 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
-                      <td className="border-b border-r border-slate-100 px-4 py-4">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
-                      <td className="border-b border-r border-slate-100 px-4 py-4">{item.transitionPeriod || 'No'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
@@ -2143,7 +2137,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
                     </tr>
                   )) : (
-                    <tr><td colSpan={12} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -2195,8 +2189,6 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
     ['Service Category', firstItem.serviceCategory || '-'],
     ['Service Start Date', formatServiceDate(firstItem.serviceStartDate)],
     ['Service End Date', formatServiceDate(firstItem.serviceEndDate)],
-    ['Select Period', periodUnitLongLabel(firstItem.periodUnit || 'annual')],
-    ['Transition Period', firstItem.transitionPeriod || 'No'],
     ['Service Category', firstItem.eprCategory || '-'],
     ['Applicant Type', displayPiboChild(firstItem)],
     ['Quantity/Unit', firstItem.unit || '-'],
@@ -2233,10 +2225,10 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
 
       <DetailSection title="Quotation Items">
         <div className="overflow-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[1360px] text-left text-sm">
+          <table className="w-full min-w-[1120px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-600">
               <tr>
-                {['Sr.No', 'Business Category', 'Service Category', 'Service Period', 'Select Period', 'Transition Period', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit'].map((header) => (
+                {['Sr.No', 'Business Category', 'Service Category', 'Service Period', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit'].map((header) => (
                   <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                 ))}
               </tr>
@@ -2248,8 +2240,6 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
-                  <td className="border-b border-r border-slate-100 px-4 py-4">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
-                  <td className="border-b border-r border-slate-100 px-4 py-4">{item.transitionPeriod || 'No'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
                   {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
@@ -2257,7 +2247,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
                 </tr>
               )) : (
-                <tr><td colSpan={11} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                <tr><td colSpan={9} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
               )}
             </tbody>
           </table>
@@ -2520,10 +2510,10 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
               {combined && <div className="mt-5 px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
               <div className={`${combined ? '' : 'mt-5'} overflow-hidden border border-slate-950`}>
                 <table className="w-full table-fixed text-[10px]">
-                  <colgroup><col className="w-[12%]" /><col className="w-[16%]" /><col className="w-[14%]" /><col className="w-[10%]" /><col className="w-[10%]" /><col className="w-[14%]" /><col className="w-[6%]" /><col className="w-[18%]" /></colgroup>
+                  <colgroup><col className="w-[15%]" /><col className="w-[20%]" /><col className="w-[16%]" /><col className="w-[21%]" /><col className="w-[8%]" /><col className="w-[20%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
-                      {['Business Category', 'Service Category', 'Service Period', 'Select Period', 'Transition Period', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
+                      {['Business Category', 'Service Category', 'Service Period', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -2532,8 +2522,6 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.businessCategory || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || item.serviceCategory || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.transitionPeriod || 'No'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{item.unit || '-'}</td>
                         {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-t border-slate-950 px-1.5 py-2 text-center align-middle">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
@@ -2545,9 +2533,9 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
               <div className="financial-year-print-table mt-5 overflow-hidden bg-white">
                 <div className="bg-white px-3 py-2.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-950">EPR / Service Period Mapping</div>
                 <table className="w-full table-fixed text-[10px] font-bold leading-4 text-slate-950">
-                  <colgroup><col className="w-[8%]" /><col className="w-[22%]" /><col className="w-[18%]" /><col className="w-[10%]" /><col className="w-[10%]" /><col className="w-[32%]" /></colgroup>
-                  <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th><th className="border-r border-t border-slate-950 px-2 py-3">EPR / Service Period</th><th className="border-r border-t border-slate-950 px-2 py-3">Select Period</th><th className="border-r border-t border-slate-950 px-2 py-3">Transition Period</th><th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
-                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{periodDisplay(item.servicePeriod, item.periodUnit)}</td><td className="border-r border-t border-slate-950 px-2 py-3">{periodUnitLongLabel(item.periodUnit || 'annual')}</td><td className="border-r border-t border-slate-950 px-2 py-3">{item.transitionPeriod || 'No'}</td><td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
+                  <colgroup><col className="w-[10%]" /><col className="w-[28%]" /><col className="w-[24%]" /><col className="w-[38%]" /></colgroup>
+                  <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th><th className="border-r border-t border-slate-950 px-2 py-3">EPR / Service Period</th><th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
+                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{periodDisplay(item.servicePeriod, item.periodUnit)}</td><td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
                 </table>
               </div>
               <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-[10px] font-bold leading-5 text-slate-700"><p className="font-black uppercase tracking-wider text-emerald-700">Service Period Validity Note</p>{items.map((item, index) => { const unit = item.periodUnit || 'annual'; const period = Math.max(1, Number(item.servicePeriod) || 1); const startDate = normalizeDateInputValue(item.serviceStartDate); const endDate = item.transitionPeriod === 'Yes' ? normalizeDateInputValue(item.serviceEndDate) : serviceEndDateFrom(startDate, period, unit); const renewalDate = endDate ? addServiceDays(endDate, 1) : ''; return <p key={index} className="mt-1 text-[11px] font-black text-slate-950">{index + 1}. Your service period is {periodDisplay(period, unit)}{startDate ? ` (${formatServiceDate(startDate)} to ${formatServiceDate(endDate)})` : ''}{item.serviceCategory ? ` for ${item.serviceCategory}` : ''}{renewalDate ? ` and renewal will be applicable from ${formatServiceDate(renewalDate)}` : ''}.</p>; })}</div>
@@ -2632,8 +2620,6 @@ function buildQuotationPrintHtml(quotation) {
       <td>${escapeHtml(item.businessCategory || '-')}</td>
       <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
       <td>${escapeHtml(periodDisplay(item.servicePeriod, item.periodUnit))}</td>
-      <td>${escapeHtml((item.periodUnit || 'annual') === 'days' ? 'Days' : (item.periodUnit || 'annual') === 'months' ? 'Month' : 'Annual')}</td>
-      <td>${escapeHtml(item.transitionPeriod || 'No')}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(item.unit || '-')}</td>
       ${!combined || index === 0 ? `<td class="amount${combined ? ' combined-amount' : ''}"${combined ? ` rowspan="${items.length}"` : ''}>${escapeHtml(formatInr(combined ? combinedTotal : item.basicAmount))}</td>` : ''}
@@ -2727,11 +2713,11 @@ function buildQuotationPrintHtml(quotation) {
       </section>
       ${combinedPackageHeader}
       <table>
-        <colgroup><col style="width:12%"><col style="width:16%"><col style="width:14%"><col style="width:10%"><col style="width:10%"><col style="width:14%"><col style="width:6%"><col style="width:18%"></colgroup>
+        <colgroup><col style="width:15%"><col style="width:20%"><col style="width:16%"><col style="width:21%"><col style="width:8%"><col style="width:20%"></colgroup>
         <thead>
-          <tr><th>Business Category</th><th>Service Category</th><th>Service Period</th><th>Select Period</th><th>Transition Period</th><th>Services Offered</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Business Category</th><th>Service Category</th><th>Service Period</th><th>Services Offered</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
         </thead>
-        <tbody>${rows || '<tr><td colspan="8" class="center">No quotation items added.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="6" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
       <section class="terms">
         <p class="label">Terms & Conditions:</p>
