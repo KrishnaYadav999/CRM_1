@@ -3018,6 +3018,7 @@ function QuotationDetailsModal({ row, onClose }) {
       revisionCount={revisionCount}
       userName={userName}
       piboCategory={latestItem.piboCategory || row?.category || '-'}
+      businessCategory={latestItem.businessCategory || '-'}
       serviceCategory={latestItem.serviceCategory || '-'}
       items={items}
     />

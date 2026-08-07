@@ -48,6 +48,7 @@ export default function PremiumQuotationModal({
   revisionCount = 0,
   userName = '-',
   piboCategory = '-',
+  businessCategory = '-',
   serviceCategory = '-',
   items = []
 }) {
@@ -117,11 +118,12 @@ export default function PremiumQuotationModal({
                 </motion.div>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-4">
+              <div className="mt-5 grid gap-3 md:grid-cols-5">
                 {[
                   ['Company Name', companyName],
                   ['User Name', userName],
                   ['Applicant Type', piboCategory],
+                  ['Business Category', businessCategory],
                   ['Service Category', serviceCategory]
                 ].map(([label, value], index) => (
                   <motion.div
@@ -145,10 +147,10 @@ export default function PremiumQuotationModal({
                   </span>
                 </div>
                 <div className="overflow-auto rounded-lg border border-slate-200">
-                  <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+                  <table className="w-full min-w-[980px] border-collapse text-left text-sm">
                     <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-[0.06em] text-slate-600">
                       <tr>
-                        {['Sr.No', 'Service Category', 'Year', 'Service Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => (
+                        {['Sr.No', 'Business Category', 'Service Category', 'Year', 'Service Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => (
                           <th key={header} className="border-r border-slate-200 px-3 py-3 last:border-r-0">{header}</th>
                         ))}
                       </tr>
@@ -163,6 +165,7 @@ export default function PremiumQuotationModal({
                           transition={{ delay: 0.26 + index * 0.06, duration: 0.24 }}
                         >
                           <td className="px-3 py-3 text-center font-black text-slate-800">{index + 1}</td>
+                          <td className="px-3 py-3 font-black uppercase text-slate-800">{item.businessCategory || '-'}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-800">{item.serviceCategory || '-'}</td>
                           <td className="px-3 py-3 font-black text-slate-700">{item.servicesForYear || '-'}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-700">{item.eprCategory || '-'}</td>
@@ -173,7 +176,7 @@ export default function PremiumQuotationModal({
                           </td>
                         </motion.tr>
                       )) : (
-                        <tr><td colSpan={7} className="px-4 py-8 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                        <tr><td colSpan={8} className="px-4 py-8 text-center font-black text-slate-400">No quotation items added.</td></tr>
                       )}
                     </tbody>
                   </table>
