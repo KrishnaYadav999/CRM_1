@@ -17,39 +17,13 @@ async function getVisibleUserScope(user) {
   return null;
 }
 
-const User = require('../models/User');
-const ADMIN_ROLES = new Set(['admin', 'superadmin']);
-const MANAGER_ROLES = new Set(['manager', 'management', 'team manager']);
-
-function userIdentities(user = {}) {
-  return [...new Set([user._id, user.id, user.crmUserId, user.userId, user.email, user.name]
-    .filter(Boolean).map((value) => String(value).trim()).filter(Boolean))];
-}
-
-async function getLeadVisibleUserScope(user) {
-  if (!user?._id) return { ids: [], identities: [] };
-  const role = String(user.role || '').trim().toLowerCase();
-  if (ADMIN_ROLES.has(role)) return null;
-
-  const people = [user];
-  if (MANAGER_ROLES.has(role)) {
-    const reports = await User.find({ managerId: user._id, isActive: { $ne: false } })
-      .select('_id crmUserId name email').lean();
-    people.push(...reports);
-  }
-  return {
-    ids: [...new Set(people.flatMap((person) => [person._id, person.id]).filter(Boolean).map(String))],
-    identities: [...new Set(people.flatMap(userIdentities))]
-  };
-}
-
 async function getVisibleUserIds(user) {
   const scope = await getVisibleUserScope(user);
   if (scope === null) return null;
   return scope.ids;
 }
 
-function ownerFilter(scope, createdByPath = 'createdBy', assignedToPath = 'assignedTo', identityPaths = [], additionalIdPaths = []) {
+function ownerFilter(scope, createdByPath = 'createdBy', assignedToPath = 'assignedTo', identityPaths = []) {
   if (scope === null) return {};
 
   const ids = Array.isArray(scope) ? scope : (scope?.ids || []);
@@ -57,8 +31,7 @@ function ownerFilter(scope, createdByPath = 'createdBy', assignedToPath = 'assig
   const conditions = [
     ...(ids.length ? [
       { [createdByPath]: { $in: ids } },
-      { [assignedToPath]: { $in: ids } },
-      ...additionalIdPaths.map((path) => ({ [path]: { $in: ids } }))
+      { [assignedToPath]: { $in: ids } }
     ] : []),
     ...buildIdentityConditions(identityPaths, identities)
   ];
@@ -70,7 +43,6 @@ function ownerFilter(scope, createdByPath = 'createdBy', assignedToPath = 'assig
 
 module.exports = {
   getVisibleUserScope,
-  getLeadVisibleUserScope,
   getVisibleUserIds,
   ownerFilter
 };
