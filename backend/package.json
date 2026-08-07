@@ -8,7 +8,8 @@
     "dev": "nodemon src/index.js",
     "test": "node --test",
     "seed-admin": "node src/seed/adminSeed.js",
-    "backfill:ccp": "node src/scripts/backfillCcpToCrm.js"
+    "backfill:ccp": "node src/scripts/backfillCcpToCrm.js",
+    "migrate:quotation-numbers": "node src/scripts/renumberQuotations.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
