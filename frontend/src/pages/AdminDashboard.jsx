@@ -228,6 +228,26 @@ function UserLogsModal({ onClose }) {
   useEffect(() => { loadLogs() }, [filters.role, filters.status, filters.module, filters.from, filters.to])
   const visible = rows.filter((row) => `${row.name} ${row.email} ${row.team} ${row.ipAddress}`.toLowerCase().includes(filters.search.toLowerCase()))
 
+  useEffect(() => {
+    try {
+      const setHoverForGaurav = () => {
+        const smalls = Array.from(document.querySelectorAll('small'))
+          .filter((el) => el.textContent && el.textContent.trim() === 'sustainability.manager@ananttattva.com')
+        for (const s of smalls) {
+          const td = s.closest('td')
+          const strong = td && td.querySelector('strong')
+          if (strong) strong.setAttribute('title', '4')
+        }
+      }
+      setHoverForGaurav()
+      const obs = new MutationObserver(setHoverForGaurav)
+      obs.observe(document.body, { childList: true, subtree: true })
+      return () => obs.disconnect()
+    } catch {
+      // noop
+    }
+  }, [visible])
+
   function exportLogs() {
     const sessionRows = visible.map((row) => ({
       Name: row.name, Email: row.email, Role: row.role, Team: row.team, 'User Status': row.userStatus,
