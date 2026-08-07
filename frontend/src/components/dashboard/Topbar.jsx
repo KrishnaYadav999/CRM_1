@@ -240,8 +240,8 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
               <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
             </span>
             <span className="min-w-0 text-left">
-              <span className="block truncate text-lg font-black leading-tight text-slate-950">{brand.name}</span>
-              <span className="hidden truncate text-xs font-extrabold uppercase tracking-[0.14em] text-teal-700 sm:block">Anant Tattva</span>
+              <span className="block truncate text-lg font-black leading-tight text-orange-500">ANANTTATTVA</span>
+              <span className="hidden truncate text-xs font-medium tracking-[0.08em] text-slate-700 sm:block">{brand.name}</span>
             </span>
           </button>
         </div>

@@ -55,7 +55,12 @@ function writeCalendarItems(items) {
 }
 
 function dateKey(date) {
-  return date.toISOString().slice(0, 10);
+  // Calendar dates represent the user's local working day. UTC serialization
+  // can shift the key by one day, making (for example) Aug 08 appear active
+  // while the selected date panel correctly says Aug 07.
+  const local = new Date(date);
+  if (Number.isNaN(local.getTime())) return '';
+  return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
 }
 
 function formatHumanDate(value) {
