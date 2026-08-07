@@ -2776,7 +2776,21 @@ function QuoteSelect({ value, options, placeholder, onChange, onAddOption, categ
   const [menuPosition, setMenuPosition] = useState(null);
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
-  const filtered = options.filter((option) => option.toLowerCase().includes(search.trim().toLowerCase()));
+  const normalizedOptions = (Array.isArray(options) ? options : [])
+    .map((option) => {
+      if (option && typeof option === 'object') {
+        return {
+          value: String(option.value ?? option.label ?? ''),
+          label: String(option.label ?? option.value ?? '')
+        };
+      }
+      const optionValue = String(option ?? '');
+      return { value: optionValue, label: optionValue };
+    })
+    .filter((option) => option.value && option.label);
+  const selectedOption = normalizedOptions.find((option) => String(option.value) === String(value));
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = normalizedOptions.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(normalizedSearch));
 
   function positionMenu() {
     const rect = triggerRef.current?.getBoundingClientRect();
@@ -2804,7 +2818,8 @@ function QuoteSelect({ value, options, placeholder, onChange, onAddOption, categ
   }, [open]);
 
   function choose(option) {
-    onChange(option);
+    const optionValue = option && typeof option === 'object' ? option.value : option;
+    onChange(optionValue);
     setOpen(false);
     setSearch('');
   }
@@ -2828,13 +2843,13 @@ function QuoteSelect({ value, options, placeholder, onChange, onAddOption, categ
   return (
     <>
       <button ref={triggerRef} type="button" className={`quote-category-trigger ${open ? 'is-open' : ''}`} onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
-        <span>{value || placeholder}</span><ChevronDown className="h-4 w-4" />
+        <span>{selectedOption?.label || value || placeholder}</span><ChevronDown className="h-4 w-4" />
       </button>
       {open && menuPosition && createPortal(
         <div ref={menuRef} className="quote-category-menu" style={menuPosition}>
           <div className="quote-category-search"><Search className="h-4 w-4" /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search category..." />{search && <button type="button" onClick={() => setSearch('')}><X className="h-4 w-4" /></button>}</div>
           <div className="quote-category-options" role="listbox">
-            {filtered.map((option) => <button key={option} type="button" role="option" aria-selected={option === value} onClick={() => choose(option)}><span>{option}</span>{option === value && <Check className="h-4 w-4" />}</button>)}
+            {filtered.map((option) => <button key={option.value} type="button" role="option" aria-selected={String(option.value) === String(value)} onClick={() => choose(option)}><span>{option.label}</span>{String(option.value) === String(value) && <Check className="h-4 w-4" />}</button>)}
             {!filtered.length && <div className="quote-category-empty">No matching category</div>}
           </div>
           {onAddOption && <button type="button" className="quote-category-add" onClick={() => { setNewCategory(search); setOpen(false); setAdding(true); setAddError(''); }}><Plus className="h-4 w-4" /><span><strong>Add New {categoryLabel}</strong><small>Save permanently for future quotations</small></span></button>}
@@ -2844,8 +2859,8 @@ function QuoteSelect({ value, options, placeholder, onChange, onAddOption, categ
         <div className="quote-category-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAdding(false); }}>
           <form className="quote-category-modal" onSubmit={saveCategory}>
             <div className="quote-category-modal-head"><div><small>Quotation settings</small><h3>Add New {categoryLabel}</h3></div><button type="button" onClick={() => setAdding(false)}><X className="h-5 w-5" /></button></div>
-            <label><span>{categoryLabel} Name</span><input autoFocus value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder={`Enter ${categoryLabel.toLowerCase()}`} maxLength={100} /></label>
-            <p className="quote-category-modal-note">This {categoryLabel.toLowerCase()} will be saved permanently and available in all future quotations.</p>
+            <label><span>{categoryLabel} Name</span><input autoFocus value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder={`Enter ${String(categoryLabel).toLowerCase()}`} maxLength={100} /></label>
+            <p className="quote-category-modal-note">This {String(categoryLabel).toLowerCase()} will be saved permanently and available in all future quotations.</p>
             {addError && <p className="quote-category-modal-error">{addError}</p>}
             <div className="quote-category-modal-actions"><button type="button" onClick={() => setAdding(false)}>Cancel</button><button type="submit" disabled={savingCategory || !newCategory.trim()}><Plus className="h-4 w-4" />{savingCategory ? 'Adding...' : 'Add Category'}</button></div>
           </form>

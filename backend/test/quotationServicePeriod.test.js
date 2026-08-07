@@ -91,3 +91,10 @@ test('both quotation mapping popups expose Select Period in the requested column
   assert.doesNotMatch(page, /'Service Period', 'Select Period', 'Transition Period', \.\.\.\(financialYearNeedsEprData/);
   assert.match(page, /periodDisplay\(financialYearDraft\.servicePeriod, financialYearDraft\.periodUnit\)/);
 });
+
+test('quotation selects safely normalize object and string options before filtering', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /option && typeof option === 'object'/);
+  assert.match(page, /`\$\{option\.label\} \$\{option\.value\}`\.toLowerCase\(\)/);
+  assert.doesNotMatch(page, /options\.filter\(\(option\) => option\.toLowerCase\(\)/);
+});
