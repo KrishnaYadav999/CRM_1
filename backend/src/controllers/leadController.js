@@ -23,7 +23,7 @@ function escapeHtml(value) {
   }[character]));
 }
 const CalendarItem = require('../models/CalendarItem');
-const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const { getLeadVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
 const { ADMIN_ROLES } = require('../constants/roles');
 
@@ -591,8 +591,10 @@ exports.searchCompanies = async (req, res) => {
 
 exports.listLeads = async (req, res) => {
   await processExpiredProvisionalClosures();
-  const scope = await getVisibleUserScope(req.user);
-  const leads = await Lead.find(ownerFilter(scope, 'createdBy', 'assignedTo', [
+  const scope = await getLeadVisibleUserScope(req.user);
+  // Lead lists are assignment-based: staff see only their rows, managers see
+  // their own plus direct-report rows, while admins retain the full catalog.
+  const leads = await Lead.find(ownerFilter(scope, 'assignedTo', 'assignedTo', [
     'assignedToText',
     'assignedToEmail',
     'assignedStaffText',
@@ -602,10 +604,11 @@ exports.listLeads = async (req, res) => {
     'assignments.assignedToEmail',
     'assignments.assignedStaff',
     'assignments.assignedStaffText',
-    'assignments.assignedStaffEmail',
-    'serviceSelections.createdByCrmUserId',
-    'serviceSelections.createdByName',
-    'serviceSelections.createdByEmail'
+    'assignments.assignedStaffEmail'
+  ], [
+    'assignedStaff',
+    'assignments.assignedTo',
+    'assignments.assignedStaff'
   ]))
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
