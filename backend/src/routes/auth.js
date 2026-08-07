@@ -11,6 +11,7 @@ router.post('/verify-otp', authCtrl.verifyOtp);
 router.post('/forgot-password', authCtrl.forgotPassword);
 router.post('/reset-password', authCtrl.resetPassword);
 router.post('/logout', requireAuth, authCtrl.logout);
+router.post('/activity-heartbeat', requireAuth, authCtrl.activityHeartbeat);
 router.get('/admin/logs', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.listAuditLogs);
 router.get('/me', requireAuth, authCtrl.me);
 router.put('/me', requireAuth, authCtrl.updateMe);

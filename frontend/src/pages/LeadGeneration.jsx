@@ -355,7 +355,9 @@ function normalizeLegacyServiceSelections(source = {}) {
   const fields = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable'];
   const hasService = (row) => fields.some((field) => String(row?.[field] || '').trim());
   const identity = (row) => fields.map((field) => String(row?.[field] || '').trim().toLowerCase()).join('|');
-  if (hasService(topLevel) && !saved.some((row) => identity(row) === identity(topLevel))) saved.unshift(topLevel);
+  // Once the canonical array exists it is authoritative. Re-inserting stale
+  // top-level compatibility fields made a confirmed deletion appear again.
+  if (!Array.isArray(source.serviceSelections) && hasService(topLevel) && !saved.some((row) => identity(row) === identity(topLevel))) saved.unshift(topLevel);
   return saved.length ? saved : [topLevel];
 }
 
@@ -443,6 +445,15 @@ export default function LeadGeneration() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
+  const formStartedAtRef = useRef('');
+
+  useEffect(() => {
+    if (viewMode !== 'form') return;
+    if (!formStartedAtRef.current) formStartedAtRef.current = lead.formStartedAt || new Date().toISOString();
+    if (activeTab === 'assign' && !lead.assignReachedAt) {
+      setLead((current) => ({ ...current, formStartedAt: current.formStartedAt || formStartedAtRef.current, assignReachedAt: new Date().toISOString() }));
+    }
+  }, [viewMode, activeTab, lead.formStartedAt, lead.assignReachedAt]);
   const [healthPromptOpen, setHealthPromptOpen] = useState(false);
   const [healthReportLead, setHealthReportLead] = useState(null);
   const [healthReport, setHealthReport] = useState(emptyComplianceHealthReport);
@@ -1383,7 +1394,7 @@ export default function LeadGeneration() {
       'State', 'City', 'PIN', 'Existing Client', 'Website', 'Salutation', 'Contact Person', 'Designation', 'Email',
       'Emails Sent Count', 'Last Email Sent', 'Mobile 1', 'Mobile 2', 'WhatsApp No', 'LinkedIn URL', 'Business Card URL', 'Referred By', 'Source', 'Notes',
       'Assigned To', 'Assigned By', 'Created By', 'Lead Date', 'Next Follow-Up Date', 'Next Follow-Up Time',
-      'Follow-Up Remarks', 'Created At', 'Updated At'
+      'Follow-Up Remarks', 'Form Started At', 'Assign Reached At', 'Submitted At', 'Lead Fill Duration', 'Created At', 'Updated At'
     ];
     const templateRows = allCcpLeads.flatMap((item) => {
       const services = normalizeLegacyServiceSelections(item);
@@ -1407,7 +1418,9 @@ export default function LeadGeneration() {
           Source: item.source || item.contacts?.[0]?.source || '', Notes: item.notes || '', 'Assigned To': assignment.assignedToText || assignment.assignedTo?.name || item.assignedToText || item.assignedTo?.name || '',
           'Assigned By': assignment.assignedBy || item.assignedBy || '', 'Created By': service.createdByName || item.importedCreatedBy || item.createdBy?.name || '',
           'Lead Date': item.leadDate || '', 'Next Follow-Up Date': item.nextFollowUpDate || '', 'Next Follow-Up Time': item.nextFollowUpTime || '',
-          'Follow-Up Remarks': item.followUpRemarks || '', 'Created At': item.createdAt || item.importedCreatedAt || '', 'Updated At': item.updatedAt || item.importedUpdatedAt || ''
+          'Follow-Up Remarks': item.followUpRemarks || '', 'Form Started At': item.formStartedAt || '', 'Assign Reached At': item.assignReachedAt || '',
+          'Submitted At': item.submittedAt || '', 'Lead Fill Duration': formatDuration(item.fillDurationSeconds),
+          'Created At': item.createdAt || item.importedCreatedAt || '', 'Updated At': item.updatedAt || item.importedUpdatedAt || ''
         };
       });
     });
@@ -1566,6 +1579,8 @@ export default function LeadGeneration() {
       ...leadWithoutLegacyStaff
     } = lead;
     const primaryService = serviceRows[0] || {};
+    const submittedAt = workflowStatus === 'submitted' ? new Date().toISOString() : lead.submittedAt;
+    const formStartedAt = lead.formStartedAt || formStartedAtRef.current || new Date().toISOString();
     return {
       ...leadWithoutLegacyStaff,
       generatedForUserId: generatedForUserId || currentUser?._id || currentUser?.id || '',
@@ -1587,7 +1602,11 @@ export default function LeadGeneration() {
       servicesOffered: primaryService.servicesOffered || lead.servicesOffered || '',
       applicableService: primaryService.applicableService || lead.applicableService || '',
       firstAnnualReturnYearApplicable: primaryService.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable || '',
-      workflowStatus
+      workflowStatus,
+      formStartedAt,
+      assignReachedAt: lead.assignReachedAt || '',
+      submittedAt,
+      fillDurationSeconds: workflowStatus === 'submitted' ? Math.max(0, Math.round((new Date(submittedAt).getTime() - new Date(formStartedAt).getTime()) / 1000)) : lead.fillDurationSeconds
     };
   }
 
@@ -1622,7 +1641,7 @@ export default function LeadGeneration() {
       }
       setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
       showToast(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.', 'success');
-      if (workflowStatus === 'submitted') setLead(emptyLead);
+      if (workflowStatus === 'submitted') { setLead(emptyLead); formStartedAtRef.current = ''; }
       setEditingLeadId('');
       setActiveTab('basic');
       await loadPage();
@@ -1972,7 +1991,7 @@ export default function LeadGeneration() {
             showToast(`Lead marked ${recordStatus.toLowerCase()}.`, 'success');
           }}
           canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
-          onCreate={() => { setLead({ ...emptyLead }); setEditingLeadId(''); setServiceOnlyMode(false); setActiveTab('basic'); setViewMode('form'); }}
+          onCreate={() => { const startedAt = new Date().toISOString(); formStartedAtRef.current = startedAt; setLead({ ...emptyLead, formStartedAt: startedAt }); setEditingLeadId(''); setServiceOnlyMode(false); setActiveTab('basic'); setViewMode('form'); }}
         />
         {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
       </DashboardShell>

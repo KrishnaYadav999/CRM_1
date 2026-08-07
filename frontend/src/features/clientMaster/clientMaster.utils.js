@@ -486,7 +486,7 @@ function normalizeVisibility(value) {
   const raw = String(value || '').trim().toUpperCase();
   if (raw === 'LIVE') return 'LIVE';
   if (raw === 'SUSPENDED') return 'SUSPENDED';
-  return 'DISCONTINUED';
+  return 'LIVE';
 }
 
 function normalizePersonName(value) {
@@ -495,7 +495,7 @@ function normalizePersonName(value) {
 
 function getVisibilityStatus(item) {
   const data = readClientData(item);
-  return normalizeVisibility(item?.adminControls?.visibilityStatus || data.importMeta?.visibilityStatus || 'DISCONTINUED');
+  return normalizeVisibility(item?.adminControls?.visibilityStatus || data.importMeta?.visibilityStatus || 'LIVE');
 }
 
 function getAssignedName(item) {
@@ -911,7 +911,7 @@ function mapExcelRowToClient(row, staff, leads) {
 
   const payload = {
     selectedLead: '',
-    adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'DISCONTINUED', assignedTo: '' },
+    adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'LIVE', assignedTo: '' },
     data: {
       basic: {},
       registeredAddress: {},

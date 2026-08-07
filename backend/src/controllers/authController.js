@@ -7,6 +7,7 @@ const { ROLES } = require('../constants/roles');
 const crypto = require('crypto');
 const AuditLog = require('../models/AuditLog');
 const UserSession = require('../models/UserSession');
+const Lead = require('../models/Lead');
 const { clientIp } = require('../middleware/activityAudit');
  
 function generateOtp() {
@@ -603,6 +604,21 @@ exports.logout = async (req, res) => {
   res.json({ ok: true });
 };
 
+exports.activityHeartbeat = async (req, res) => {
+  if (!req.authSessionId) return res.status(400).json({ error: 'Session ID is missing.' });
+  const now = new Date();
+  const session = await UserSession.findOne({ sessionId: req.authSessionId, userId: req.user._id, logoutAt: null });
+  if (!session) return res.status(404).json({ error: 'Active session not found.' });
+  const previous = session.lastHeartbeatAt || session.lastActivityAt || now;
+  const elapsed = Math.max(0, Math.min(30, Math.round((now.getTime() - new Date(previous).getTime()) / 1000)));
+  // The client sends heartbeats only while the CRM tab is visible and focused.
+  session.activeSeconds = Math.max(0, Number(session.activeSeconds) || 0) + elapsed;
+  session.lastHeartbeatAt = now;
+  session.lastActivityAt = now;
+  await session.save();
+  res.json({ ok: true, activeSeconds: session.activeSeconds });
+};
+
 exports.listAuditLogs = async (req, res) => {
   const { userId, role, status, from, to, module: moduleFilter } = req.query;
   const userQuery = {};
@@ -616,9 +632,11 @@ exports.listAuditLogs = async (req, res) => {
   if (from) dateQuery.$gte = new Date(`${from}T00:00:00.000Z`);
   if (to) dateQuery.$lte = new Date(`${to}T23:59:59.999Z`);
   const common = { userId: { $in: userIds }, ...(Object.keys(dateQuery).length ? { loginAt: dateQuery } : {}) };
-  const [sessions, activities] = await Promise.all([
+  const [sessions, activities, completedLeads] = await Promise.all([
     UserSession.find(common).sort({ loginAt: -1 }).limit(5000).lean(),
-    AuditLog.find({ userId: { $in: userIds }, ...(moduleFilter && moduleFilter !== 'all' ? { module: moduleFilter } : {}), ...(Object.keys(dateQuery).length ? { occurredAt: dateQuery } : {}) }).sort({ occurredAt: -1 }).limit(10000).lean()
+    AuditLog.find({ userId: { $in: userIds }, ...(moduleFilter && moduleFilter !== 'all' ? { module: moduleFilter } : {}), ...(Object.keys(dateQuery).length ? { occurredAt: dateQuery } : {}) }).sort({ occurredAt: -1 }).limit(10000).lean(),
+    Lead.find({ createdBy: { $in: userIds }, workflowStatus: 'submitted', ...(Object.keys(dateQuery).length ? { submittedAt: dateQuery } : {}) })
+      .select('company leadCode createdBy formStartedAt assignReachedAt submittedAt fillDurationSeconds createdAt').sort({ submittedAt: -1 }).limit(10000).lean()
   ]);
   const usersById = new Map(users.map((user) => [String(user._id), user]));
   const activitiesBySession = new Map();
@@ -626,6 +644,12 @@ exports.listAuditLogs = async (req, res) => {
     const key = item.sessionId || `user:${item.userId}`;
     if (!activitiesBySession.has(key)) activitiesBySession.set(key, []);
     activitiesBySession.get(key).push(item);
+  });
+  const leadsByUser = new Map();
+  completedLeads.forEach((lead) => {
+    const key = String(lead.createdBy || '');
+    if (!leadsByUser.has(key)) leadsByUser.set(key, []);
+    leadsByUser.get(key).push(lead);
   });
   const now = Date.now();
   const rows = sessions.map((session) => {
@@ -639,8 +663,13 @@ exports.listAuditLogs = async (req, res) => {
       lastActivityAt: session.lastActivityAt, logoutAt: session.logoutAt || null,
       sessionStatus: session.logoutAt ? 'Logged out' : (now - new Date(session.lastActivityAt).getTime() < 15 * 60 * 1000 ? 'Online' : 'Inactive session'),
       durationSeconds: Math.max(0, Math.round((new Date(endAt).getTime() - new Date(session.loginAt).getTime()) / 1000)),
+      activeSeconds: Math.max(0, Number(session.activeSeconds) || 0),
       activityCount: sessionActivities.length || session.activityCount || 0, ipAddress: session.ipAddress || '',
-      device: session.userAgent || '', activities: sessionActivities.map((item) => ({ id: item._id, action: item.action, module: item.module, description: item.description, occurredAt: item.occurredAt, statusCode: item.statusCode }))
+      device: session.userAgent || '', activities: sessionActivities.map((item) => ({ id: item._id, action: item.action, module: item.module, description: item.description, occurredAt: item.occurredAt, statusCode: item.statusCode })),
+      completedLeads: (leadsByUser.get(String(session.userId)) || []).filter((lead) => {
+        const completed = new Date(lead.submittedAt || lead.updatedAt || 0).getTime();
+        return completed >= new Date(session.loginAt).getTime() && completed <= new Date(endAt).getTime() + 60000;
+      }).map((lead) => ({ id: lead._id, company: lead.company, leadCode: lead.leadCode, formStartedAt: lead.formStartedAt, assignReachedAt: lead.assignReachedAt, submittedAt: lead.submittedAt, fillDurationSeconds: lead.fillDurationSeconds }))
     };
   });
   res.json({ ok: true, rows, modules: [...new Set(activities.map((item) => item.module))].sort(), totalSessions: rows.length, totalActivities: activities.length });

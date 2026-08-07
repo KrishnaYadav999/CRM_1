@@ -12,6 +12,7 @@ const API_ENDPOINTS = {
     forgotPassword: '/auth/forgot-password',
     resetPassword: '/auth/reset-password',
     logout: '/auth/logout',
+    activityHeartbeat: '/auth/activity-heartbeat',
     auditLogs: '/auth/admin/logs',
     users: '/auth/users',
     roles: '/auth/roles',

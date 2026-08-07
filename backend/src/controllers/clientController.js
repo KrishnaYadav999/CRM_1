@@ -286,6 +286,8 @@ function readAssignedToLabel(value) {
 
 function normalizeAdminControls(adminControls = {}) {
   const normalized = isPlainObject(adminControls) ? { ...adminControls } : {};
+  const visibility = String(normalized.visibilityStatus || '').trim().toUpperCase();
+  normalized.visibilityStatus = ['LIVE', 'SUSPENDED', 'DISCONTINUED'].includes(visibility) ? visibility : 'LIVE';
   const assignedToId = readAssignedToId(normalized.assignedTo);
 
   if (assignedToId) {

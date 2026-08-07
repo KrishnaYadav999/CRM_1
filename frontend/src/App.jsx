@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import ScrollToTop from './components/ScrollToTop'
@@ -20,11 +20,31 @@ import ComplianceHealthDashboard from './pages/ComplianceHealthDashboard'
 import PendingLeads from './pages/PendingLeads'
 import HelpYourself from './pages/HelpYourself'
 import SupportTickets from './pages/SupportTickets'
+import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
+
+function ActiveCrmTracker() {
+  useEffect(() => {
+    let timer
+    const isActive = () => hasStoredAuthToken() && document.visibilityState === 'visible' && document.hasFocus()
+    const heartbeat = () => { if (isActive()) api.post(API_ENDPOINTS.auth.activityHeartbeat).catch(() => {}) }
+    const refresh = () => {
+      clearInterval(timer)
+      if (isActive()) { heartbeat(); timer = setInterval(heartbeat, 15000) }
+    }
+    window.addEventListener('focus', refresh)
+    window.addEventListener('blur', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    refresh()
+    return () => { clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('blur', refresh); document.removeEventListener('visibilitychange', refresh) }
+  }, [])
+  return null
+}
 
 function App(){
   return (
     <div className="min-h-screen bg-emerald-50">
       <ScrollToTop />
+      <ActiveCrmTracker />
       <Routes>
         <Route path="/" element={<Login/>} />
         <Route path="/verify" element={<VerifyOtp/>} />

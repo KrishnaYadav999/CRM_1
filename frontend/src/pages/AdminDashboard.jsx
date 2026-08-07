@@ -223,7 +223,7 @@ function UserLogsModal({ onClose }) {
       Login: row.loginAt ? new Date(row.loginAt).toLocaleString('en-IN') : '',
       'Last Activity': row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleString('en-IN') : '',
       Logout: row.logoutAt ? new Date(row.logoutAt).toLocaleString('en-IN') : '',
-      'Session Status': row.sessionStatus, Duration: formatDuration(row.durationSeconds), Activities: row.activityCount,
+      'Session Status': row.sessionStatus, 'Open Duration': formatDuration(row.durationSeconds), 'Active CRM Time': formatDuration(row.activeSeconds), 'Away / Other Tab Time': formatDuration(Math.max(0, row.durationSeconds - row.activeSeconds)), Activities: row.activityCount,
       'IP Address': row.ipAddress, Device: row.device
     }))
     const activityRows = visible.flatMap((row) => (row.activities || []).map((item) => ({
@@ -231,16 +231,24 @@ function UserLogsModal({ onClose }) {
       Description: item.description, Date: item.occurredAt ? new Date(item.occurredAt).toLocaleString('en-IN') : '',
       'HTTP Status': item.statusCode
     })))
+    const leadRows = visible.flatMap((row) => (row.completedLeads || []).map((lead) => ({
+      User: row.name, Email: row.email, Company: lead.company, 'Lead ID': lead.leadCode,
+      'Form Started': lead.formStartedAt ? new Date(lead.formStartedAt).toLocaleString('en-IN') : '',
+      'Assign Reached': lead.assignReachedAt ? new Date(lead.assignReachedAt).toLocaleString('en-IN') : '',
+      'Submitted / Closed': lead.submittedAt ? new Date(lead.submittedAt).toLocaleString('en-IN') : '',
+      'Time To Fill': formatDuration(lead.fillDurationSeconds)
+    })))
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sessionRows), 'Login Sessions')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(activityRows), 'CRM Activities')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(leadRows), 'Lead Completion Time')
     XLSX.writeFile(workbook, `CRM_User_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="flex max-h-[94vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-5">
-        <div><p className="text-xs font-black uppercase tracking-[.24em] text-emerald-700">Security & activity audit</p><h2 className="mt-1 text-2xl font-black text-slate-950">User Login & CRM Logs</h2><p className="text-sm font-semibold text-slate-500">Login duration, last activity, logout, device and every CRM change.</p></div>
+        <div><p className="text-xs font-black uppercase tracking-[.24em] text-emerald-700">Security & activity audit</p><h2 className="mt-1 text-2xl font-black text-slate-950">User Login & CRM Logs</h2><p className="text-sm font-semibold text-slate-500">Focused CRM time excludes hidden tabs and other websites; Excel includes open, active and away time.</p></div>
         <div className="flex gap-2"><button type="button" onClick={exportLogs} disabled={!visible.length} className="inline-flex h-11 items-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-black text-white disabled:opacity-50"><Download className="h-4 w-4"/>Download Excel</button><button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5"/></button></div>
       </header>
       <div className="grid gap-2 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-6">

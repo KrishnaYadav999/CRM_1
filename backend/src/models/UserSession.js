@@ -9,7 +9,9 @@ const UserSessionSchema = new mongoose.Schema({
   ipAddress: { type: String, trim: true },
   userAgent: { type: String, trim: true },
   loginMode: { type: String, trim: true },
-  activityCount: { type: Number, default: 0 }
+  activityCount: { type: Number, default: 0 },
+  activeSeconds: { type: Number, default: 0 },
+  lastHeartbeatAt: { type: Date }
 }, { timestamps: true });
 
 module.exports = mongoose.model('UserSession', UserSessionSchema);

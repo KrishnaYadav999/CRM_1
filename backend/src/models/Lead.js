@@ -75,6 +75,10 @@ const LeadSchema = new mongoose.Schema({
   recordStatus: { type: String, trim: true, default: 'ACTIVE' },
   complianceHealthReport: { type: mongoose.Schema.Types.Mixed },
   workflowStatus: { type: String, enum: ['draft', 'submitted'], default: 'draft' },
+  formStartedAt: { type: Date },
+  assignReachedAt: { type: Date },
+  submittedAt: { type: Date },
+  fillDurationSeconds: { type: Number, min: 0 },
   bulkImported: { type: Boolean, default: false, index: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   sync: {

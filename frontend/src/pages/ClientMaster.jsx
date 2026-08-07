@@ -515,7 +515,7 @@ function getClientMasterRows(crmClients = [], ccpClients = []) {
 
 const emptyClient = {
   selectedLead: '',
-  adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'DISCONTINUED', assignedTo: '' },
+  adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'LIVE', assignedTo: '' },
   companyOverview: {
     companyName: '',
     companySummary: '',

@@ -133,6 +133,10 @@ function cleanBody(body) {
     'bulkImported',
     'recordStatus',
     'complianceHealthReport'
+    ,'formStartedAt'
+    ,'assignReachedAt'
+    ,'submittedAt'
+    ,'fillDurationSeconds'
   ].forEach((key) => {
     if (body[key] !== undefined) {
       const value = typeof body[key] === 'string' ? body[key].trim() : body[key];
@@ -315,6 +319,11 @@ async function createLeadRecord(rawBody, userId) {
   if (closureError) { const validationError = new Error(closureError); validationError.statusCode = 400; throw validationError; }
   data.companyIdentity = normalizeCompanyIdentity(data.company);
   data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : 'draft';
+  if (data.workflowStatus === 'submitted') {
+    data.formStartedAt = data.formStartedAt || new Date();
+    data.submittedAt = data.submittedAt || new Date();
+    data.fillDurationSeconds = Math.max(0, Math.min(86400, Math.round((new Date(data.submittedAt).getTime() - new Date(data.formStartedAt).getTime()) / 1000)));
+  }
 
   if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.subApplicantType) {
     const selection = await validatePiboSelection({ parent: data.piboParent, child: data.subApplicantType, required: true });
@@ -687,6 +696,9 @@ exports.updateLead = async (req, res) => {
     data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : (data.workflowStatus || lead.workflowStatus || 'draft');
 
     if (data.workflowStatus === 'submitted') {
+      data.formStartedAt = data.formStartedAt || lead.formStartedAt || lead.createdAt || new Date();
+      data.submittedAt = data.submittedAt || lead.submittedAt || new Date();
+      data.fillDurationSeconds = Math.max(0, Math.min(86400, Math.round((new Date(data.submittedAt).getTime() - new Date(data.formStartedAt).getTime()) / 1000)));
       const error = validateSubmittedLead({ ...lead.toObject(), ...data });
       if (error) return res.status(400).json({ error });
     }
