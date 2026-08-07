@@ -5,7 +5,8 @@ const {
   COMPANY_PROFILE_FILENAME,
   buildLeadIntroductionEmail,
   getIntroductionAttachments,
-  getLeadEmailRecipients
+  getLeadEmailRecipients,
+  getIntroductionCc
 } = require('../src/services/leadIntroductionEmail');
 
 test('lead introduction email is professionally formatted with the company closing', () => {
@@ -29,6 +30,11 @@ test('lead introduction email is professionally formatted with the company closi
   assert.doesNotMatch(email.html, /Lead ID:/);
 });
 
+test('lead introduction CC contains only the original generator and never admins', () => {
+  assert.deepEqual(getIntroductionCc('Creator@Example.com', ['client@example.com']), ['creator@example.com']);
+  assert.deepEqual(getIntroductionCc('client@example.com', ['client@example.com']), []);
+});
+
 test('lead introduction is addressed to unique customer contact emails', () => {
   assert.deepEqual(getLeadEmailRecipients({
     emails: 'Primary@Example.com',
@@ -46,4 +52,10 @@ test('lead introduction attaches both email-safe PDFs', () => {
     assert.equal(attachment.content.subarray(0, 4).toString(), '%PDF');
   }
   assert.ok(attachments.reduce((total, attachment) => total + attachment.content.length, 0) < 3 * 1024 * 1024);
+});
+
+test('lead controller atomically claims introduction delivery before sending', () => {
+  const controller = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/controllers/leadController.js'), 'utf8');
+  assert.match(controller, /findOneAndUpdate\(\{[\s\S]*introductionEmailVersion:[\s\S]*\$lt: INTRODUCTION_EMAIL_VERSION/);
+  assert.match(controller, /already-claimed/);
 });

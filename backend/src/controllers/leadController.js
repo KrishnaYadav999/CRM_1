@@ -31,6 +31,36 @@ const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1',
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
 const INTRODUCTION_EMAIL_VERSION = 3;
 
+async function sendIntroductionOnce(lead, creator) {
+  if (lead.workflowStatus !== 'submitted') return { skipped: true, reason: 'not-submitted' };
+  // Claim delivery atomically before calling the mail provider. This prevents
+  // simultaneous saves or later edits from sending the introduction twice.
+  const claimed = await Lead.findOneAndUpdate({
+    _id: lead._id,
+    $or: [
+      { introductionEmailVersion: { $lt: INTRODUCTION_EMAIL_VERSION } },
+      { introductionEmailVersion: { $exists: false } }
+    ]
+  }, {
+    $set: { introductionEmailVersion: INTRODUCTION_EMAIL_VERSION }
+  }, { new: true });
+  if (!claimed) return { skipped: true, reason: 'already-claimed' };
+
+  try {
+    const result = await sendLeadIntroductionEmail({ lead: claimed.toObject(), creator });
+    if (result?.sent) {
+      claimed.introductionEmailSentAt = new Date();
+      await claimed.save();
+    }
+    return result;
+  } catch (error) {
+    // Keep the claim after a provider failure: later lead edits must never
+    // create a second introduction send attempt.
+    console.error('Lead introduction email failed after one-time claim', error);
+    return { skipped: true, reason: 'send-failed' };
+  }
+}
+
 exports.listLeadDropdownOptions = async (_req, res) => {
   const rows = await LeadDropdownOption.find().sort({ field: 1, name: 1 }).lean();
   const options = rows.reduce((result, row) => {
@@ -637,18 +667,7 @@ exports.createLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    if (lead.workflowStatus === 'submitted' && Number(lead.introductionEmailVersion || 0) < INTRODUCTION_EMAIL_VERSION) {
-      try {
-        const result = await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user });
-        if (result?.sent) {
-          lead.introductionEmailSentAt = new Date();
-          lead.introductionEmailVersion = INTRODUCTION_EMAIL_VERSION;
-          await lead.save();
-        }
-      } catch (error) {
-        console.error('Lead introduction email failed; it remains eligible for retry', error);
-      }
-    }
+    await sendIntroductionOnce(lead, req.user);
     res.status(201).json({ ok: true, lead });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to save lead' });
@@ -750,18 +769,7 @@ exports.updateLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    if (lead.workflowStatus === 'submitted' && Number(lead.introductionEmailVersion || 0) < INTRODUCTION_EMAIL_VERSION) {
-      try {
-        const result = await sendLeadIntroductionEmail({ lead: lead.toObject(), creator: req.user });
-        if (result?.sent) {
-          lead.introductionEmailSentAt = new Date();
-          lead.introductionEmailVersion = INTRODUCTION_EMAIL_VERSION;
-          await lead.save();
-        }
-      } catch (error) {
-        console.error('Lead introduction email retry failed; it remains eligible for retry', error);
-      }
-    }
+    await sendIntroductionOnce(lead, req.user);
     if (req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead: lead.toObject(), submittedPayload: req.body, actor: req.user }).catch((error) => console.error('Financial year notification failed', error));
       await notifyAdditionalLeadServices({

@@ -60,13 +60,21 @@ function getLeadEmailRecipients(lead = {}) {
     .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))];
 }
 
+function getIntroductionCc(creatorEmail, recipients = []) {
+  const email = String(creatorEmail || '').trim().toLowerCase();
+  return email && !recipients.includes(email) ? [email] : [];
+}
+
 async function sendLeadIntroductionEmail({ lead, creator }) {
-  const admins = await User.find({ role: { $in: ['admin', 'superadmin'] }, isActive: { $ne: false }, email: { $ne: '' } }).select('email').lean();
-  const adminEmails = [...new Set(admins.map((user) => String(user.email || '').trim().toLowerCase()).filter(Boolean))];
   const recipients = getLeadEmailRecipients(lead);
   if (!recipients.length) return { skipped: true, reason: 'no-lead-email-recipients' };
-  const creatorEmail = String(creator?.email || lead?.createdByEmail || '').trim().toLowerCase();
-  const cc = [...new Set([creatorEmail, ...adminEmails].filter((email) => email && !recipients.includes(email)))];
+  const originalCreator = lead?.createdBy
+    ? await User.findById(lead.createdBy).select('email').lean().catch(() => null)
+    : null;
+  const creatorEmail = String(originalCreator?.email || lead?.createdByEmail || creator?.email || '').trim().toLowerCase();
+  // Only the person who originally generated the lead is copied. Admin and
+  // Super Admin addresses are intentionally excluded from introduction mail.
+  const cc = getIntroductionCc(creatorEmail, recipients);
   const content = buildLeadIntroductionEmail(lead);
   await sendMail(recipients, content.subject, content.html, {
     branded: false,
@@ -76,4 +84,4 @@ async function sendLeadIntroductionEmail({ lead, creator }) {
   return { sent: true, recipients, cc, attachments: [EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME] };
 }
 
-module.exports = { EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME, buildLeadIntroductionEmail, getIntroductionAttachments, getLeadEmailRecipients, sendLeadIntroductionEmail };
+module.exports = { EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME, buildLeadIntroductionEmail, getIntroductionAttachments, getLeadEmailRecipients, getIntroductionCc, sendLeadIntroductionEmail };
