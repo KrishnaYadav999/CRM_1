@@ -25,8 +25,6 @@ function buildLeadIntroductionEmail(lead = {}) {
         <p style="margin-bottom:6px">AnantTattva is recognised for facilitating industry-stakeholder interactions with government authorities, including the Ministry of MSME, DCPC, FSSAI, MoEF&amp;CC, NITI Aayog, the Department of Customs, the Ministry of Heavy Industries and the Ministry of Finance, and for policies related to:</p>
         ${numberedList(['EPR', 'ESG', 'PPWR (Europe Policy)', 'P-EPR (UK Policy)'])}
         <p>We have a widespread network of more than 20,000 industry stakeholders, including trade associations and chambers of commerce. We regularly engage with them to spread awareness of government policy initiatives and support successful implementation, enabling industry and national growth.</p>
-        <p style="margin-bottom:6px"><strong>Our specialised services include:</strong></p>
-        ${numberedList(['EPR End-to-End Compliance, Annual Return and Registration', 'EPR Audit &amp; Regulatory Risk Management', 'Automated Compliance Risk Assessment', 'Policy Advocacy, Legal &amp; Regulatory Guidance and Government Representations', 'EPR corporate training for internal and external stakeholders', 'Sustainable Materials &amp; Circular Supply Chain Management', 'SKU-wise supply-chain material and financial forecasting', 'CTO/CTE compliance for internal operations and suppliers', 'ESG Sustainability Alignment', 'System data integration for SAP, Tally and ERP', 'EPR Due Diligence for Mergers &amp; Acquisitions, IPOs and Venture Capital'])}
         <p>Global manufacturing policies introduced by governments have shifted the focus of businesses from <strong>traditional production to sustainability-driven manufacturing</strong>. These policies demand stringent compliance for reporting on <strong>waste management, recycling, reuse and reduction</strong>, which is audited by Pollution Control Boards on a real-time basis.</p>
         <p>Accordingly, the management and boards of directors of brand owners, producers and recyclers are restructuring their business models with expert and specialised advisory support for market intelligence, market creation and long-term business sustainability. At AnantTattva, our team of experts has developed advanced advisory tools for organisations interested in inflation-risk management, expansion, diversification and collaboration.</p>
         <h3 style="margin:24px 0 8px;font-size:17px;text-decoration:underline">1. Sustainability-Based Market Intelligence for Market Creation</h3>
@@ -39,6 +37,14 @@ function buildLeadIntroductionEmail(lead = {}) {
         <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;font-size:15px;line-height:1.7;color:#111827">
           <p style="margin:0"><strong>Thanks &amp; Regards,</strong><br/><strong>Team AnantTattva</strong></p>
           <img src="https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg" alt="AnantTattva" width="150" style="display:block;margin:12px 0 8px;border:0" />
+          <p style="margin:0 0 10px;font-weight:700;font-size:15px">India's Leading and Only Advisors for Compliance, Risk Management and Policy Advocacy for:</p>
+          <ul style="margin:6px 0 14px;padding-left:20px;line-height:1.6">
+            <li><strong>EPR of 70+ Countries</strong></li>
+            <li><strong>ESG</strong></li>
+            <li><strong>Circular Economy</strong></li>
+            <li><strong>Sustainability solutions</strong></li>
+          </ul>
+          <p style="margin:0 0 14px;font-weight:700;font-size:16px">आओ सब मिलकर भारत को विश्वगुरु बनाते हैं।</p>
           <p style="margin:0 0 8px;font-weight:700">AnantTattva Private Limited</p>
           <p style="margin:0 0 8px">1st Floor, A/25, Technocraft House, Road No. 3, MIDC, Andheri East, Mumbai 400093</p>
           <p style="margin:0 0 8px"><strong>Official Numbers:</strong> <a href="tel:+918169727341" style="color:#0f766e">+91 8169727341</a> / <a href="tel:+919004005520" style="color:#0f766e">+91 9004005520</a></p>
