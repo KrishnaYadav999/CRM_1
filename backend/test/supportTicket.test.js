@@ -36,6 +36,12 @@ test('ticket image attachments keep only valid secure image uploads', () => {
   assert.equal(attachments[0].name, 'error.png');
 });
 
+test('ticket creation requires at least one valid issue screenshot', () => {
+  assert.equal(cleanAttachments([]).length, 0);
+  assert.equal(cleanAttachments([{ url: 'javascript:alert(1)', type: 'image/png' }]).length, 0);
+  assert.equal(cleanAttachments([{ url: 'https://example.com/error.webp', type: 'image/webp' }]).length, 1);
+});
+
 test('new-ticket email goes to both IT mailboxes with user and issue details', () => {
   assert.deepEqual(SUPPORT_RECIPIENTS, ['it_support@ananttattva.com', 'it_admin@ananttattva.com']);
   const email = buildRaisedEmail({ ticketNumber: 'TKT-2026-00001', createdByName: 'CRM User', createdByEmail: 'user@example.com', category: 'Lead', priority: 'High', subject: 'Unable to save', description: 'Save button returns an error.' });

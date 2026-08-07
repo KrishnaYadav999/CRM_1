@@ -23,12 +23,12 @@ function dateLabel(value) {
 }
 
 function TicketImageUpload({ attachments = [], uploading, onFiles, onRemove }) {
-  return <div className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/40 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wider text-slate-600">Issue images</p><p className="mt-1 text-xs text-slate-500">Upload up to 5 screenshots (JPG, PNG, WEBP).</p></div><label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-emerald-700 shadow-sm ring-1 ring-emerald-100"><input type="file" multiple accept="image/*" className="sr-only" disabled={uploading || attachments.length >= 5} onChange={onFiles} />{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}{uploading ? 'Uploading...' : 'Add images'}</label></div>{attachments.length > 0 && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{attachments.map((image, index) => <div key={`${image.publicId || image.url}-${index}`} className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white"><img src={image.secureUrl || image.url} alt={image.name || `Ticket image ${index + 1}`} className="h-24 w-full object-cover" /><button type="button" onClick={() => onRemove(index)} className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg bg-white/95 text-rose-600 shadow"><Trash2 className="h-4 w-4" /></button><p className="truncate px-2 py-2 text-[10px] font-bold text-slate-500">{image.name || `Image ${index + 1}`}</p></div>)}</div>}</div>
+  return <div className={`rounded-2xl border border-dashed p-4 ${attachments.length ? 'border-emerald-200 bg-emerald-50/40' : 'border-rose-300 bg-rose-50/50'}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wider text-slate-600">Issue images <span className="text-rose-600">*</span></p><p className="mt-1 text-xs text-slate-500">Minimum 1 screenshot is required. Upload up to 5 JPG, PNG or WEBP images.</p></div><label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-emerald-700 shadow-sm ring-1 ring-emerald-100"><input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={uploading || attachments.length >= 5} onChange={onFiles} />{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}{uploading ? 'Uploading...' : 'Add images'}</label></div>{!attachments.length && <p className="mt-3 flex items-center gap-2 text-xs font-bold text-rose-700"><AlertCircle className="h-4 w-4" />Ticket cannot be submitted without an issue screenshot.</p>}{attachments.length > 0 && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{attachments.map((image, index) => <div key={`${image.publicId || image.url}-${index}`} className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white"><img src={image.secureUrl || image.url} alt={image.name || `Ticket image ${index + 1}`} className="h-24 w-full object-cover" /><button type="button" onClick={() => onRemove(index)} className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg bg-white/95 text-rose-600 shadow"><Trash2 className="h-4 w-4" /></button><p className="truncate px-2 py-2 text-[10px] font-bold text-slate-500">{image.name || `Image ${index + 1}`}</p></div>)}</div>}</div>
 }
 
 function TicketAttachments({ attachments = [] }) {
   if (!attachments.length) return null
-  return createPortal(<div className="fixed bottom-24 right-5 z-[95] w-[min(38rem,calc(100vw-2.5rem))] rounded-2xl border border-emerald-100 bg-white p-4 shadow-2xl"><p className="text-xs font-black uppercase tracking-wider text-slate-500">Attached screenshots</p><div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">{attachments.map((image, index) => <a key={`${image.publicId || image.url}-${index}`} href={image.url} target="_blank" rel="noreferrer" className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><img src={image.url} alt={image.name || `Ticket image ${index + 1}`} className="h-24 w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-slate-950/25 text-white transition group-hover:bg-slate-950/45"><Eye className="h-6 w-6" /></span><span className="block truncate px-2 py-2 text-[10px] font-bold text-slate-600">{image.name || `Image ${index + 1}`}</span></a>)}</div></div>, document.body)
+  return createPortal(<div className="fixed bottom-24 right-5 z-[95] w-[min(38rem,calc(100vw-2.5rem))] rounded-2xl border border-emerald-100 bg-white p-4 shadow-2xl"><p className="text-xs font-black uppercase tracking-wider text-slate-500">Issue screenshots in this ticket</p><div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">{attachments.map((image, index) => <a key={`${image.publicId || image.url}-${index}`} href={image.url} target="_blank" rel="noopener noreferrer" title="Open full image in a new tab" className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><img src={image.url} alt={image.name || `Ticket image ${index + 1}`} loading="lazy" className="h-24 w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-slate-950/25 text-white transition group-hover:bg-slate-950/45"><Eye className="h-6 w-6" /></span><span className="block truncate px-2 pt-2 text-[10px] font-bold text-slate-600">{image.name || `Image ${index + 1}`}</span><span className="block px-2 pb-2 text-[10px] font-black text-emerald-700 underline">Open full image</span></a>)}</div></div>, document.body)
 }
 
 export default function SupportTickets() {
@@ -77,7 +77,9 @@ export default function SupportTickets() {
   }), [tickets])
 
   async function createTicket(event) {
-    event.preventDefault(); setSaving(true); setError(''); setNotice('')
+    event.preventDefault(); setError(''); setNotice('')
+    if (!(form.attachments || []).length) { setError('Please upload at least one issue screenshot before submitting the ticket.'); return }
+    setSaving(true)
     try {
       const { data } = await api.post(API_ENDPOINTS.supportTickets.create, form)
       setTickets((items) => [data.ticket, ...items]); setForm(emptyForm); setFormOpen(false)
@@ -90,6 +92,9 @@ export default function SupportTickets() {
     const files = Array.from(event.target.files || [])
     event.target.value = ''
     if (!files.length) return
+    const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+    const invalid = files.find((file) => !allowedTypes.has(file.type) || file.size > 10 * 1024 * 1024)
+    if (invalid) { setError('Only JPG, PNG or WEBP images up to 10 MB each are allowed.'); return }
     const remaining = Math.max(0, 5 - (form.attachments || []).length)
     if (!remaining) { setError('Maximum 5 images can be attached.'); return }
     setUploadingImages(true); setError('')

@@ -43,11 +43,13 @@ exports.createTicket = async (req, res) => {
   if (!CATEGORIES.includes(category)) return res.status(400).json({ error: 'Please select a valid ticket category' });
   if (!subject) return res.status(400).json({ error: 'Subject is required' });
   if (!description) return res.status(400).json({ error: 'Issue description is required' });
+  const attachments = cleanAttachments(req.body.attachments);
+  if (!attachments.length) return res.status(400).json({ error: 'At least one issue screenshot is required before submitting the ticket' });
 
   const ticket = await SupportTicket.create({
     ticketNumber: await nextTicketNumber(), category, subject, description, priority,
     referenceNumber: String(req.body.referenceNumber || '').trim(),
-    attachments: cleanAttachments(req.body.attachments),
+    attachments,
     createdBy: req.user._id, createdByName: req.user.name || '', createdByEmail: req.user.email || '',
     messages: [{ message: description, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role }]
   });
