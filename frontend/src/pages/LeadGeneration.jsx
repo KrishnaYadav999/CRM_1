@@ -3419,6 +3419,7 @@ function buildLeadFollowUpRows(lead = {}) {
       scheduledTime: lead.nextFollowUpTime || '',
       remarks: lead.followUpRemarks || '',
       reason: 'Current follow-up',
+      status: 'open',
       priority: lead.followUpPriority || 'Medium',
       owner: lead.importedCreatedBy || lead.createdByName || lead.createdByEmail || 'Lead creator',
       serviceName: lead.servicesOffered || 'Lead follow-up',
@@ -3433,6 +3434,8 @@ function buildLeadFollowUpRows(lead = {}) {
       scheduledTime: item.scheduledTime || item.nextFollowUpTime || '',
       remarks: item.remarks || item.followUpRemarks || '',
       reason: item.reason || item.updateReason || '',
+      status: item.status || 'closed',
+      closedAt: item.closedAt || item.updatedAt || item.createdAt || '',
       priority: item.priority || item.followUpPriority || 'Medium',
       createdAt: item.createdAt || ''
     });
@@ -3442,12 +3445,15 @@ function buildLeadFollowUpRows(lead = {}) {
       id: `service-current-${serviceIndex}`, isCurrent: true, serviceIndex,
       scheduledDate: service.nextFollowUpDate || '', scheduledTime: service.nextFollowUpTime || '',
       remarks: service.followUpRemarks || '', reason: 'Current service follow-up',
+      status: 'open',
       priority: service.followUpPriority || 'Medium', owner: service.createdByName || service.createdByEmail || 'Service owner',
       serviceName: service.servicesOffered || service.applicableService || `Service ${serviceIndex + 1}`,
       createdAt: service.followUpUpdatedAt || lead.updatedAt || ''
     });
     (Array.isArray(service.followUpHistory) ? service.followUpHistory : []).forEach((item, historyIndex) => rows.push({
       ...item, id: item.id || `service-${serviceIndex}-history-${historyIndex}`, isCurrent: false, serviceIndex,
+      status: item.status || 'closed',
+      closedAt: item.closedAt || item.updatedAt || item.createdAt || '',
       owner: item.owner || service.createdByName || service.createdByEmail || 'Service owner',
       serviceName: service.servicesOffered || service.applicableService || `Service ${serviceIndex + 1}`
     }));
@@ -3777,8 +3783,10 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
           scheduledTime: selectedService.nextFollowUpTime || '',
           remarks: selectedService.followUpRemarks || '',
           reason: followUpDraft.reason.trim() || 'Previous current follow-up',
-          status: 'superseded',
+          status: 'closed',
           owner: currentUser?.name || currentUser?.email || 'CRM User',
+          closedBy: currentUser?.name || currentUser?.email || 'CRM User',
+          closedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           createdAt: new Date().toISOString()
         }]
@@ -4285,7 +4293,7 @@ function FollowUpBox({ title, tone, items = [], emptyMessage, onView, onEdit, on
               <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm shadow-slate-900/5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <strong className="text-sm font-black text-slate-950">{formatFollowUpDate(item.scheduledDate)}{item.scheduledTime ? ` at ${item.scheduledTime}` : ''}</strong>
-                  {item.reason && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-500">{item.reason}</span>}
+                  {(item.status === 'closed' || item.reason) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-500">{item.status === 'closed' ? 'Follow up closed' : item.reason}</span>}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2"><span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black text-sky-700">{item.serviceName || 'Lead service'}</span><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-700">By {item.owner || 'CRM User'}</span></div>
                 <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6 text-slate-600">{item.remarks || 'No remarks added.'}</p>
