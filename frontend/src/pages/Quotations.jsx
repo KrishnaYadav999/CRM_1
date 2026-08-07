@@ -1702,7 +1702,7 @@ export default function Quotations() {
                 <table className="w-full min-w-[1120px] text-left text-sm [&_td:nth-child(3)]:hidden [&_th:nth-child(3)]:hidden">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
-                      {['Sr.No', 'EPR / Service Period', 'Industry Type', 'Service Category', 'Business Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
+                      {['Sr.No', 'EPR / Service Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
                         <th key={header} className="px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -1716,16 +1716,16 @@ export default function Quotations() {
                           <>
                             {selectedLead ? <>
                               <td className="px-3 py-4 font-black text-slate-700">{item.industryType || '-'}</td>
-                              <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
                               <td className="px-3 py-4 font-black uppercase text-slate-700">{item.businessCategory || '-'}</td>
+                              <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
                               <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate)) ?? '')} onChange={(event) => setServiceStartDate(index, event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
                               <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className="h-10 w-40 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" /></td>
                               <td className="px-3 py-4 font-black text-slate-700">{displayPiboChild(item)}</td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </> : <>
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'industryType', item.industryType || '')} options={allIndustryTypeOptions} placeholder="Select industry" onChange={(value) => setItemDraft(index, 'industryType', value)} categoryLabel="Industry Type" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('industryType', name) : undefined} /></td>
-                              <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'businessCategory', item.businessCategory || '')} options={allBusinessCategoryOptions} placeholder="Select business category" onChange={(value) => setItemDraft(index, 'businessCategory', value)} categoryLabel="Business Category" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('businessCategory', name) : undefined} /></td>
+                              <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
                               <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate)) ?? '')} onChange={(event) => setServiceStartDate(index, event.target.value)} className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /></td>
                               <td className="px-3 py-4"><input type="date" value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className="h-10 w-40 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" /></td>
                               <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={readItemDraftValue(index, 'piboParent', item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory))} value={readItemDraftValue(index, 'piboCategory', item.piboCategory || '')} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={canManageDropdownOptions ? addPiboCategory : undefined} /></td>
@@ -1749,8 +1749,8 @@ export default function Quotations() {
                         ) : (
                           <>
                             <td className="px-3 py-4 font-black">{item.industryType || '-'}</td>
-                            <td className="px-3 py-4 font-black uppercase">{item.eprCategory || item.serviceCategory || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.businessCategory || '-'}</td>
+                            <td className="px-3 py-4 font-black uppercase">{item.eprCategory || item.serviceCategory || '-'}</td>
                             <td className="px-3 py-4 font-black">{formatServiceDate(item.serviceStartDate)}</td>
                             <td className="px-3 py-4 font-black">{formatServiceDate(item.serviceEndDate)}</td>
                             <td className="px-3 py-4 font-black uppercase">{displayPiboChild(item)}</td>
@@ -1827,13 +1827,13 @@ export default function Quotations() {
             <div className="max-h-[calc(92vh-165px)] overflow-y-auto p-6">
               <div className="overflow-x-auto rounded-2xl border border-slate-200">
                 <table className={`w-full text-left text-sm ${financialYearNeedsEprData ? 'min-w-[1250px]' : 'min-w-[850px]'}`}>
-                  <thead className="bg-gradient-to-r from-teal-50 to-cyan-50 text-[10px] uppercase tracking-[.13em] text-teal-900"><tr>{['Sr. No', ...(financialYearNeedsEprData ? ['EPR Data Validity'] : []), 'Service Period', ...(financialYearNeedsEprData ? ['Annual Return EPR Year'] : []), 'Service Category', 'Business Category', 'Applicant Type', 'Services Offered'].map((heading) => <th key={heading} className="px-4 py-4">{heading}</th>)}</tr></thead>
+                  <thead className="bg-gradient-to-r from-teal-50 to-cyan-50 text-[10px] uppercase tracking-[.13em] text-teal-900"><tr>{['Sr. No', ...(financialYearNeedsEprData ? ['EPR Data Validity'] : []), 'Service Period', ...(financialYearNeedsEprData ? ['Annual Return EPR Year'] : []), 'Business Category', 'Service Category', 'Applicant Type', 'Services Offered'].map((heading) => <th key={heading} className="px-4 py-4">{heading}</th>)}</tr></thead>
                   <tbody><tr className="align-top">
                     <td className="p-4"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 font-black">{Number(financialYearItemIndex) + 1}</span></td>
                     {financialYearNeedsEprData && <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max="50" value={financialYearDraft.validityPeriod || ''} onChange={(event) => { const limit = Math.max(1, Math.min(50, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, validityPeriod: String(limit), annualReturnYears: (current.annualReturnYears || []).slice(0, limit) })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">Year</span></div></td>}
                     <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max="50" value={financialYearDraft.servicePeriod || ''} onChange={(event) => { const period = Math.max(1, Math.min(50, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, servicePeriod: String(period), serviceEndDate: serviceEndDateFrom(current.serviceStartDate, period) })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">Year</span></div></td>
                     {financialYearNeedsEprData && <td className="p-4"><div className="grid w-72 grid-cols-2 gap-2">{quotationFyOptions().map((year) => { const checked = (financialYearDraft.annualReturnYears || []).includes(year); const limitReached = !checked && (financialYearDraft.annualReturnYears || []).length >= Math.max(1, Number(financialYearDraft.validityPeriod) || 1); return <label key={year} className={`flex items-center gap-2 rounded-xl border px-3 py-2 font-black ${checked ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : limitReached ? 'cursor-not-allowed bg-slate-50 text-slate-300' : 'cursor-pointer bg-white text-slate-600'}`}><input type="checkbox" checked={checked} disabled={limitReached} onChange={() => toggleAnnualReturnYear(year)} />{year}</label>; })}</div></td>}
-                    <td className="p-4 font-black text-slate-700">{financialYearDraft.serviceCategory || financialYearDraft.eprCategory || '-'}</td><td className="p-4 font-black text-slate-700">{financialYearDraft.businessCategory || '-'}</td><td className="p-4 font-black text-slate-700">{displayPiboChild(financialYearDraft)}</td><td className="p-4 font-black text-teal-700">{financialYearDraft.servicesOffered || '-'}</td>
+                    <td className="p-4 font-black text-slate-700">{financialYearDraft.businessCategory || '-'}</td><td className="p-4 font-black text-slate-700">{financialYearDraft.serviceCategory || financialYearDraft.eprCategory || '-'}</td><td className="p-4 font-black text-slate-700">{displayPiboChild(financialYearDraft)}</td><td className="p-4 font-black text-teal-700">{financialYearDraft.servicesOffered || '-'}</td>
                   </tr></tbody>
                 </table>
               </div>
@@ -1917,21 +1917,21 @@ function QuotationItemsPanel({ quotation, items }) {
       <table className="w-full min-w-[900px] text-left text-sm">
         <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
           <tr>
-            {['Service Category', 'Service Period', 'Basic Amount (INR)', 'Service Category', 'Business Category', 'Unit', 'Line Total'].map((header) => (
+            {['Business Category', 'Service Category', 'Service Period', 'Basic Amount (INR)', 'Business Category', 'Service Category', 'Unit', 'Line Total'].map((header) => (
               <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
           ) : items.map((item, index) => (
             <tr key={index} className="font-black uppercase text-slate-600">
-              <td className="px-4 py-4">{item.serviceCategory || '-'}</td>
+              <td className="px-4 py-4">{item.businessCategory || '-'}</td>
               <td className="px-4 py-4">{formatServiceDate(item.serviceStartDate)} – {formatServiceDate(item.serviceEndDate)}</td>
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
-              <td className="px-4 py-4">{item.eprCategory || '-'}</td>
               <td className="px-4 py-4">{item.businessCategory || '-'}</td>
+              <td className="px-4 py-4">{item.eprCategory || '-'}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="px-4 py-4 align-middle text-center font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
             </tr>
@@ -2054,8 +2054,8 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
 
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <QuoteModalStat label="Number of Revision" value={displayRevisionCount} tone="revision" />
-            <QuoteModalStat label="Service Category" value={latestItem.serviceCategory || '-'} />
             <QuoteModalStat label="Business Category" value={latestItem.businessCategory || '-'} />
+            <QuoteModalStat label="Service Category" value={latestItem.serviceCategory || '-'} />
           </div>
 
           <DetailSection title="Quotation Items">
@@ -2063,7 +2063,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
               <table className="w-full min-w-[1160px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-black text-slate-600">
                   <tr>
-                    {['Sr.No', 'Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Service Category', 'Business Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
+                    {['Sr.No', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Business Category', 'Service Category', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
                       <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                     ))}
                   </tr>
@@ -2072,18 +2072,19 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                   {items.length ? items.map((item, index) => (
                     <tr key={index} className="font-black uppercase text-slate-700">
                       <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
+                      <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
-                      <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
+                      <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{displayPiboChild(item)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
                     </tr>
                   )) : (
-                    <tr><td colSpan={10} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -2131,11 +2132,12 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
     ['GST Number', details.gstNumber || '-'],
     ['Referred By', details.referredBy || quotation.createdBy?.name || quotation.createdBy || '-'],
     ['Quotation Number', quotation.quotationNumber || quotation.uniqueId || '-'],
+    ['Business Category', firstItem.businessCategory || '-'],
     ['Service Category', firstItem.serviceCategory || '-'],
     ['Service Start Date', formatServiceDate(firstItem.serviceStartDate)],
     ['Service End Date', formatServiceDate(firstItem.serviceEndDate)],
-    ['Service Category', firstItem.eprCategory || '-'],
     ['Business Category', firstItem.businessCategory || '-'],
+    ['Service Category', firstItem.eprCategory || '-'],
     ['Applicant Type', displayPiboChild(firstItem)],
     ['Quantity/Unit', firstItem.unit || '-'],
     ['Basic Amount (INR)', formatInr(firstItem.basicAmount)],
@@ -2174,7 +2176,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
           <table className="w-full min-w-[1120px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-600">
               <tr>
-                {['Sr.No', 'Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Service Category', 'Business Category', 'Applicant Type', 'Unit'].map((header) => (
+                {['Sr.No', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Business Category', 'Service Category', 'Applicant Type', 'Unit'].map((header) => (
                   <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                 ))}
               </tr>
@@ -2183,17 +2185,18 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
               {items.length ? items.map((item, index) => (
                 <tr key={index} className="font-black uppercase text-slate-700">
                   <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
+                  <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
                   {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
-                  <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
+                  <td className="border-b border-r border-slate-100 px-4 py-4">{item.eprCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{displayPiboChild(item)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.unit || '-'}</td>
                 </tr>
               )) : (
-                <tr><td colSpan={9} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
               )}
             </tbody>
           </table>
@@ -2456,17 +2459,17 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
               {combined && <div className="mt-5 px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
               <div className={`${combined ? '' : 'mt-5'} overflow-hidden border border-slate-950`}>
                 <table className="w-full table-fixed text-[10px]">
-                  <colgroup><col className="w-[18%]" /><col className="w-[14%]" /><col className="w-[22%]" /><col className="w-[20%]" /><col className="w-[8%]" /><col className="w-[18%]" /></colgroup>
+                  <colgroup><col className="w-[14%]" /><col className="w-[18%]" /><col className="w-[22%]" /><col className="w-[20%]" /><col className="w-[8%]" /><col className="w-[18%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
-                      {['Service Category', 'Business Category', 'EPR / Service Period', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
+                      {['Business Category', 'Service Category', 'EPR / Service Period', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((item, index) => (
                       <tr key={index} className="font-black uppercase">
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || item.serviceCategory || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.businessCategory || '-'}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || item.serviceCategory || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{formatServiceDate(item.serviceStartDate)} – {formatServiceDate(item.serviceEndDate)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{item.unit || '-'}</td>
@@ -2563,8 +2566,8 @@ function buildQuotationPrintHtml(quotation) {
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const rows = items.map((item, index) => `
     <tr>
-      <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
+      <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
       <td>${escapeHtml(requiresEprDataYear(item.eprCategory || item.serviceCategory) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || '-') : `${Math.max(1, Number(item.servicePeriod) || 1)} Year(s)`)}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(item.unit || '-')}</td>
@@ -2659,9 +2662,9 @@ function buildQuotationPrintHtml(quotation) {
       </section>
       ${combinedPackageHeader}
       <table>
-        <colgroup><col style="width:18%"><col style="width:14%"><col style="width:22%"><col style="width:20%"><col style="width:8%"><col style="width:18%"></colgroup>
+        <colgroup><col style="width:14%"><col style="width:18%"><col style="width:22%"><col style="width:20%"><col style="width:8%"><col style="width:18%"></colgroup>
         <thead>
-          <tr><th>Service Category</th><th>Business Category</th><th>EPR / Service Period</th><th>Services Offered</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Business Category</th><th>Service Category</th><th>EPR / Service Period</th><th>Services Offered</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
         </thead>
         <tbody>${rows || '<tr><td colspan="6" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
