@@ -12,6 +12,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
 import { adminRoles } from '../constants/dashboard';
 import { QUOTATION_SCOPE_PRESET_OPTIONS, QUOTATION_SCOPE_PRESETS } from '../constants/quotationScopePresets';
+import { addServiceDays, datesFromAnnualYears, normalizeDateInputValue, normalizePeriodUnit, periodDisplay, renewalDateFrom, serviceEndDateFrom } from '../utils/servicePeriod';
 
 const ANANT_LOGO_SOURCE_URL = '/anant-tattva-logo-chroma.png';
 
@@ -62,11 +63,12 @@ const PERIOD_UNIT_OPTIONS = [
 ];
 const TRANSITION_PERIOD_OPTIONS = ['Yes', 'No'];
 
-function periodUnitLabel(unit) {
+function periodUnitLabel(unit, quantity = 1) {
+  const plural = Number(quantity) === 1 ? '' : 's';
   switch (String(unit || '').trim().toLowerCase()) {
-    case 'days': return 'Day(s)';
-    case 'months': return 'Month(s)';
-    default: return 'Year(s)';
+    case 'days': return `Day${plural}`;
+    case 'months': return `Month${plural}`;
+    default: return `Year${plural}`;
   }
 }
 function periodUnitLongLabel(unit) {
@@ -96,12 +98,6 @@ function displayLeadCode(row = {}, index = -1) {
   return businessMatch ? `ATPL-${businessMatch[1].padStart(4, '0')}` : (value || '-');
 }
 
-function normalizeDateInputValue(value) {
-  const raw = String(value || '').trim();
-  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1] : '';
-}
-
 function parseDateInputValue(value) {
   const normalized = normalizeDateInputValue(value);
   if (!normalized) return null;
@@ -125,42 +121,6 @@ function deriveFinancialYearFromDate(value) {
   return `${startYear}-${String(startYear + 1).slice(-2)}`;
 }
 
-function serviceEndDateFrom(startDate, servicePeriod, periodUnit = 'annual') {
-  const normalized = normalizeDateInputValue(startDate);
-  const qty = Number(servicePeriod);
-  if (!normalized || !Number.isFinite(qty) || qty < 1) return '';
-  const [year, month, day] = normalized.split('-').map(Number);
-  const endDate = new Date(Date.UTC(year, month - 1, day));
-  const unit = String(periodUnit || '').trim().toLowerCase();
-  if (unit === 'days') {
-    endDate.setUTCDate(endDate.getUTCDate() + Math.floor(qty) - 1);
-  } else if (unit === 'months') {
-    endDate.setUTCMonth(endDate.getUTCMonth() + Math.floor(qty));
-    endDate.setUTCDate(endDate.getUTCDate() - 1);
-  } else {
-    endDate.setUTCFullYear(endDate.getUTCFullYear() + Math.floor(qty));
-    endDate.setUTCDate(endDate.getUTCDate() - 1);
-  }
-  return endDate.toISOString().slice(0, 10);
-}
-
-function renewalDateFrom(startDate, servicePeriod, periodUnit = 'annual') {
-  const normalized = normalizeDateInputValue(startDate);
-  const qty = Number(servicePeriod);
-  if (!normalized || !Number.isFinite(qty) || qty < 1) return '';
-  const [year, month, day] = normalized.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  const unit = String(periodUnit || '').trim().toLowerCase();
-  if (unit === 'days') {
-    date.setUTCDate(date.getUTCDate() + Math.floor(qty));
-  } else if (unit === 'months') {
-    date.setUTCMonth(date.getUTCMonth() + Math.floor(qty));
-  } else {
-    date.setUTCFullYear(date.getUTCFullYear() + Math.floor(qty));
-  }
-  return date.toISOString().slice(0, 10);
-}
-
 function quotationFyOptions() {
   const now = new Date();
   const currentStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -168,18 +128,6 @@ function quotationFyOptions() {
     const start = currentStart - 5 + index;
     return `${start}-${String(start + 1).slice(-2)}`;
   });
-}
-
-function datesFromAnnualYears(years = []) {
-  const sorted = [...new Set(years)].filter((value) => /^\d{4}-\d{2}$/.test(value)).sort();
-  if (!sorted.length) return { financialYear: '', serviceStartDate: '', serviceEndDate: '' };
-  const firstStart = Number(sorted[0].slice(0, 4));
-  const lastStart = Number(sorted.at(-1).slice(0, 4));
-  return {
-    financialYear: sorted.length === 1 ? sorted[0] : `${sorted[0]} to ${sorted.at(-1)}`,
-    serviceStartDate: `${firstStart}-04-01`,
-    serviceEndDate: `${lastStart + 1}-03-31`
-  };
 }
 
 function formatServiceDate(value) {
@@ -486,7 +434,7 @@ function buildQuotationFromContext(context) {
     ? context.serviceSelections
     : (Array.isArray(context.quotationItems) && context.quotationItems.length
       ? context.quotationItems
-      : [context];
+      : [context]);
   return {
     ...emptyQuotation,
     leadId: isClientContext ? (context.clientId || '') : (context.leadId || ''),
@@ -749,6 +697,12 @@ export default function Quotations() {
   const [financialYearItemIndex, setFinancialYearItemIndex] = useState(null);
   const [financialYearDraft, setFinancialYearDraft] = useState(null);
   const financialYearNeedsEprData = requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
+  const financialYearDisplayEnd = financialYearDraft?.transitionPeriod === 'Yes'
+    ? normalizeDateInputValue(financialYearDraft?.serviceEndDate)
+    : serviceEndDateFrom(financialYearDraft?.serviceStartDate, financialYearDraft?.servicePeriod || 1, financialYearDraft?.periodUnit || 'annual');
+  const financialYearRenewalDate = financialYearDisplayEnd
+    ? addServiceDays(financialYearDisplayEnd, 1)
+    : renewalDateFrom(financialYearDraft?.serviceStartDate, financialYearDraft?.servicePeriod || 1, financialYearDraft?.periodUnit || 'annual');
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [loading, setLoading] = useState(true);
@@ -1201,6 +1155,7 @@ export default function Quotations() {
   function setServiceStartDate(index, value) {
     setItemDrafts((drafts) => {
       const draft = { ...emptyItem, ...(quotation.items[index] || {}), ...(drafts[index] || {}), serviceStartDate: value };
+      if (draft.transitionPeriod === 'Yes') return drafts;
       return { ...drafts, [index]: { ...draft, serviceEndDate: serviceEndDateFrom(value, draft.servicePeriod, draft.periodUnit) } };
     });
   }
@@ -1234,10 +1189,13 @@ export default function Quotations() {
   function toggleAnnualReturnYear(year) {
     setFinancialYearDraft((current) => {
       const selected = current.annualReturnYears || [];
-      if (selected.includes(year)) return { ...current, annualReturnYears: selected.filter((value) => value !== year) };
+      const applyTransitionDates = (nextYears) => current.transitionPeriod === 'Yes'
+        ? { ...current, annualReturnYears: nextYears, ...datesFromAnnualYears(nextYears) }
+        : { ...current, annualReturnYears: nextYears };
+      if (selected.includes(year)) return applyTransitionDates(selected.filter((value) => value !== year));
       const limit = Math.max(1, Number(current.validityPeriod) || 1);
       if (selected.length >= limit) return current;
-      return { ...current, annualReturnYears: [...selected, year].sort() };
+      return applyTransitionDates([...selected, year].sort());
     });
   }
 
@@ -1278,10 +1236,14 @@ export default function Quotations() {
       servicesOffered: financialYearDraft.servicesOffered || '',
       applicableService: financialYearDraft.applicableService || ''
     };
-    const existingStartDate = normalizeDateInputValue(quotation.items[financialYearItemIndex]?.serviceStartDate || itemDrafts[financialYearItemIndex]?.serviceStartDate);
-    if (existingStartDate) {
+    const existingStartDate = normalizeDateInputValue(financialYearDraft.serviceStartDate || quotation.items[financialYearItemIndex]?.serviceStartDate || itemDrafts[financialYearItemIndex]?.serviceStartDate);
+    if (transitionPeriod === 'Yes' && sortedYears.length) {
+      Object.assign(update, datesFromAnnualYears(sortedYears));
+    } else if (existingStartDate) {
       update.serviceStartDate = existingStartDate;
-      update.serviceEndDate = serviceEndDateFrom(existingStartDate, update.servicePeriod, periodUnit);
+      update.serviceEndDate = transitionPeriod === 'Yes'
+        ? normalizeDateInputValue(financialYearDraft.serviceEndDate || quotation.items[financialYearItemIndex]?.serviceEndDate)
+        : serviceEndDateFrom(existingStartDate, update.servicePeriod, periodUnit);
     }
     setQuotation((current) => ({ ...current, items: current.items.map((item, index) => index === financialYearItemIndex ? { ...item, ...update } : item) }));
     setItemDrafts((current) => ({ ...current, [financialYearItemIndex]: { ...emptyItem, ...(current[financialYearItemIndex] || quotation.items[financialYearItemIndex]), ...update } }));
@@ -1302,8 +1264,9 @@ export default function Quotations() {
     const transitionPeriod = ['Yes', 'No'].includes(String(draft.transitionPeriod || '').trim())
       ? String(draft.transitionPeriod).trim()
       : 'No';
-    const serviceEndDate = normalizeDateInputValue(draft.serviceEndDate)
-      || serviceEndDateFrom(serviceStartDate, servicePeriod, periodUnit);
+    const serviceEndDate = transitionPeriod === 'Yes'
+      ? normalizeDateInputValue(draft.serviceEndDate)
+      : serviceEndDateFrom(serviceStartDate, servicePeriod, periodUnit);
     if (!serviceStartDate) {
       setError(requiresEprDataYear(draft.eprCategory || draft.serviceCategory)
         ? 'Select EPR Data Year and Annual Return EPR Year before saving the quotation item.'
@@ -1438,6 +1401,16 @@ export default function Quotations() {
     });
     if (invalidItemIndex >= 0) {
       setError(`Quotation item ${invalidItemIndex + 1}: select a valid Applicant Type and child category.`);
+      return;
+    }
+    const invalidPeriodIndex = quotation.items.findIndex((item) => {
+      const unit = String(item.periodUnit || '').trim();
+      const period = Number(item.servicePeriod);
+      const max = unit === 'days' ? 3650 : unit === 'months' ? 600 : 100;
+      return !['days', 'months', 'annual'].includes(unit) || !Number.isInteger(period) || period < 1 || period > max;
+    });
+    if (invalidPeriodIndex >= 0) {
+      setError(`Quotation item ${invalidPeriodIndex + 1}: enter a valid whole Service Period and select Days, Month, or Annual.`);
       return;
     }
     const invalidDateIndex = quotation.items.findIndex((item) => {
@@ -1768,7 +1741,7 @@ export default function Quotations() {
               {!quotation.pricingMode ? null : quotation.items.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No quotation items added.</div>
               ) : (
-                <table className="w-full min-w-[1420px] text-left text-sm [&_td:nth-child(3)]:hidden [&_th:nth-child(3)]:hidden">
+                <table className="w-full min-w-[1420px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
                       {['Sr.No', 'EPR / Service Period', 'Select Period', 'Transition Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
@@ -1778,17 +1751,22 @@ export default function Quotations() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {quotation.items.map((item, index) => {
-                      const currentUnit = readItemDraftValue(index, 'periodUnit', item.periodUnit || 'annual');
                       const freezeDates = readItemDraftValue(index, 'transitionPeriod', item.transitionPeriod || 'No') === 'Yes';
                       return (
                       <tr key={index} className="align-middle">
                         <td className="px-3 py-4 text-center font-black">{index + 1}</td>
-                        <td className="px-3 py-4"><button type="button" onClick={() => openFinancialYearModal(index)} className="min-w-40 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left font-black text-[#30737B] shadow-sm transition hover:border-teal-400 hover:bg-teal-100"><span className="block text-[10px] uppercase tracking-wider text-teal-600">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? 'Select EPR Data Year' : 'Select Service Period'}</span><span className="mt-0.5 block">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? (item.financialYear || 'Select EPR Data Year') : `${Math.max(1, Number(item.servicePeriod) || 1)} ${periodUnitLabel(item.periodUnit || 'annual')}`}</span></button></td>
+                        <td className="px-3 py-4"><button type="button" onClick={() => openFinancialYearModal(index)} className="min-w-40 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left font-black text-[#30737B] shadow-sm transition hover:border-teal-400 hover:bg-teal-100"><span className="block text-[10px] uppercase tracking-wider text-teal-600">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? 'Select EPR Data Year' : 'Select Service Period'}</span><span className="mt-0.5 block">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? (item.financialYear || 'Select EPR Data Year') : periodDisplay(item.servicePeriod, item.periodUnit)}</span></button></td>
                         <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'periodUnit', item.periodUnit || 'annual')} options={PERIOD_UNIT_OPTIONS} placeholder="Select period" onChange={(value) => setItemDraft(index, 'periodUnit', value, (draft) => {
                           const start = draft.serviceStartDate;
-                          return start ? { ...draft, serviceEndDate: serviceEndDateFrom(start, draft.servicePeriod, value) } : draft;
+                          return start && draft.transitionPeriod !== 'Yes' ? { ...draft, serviceEndDate: serviceEndDateFrom(start, draft.servicePeriod, value) } : draft;
                         })} categoryLabel="Select Period" /></td>
-                        <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'transitionPeriod', item.transitionPeriod || 'No')} options={TRANSITION_PERIOD_OPTIONS} placeholder="Transition Period" onChange={(value) => setItemDraft(index, 'transitionPeriod', value)} categoryLabel="Transition Period" /></td>
+                        <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'transitionPeriod', item.transitionPeriod || 'No')} options={TRANSITION_PERIOD_OPTIONS} placeholder="Transition Period" onChange={(value) => setItemDraft(index, 'transitionPeriod', value, (draft) => {
+                          if (value !== 'Yes') return draft;
+                          const yearDates = datesFromAnnualYears(draft.annualReturnYears || []);
+                          if (yearDates.serviceStartDate) return { ...draft, ...yearDates };
+                          const serviceStartDate = normalizeDateInputValue(draft.serviceStartDate || quotation.quotationDate) || new Date().toISOString().slice(0, 10);
+                          return { ...draft, serviceStartDate, serviceEndDate: serviceEndDateFrom(serviceStartDate, draft.servicePeriod || 1, draft.periodUnit || 'annual') };
+                        })} categoryLabel="Transition Period" /></td>
                         {editingItemIndex === index ? (
                           <>
                             {selectedLead ? <>
@@ -1796,7 +1774,7 @@ export default function Quotations() {
                               <td className="px-3 py-4 font-black uppercase text-slate-700">{item.businessCategory || '-'}</td>
                               <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
                               <td className="px-3 py-4"><input type="date" disabled={freezeDates} value={String(readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate)) ?? '')} onChange={(event) => setServiceStartDate(index, event.target.value)} className={`h-10 w-40 rounded-lg border border-slate-300 px-3 font-black outline-none ${freezeDates ? 'cursor-not-allowed bg-slate-50 text-slate-600' : 'bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100'}`} /></td>
-                              <td className="px-3 py-4"><input type="date" disabled value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className="h-10 w-40 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" /></td>
+                              <td className="px-3 py-4"><input type="date" disabled value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className={`h-10 w-40 rounded-lg border border-slate-300 px-3 font-black text-slate-600 outline-none ${freezeDates ? 'cursor-not-allowed bg-slate-50' : 'bg-slate-50 cursor-not-allowed'}`} /></td>
                               <td className="px-3 py-4 font-black text-slate-700">{displayPiboChild(item)}</td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </> : <>
@@ -1804,7 +1782,7 @@ export default function Quotations() {
                               <td className="px-3 py-4"><QuoteSelect value={readItemDraftValue(index, 'businessCategory', item.businessCategory || '')} options={allBusinessCategoryOptions} placeholder="Select business category" onChange={(value) => setItemDraft(index, 'businessCategory', value)} categoryLabel="Business Category" onAddOption={canManageDropdownOptions ? (name) => addDropdownOption('businessCategory', name) : undefined} /></td>
                               <td className="px-3 py-4 font-black uppercase text-slate-700">{item.eprCategory || item.serviceCategory || '-'}</td>
                               <td className="px-3 py-4"><input type="date" disabled={freezeDates} value={String(readItemDraftValue(index, 'serviceStartDate', normalizeDateInputValue(item.serviceStartDate)) ?? '')} onChange={(event) => setServiceStartDate(index, event.target.value)} className={`h-10 w-40 rounded-lg border border-slate-300 px-3 font-black outline-none ${freezeDates ? 'cursor-not-allowed bg-slate-50 text-slate-600' : 'bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100'}`} /></td>
-                              <td className="px-3 py-4"><input type="date" disabled value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className="h-10 w-40 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" /></td>
+                              <td className="px-3 py-4"><input type="date" disabled value={String(readItemDraftValue(index, 'serviceEndDate', normalizeDateInputValue(item.serviceEndDate)) ?? '')} readOnly className={`h-10 w-40 rounded-lg border border-slate-300 px-3 font-black text-slate-600 outline-none ${freezeDates ? 'cursor-not-allowed bg-slate-50' : 'bg-slate-50 cursor-not-allowed'}`} /></td>
                               <td className="min-w-[230px] px-3 py-4"><PiboDependentSelect compact required parent={readItemDraftValue(index, 'piboParent', item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory))} value={readItemDraftValue(index, 'piboCategory', item.piboCategory || '')} categories={piboCategories} loading={piboCategoriesLoading} onChange={(parent, child) => setPiboCategoryDraft(index, parent, child)} onAddCategory={canManageDropdownOptions ? addPiboCategory : undefined} /></td>
                               <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             </>}
@@ -1905,20 +1883,19 @@ export default function Quotations() {
             <header className="flex items-start justify-between border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-orange-50 px-6 py-5"><div><p className="text-[11px] font-black uppercase tracking-[.2em] text-emerald-700">{financialYearNeedsEprData ? 'EPR Data Year Mapping' : 'Service Period Mapping'}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{financialYearNeedsEprData ? 'Select EPR data validity and Annual Return years' : 'Select Service Period'}</h2><p className="mt-1 text-sm font-bold text-slate-500">Quotation item #{Number(financialYearItemIndex) + 1}</p></div><button type="button" onClick={() => { setFinancialYearDraft(null); setFinancialYearItemIndex(null); }} className="grid h-11 w-11 place-items-center rounded-xl border bg-white text-slate-500"><X className="h-5 w-5" /></button></header>
             <div className="max-h-[calc(92vh-165px)] overflow-y-auto p-6">
               <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                <table className={`w-full text-left text-sm ${financialYearNeedsEprData ? 'min-w-[1450px]' : 'min-w-[1100px]'}`}>
-                  <thead className="bg-gradient-to-r from-teal-50 to-cyan-50 text-[10px] uppercase tracking-[.13em] text-teal-900"><tr>{['Sr. No', ...(financialYearNeedsEprData ? ['EPR Data Validity'] : []), 'Service Period', 'Select Period', 'Transition Period', ...(financialYearNeedsEprData ? ['Annual Return EPR Year'] : []), 'Business Category', 'Service Category', 'Applicant Type', 'Services Offered'].map((heading) => <th key={heading} className="px-4 py-4">{heading}</th>)}</tr></thead>
+                <table className={`w-full text-left text-sm ${financialYearNeedsEprData ? 'min-w-[1320px]' : 'min-w-[980px]'}`}>
+                  <thead className="bg-gradient-to-r from-teal-50 to-cyan-50 text-[10px] uppercase tracking-[.13em] text-teal-900"><tr>{['Sr. No', ...(financialYearNeedsEprData ? ['EPR Data Validity'] : []), 'Service Period', 'Select Period', ...(financialYearNeedsEprData ? ['Annual Return EPR Year'] : []), 'Service Category', 'Business Category', 'Applicant Type', 'Services Offered'].map((heading) => <th key={heading} className="px-4 py-4">{heading}</th>)}</tr></thead>
                   <tbody><tr className="align-top">
                     <td className="p-4"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 font-black">{Number(financialYearItemIndex) + 1}</span></td>
                     {financialYearNeedsEprData && <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max="50" value={financialYearDraft.validityPeriod || ''} onChange={(event) => { const limit = Math.max(1, Math.min(50, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, validityPeriod: String(limit), annualReturnYears: (current.annualReturnYears || []).slice(0, limit) })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">Year</span></div></td>}
-                    <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max={financialYearDraft.periodUnit === 'days' ? 3650 : financialYearDraft.periodUnit === 'months' ? 600 : 100} value={financialYearDraft.servicePeriod || ''} onChange={(event) => { const max = financialYearDraft.periodUnit === 'days' ? 3650 : financialYearDraft.periodUnit === 'months' ? 600 : 100; const period = Math.max(1, Math.min(max, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, servicePeriod: String(period), serviceEndDate: serviceEndDateFrom(current.serviceStartDate, period, current.periodUnit || 'annual') })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">{periodUnitLabel(financialYearDraft.periodUnit || 'annual')}</span></div></td>
-                    <td className="p-4"><QuoteSelect value={financialYearDraft.periodUnit || 'annual'} options={PERIOD_UNIT_OPTIONS} placeholder="Select period" categoryLabel="Select Period" onChange={(value) => setFinancialYearDraft((current) => { const unit = ['days', 'months', 'annual'].includes(String(value || '').trim()) ? String(value).trim() : 'annual'; const max = unit === 'days' ? 3650 : unit === 'months' ? 600 : 100; const period = Math.max(1, Math.min(max, Number(current.servicePeriod) || 1)); return { ...current, periodUnit: unit, servicePeriod: String(period), serviceEndDate: serviceEndDateFrom(current.serviceStartDate, period, unit) }; }} /></td>
-                    <td className="p-4"><QuoteSelect value={financialYearDraft.transitionPeriod || 'No'} options={TRANSITION_PERIOD_OPTIONS} placeholder="Transition Period" categoryLabel="Transition Period" onChange={(value) => setFinancialYearDraft((current) => ({ ...current, transitionPeriod: ['Yes', 'No'].includes(String(value || '').trim()) ? String(value).trim() : 'No' }))} /></td>
+                    <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max={financialYearDraft.periodUnit === 'days' ? 3650 : financialYearDraft.periodUnit === 'months' ? 600 : 100} value={financialYearDraft.servicePeriod || ''} onChange={(event) => { const max = financialYearDraft.periodUnit === 'days' ? 3650 : financialYearDraft.periodUnit === 'months' ? 600 : 100; const period = Math.max(1, Math.min(max, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, servicePeriod: String(period), ...(current.transitionPeriod === 'Yes' ? {} : { serviceEndDate: serviceEndDateFrom(current.serviceStartDate, period, current.periodUnit || 'annual') }) })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">{periodUnitLabel(financialYearDraft.periodUnit || 'annual', financialYearDraft.servicePeriod)}</span></div></td>
+                    <td className="p-4"><QuoteSelect value={financialYearDraft.periodUnit || 'annual'} options={PERIOD_UNIT_OPTIONS} placeholder="Select period" categoryLabel="Select Period" onChange={(value) => setFinancialYearDraft((current) => { const unit = normalizePeriodUnit(value); const max = unit === 'days' ? 3650 : unit === 'months' ? 600 : 100; const period = Math.max(1, Math.min(max, Number(current.servicePeriod) || 1)); return { ...current, periodUnit: unit, servicePeriod: String(period), ...(current.transitionPeriod === 'Yes' ? {} : { serviceEndDate: serviceEndDateFrom(current.serviceStartDate, period, unit) }) }; })} /></td>
                     {financialYearNeedsEprData && <td className="p-4"><div className="grid w-72 grid-cols-2 gap-2">{quotationFyOptions().map((year) => { const checked = (financialYearDraft.annualReturnYears || []).includes(year); const limitReached = !checked && (financialYearDraft.annualReturnYears || []).length >= Math.max(1, Number(financialYearDraft.validityPeriod) || 1); return <label key={year} className={`flex items-center gap-2 rounded-xl border px-3 py-2 font-black ${checked ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : limitReached ? 'cursor-not-allowed bg-slate-50 text-slate-300' : 'cursor-pointer bg-white text-slate-600'}`}><input type="checkbox" checked={checked} disabled={limitReached} onChange={() => toggleAnnualReturnYear(year)} />{year}</label>; })}</div></td>}
-                    <td className="p-4 font-black text-slate-700">{financialYearDraft.businessCategory || '-'}</td><td className="p-4 font-black text-slate-700">{financialYearDraft.serviceCategory || financialYearDraft.eprCategory || '-'}</td><td className="p-4 font-black text-slate-700">{displayPiboChild(financialYearDraft)}</td><td className="p-4 font-black text-teal-700">{financialYearDraft.servicesOffered || '-'}</td>
+                    <td className="p-4 font-black text-slate-700">{financialYearDraft.serviceCategory || financialYearDraft.eprCategory || '-'}</td><td className="p-4 font-black text-slate-700">{financialYearDraft.businessCategory || '-'}</td><td className="p-4 font-black text-slate-700">{displayPiboChild(financialYearDraft)}</td><td className="p-4 font-black text-teal-700">{financialYearDraft.servicesOffered || '-'}</td>
                   </tr></tbody>
                 </table>
               </div>
-              <div className="mt-5 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-700">Service Period Validity Note</p><p className="mt-2 text-lg font-black text-slate-900">Your service period is {Math.max(1, Number(financialYearDraft.servicePeriod) || 1)} {periodUnitLabel(financialYearDraft.periodUnit || 'annual')}{financialYearDraft.serviceStartDate ? ` (${formatServiceDate(financialYearDraft.serviceStartDate)} to ${formatServiceDate(serviceEndDateFrom(financialYearDraft.serviceStartDate, financialYearDraft.servicePeriod || 1, financialYearDraft.periodUnit || 'annual'))})` : ''}{financialYearDraft.serviceCategory ? ` for ${financialYearDraft.serviceCategory}` : ''}.</p><p className="mt-1 text-sm font-bold text-slate-600">{financialYearDraft.serviceStartDate ? `Renewal will be applicable from ${formatServiceDate(renewalDateFrom(financialYearDraft.serviceStartDate, financialYearDraft.servicePeriod || 1, financialYearDraft.periodUnit || 'annual'))}.` : 'Select the Service Start Date in the quotation row to calculate the Service End Date and renewal date automatically.'}</p></div>
+              <div className="mt-5 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-700">Service Period Validity Note</p><p className="mt-2 text-lg font-black text-slate-900">Your service period is {periodDisplay(financialYearDraft.servicePeriod, financialYearDraft.periodUnit)}{financialYearDraft.serviceStartDate ? ` (${formatServiceDate(financialYearDraft.serviceStartDate)} to ${formatServiceDate(financialYearDisplayEnd)})` : ''}{financialYearDraft.serviceCategory ? ` for ${financialYearDraft.serviceCategory}` : ''}.</p><p className="mt-1 text-sm font-bold text-slate-600">{financialYearDraft.serviceStartDate ? `Renewal will be applicable from ${formatServiceDate(financialYearRenewalDate)}.` : 'Select the Service Start Date in the quotation row to calculate the Service End Date and renewal date automatically.'}</p></div>
             </div>
             <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" onClick={() => { setFinancialYearDraft(null); setFinancialYearItemIndex(null); }} className="rounded-xl border bg-white px-5 py-3 font-black text-slate-600">Cancel</button><button type="button" onClick={saveFinancialYearSelection} className="rounded-xl bg-[#30737B] px-6 py-3 font-black text-white shadow-lg">{financialYearNeedsEprData ? 'Apply EPR Data Year' : 'Apply Service Period'}</button></footer>
           </section>
@@ -2010,7 +1987,7 @@ function QuotationItemsPanel({ quotation, items }) {
             <tr key={index} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.businessCategory || '-'}</td>
               <td className="px-4 py-4">{item.eprCategory || item.serviceCategory || '-'}</td>
-              <td className="px-4 py-4">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || '-') : `${Math.max(1, Number(item.servicePeriod) || 1)} ${periodUnitLabel(item.periodUnit || 'annual')}`}</td>
+              <td className="px-4 py-4">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
               <td className="px-4 py-4">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
               <td className="px-4 py-4">{item.transitionPeriod || 'No'}</td>
               <td className="px-4 py-4">{item.unit || '-'}</td>
@@ -2159,7 +2136,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
-                      <td className="border-b border-r border-slate-100 px-4 py-4">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || '-') : `${Math.max(1, Number(item.servicePeriod) || 1)} ${periodUnitLabel(item.periodUnit || 'annual')}`}</td>
+                      <td className="border-b border-r border-slate-100 px-4 py-4">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.transitionPeriod || 'No'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
@@ -2274,7 +2251,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                   <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
-                  <td className="border-b border-r border-slate-100 px-4 py-4">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || '-') : `${Math.max(1, Number(item.servicePeriod) || 1)} ${periodUnitLabel(item.periodUnit || 'annual')}`}</td>
+                  <td className="border-b border-r border-slate-100 px-4 py-4">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.transitionPeriod || 'No'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
@@ -2558,7 +2535,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                       <tr key={index} className="font-black uppercase">
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.businessCategory || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || item.serviceCategory || '-'}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || '-') : `${Math.max(1, Number(item.servicePeriod) || 1)} ${periodUnitLabel(item.periodUnit || 'annual')}`}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{periodUnitLongLabel(item.periodUnit || 'annual')}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.transitionPeriod || 'No'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
@@ -2574,10 +2551,10 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                 <table className="w-full table-fixed text-[10px] font-bold leading-4 text-slate-950">
                   <colgroup><col className="w-[8%]" /><col className="w-[22%]" /><col className="w-[18%]" /><col className="w-[10%]" /><col className="w-[10%]" /><col className="w-[32%]" /></colgroup>
                   <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th><th className="border-r border-t border-slate-950 px-2 py-3">EPR / Service Period</th><th className="border-r border-t border-slate-950 px-2 py-3">Select Period</th><th className="border-r border-t border-slate-950 px-2 py-3">Transition Period</th><th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
-                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? `${item.validityPeriod || '-'} year(s) · ${(item.annualReturnYears || []).join(', ') || item.financialYear || '-'}` : `${Math.max(1, Number(item.servicePeriod) || 1)} ${periodUnitLabel(item.periodUnit || 'annual')}`}</td><td className="border-r border-t border-slate-950 px-2 py-3">{periodUnitLongLabel(item.periodUnit || 'annual')}</td><td className="border-r border-t border-slate-950 px-2 py-3">{item.transitionPeriod || 'No'}</td><td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
+                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{periodDisplay(item.servicePeriod, item.periodUnit)}</td><td className="border-r border-t border-slate-950 px-2 py-3">{periodUnitLongLabel(item.periodUnit || 'annual')}</td><td className="border-r border-t border-slate-950 px-2 py-3">{item.transitionPeriod || 'No'}</td><td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
                 </table>
               </div>
-              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-[10px] font-bold leading-5 text-slate-700"><p className="font-black uppercase tracking-wider text-emerald-700">Service Period Validity Note</p>{items.map((item, index) => { const unit = item.periodUnit || 'annual'; const period = Math.max(1, Number(item.servicePeriod) || 1); const startDate = normalizeDateInputValue(item.serviceStartDate); const endDate = serviceEndDateFrom(startDate, period, unit); const renewalDate = renewalDateFrom(startDate, period, unit); return <p key={index} className="mt-1 text-[11px] font-black text-slate-950">{index + 1}. Your service period is {period} {periodUnitLabel(unit)}{startDate ? ` (${formatServiceDate(startDate)} to ${formatServiceDate(endDate)})` : ''}{item.serviceCategory ? ` for ${item.serviceCategory}` : ''}{renewalDate ? ` and renewal will be applicable from ${formatServiceDate(renewalDate)}` : ''}.</p>; })}</div>
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-[10px] font-bold leading-5 text-slate-700"><p className="font-black uppercase tracking-wider text-emerald-700">Service Period Validity Note</p>{items.map((item, index) => { const unit = item.periodUnit || 'annual'; const period = Math.max(1, Number(item.servicePeriod) || 1); const startDate = normalizeDateInputValue(item.serviceStartDate); const endDate = item.transitionPeriod === 'Yes' ? normalizeDateInputValue(item.serviceEndDate) : serviceEndDateFrom(startDate, period, unit); const renewalDate = endDate ? addServiceDays(endDate, 1) : ''; return <p key={index} className="mt-1 text-[11px] font-black text-slate-950">{index + 1}. Your service period is {periodDisplay(period, unit)}{startDate ? ` (${formatServiceDate(startDate)} to ${formatServiceDate(endDate)})` : ''}{item.serviceCategory ? ` for ${item.serviceCategory}` : ''}{renewalDate ? ` and renewal will be applicable from ${formatServiceDate(renewalDate)}` : ''}.</p>; })}</div>
               <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
                 <p className="font-black">Terms & Conditions:</p>
                 {(quotation.terms || []).length ? quotation.terms.map((term, index) => <p key={index}>{index + 1}. {term}</p>) : <p>No terms added.</p>}
@@ -2658,7 +2635,7 @@ function buildQuotationPrintHtml(quotation) {
     <tr>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
       <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
-      <td>${escapeHtml(requiresEprDataYear(item.eprCategory || item.serviceCategory) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || '-') : (() => { const unit = item.periodUnit || 'annual'; const label = unit === 'days' ? 'Day(s)' : unit === 'months' ? 'Month(s)' : 'Year(s)'; return `${Math.max(1, Number(item.servicePeriod) || 1)} ${label}`; })())}</td>
+      <td>${escapeHtml(periodDisplay(item.servicePeriod, item.periodUnit))}</td>
       <td>${escapeHtml((item.periodUnit || 'annual') === 'days' ? 'Days' : (item.periodUnit || 'annual') === 'months' ? 'Month' : 'Annual')}</td>
       <td>${escapeHtml(item.transitionPeriod || 'No')}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>

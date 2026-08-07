@@ -6,6 +6,7 @@ import DashboardShell from '../components/dashboard/DashboardShell'
 import api, { readApiError, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { uploadMedia } from '../services/mediaUpload'
+import { periodDisplay } from '../utils/servicePeriod'
 
 const blankLead = { referredBy: '', salutation: '', contactPerson: '', designation: '', mobileNo1: '', mobileNo2: '', companyName: '', addressLine1: '', addressLine2: '', addressLine3: '', state: '', city: '', pinCode: '', gstNumber: '' }
 const blankItem = { serviceCategory: '', servicesForYear: '', eprCategory: '', piboParent: '', piboCategory: '', unit: '1', basicAmount: '', financialYear: '', validityPeriod: '', annualReturnYears: [], servicesOffered: '', applicableService: '', serviceStartDate: '', serviceEndDate: '', periodUnit: 'annual', transitionPeriod: 'No' }
@@ -21,7 +22,7 @@ function money(value) { return `₹${Number(value || 0).toLocaleString('en-IN', 
 function displayDate(value) { if (!value) return '-'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB') }
 const EPR_DATA_YEAR_CATEGORIES = new Set(['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'].map((value) => value.toLowerCase()))
 function needsEprData(item = {}) { return EPR_DATA_YEAR_CATEGORIES.has(String(item.eprCategory || item.serviceCategory || '').trim().toLowerCase()) }
-function eprOrServicePeriod(item = {}) { return needsEprData(item) ? ((item.annualReturnYears || []).join(', ') || item.financialYear || item.servicesForYear || '-') : (() => { const unit = String(item.periodUnit || 'annual').trim().toLowerCase(); const label = unit === 'days' ? 'Day(s)' : unit === 'months' ? 'Month(s)' : 'Year(s)'; return `${Math.max(1, Number(item.servicePeriod) || 1)} ${label}`; })() }
+function eprOrServicePeriod(item = {}) { return periodDisplay(item.servicePeriod, item.periodUnit) }
 function selectPeriodLabel(unit = 'annual') { return String(unit || 'annual').trim().toLowerCase() === 'days' ? 'Days' : String(unit || 'annual').trim().toLowerCase() === 'months' ? 'Month' : 'Annual' }
 function normalizeLeadContextValue(value) { return String(value || '').trim().toLowerCase() }
 function matchesLeadContext(row = {}, context = {}) {

@@ -2,6 +2,7 @@ import React from 'react';
 import CountUp from 'react-countup';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
+import { periodDisplay } from '../utils/servicePeriod';
 
 function toNumber(value) {
   const numeric = Number(String(value ?? '').replace(/[^\d.-]/g, ''));
@@ -169,7 +170,7 @@ export default function PremiumQuotationModal({
                           <td className="px-3 py-3 text-center font-black text-slate-800">{index + 1}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-800">{item.businessCategory || '-'}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-800">{item.serviceCategory || '-'}</td>
-                          <td className="px-3 py-3 font-black text-slate-700">{String(item.periodUnit || 'annual') === 'days' ? 'Day(s)' : String(item.periodUnit || 'annual') === 'months' ? 'Month(s)' : 'Year(s)'}</td>
+                          <td className="px-3 py-3 font-black text-slate-700">{periodDisplay(item.servicePeriod, item.periodUnit)}</td>
                           <td className="px-3 py-3 font-black text-slate-700">{String(item.periodUnit || 'annual') === 'days' ? 'Days' : String(item.periodUnit || 'annual') === 'months' ? 'Month' : 'Annual'}</td>
                           <td className="px-3 py-3 font-black text-slate-700">{item.transitionPeriod || 'No'}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-700">{item.eprCategory || '-'}</td>

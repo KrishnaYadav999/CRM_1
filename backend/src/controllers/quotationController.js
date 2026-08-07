@@ -22,6 +22,13 @@ const {
   inferPiboParent,
   validatePiboSelection
 } = require('../utils/piboCategories');
+const {
+  datesFromAnnualYears,
+  normalizeDateOnly,
+  normalizePeriodUnit,
+  serviceEndDateFrom,
+  validateServicePeriod
+} = require('../utils/servicePeriod');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -85,25 +92,6 @@ function roundMoney(value) {
   return Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
 }
 
-function normalizeDateOnly(value) {
-  const raw = cleanString(value);
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return '';
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (
-    Number.isNaN(date.getTime())
-    || date.getUTCFullYear() !== year
-    || date.getUTCMonth() !== month - 1
-    || date.getUTCDate() !== day
-  ) {
-    return '';
-  }
-  return `${match[1]}-${match[2]}-${match[3]}`;
-}
-
 function financialYearFromDate(value) {
   const normalized = normalizeDateOnly(value);
   if (!normalized) return '';
@@ -127,19 +115,50 @@ function isMeaningfulItem(item = {}) {
     || Number(item.basicAmount) > 0;
 }
 
-function cleanItems(items, user = null) {
+function cleanItems(items, user = null, existingItems = [], systemStartDate = '') {
   if (!Array.isArray(items)) return [];
   return items
-    .map((item) => {
-      const serviceStartDate = normalizeDateOnly(item.serviceStartDate);
-      const serviceEndDate = normalizeDateOnly(item.serviceEndDate);
-      const periodUnit = ['days', 'months', 'annual'].includes(String(item.periodUnit || '').trim())
-        ? String(item.periodUnit).trim()
-        : 'annual';
-      const servicePeriodMax = periodUnit === 'days' ? 3650 : periodUnit === 'months' ? 600 : 100;
-      const transitionPeriod = ['Yes', 'No'].includes(String(item.transitionPeriod || '').trim())
-        ? String(item.transitionPeriod).trim()
-        : 'No';
+    .map((item, index) => {
+      const matchedExistingItem = existingItems.find((row) => item?.id && String(row?.id || '') === String(item.id)) || existingItems[index];
+      const existingItem = matchedExistingItem || {};
+      let periodUnit;
+      let servicePeriod;
+      try {
+        periodUnit = normalizePeriodUnit(item.periodUnit ?? existingItem.periodUnit, { allowMissing: Boolean(matchedExistingItem) });
+        const rawPeriod = item.servicePeriod ?? existingItem.servicePeriod;
+        if (rawPeriod === '' || rawPeriod === null || rawPeriod === undefined) throw new Error('Service Period is required.');
+        servicePeriod = validateServicePeriod(rawPeriod, periodUnit);
+      } catch (error) {
+        throw new Error(`Quotation item ${index + 1}: ${error.message}`);
+      }
+      const rawTransitionPeriod = String(item.transitionPeriod ?? existingItem.transitionPeriod ?? 'No').trim();
+      if (!['Yes', 'No'].includes(rawTransitionPeriod)) {
+        throw new Error(`Quotation item ${index + 1}: Transition Period must be Yes or No.`);
+      }
+      const transitionPeriod = rawTransitionPeriod;
+      const annualReturnYears = [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(cleanString).filter(Boolean))];
+      const existingTransitionIsFrozen = transitionPeriod === 'Yes' && String(existingItem.transitionPeriod || '') === 'Yes';
+      if (existingTransitionIsFrozen && (
+        periodUnit !== normalizePeriodUnit(existingItem.periodUnit, { allowMissing: true })
+        || servicePeriod !== validateServicePeriod(existingItem.servicePeriod || 1, normalizePeriodUnit(existingItem.periodUnit, { allowMissing: true }))
+      )) {
+        throw new Error(`Quotation item ${index + 1}: Service Period and Select Period are read-only while Transition Period is Yes.`);
+      }
+      let serviceStartDate = existingTransitionIsFrozen
+        ? normalizeDateOnly(existingItem.serviceStartDate)
+        : normalizeDateOnly(item.serviceStartDate || existingItem.serviceStartDate);
+      let serviceEndDate = '';
+      if (transitionPeriod === 'Yes') {
+        if (existingTransitionIsFrozen) {
+          serviceEndDate = normalizeDateOnly(existingItem.serviceEndDate);
+        } else {
+          const transitionDates = datesFromAnnualYears(annualReturnYears);
+          serviceStartDate = transitionDates.serviceStartDate || serviceStartDate || normalizeDateOnly(systemStartDate) || new Date().toISOString().slice(0, 10);
+          serviceEndDate = transitionDates.serviceEndDate || serviceEndDateFrom(serviceStartDate, servicePeriod, periodUnit);
+        }
+      } else {
+        serviceEndDate = serviceEndDateFrom(serviceStartDate, servicePeriod, periodUnit);
+      }
       return {
         id: cleanString(item.id),
         sourceServiceIndex: Number.isInteger(Number(item.sourceServiceIndex)) && Number(item.sourceServiceIndex) >= 0
@@ -149,10 +168,10 @@ function cleanItems(items, user = null) {
         industryType: cleanString(item.industryType),
         financialYear: cleanString(item.financialYear),
         validityPeriod: Math.max(1, Math.min(50, Number(item.validityPeriod) || 1)),
-        servicePeriod: Math.max(1, Math.min(servicePeriodMax, Number(item.servicePeriod) || 1)),
+        servicePeriod,
         periodUnit,
         transitionPeriod,
-        annualReturnYears: [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(cleanString).filter(Boolean))],
+        annualReturnYears,
         servicesOffered: cleanString(item.servicesOffered),
         applicableService: cleanString(item.applicableService),
         serviceCategory: cleanString(item.serviceCategory),
@@ -215,8 +234,8 @@ function validateQuotationItemDates(items = []) {
   }
 }
 
-function cleanBody(body, user = null) {
-  const items = cleanItems(body.items, user);
+function cleanBody(body, user = null, existingItems = []) {
+  const items = cleanItems(body.items, user, existingItems, body.quotationDate);
   const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
   const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
   const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(body.combinedBasicAmount) : 0;
@@ -546,10 +565,11 @@ exports.listLeadQuotations = async (req, res) => {
 exports.createQuotation = async (req, res) => {
   const gstError = validateGstNumber(req.body.leadDetails?.gstNumber);
   if (gstError) return res.status(400).json({ error: gstError });
-  const data = cleanBody(req.body, req.user);
-  const termsError = validatePaymentTerms(data.terms);
-  if (termsError) return res.status(400).json({ error: termsError });
+  let data;
   try {
+    data = cleanBody(req.body, req.user);
+    const termsError = validatePaymentTerms(data.terms);
+    if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);
   } catch (error) {
@@ -577,10 +597,11 @@ exports.updateQuotation = async (req, res) => {
 
   // Every revision, including a one-field edit, starts a completely new approval cycle.
   // Client-supplied status is deliberately ignored.
-  const data = cleanBody(req.body, req.user);
-  const termsError = validatePaymentTerms(data.terms);
-  if (termsError) return res.status(400).json({ error: termsError });
+  let data;
   try {
+    data = cleanBody(req.body, req.user, quotation.items || []);
+    const termsError = validatePaymentTerms(data.terms);
+    if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);
   } catch (error) {
@@ -687,13 +708,13 @@ exports.bulkCreateQuotations = async (req, res) => {
     try {
       const gstError = validateGstNumber(row.leadDetails?.gstNumber);
       if (gstError) throw new Error(gstError);
-      const data = cleanBody(row, req.user);
+      const quotationNumber = cleanString(row.quotationNumber) || await nextQuotationNumber();
+      const existing = await Quotation.findOne({ quotationNumber });
+      const data = cleanBody(row, req.user, existing?.items || []);
       if (!data.companyName) throw new Error('Company Name is required');
       if (!data.items.length) throw new Error('At least one quotation item is required');
       validateQuotationItemDates(data.items);
       await validateQuotationPiboItems(data.items);
-      const quotationNumber = cleanString(row.quotationNumber) || await nextQuotationNumber();
-      const existing = await Quotation.findOne({ quotationNumber });
       let quotation;
       if (existing) {
         Object.assign(existing, data, await resolveCrmRelationships(data), { source: 'bulk', status: 'draft' });
@@ -833,6 +854,8 @@ exports.createPiboCategory = async (req, res) => {
 };
 
 exports._test = {
+  cleanBody,
+  cleanItems,
   normalizeCompanyName,
   preserveTerminalApprovalStatus
 };

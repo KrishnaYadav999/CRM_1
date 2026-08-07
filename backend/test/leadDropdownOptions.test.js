@@ -7,7 +7,7 @@ const LeadDropdownOption = require('../src/models/LeadDropdownOption');
 test('lead dropdown catalog exposes all configurable business fields', () => {
   assert.deepEqual(LeadDropdownOption.ALLOWED_FIELDS, [
     'communicationMode', 'status', 'industryType', 'applicantType', 'financialYear',
-    'state', 'city', 'salutation', 'designation', 'source'
+    'state', 'city', 'salutation', 'designation', 'source', 'businessCategory', 'eprCategory'
   ]);
 });
 
