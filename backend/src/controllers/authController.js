@@ -664,6 +664,7 @@ exports.listAuditLogs = async (req, res) => {
       sessionStatus: session.logoutAt ? 'Logged out' : (now - new Date(session.lastActivityAt).getTime() < 15 * 60 * 1000 ? 'Online' : 'Inactive session'),
       durationSeconds: Math.max(0, Math.round((new Date(endAt).getTime() - new Date(session.loginAt).getTime()) / 1000)),
       activeSeconds: Math.max(0, Number(session.activeSeconds) || 0),
+      offlineSince: session.logoutAt || (now - new Date(session.lastActivityAt).getTime() >= 15 * 60 * 1000 ? session.lastActivityAt : null),
       activityCount: sessionActivities.length || session.activityCount || 0, ipAddress: session.ipAddress || '',
       device: session.userAgent || '', activities: sessionActivities.map((item) => ({ id: item._id, action: item.action, module: item.module, description: item.description, occurredAt: item.occurredAt, statusCode: item.statusCode })),
       completedLeads: (leadsByUser.get(String(session.userId)) || []).filter((lead) => {

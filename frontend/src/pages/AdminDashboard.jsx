@@ -203,6 +203,12 @@ function UserLogsModal({ onClose }) {
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState('')
   const [filters, setFilters] = useState({ search: '', role: 'all', status: 'all', module: 'all', from: '', to: '' })
+  const [statusClock, setStatusClock] = useState(Date.now())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setStatusClock(Date.now()), 15000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   async function loadLogs() {
     setLoading(true); setError('')
@@ -223,7 +229,11 @@ function UserLogsModal({ onClose }) {
       Login: row.loginAt ? new Date(row.loginAt).toLocaleString('en-IN') : '',
       'Last Activity': row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleString('en-IN') : '',
       Logout: row.logoutAt ? new Date(row.logoutAt).toLocaleString('en-IN') : '',
-      'Session Status': row.sessionStatus, 'Open Duration': formatDuration(row.durationSeconds), 'Active CRM Time': formatDuration(row.activeSeconds), 'Away / Other Tab Time': formatDuration(Math.max(0, row.durationSeconds - row.activeSeconds)), Activities: row.activityCount,
+      'Session Status': row.sessionStatus,
+      'Online / Active For': formatDuration(row.activeSeconds),
+      'Offline / Away For': formatDuration(row.sessionStatus === 'Online' ? Math.max(0, row.durationSeconds - row.activeSeconds) : Math.max(0, Math.round((statusClock - new Date(row.offlineSince || row.lastActivityAt).getTime()) / 1000))),
+      'Offline Since / Last Seen': row.offlineSince ? new Date(row.offlineSince).toLocaleString('en-IN') : '',
+      'Open Duration': formatDuration(row.durationSeconds), 'Active CRM Time': formatDuration(row.activeSeconds), 'Away / Other Tab Time': formatDuration(Math.max(0, row.durationSeconds - row.activeSeconds)), Activities: row.activityCount,
       'IP Address': row.ipAddress, Device: row.device
     }))
     const activityRows = visible.flatMap((row) => (row.activities || []).map((item) => ({
@@ -262,6 +272,15 @@ function UserLogsModal({ onClose }) {
       </div>
       <div className="overflow-auto p-4">
         {error && <ToastMessage type="error">{error}</ToastMessage>}
+        {!loading && visible.length > 0 && <div className="mb-3 flex gap-2 overflow-x-auto pb-1">{visible.map((row) => {
+          const online = row.sessionStatus === 'Online'
+          const offlineSeconds = Math.max(0, Math.round((statusClock - new Date(row.offlineSince || row.lastActivityAt).getTime()) / 1000))
+          return <article key={`status-${row.id}`} className={`min-w-[220px] rounded-xl border px-3 py-2 ${online ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex items-center justify-between gap-2"><strong className="truncate text-xs text-slate-900">{row.name}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${online ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>{row.sessionStatus}</span></div>
+            <p className="mt-1 text-xs font-black text-slate-700">{online ? `Online for ${formatDuration(row.activeSeconds)}` : `Offline for ${formatDuration(offlineSeconds)}`}</p>
+            <small className="block text-[10px] font-semibold text-slate-500">{online ? `Away/other tabs: ${formatDuration(Math.max(0, row.durationSeconds - row.activeSeconds))}` : `Last seen: ${formatDateTime(row.offlineSince || row.lastActivityAt)}`}</small>
+          </article>
+        })}</div>}
         {loading ? <div className="p-12 text-center font-black text-slate-500">Loading user logs...</div> : <table className="w-full min-w-[1250px] border-separate border-spacing-y-2 text-left text-sm"><thead><tr className="text-xs uppercase text-slate-500">{['User','Role / Team','Login','Last activity','Logout','Duration','Status','Actions','IP / Device','Details'].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{visible.map((row) => <React.Fragment key={row.id}><tr className="bg-slate-50 font-semibold text-slate-700"><td className="rounded-l-xl px-3 py-3"><strong className="block text-slate-950">{row.name}</strong><small>{row.email}</small></td><td className="px-3"><strong>{roleLabels[row.role] || row.role}</strong><small className="block">{row.team}</small></td><td className="px-3">{formatDateTime(row.loginAt)}</td><td className="px-3">{formatDateTime(row.lastActivityAt)}</td><td className="px-3">{row.logoutAt ? formatDateTime(row.logoutAt) : '-'}</td><td className="px-3 font-black">{formatDuration(row.durationSeconds)}</td><td className="px-3"><span className={`rounded-full px-2 py-1 text-xs font-black ${row.sessionStatus === 'Online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{row.sessionStatus}</span></td><td className="px-3 font-black">{row.activityCount}</td><td className="max-w-[230px] px-3"><strong>{row.ipAddress || '-'}</strong><small className="block truncate" title={row.device}>{row.device || '-'}</small></td><td className="rounded-r-xl px-3"><button type="button" onClick={() => setExpanded((v) => v === row.id ? '' : row.id)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-black text-emerald-700">{expanded === row.id ? 'Hide' : 'View'}</button></td></tr>{expanded === row.id && <tr><td colSpan="10" className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{row.activities?.length ? row.activities.map((item) => <article key={item.id} className="rounded-xl bg-white p-3 shadow-sm"><div className="flex justify-between gap-2"><strong className="text-emerald-800">{item.module}</strong><small>{formatDateTime(item.occurredAt)}</small></div><p className="mt-1 font-bold text-slate-700">{item.description}</p></article>) : <p className="font-bold text-slate-500">No recorded CRM changes in this session.</p>}</div></td></tr>}</React.Fragment>)}</tbody></table>}
         {!loading && !visible.length && <div className="p-12 text-center font-black text-slate-500">No logs match these filters.</div>}
       </div>
