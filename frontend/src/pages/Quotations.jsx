@@ -310,6 +310,7 @@ function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', c
     : [{
         industryType: lead.industryType,
         eprCategory: lead.eprCategory,
+        businessCategory: lead.businessCategory,
         applicantType: lead.applicantType || lead.piboParent,
         piboCategory: lead.piboCategory,
         servicesOffered: lead.servicesOffered,
@@ -441,7 +442,9 @@ function buildQuotationFromContext(context) {
   const isClientContext = context.sourceType === 'client' || Boolean(context.clientId && context.clientName);
   const contextServices = Array.isArray(context.serviceSelections) && context.serviceSelections.length
     ? context.serviceSelections
-    : [context];
+    : (Array.isArray(context.quotationItems) && context.quotationItems.length
+      ? context.quotationItems
+      : [context];
   return {
     ...emptyQuotation,
     leadId: isClientContext ? (context.clientId || '') : (context.leadId || ''),

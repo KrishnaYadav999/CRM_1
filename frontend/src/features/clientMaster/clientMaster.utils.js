@@ -631,6 +631,8 @@ function getClientQuotationContext(client) {
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || '';
   const clientId = client?._id || client?.id || '';
   const clientUniqueId = data.importMeta?.uniqueId || getClientUniqueId(client);
+  const serviceSelections = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : null;
+  const quotationItems = Array.isArray(data.quotationItems) && data.quotationItems.length ? data.quotationItems : null;
   return {
     sourceType: 'client',
     clientId,
@@ -656,6 +658,9 @@ function getClientQuotationContext(client) {
     servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered || lead?.servicesOffered || '',
     piboCategory: data.basic?.piboCategory || '',
     eprCategory: data.basic?.eprCategory || '',
+    businessCategory: data.basic?.businessCategory || data.selectedLeadSnapshot?.businessCategory || lead?.businessCategory || '',
+    serviceSelections,
+    quotationItems,
     returnTo: `/sales/client-master/${encodeURIComponent(client?._id || client?.id || getClientUniqueId(client))}`
   };
 }
