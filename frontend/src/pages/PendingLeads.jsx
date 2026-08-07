@@ -100,6 +100,11 @@ export default function PendingLeads({ mode = 'open' }) {
   const [dayFilter, setDayFilter] = useState('all');
   const monthOptions = useMemo(() => [...new Set(leads.map((row) => monthKey(filterDateFor(row, mode))).filter(Boolean))].sort().reverse(), [leads, mode]);
   const rows = useMemo(() => leads.filter((row) => {
+    const role = String(currentUser?.role || '').trim().toLowerCase();
+    const admin = ['admin', 'superadmin', 'super admin'].includes(role);
+    const mine = [row.createdBy, row.createdByCrmUserId, row.createdByEmail, row.createdByName, row.importedCreatedBy, row.assignedTo?._id, row.assignedToText, row.assignedStaff, row.assignedStaffText, ...(row.assignments || []).flatMap((item) => [item.assignedTo, item.assignedToText, item.assignedStaff, item.assignedStaffText])].map(normalizeIdentity);
+    const identities = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.email, currentUser?.name].map(normalizeIdentity).filter(Boolean);
+    if (!admin && !identities.some((id) => mine.includes(id))) return false;
     if (mode === 'closed' ? !closedLead(row) : !pendingDraft(row)) return false;
     const relevantDate = new Date(filterDateFor(row, mode) || 0);
     if (monthFilter !== 'all' && monthKey(relevantDate) !== monthFilter) return false;
@@ -108,7 +113,7 @@ export default function PendingLeads({ mode = 'open' }) {
       if (elapsedDays < 0 || elapsedDays > Number(dayFilter)) return false;
     }
     return true;
-  }), [dayFilter, leads, mode, monthFilter]);
+  }), [currentUser, dayFilter, leads, mode, monthFilter]);
 
   async function load() {
     setLoading(true);

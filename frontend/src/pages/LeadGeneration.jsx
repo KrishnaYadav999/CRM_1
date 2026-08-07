@@ -3100,10 +3100,6 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
       'Sub Applicant Type': item.subApplicantType || item.piboCategory || '',
       'Service Category': item.eprCategory || '',
       'Services Offered': item.servicesOffered || '',
-      Address: item.addressLine1 || '',
-      City: item.city || '',
-      PIN: item.pinCode || '',
-      State: item.state || '',
       'Contact Person': item.contactPerson || '',
       Designation: item.designation || '',
       'Mobile 1': item.mobileNo1 || '',
@@ -3174,10 +3170,6 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                   {[
                     ['Lead ID', 'w-[190px]'],
                     ['Company', 'w-[170px]'],
-                    ['Address', 'w-[250px]'],
-                    ['City', 'w-[130px]'],
-                    ['PIN', 'w-[95px]'],
-                    ['State', 'w-[130px]'],
                     ['Applicant Type', 'w-[150px]'],
                     ['Service Category', 'w-[170px]'],
                     ['Contact Person', 'w-[170px]'],
@@ -3193,15 +3185,11 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {visibleLeads.length === 0 ? (
-                  <tr><td colSpan={16} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : 'No leads found.'}</td></tr>
+                  <tr><td colSpan={12} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : 'No leads found.'}</td></tr>
                 ) : visibleLeads.map((item) => (
                   <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
                     <td className="lead-directory-id-cell px-5 py-4 font-black text-slate-900"><span title={displayLeadId(item)}>{displayLeadId(item)}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.company || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.addressLine1 || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{item.city || '-'}</span></td>
-                    <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{item.pinCode || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{item.state || '-'}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.piboCategory || '-'}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.eprCategory || '-'}</span></td>
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.contactPerson || '-'}</span></td>
