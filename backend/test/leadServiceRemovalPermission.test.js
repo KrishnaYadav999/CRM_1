@@ -19,3 +19,12 @@ test('admin and superadmin can remove any service row', () => {
   assert.equal(_test.validateServiceRemovalPermission({ serviceSelections: [own, other] }, [], { role: 'admin' }), '');
   assert.equal(_test.validateServiceRemovalPermission({ serviceSelections: [own, other] }, [], { role: 'superadmin' }), '');
 });
+
+test('an assigned manager or staff can remove an obsolete service before PO submit', () => {
+  const lead = {
+    serviceSelections: [own, other],
+    assignments: [{ assignedTo: 'manager-1', assignedToEmail: 'manager@example.com', assignedStaff: 'staff-1', assignedStaffEmail: 'staff@example.com' }]
+  };
+  assert.equal(_test.validateServiceRemovalPermission(lead, [other], { _id: 'manager-1', email: 'manager@example.com', role: 'manager' }), '');
+  assert.equal(_test.validateServiceRemovalPermission(lead, [other], { _id: 'staff-1', email: 'staff@example.com', role: 'operation' }), '');
+});

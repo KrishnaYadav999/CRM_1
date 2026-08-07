@@ -605,10 +605,12 @@ exports.logout = async (req, res) => {
 };
 
 exports.activityHeartbeat = async (req, res) => {
-  if (!req.authSessionId) return res.status(400).json({ error: 'Session ID is missing.' });
+  // JWTs issued before session tracking was introduced do not contain `sid`.
+  // Heartbeat is optional telemetry and must never create repeated 400 errors.
+  if (!req.authSessionId) return res.json({ ok: true, tracking: false, reason: 'legacy-session' });
   const now = new Date();
   const session = await UserSession.findOne({ sessionId: req.authSessionId, userId: req.user._id, logoutAt: null });
-  if (!session) return res.status(404).json({ error: 'Active session not found.' });
+  if (!session) return res.json({ ok: true, tracking: false, reason: 'session-not-found' });
   const previous = session.lastHeartbeatAt || session.lastActivityAt || now;
   const elapsed = Math.max(0, Math.min(30, Math.round((now.getTime() - new Date(previous).getTime()) / 1000)));
   // The client sends heartbeats only while the CRM tab is visible and focused.

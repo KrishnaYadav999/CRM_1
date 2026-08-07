@@ -457,6 +457,21 @@ function validateServiceRemovalPermission(beforeLead = {}, incomingRows = [], us
   });
   const userTokens = royaltyIdentityTokens(user._id, user.id, user.crmUserId, user.userId, user.email, user.name);
   const leadOwnerTokens = royaltyIdentityTokens(beforeLead.createdBy, beforeLead.createdByCrmUserId, beforeLead.createdByEmail, beforeLead.createdByName, beforeLead.importedCreatedBy);
+  const assignmentTokens = royaltyIdentityTokens(
+    beforeLead.assignedTo, beforeLead.assignedToText, beforeLead.assignedToEmail,
+    beforeLead.assignedStaff, beforeLead.assignedStaffText, beforeLead.assignedStaffEmail,
+    beforeLead.closedBy, beforeLead.closedByText, beforeLead.closedByEmail,
+    ...(Array.isArray(beforeLead.assignments) ? beforeLead.assignments.flatMap((row) => [
+      row?.assignedTo, row?.assignedToText, row?.assignedToEmail,
+      row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail,
+      row?.closedBy, row?.closedByText, row?.closedByEmail
+    ]) : [])
+  );
+  // A legitimate lead owner/assignee must be able to remove an obsolete
+  // service and submit the remaining service rows with PO details.
+  const canEditLeadServices = [...leadOwnerTokens, ...assignmentTokens]
+    .some((token) => userTokens.includes(token));
+  if (canEditLeadServices) return '';
   const forbidden = removedRows.find((row) => {
     const ownerTokens = royaltyIdentityTokens(row.createdByCrmUserId, row.createdByEmail, row.createdByName);
     const effectiveOwners = ownerTokens.length ? ownerTokens : leadOwnerTokens;
