@@ -7,13 +7,16 @@ export default function KpiSummary({ metrics }) {
         {metrics.map((metric, index) => {
           const Icon = metric.icon
           return (
-            <div
+            <button
+              type="button"
+              onClick={metric.onClick}
+              disabled={!metric.onClick}
               key={metric.label}
-              className={`group relative min-h-[120px] overflow-hidden rounded-2xl border px-5 py-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl sm:px-6 ${
+              className={`group relative min-h-[120px] overflow-hidden rounded-2xl border px-5 py-5 text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:shadow-sm sm:px-6 ${
                 index === 0
                   ? 'border-emerald-600 bg-gradient-to-br from-emerald-700 to-teal-800 text-white shadow-emerald-700/15'
                   : 'border-amber-100 bg-white text-slate-900 hover:border-amber-200'
-              }`}
+              } ${metric.active ? 'ring-4 ring-emerald-200' : ''}`}
             >
               <div className={`absolute -right-10 -top-10 h-32 w-32 rounded-full transition duration-300 group-hover:scale-125 ${index === 0 ? 'bg-white/10' : 'bg-amber-50'}`} />
               <div className={`absolute bottom-0 left-0 h-1 w-full ${index === 0 ? 'bg-emerald-300/80' : 'bg-amber-400/70'}`} />
@@ -29,7 +32,7 @@ export default function KpiSummary({ metrics }) {
                   <Icon className="h-6 w-6" />
                 </span>
               </div>
-            </div>
+            </button>
           )
         })}
       </div>

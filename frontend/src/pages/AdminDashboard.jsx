@@ -69,6 +69,11 @@ const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v3'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 4500
 
+function isUserActive(user = {}) {
+  const value = user?.isActive
+  return !(value === false || value === 0 || ['false', '0', 'inactive'].includes(String(value || '').trim().toLowerCase()))
+}
+
 function readSessionCache(key, ttlMs = DASHBOARD_CACHE_TTL_MS) {
   const stores = [sessionStorage, localStorage].filter(Boolean)
   for (const store of stores) {
@@ -4377,8 +4382,8 @@ export default function AdminDashboard() {
       const matchesSearch = text.includes(query.toLowerCase())
       const matchesStatus =
         statusFilter === 'all' ||
-        (statusFilter === 'active' && user.isActive) ||
-        (statusFilter === 'inactive' && !user.isActive)
+        (statusFilter === 'active' && isUserActive(user)) ||
+        (statusFilter === 'inactive' && !isUserActive(user))
 
       return matchesSearch && matchesStatus
     })
@@ -4387,8 +4392,8 @@ export default function AdminDashboard() {
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage))
   const visibleUsers = filteredUsers.slice((page - 1) * rowsPerPage, page * rowsPerPage)
   const operationUsers = useMemo(() => users.filter((user) => isOperationsUser(user)), [users])
-  const activeUsers = operationUsers.filter((user) => user.isActive).length
-  const inactiveUsers = operationUsers.filter((user) => !user.isActive).length
+  const activeUsers = operationUsers.filter((user) => isUserActive(user)).length
+  const inactiveUsers = operationUsers.filter((user) => !isUserActive(user)).length
   const userById = useMemo(() => new Map(users.map((user) => [String(user._id || user.id), user])), [users])
 
   const operationAnalytics = useMemo(() => {
@@ -5351,8 +5356,8 @@ export default function AdminDashboard() {
 
                   <KpiSummary
                     metrics={[
-                      { label: 'Active Users', value: users.filter((user) => user.isActive).length, note: 'Ready for assignment', icon: CheckCircle2, valueClass: 'text-slate-900', iconClass: 'bg-emerald-50 text-emerald-700' },
-                      { label: 'Inactive Users', value: users.filter((user) => !user.isActive).length, note: 'Needs attention', icon: ShieldAlert, valueClass: 'text-amber-600', iconClass: 'bg-amber-50 text-amber-600' }
+                      { label: 'Active Users', value: users.filter((user) => isUserActive(user)).length, note: 'Ready for assignment', icon: CheckCircle2, valueClass: 'text-slate-900', iconClass: 'bg-emerald-50 text-emerald-700', active: statusFilter === 'active', onClick: () => { setStatusFilter('active'); setPage(1) } },
+                      { label: 'Inactive Users', value: users.filter((user) => !isUserActive(user)).length, note: 'Needs attention', icon: ShieldAlert, valueClass: 'text-amber-600', iconClass: 'bg-amber-50 text-amber-600', active: statusFilter === 'inactive', onClick: () => { setStatusFilter('inactive'); setPage(1) } }
                     ]}
                   />
 
@@ -5410,8 +5415,8 @@ export default function AdminDashboard() {
                     return (
                       <article key={id} className="relative overflow-visible rounded-xl border border-emerald-100 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl hover:shadow-emerald-900/10">
                         <div className="min-h-24 rounded-t-xl bg-emerald-50 p-4">
-                          <span className={`inline-flex rounded-lg px-4 py-2 text-sm font-black ${user.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {user.isActive ? 'Active' : 'Inactive'}
+                          <span className={`inline-flex rounded-lg px-4 py-2 text-sm font-black ${isUserActive(user) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {isUserActive(user) ? 'Active' : 'Inactive'}
                           </span>
                           <div className="absolute right-5 top-4">
                             <UserActionsMenu
