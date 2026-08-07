@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const ALLOWED_FIELDS = ['industryType', 'serviceCategory', 'servicesForYear', 'eprCategory'];
+const ALLOWED_FIELDS = ['industryType', 'serviceCategory', 'servicesForYear', 'eprCategory', 'businessCategory'];
 
 const QuotationDropdownOptionSchema = new mongoose.Schema({
   field: { type: String, required: true, enum: ALLOWED_FIELDS, trim: true, index: true },

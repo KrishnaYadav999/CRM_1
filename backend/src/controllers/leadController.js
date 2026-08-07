@@ -179,6 +179,7 @@ function cleanBody(body) {
         data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
           industryType: String(row?.industryType || '').trim(),
           eprCategory: String(row?.eprCategory || '').trim(),
+          businessCategory: ['EPR Consultancy', 'EPR Credit'].includes(String(row?.businessCategory || '').trim()) ? String(row.businessCategory).trim() : '',
           applicantType: String(row?.applicantType || '').trim(),
           subApplicantType: String(row?.subApplicantType || row?.piboCategory || '').trim(),
           servicesOffered: String(row?.servicesOffered || '').trim(),
@@ -260,6 +261,7 @@ function cleanBody(body) {
   if (primaryService) {
     data.industryType = primaryService.industryType || data.industryType;
     data.eprCategory = primaryService.eprCategory || data.eprCategory;
+    data.businessCategory = primaryService.businessCategory || data.businessCategory;
     data.applicantType = primaryService.applicantType || data.applicantType;
     data.subApplicantType = primaryService.subApplicantType || data.subApplicantType || data.piboCategory;
     data.servicesOffered = primaryService.servicesOffered || data.servicesOffered;
@@ -436,6 +438,7 @@ function bulkServiceRow(source = {}, user = {}) {
   return {
     industryType: String(source.industryType || '').trim(),
     eprCategory: String(source.eprCategory || '').trim(),
+    businessCategory: ['EPR Consultancy', 'EPR Credit'].includes(String(source.businessCategory || '').trim()) ? String(source.businessCategory).trim() : '',
     applicantType: String(source.applicantType || source.piboParent || '').trim(),
     subApplicantType: String(source.subApplicantType || source.piboCategory || '').trim(),
     servicesOffered: String(source.servicesOffered || '').trim(),

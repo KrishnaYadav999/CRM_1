@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const ALLOWED_FIELDS = ['communicationMode', 'status', 'industryType', 'applicantType', 'financialYear', 'state', 'city', 'salutation', 'designation', 'source'];
+const ALLOWED_FIELDS = ['communicationMode', 'status', 'industryType', 'applicantType', 'financialYear', 'state', 'city', 'salutation', 'designation', 'source', 'businessCategory', 'eprCategory'];
 
 const LeadDropdownOptionSchema = new mongoose.Schema({
   field: { type: String, required: true, enum: ALLOWED_FIELDS, trim: true, index: true },
