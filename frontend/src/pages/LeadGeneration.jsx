@@ -3536,12 +3536,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const detailAssignments = Array.isArray(activeLead.assignments) && activeLead.assignments.length
     ? activeLead.assignments
     : [createAssignmentRow(activeLead)];
-  const detailServices = activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)];
-  const detailHasPlastic = detailServices.some((row) => /plastic\s+waste/i.test(String(row?.eprCategory || '')));
-  const detailHasNonPlastic = detailServices.some((row) => row?.eprCategory && !/plastic\s+waste/i.test(String(row.eprCategory)));
-  const detailApplicantLabel = detailHasPlastic && detailHasNonPlastic
-    ? 'Applicant / Sub Applicant Type'
-    : detailHasPlastic ? 'Sub Applicant Type' : 'Applicant Type';
+  // API rows use subApplicantType while older CCP payloads use piboCategory.
+  // Normalize once so every detail table renders the same service values.
+  const detailServices = normalizeLegacyServiceSelections(activeLead);
   const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name]
     .filter(Boolean).map((item) => String(item).trim().toLowerCase());
   const ownedServiceOptions = detailServices.map((service, index) => ({ service, index, ownerTokens: [service.createdByCrmUserId, service.createdByEmail, service.createdByName].filter(Boolean).map((item) => String(item).trim().toLowerCase()) }))
@@ -3939,8 +3936,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   <div className="overflow-auto rounded-xl border border-slate-200">
                   <div className="border-b border-slate-200 bg-emerald-50 px-5 py-4"><h3 className="font-black text-slate-900">Service &amp; Applicant</h3></div>
                   <table className="w-full min-w-[980px] text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Applicable Services', 'Financial Year'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
-                    <tbody>{(activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)]).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3">{row.piboCategory || 'No separate sub applicant type'}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-bold text-emerald-700">{row.applicableService || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody>
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Financial Year'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+                    <tbody>{detailServices.map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3 font-black text-violet-700">{directApplicantOptions(row.eprCategory) ? 'Not applicable' : (row.piboCategory || '-')}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody>
                   </table>
                   </div>
                 </>
@@ -3953,12 +3950,12 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   </div>
                   <table className="w-full min-w-[1850px] text-left text-sm">
                     <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                      <tr>{['#', 'Industry Type', 'Service Category', detailApplicantLabel, 'Services Offered', 'Applicable Services', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
+                      <tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
                     </thead>
                     <tbody>
                       {detailAssignments.map((row, index) => {
-                        const matchingService = (activeLead.serviceSelections?.length ? activeLead.serviceSelections : [createServiceSelection(activeLead)])[index]
-                          || activeLead.serviceSelections?.at(-1)
+                        const matchingService = detailServices[index]
+                          || detailServices.at(-1)
                           || createServiceSelection(activeLead);
                         const managerId = row.assignedTo?._id || row.assignedTo || '';
                         const managerOwnsRow = currentUserTokens.includes(String(managerId));
@@ -3970,9 +3967,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                           <td className="px-4 py-3 font-black">{index + 1}</td>
                           <td className="px-4 py-3 font-black">{matchingService.industryType || '-'}</td>
                           <td className="px-4 py-3">{matchingService.eprCategory || '-'}</td>
-                          <td className="px-4 py-3 font-black text-violet-700">{/plastic\s+waste/i.test(String(matchingService.eprCategory || '')) ? (matchingService.piboCategory || '-') : (matchingService.applicantType || '-')}</td>
+                          <td className="px-4 py-3">{matchingService.applicantType || '-'}</td>
+                          <td className="px-4 py-3 font-black text-violet-700">{directApplicantOptions(matchingService.eprCategory) ? 'Not applicable' : (matchingService.piboCategory || '-')}</td>
                           <td className="px-4 py-3">{matchingService.servicesOffered || '-'}</td>
-                          <td className="px-4 py-3 font-bold text-emerald-700">{matchingService.applicableService || '-'}</td>
                           <td className="px-4 py-3 font-black">{row.closedBy?.name || row.closedByText || '-'}</td>
                           <td className="px-4 py-3 font-black">{row.assignedTo?.name || row.assignedToText || '-'}</td>
                           <td className="px-4 py-3">{row.assignedTo?.email || row.assignedToEmail || '-'}</td>

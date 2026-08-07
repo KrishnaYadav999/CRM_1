@@ -63,3 +63,14 @@ test('both forms use the shared dependent selector and piboParent contract', () 
   assert.match(lead, /piboParent/);
   assert.match(quotation, /piboParent/);
 });
+
+test('lead details normalize sub applicant types and omit applicable-services columns', () => {
+  const lead = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  const pending = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingLeads.jsx'), 'utf8');
+  assert.match(lead, /const detailServices = normalizeLegacyServiceSelections\(activeLead\)/);
+  assert.match(lead, /'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Financial Year'/);
+  assert.match(lead, /'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Lead Closed By'/);
+  assert.doesNotMatch(lead, /detailApplicantLabel/);
+  assert.match(pending, /row\.subApplicantType \|\| row\.piboCategory/);
+  assert.doesNotMatch(pending, /'Applicable Services'/);
+});
