@@ -10,6 +10,7 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const THIRTY_MINUTES = 30 * 60 * 1000;
 const TEN_MINUTES = 10 * 60 * 1000;
+const ONE_WEEK = 7 * DAY;
 let started = false;
 let running = false;
 
@@ -278,18 +279,18 @@ async function remindServiceEndDates(now) {
     .populate('createdBy', 'name email managerId operationHeadId').lean();
   let reminded = 0;
   for (const quotation of quotations) {
-    const reminderBase = new Date(quotation.updatedAt || quotation.createdAt || 0);
-    if (!reminderBase.getTime() || now < reminderBase.getTime() + TEN_MINUTES) continue;
     const expiring = (quotation.items || []).filter((row) => {
       const end = parseServiceDate(row.serviceEndDate);
       if (!end) return false;
       end.setHours(23, 59, 0, 0);
-      return end.getTime() > now;
+      const endTime = end.getTime();
+      const oneWeekBefore = endTime - ONE_WEEK;
+      return now >= oneWeekBefore && now <= endTime;
     });
     if (!expiring.length) continue;
-    const revisionKey = reminderBase.toISOString();
-    const key = `${quotation._id}:${revisionKey}:service-end-test-10m`;
-    if (await Notification.exists({ kind: 'service_end_10_minute_reminder', 'metadata.key': key })) continue;
+    const dateKey = new Date(now).toISOString().slice(0, 10);
+    const key = `${quotation._id}:${dateKey}:service-end-1-week`;
+    if (await Notification.exists({ kind: 'service_end_1_week_reminder', 'metadata.key': key })) continue;
     const creator = quotation.createdBy;
     const leaderIds = [creator?.managerId, creator?.operationHeadId].filter(Boolean);
     const [leaders, administrators] = await Promise.all([
@@ -300,8 +301,8 @@ async function remindServiceEndDates(now) {
     if (!recipients.length) continue;
     const customer = quotation.companyName || quotation.leadDetails?.companyName || 'Customer';
     const services = expiring.map((row) => `${row.serviceCategory || row.eprCategory || row.industryType || 'Service'} (ends ${row.serviceEndDate})`);
-    const description = `${customer}: 10-minute test reminder for ${services.join(', ')}. Service owner: ${creator?.name || quotation.createdByName || 'CRM user'}.`;
-    const item = await Notification.create({ title: 'Service expiry test reminder', description, tag: 'Service Expiry', kind: 'service_end_10_minute_reminder', audience: recipients.map((user) => user._id), visibleToRoles: ['admin', 'superadmin'], metadata: { key, quotationId: String(quotation._id), customer, services, reminderBase: revisionKey } });
+    const description = `${customer}: 1-week service expiry reminder for ${services.join(', ')}. Service owner: ${creator?.name || quotation.createdByName || 'CRM user'}.`;
+    const item = await Notification.create({ title: 'Service expiry 1-week reminder', description, tag: 'Service Expiry', kind: 'service_end_1_week_reminder', audience: recipients.map((user) => user._id), visibleToRoles: ['admin', 'superadmin'], metadata: { key, quotationId: String(quotation._id), customer, services, dateKey } });
     item.crmNotificationId = String(item._id); await item.save();
     const primary = creator?.email ? creator : recipients[0];
     if (primary?.email) {
@@ -318,19 +319,19 @@ async function remindServiceEndDates(now) {
         <td style="${cell}text-align:center">${escapeHtml(row.unit || '1')}</td>
         <td style="${cell}text-align:right;color:#0f766e">${escapeHtml(quotation.pricingMode === 'combined' ? (index === 0 ? formatInr(quotation.combinedBasicAmount) : 'Combined') : formatInr(row.basicAmount))}</td>
       </tr>`).join('');
-      const headers = ['SR.NO', 'INDUSTRY TYPE', 'SERVICE CATEGORY', 'SERVICE START DATE', 'SERVICE END DATE', 'EPR CATEGORY', 'APPLICANT TYPE', 'ADDED BY', 'UNIT', 'BASIC AMOUNT (INR)']
+      const headers = ['SR.NO', 'INDUSTRY TYPE', 'SERVICE CATEGORY', 'SERVICE START DATE', 'SERVICE END DATE', 'SERVICE CATEGORY', 'APPLICANT TYPE', 'ADDED BY', 'UNIT', 'BASIC AMOUNT (INR)']
         .map((heading) => `<th style="padding:12px 10px;background:#f1f5f9;color:#64748b;font-size:10px;letter-spacing:.04em;text-align:left;white-space:nowrap">${heading}</th>`).join('');
       const html = `<div style="margin:0;padding:28px 12px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#334155">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
           <table role="presentation" width="1100" cellspacing="0" cellpadding="0" style="width:100%;max-width:1100px;overflow:hidden;border:1px solid #dbe5e7;border-radius:16px;background:#fff">
             <tr><td style="height:7px;background:#0f766e"></td></tr>
-            <tr><td style="padding:28px 30px 18px"><span style="display:inline-block;border-radius:99px;background:#fef2f2;padding:7px 11px;color:#b91c1c;font-size:11px;font-weight:800;letter-spacing:.8px">SERVICE EXPIRY · TEST REMINDER</span><h1 style="margin:16px 0 6px;color:#0f172a;font-size:25px">Quotation Items</h1><p style="margin:0;color:#64748b;font-size:13px">This 10-minute test reminder covers the following active services provided to <strong style="color:#0f766e">${escapeHtml(customer)}</strong>.</p></td></tr>
+            <tr><td style="padding:28px 30px 18px"><span style="display:inline-block;border-radius:99px;background:#fef2f2;padding:7px 11px;color:#b91c1c;font-size:11px;font-weight:800;letter-spacing:.8px">SERVICE EXPIRY · 1 WEEK BEFORE</span><h1 style="margin:16px 0 6px;color:#0f172a;font-size:25px">Quotation Items</h1><p style="margin:0;color:#64748b;font-size:13px">This 1-week before expiry reminder covers the following active services provided to <strong style="color:#0f766e">${escapeHtml(customer)}</strong>. Please initiate renewal discussions.</p></td></tr>
             <tr><td style="padding:0 30px 18px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse"><tr><td style="padding:12px 14px;border:1px solid #dbe5e7;background:#f8fafc;font-size:12px"><strong>Customer:</strong> ${escapeHtml(customer)}</td><td style="padding:12px 14px;border:1px solid #dbe5e7;background:#f8fafc;font-size:12px"><strong>Service owner:</strong> ${escapeHtml(creator?.name || quotation.createdByName || 'CRM user')}</td><td style="padding:12px 14px;border:1px solid #dbe5e7;background:#f8fafc;font-size:12px"><strong>Quotation:</strong> ${escapeHtml(quotation.quotationNumber || '-')}</td></tr></table></td></tr>
             <tr><td style="padding:0 18px 26px"><div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px"><table width="100%" cellspacing="0" cellpadding="0" style="min-width:1000px;border-collapse:collapse"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></div><p style="margin:20px 12px 0;padding:14px;border-radius:8px;background:#ecfdf5;color:#065f46;font-size:13px;text-align:center"><strong>Action required:</strong> Please contact the customer for renewal or the next required action.</p></td></tr>
           </table>
         </td></tr></table></div>`;
       const cc = recipients.map((user) => user.email).filter((email) => email && email !== primary.email);
-      await sendMail(primary.email, `10-minute Service Expiry Test - ${customer}`, html, { branded: false, cc })
+      await sendMail(primary.email, `Service Expiry 1-Week Reminder - ${customer}`, html, { branded: false, cc })
         .catch((error) => console.error(`[Service expiry reminder] Email failed for ${primary.email}`, error));
     }
     reminded += 1;

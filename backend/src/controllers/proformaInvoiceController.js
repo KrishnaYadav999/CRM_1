@@ -35,7 +35,7 @@ function cleanPayload(body = {}) {
     annualReturnYears: [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(text).filter(Boolean))],
     servicesOffered: text(item.servicesOffered), applicableService: text(item.applicableService),
     serviceStartDate: text(item.serviceStartDate), serviceEndDate: text(item.serviceEndDate),
-    eprCategory: text(item.eprCategory), piboParent: text(item.piboParent),
+    eprCategory: text(item.eprCategory), businessCategory: text(item.businessCategory) || undefined, piboParent: text(item.piboParent),
     piboCategory: text(item.piboCategory), unit: text(item.unit), basicAmount: money(item.basicAmount)
   })).filter((item) => item.serviceCategory || item.piboCategory || item.basicAmount);
   const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';

@@ -198,7 +198,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRe
         'CEPR Password': data.cpcb?.ceprPassword || '',
         'CPCB Login': data.cpcb?.loginId || '',
         'CPCB Password': data.cpcb?.loginPassword || '',
-        'EPR Category': data.basic?.eprCategory || '',
+        'Service Category': data.basic?.eprCategory || '',
         'EPR Certificate No': data.compliance?.eprCertificate || '',
         'Approval Status': item.adminControls?.approvalStatus || '',
         'Approved By': data.importMeta?.approvedBy || '',
@@ -272,7 +272,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRe
             <table className="crm-data-table w-full min-w-[1280px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
-                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'PIBO', 'EPR Category', 'MSME', 'CPCB Approval', 'OTP Mobile', 'OTP Name', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
+                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'PIBO', 'Service Category', 'MSME', 'CPCB Approval', 'OTP Mobile', 'OTP Name', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">

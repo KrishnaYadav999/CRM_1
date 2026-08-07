@@ -1471,7 +1471,7 @@ export default function ClientMaster() {
                       <span className="mt-2 block text-xs font-bold text-slate-500">Industry Type: {service.industryType || '-'}</span>
                       <span className="mt-2 flex flex-wrap items-center gap-2">
                         <span className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-black text-orange-700 shadow-sm">
-                          EPR Category: {service.eprCategory || '-'}
+                          Service Category: {service.eprCategory || '-'}
                         </span>
                         <span className="rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-1.5 text-xs font-black text-cyan-800 shadow-sm">
                           Applicant Type: {applicantType}
@@ -1731,7 +1731,7 @@ function BasicTab({ client, setValue }) {
         <Field required label="Client Legal Name"><input className="form-input" value={basic.clientLegalName ?? ''} onChange={(event) => setValue('basic', 'clientLegalName', event.target.value)} /></Field>
         <Field label="Trade Name"><input className="form-input" value={basic.tradeName ?? ''} onChange={(event) => setValue('basic', 'tradeName', event.target.value)} /></Field>
         <SelectLike label="PIBO Category" value={basic.piboCategory ?? ''} options={selectOptions.piboCategory} onChange={(value) => setValue('basic', 'piboCategory', value)} />
-        <SelectLike label="EPR Category" value={basic.eprCategory ?? ''} options={selectOptions.eprCategory} onChange={(value) => setValue('basic', 'eprCategory', value)} />
+        <SelectLike label="Service Category" value={basic.eprCategory ?? ''} options={selectOptions.eprCategory} onChange={(value) => setValue('basic', 'eprCategory', value)} />
         <SelectLike label="Client Onboarding Year" value={basic.onboardingYear ?? ''} options={selectOptions.years} placeholder="Select onboarding year" onChange={(value) => setValue('basic', 'onboardingYear', value)} />
         <Field label="First Annual Return Year Applicable">
           <SearchableSelect value={normalizeFinancialYearLabel(basic.firstAnnualReturnYear) || ''} options={selectOptions.annualReturnYears} onChange={(value) => setValue('basic', 'firstAnnualReturnYear', value)} placeholder="Select first annual return year" />
@@ -1768,7 +1768,7 @@ function ClientViewModal({ client, quotations = [], proformaInvoices = [], staff
     ['State', data.registeredAddress?.state, MapPin],
     ['City with PIN', cityPin, MapPin],
     ['PIBO Category', data.basic?.piboCategory, FolderCheck],
-    ['EPR Category', data.basic?.eprCategory, FileCheck2],
+    ['Service Category', data.basic?.eprCategory, FileCheck2],
     ['Company Industry', data.basic?.companyIndustry, Building2],
     ['Services Offered', data.basic?.servicesOffered, CheckCircle2]
   ];
@@ -2533,7 +2533,7 @@ function QuotationHistoryCard({ quotation, index, onOpen, onPreview, onRevise })
           <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
               <tr>
-                {['#', 'Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount'].map((header) => (
+                {['#', 'Service Category', 'Services for the Year', 'Service Category', 'PIBO Category', 'Unit', 'Basic Amount'].map((header) => (
                   <th key={header} className="border-r border-slate-200 px-4 py-3 last:border-r-0">{header}</th>
                 ))}
               </tr>

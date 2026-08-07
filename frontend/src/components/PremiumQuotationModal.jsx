@@ -148,7 +148,7 @@ export default function PremiumQuotationModal({
                   <table className="w-full min-w-[860px] border-collapse text-left text-sm">
                     <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-[0.06em] text-slate-600">
                       <tr>
-                        {['Sr.No', 'Service Category', 'Year', 'EPR Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => (
+                        {['Sr.No', 'Service Category', 'Year', 'Service Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => (
                           <th key={header} className="border-r border-slate-200 px-3 py-3 last:border-r-0">{header}</th>
                         ))}
                       </tr>

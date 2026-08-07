@@ -175,7 +175,7 @@ async function notifyAdditionalLeadServices({ beforeLead, afterLead, actor }) {
     <h3 style="margin:22px 0 8px;color:#0f172a">Newly Added Services</h3>
     <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0">
       <thead><tr style="background:#ecfdf5;color:#065f46">
-        <th style="padding:10px;text-align:left">Industry</th><th style="padding:10px;text-align:left">EPR Category</th>
+        <th style="padding:10px;text-align:left">Industry</th><th style="padding:10px;text-align:left">Service Category</th>
         <th style="padding:10px;text-align:left">Applicant Type</th><th style="padding:10px;text-align:left">Service</th>
         <th style="padding:10px;text-align:left">Applicable Service</th><th style="padding:10px;text-align:left">Financial Year</th>
       </tr></thead><tbody>${addedRows}</tbody>

@@ -120,6 +120,7 @@ function isMeaningfulItem(item = {}) {
     item.serviceEndDate,
     item.servicesForYear,
     item.eprCategory,
+    item.businessCategory,
     item.piboCategory
   ].some((value) => cleanString(value))
     || Number(item.basicAmount) > 0;
@@ -149,6 +150,7 @@ function cleanItems(items, user = null) {
         serviceEndDate,
         servicesForYear: financialYearFromDate(serviceStartDate || serviceEndDate) || cleanString(item.servicesForYear),
         eprCategory: cleanString(item.eprCategory),
+        businessCategory: cleanString(item.businessCategory) || undefined,
         piboParent: normalizeParent(item.piboParent || item.piboCategoryParent) || inferPiboParent(item.piboCategory) || undefined,
         piboCategory: cleanString(item.piboCategory),
         unit: '1',
@@ -379,7 +381,9 @@ async function nextQuotationNumber() {
     .sort({ quotationNumber: -1, createdAt: -1 })
     .select('quotationNumber')
     .lean();
-  const next = (Number.parseInt(String(latest?.quotationNumber || '').split('/').at(-1), 10) || 0) + 1;
+  const MIN_START = 313;
+  const latestNum = Number.parseInt(String(latest?.quotationNumber || '').split('/').at(-1), 10) || 0;
+  const next = Math.max(latestNum, MIN_START - 1) + 1;
   return `${prefix}${String(next).padStart(3, '0')}`;
 }
 

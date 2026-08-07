@@ -6,7 +6,7 @@ const { sendMail } = require('../utils/mailer');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CHECKLIST = [
   ['basic.clientLegalName', 'Client Legal Name'], ['basic.tradeName', 'Trade Name'], ['basic.piboCategory', 'PIBO Category'],
-  ['basic.eprCategory', 'EPR Category'], ['basic.onboardingYear', 'Onboarding Year'], ['registeredAddress.state', 'Registered State'],
+  ['basic.eprCategory', 'Service Category'], ['basic.onboardingYear', 'Onboarding Year'], ['registeredAddress.state', 'Registered State'],
   ['registeredAddress.city', 'Registered City'], ['registeredAddress.pincode', 'Registered PIN'], ['compliance.gstNumber', 'GST Number'],
   ['cpcb.loginId', 'CPCB Login ID'], ['cpcb.loginPassword', 'CPCB Password'], ['otp.mobile', 'OTP Mobile'],
   ['otp.personName', 'OTP Person'], ['authorised.name', 'Authorized Person'], ['authorised.mobile', 'Authorized Person Mobile']

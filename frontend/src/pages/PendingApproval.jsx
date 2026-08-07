@@ -710,7 +710,7 @@ export default function PendingApproval() {
             {isComplianceApprovalView ? (
               <ApprovalTable
                 title="Pending Clients"
-                columns={['Client Name', 'Approval Status', 'Applicant Type', 'EPR Category', 'Created By', 'Request Date', 'Actions']}
+                columns={['Client Name', 'Approval Status', 'Applicant Type', 'Service Category', 'Created By', 'Request Date', 'Actions']}
                 emptyText="No pending clients found."
                 page={clientPage}
                 totalPages={clientTotalPages}
@@ -811,7 +811,7 @@ export default function PendingApproval() {
                 ))}
               </ApprovalTable>
             ) : activeTab === 'royalty' ? (
-              <ApprovalTable title="Claim Royalty Approvals" columns={['Company', 'FY', 'Services Offered', 'EPR Category', 'Data Flag', 'Original Creator', 'Claimed By', 'Original %', 'Claimant %', 'Status', 'Actions']} emptyText="No royalty claims found." page={1} totalPages={1} showing={filteredRoyalty.length} total={filteredRoyalty.length} onPrev={() => {}} onNext={() => {}}>
+              <ApprovalTable title="Claim Royalty Approvals" columns={['Company', 'FY', 'Services Offered', 'Service Category', 'Data Flag', 'Original Creator', 'Claimed By', 'Original %', 'Claimant %', 'Status', 'Actions']} emptyText="No royalty claims found." page={1} totalPages={1} showing={filteredRoyalty.length} total={filteredRoyalty.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredRoyalty.map((row) => {
                   const id = row._id || row.id;
                   const values = approvalInputs[id] || {};
@@ -890,7 +890,7 @@ export default function PendingApproval() {
               {(serviceApprovalDetail.payload?.serviceGroups || []).length ? <div className="space-y-5">{serviceApprovalDetail.payload.serviceGroups.map((group) => (
                 <section key={group.user} className="overflow-hidden rounded-2xl border border-slate-200">
                   <div className="flex items-center justify-between bg-slate-50 px-4 py-3"><strong>{group.user}</strong><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">{group.count ?? group.services?.length ?? 0} Services</span></div>
-                  <div className="overflow-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-emerald-50 text-xs uppercase text-emerald-800"><tr>{['#', 'Industry', 'EPR Category', 'Applicant Type', 'Service', 'Applicable Service', 'Financial Year'].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody>{(group.services || []).map((service, index) => <tr key={`${group.user}-${index}`} className="border-t"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{service.industryType || '-'}</td><td className="px-4 py-3">{service.eprCategory || '-'}</td><td className="px-4 py-3">{service.applicantType || service.piboCategory || '-'}</td><td className="px-4 py-3 font-bold">{service.servicesOffered || '-'}</td><td className="px-4 py-3">{service.applicableService || '-'}</td><td className="px-4 py-3">{service.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody></table>{!(group.services || []).length && <p className="p-5 text-sm font-bold text-slate-500">Detailed rows are unavailable for this older approval; total count is {group.count || 0}.</p>}</div>
+                  <div className="overflow-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-emerald-50 text-xs uppercase text-emerald-800"><tr>{['#', 'Industry', 'Service Category', 'Applicant Type', 'Service', 'Applicable Service', 'Financial Year'].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody>{(group.services || []).map((service, index) => <tr key={`${group.user}-${index}`} className="border-t"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{service.industryType || '-'}</td><td className="px-4 py-3">{service.eprCategory || '-'}</td><td className="px-4 py-3">{service.applicantType || service.piboCategory || '-'}</td><td className="px-4 py-3 font-bold">{service.servicesOffered || '-'}</td><td className="px-4 py-3">{service.applicableService || '-'}</td><td className="px-4 py-3">{service.firstAnnualReturnYearApplicable || '-'}</td></tr>)}</tbody></table>{!(group.services || []).length && <p className="p-5 text-sm font-bold text-slate-500">Detailed rows are unavailable for this older approval; total count is {group.count || 0}.</p>}</div>
                 </section>
               ))}</div> : <div className="p-10 text-center font-bold text-slate-500">No service contribution details are available.</div>}
             </div>

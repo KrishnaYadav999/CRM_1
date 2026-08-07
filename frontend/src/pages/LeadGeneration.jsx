@@ -184,6 +184,7 @@ const tabs = [
   { id: 'assign', label: 'Assign', icon: UserCheck }
 ];
 const annualReturnYearOptions = Array.from({ length: 7 }, (_, index) => `${2023 + index}-${String(24 + index).padStart(2, '0')}`);
+const BUSINESS_CATEGORY_OPTIONS = ['EPR Consultancy', 'EPR Credit'];
 const options = {
   communicationMode: ['TeleCalling', 'Referral', 'Physical Visit', 'Campaign', 'Existing Client', 'Web Database', 'Webinar', 'Seminar', 'Exhibition', 'Associate Reference', 'Government'],
   status: ['Potential - Registered', 'Potential - Unregistered', 'Existing Client', 'Existing Client - Not Renewed'],
@@ -323,6 +324,7 @@ function createServiceSelection(source = {}) {
   return {
     industryType: source.industryType || '',
     eprCategory: source.eprCategory || '',
+    businessCategory: source.businessCategory || '',
     applicantType: source.applicantType || source.piboParent || source.piboCategoryParent || '',
     piboCategory: source.subApplicantType || source.piboCategory || '',
     servicesOffered: source.servicesOffered || '',
@@ -334,7 +336,7 @@ function createServiceSelection(source = {}) {
   };
 }
 
-const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'firstAnnualReturnYearApplicable'];
+const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'businessCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'firstAnnualReturnYearApplicable'];
 
 function serviceSelectionIdentity(row = {}) {
   return SERVICE_DUPLICATE_FIELDS.map((field) => String(row[field] || '').trim().toLowerCase()).join('|');
@@ -352,7 +354,7 @@ function normalizeLegacyServiceSelections(source = {}) {
     ...source,
     applicableService: source.applicableService || saved[0]?.applicableService || ''
   });
-  const fields = ['industryType', 'eprCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable'];
+  const fields = ['industryType', 'eprCategory', 'businessCategory', 'applicantType', 'piboCategory', 'servicesOffered', 'applicableService', 'firstAnnualReturnYearApplicable'];
   const hasService = (row) => fields.some((field) => String(row?.[field] || '').trim());
   const identity = (row) => fields.map((field) => String(row?.[field] || '').trim().toLowerCase()).join('|');
   // Once the canonical array exists it is authoritative. Re-inserting stale
@@ -1389,7 +1391,7 @@ export default function LeadGeneration() {
 
   function downloadLeadImportTemplate() {
     const headers = [
-      'Communication Mode', 'Lead ID', 'Status', 'Company', 'Industry', 'Service Category', 'Applicant Type', 'Sub Applicant Type',
+      'Communication Mode', 'Lead ID', 'Status', 'Company', 'Industry', 'Service Category', 'Business Category', 'Applicant Type', 'Sub Applicant Type',
       'Services Offered', 'Applicable Services', 'Financial Year', 'Address', 'Address Line 2', 'Address Line 3', 'Landmark',
       'State', 'City', 'PIN', 'Existing Client', 'Website', 'Salutation', 'Contact Person', 'Designation', 'Email',
       'Emails Sent Count', 'Last Email Sent', 'Mobile 1', 'Mobile 2', 'WhatsApp No', 'LinkedIn URL', 'Business Card URL', 'Referred By', 'Source', 'Notes',
@@ -1403,7 +1405,7 @@ export default function LeadGeneration() {
         const assignment = assignments[index] || createAssignmentRow(item);
         return {
           'Communication Mode': item.communicationMode || '', 'Lead ID': displayLeadId(item).replace(/^-$/, ''), Status: item.status || '', Company: item.company || '',
-          Industry: service.industryType || '', 'Service Category': service.eprCategory || '', 'Applicant Type': service.applicantType || '',
+          Industry: service.industryType || '', 'Service Category': service.eprCategory || '', 'Business Category': service.businessCategory || '', 'Applicant Type': service.applicantType || '',
           'Sub Applicant Type': service.piboCategory || '', 'Services Offered': service.servicesOffered || '', 'Applicable Services': service.applicableService || '',
           'Financial Year': service.firstAnnualReturnYearApplicable || '', Address: item.addressLine1 || item.addresses?.[0]?.addressLine1 || '',
           'Address Line 2': item.addressLine2 || item.addresses?.[0]?.addressLine2 || '', 'Address Line 3': item.addressLine3 || item.addresses?.[0]?.addressLine3 || '',
@@ -2144,7 +2146,7 @@ export default function LeadGeneration() {
                 <div className={`lead-service-matrix ${ownershipRequired ? 'pointer-events-none select-none opacity-45' : ''}`} aria-disabled={ownershipRequired}>
                   <div className="lead-service-matrix-title"><div><p>Service &amp; Applicant</p><span>Add one or more service combinations for this lead.</span></div><button type="button" onClick={addServiceRow}><Plus className="h-4 w-4" />Add</button></div>
                   <div className="overflow-x-auto">
-                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>Service Category <b aria-label="required">*</b></span><span>Applicant Type <b aria-label="required">*</b></span><span>Sub Applicant Type <b aria-label="required">*</b></span><span>Services Offered <b aria-label="required">*</b></span><span>Financial Year</span><span>Action</span></div>
+                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>Service Category <b aria-label="required">*</b></span><span>Business Category</span><span>Applicant Type <b aria-label="required">*</b></span><span>Sub Applicant Type <b aria-label="required">*</b></span><span>Services Offered <b aria-label="required">*</b></span><span>Financial Year</span><span>Action</span></div>
                     {serviceRows.map((row, index) => {
                       const currentIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
                       const rowOwners = [
@@ -2170,6 +2172,7 @@ export default function LeadGeneration() {
                         <span className="lead-service-row-number">{index + 1}</span>
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.industryType} options={withCustomOptions('industryType', options.industryType)} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'industryType', label: 'Industry Type', scope: 'service', index, targetField: 'industryType' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Industry Type</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen} value={row.eprCategory} options={serviceCategoryOptions} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select Service Category" />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openCatalogDialog('category', index)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Service Category</button>}</div>
+                        <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.businessCategory} options={withCustomOptions('businessCategory', BUSINESS_CATEGORY_OPTIONS)} onChange={(value) => updateServiceRow(index, 'businessCategory', value)} placeholder="Select Business Category" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'businessCategory', label: 'Business Category', scope: 'service', index, targetField: 'businessCategory' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Business Category</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.applicantType} options={withCustomOptions('applicantType', applicantOptions)} onChange={(value) => updateServiceRow(index, 'applicantType', value)} placeholder="Select Applicant Type" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'applicantType', label: 'Applicant Type', scope: 'service', index, targetField: 'applicantType' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Applicant Type</button>}</div>
                         {direct ? <div className="lead-service-not-applicable"><CheckCircle2 className="h-4 w-4" />Not applicable</div> : <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} value={row.piboCategory} options={categoryOptions} disabled={rowFrozen || !row.applicantType || piboCategoriesLoading} onChange={(value) => updateServiceRow(index, 'piboCategory', value)} placeholder={row.applicantType ? `Select ${row.applicantType} category` : 'Select applicant first'} />{canManageServiceCatalog && !rowFrozen && row.applicantType && <button type="button" onClick={() => { setSpecifyNote(''); setSpecifyDialog({ categoryRow: index, applicantType: row.applicantType, label: 'Sub Applicant Type' }); }} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Sub Applicant Type</button>}</div>}
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen || !row.eprCategory} value={row.servicesOffered} options={servicesForCategory(row.eprCategory)} onChange={(value) => updateServiceRow(index, 'servicesOffered', value)} placeholder={row.eprCategory ? 'Select Services Offered' : 'Select category first'} />{canManageServiceCatalog && !rowFrozen && row.eprCategory && <button type="button" onClick={() => openCatalogDialog('service', index, row.eprCategory)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Services Offered</button>}</div>
@@ -4239,7 +4242,7 @@ function QuotationPreviewCard({ quotation, onOpen }) {
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
               <tr>
-                {['#', 'Service Category', 'Services for the Year', 'EPR Category', 'PIBO Category', 'Unit', 'Basic Amount (Rs)'].map((header) => (
+                {['#', 'Service Category', 'Services for the Year', 'Service Category', 'PIBO Category', 'Unit', 'Basic Amount (Rs)'].map((header) => (
                   <th key={header} className="border-r border-slate-200 px-4 py-3 last:border-r-0">{header}</th>
                 ))}
               </tr>

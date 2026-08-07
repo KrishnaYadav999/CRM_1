@@ -146,7 +146,7 @@ function buildPendingClientEmail(record) {
                       ${emailField('Unique ID', uniqueId)}
                       ${emailField('Created By', createdBy)}
                       ${emailField('Applicant Type', piboCategory)}
-                      ${emailField('EPR Category', eprCategory)}
+                      ${emailField('Service Category', eprCategory)}
                       ${emailField('Requested', requestedAt)}
                     </table>
                   </td>

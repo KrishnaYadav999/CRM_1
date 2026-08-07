@@ -73,7 +73,7 @@ async function claimLeadRoyalty({ lead, claimant, financialYear, servicesOffered
       <tr><td style="padding:11px;background:#ecfdf5;font-weight:700">Company</td><td style="padding:11px">${escapeHtml(company)}</td></tr>
       <tr><td style="padding:11px;background:#ecfdf5;font-weight:700">Financial Year</td><td style="padding:11px">${escapeHtml(financialYear || '-')}</td></tr>
       <tr><td style="padding:11px;background:#ecfdf5;font-weight:700">Services Offered</td><td style="padding:11px">${escapeHtml(servicesOffered.join(', ') || '-')}</td></tr>
-      <tr><td style="padding:11px;background:#ecfdf5;font-weight:700">EPR Category</td><td style="padding:11px">${escapeHtml(eprCategories.join(', ') || '-')}</td></tr>
+      <tr><td style="padding:11px;background:#ecfdf5;font-weight:700">Service Category</td><td style="padding:11px">${escapeHtml(eprCategories.join(', ') || '-')}</td></tr>
       <tr><td style="padding:11px;background:#ecfdf5;font-weight:700">Data Flag</td><td style="padding:11px;color:${dataFlag === 'GREEN' ? '#047857' : '#dc2626'};font-weight:700">${dataFlag}</td></tr>
       ${dataFlag === 'RED' ? `<tr><td style="padding:11px;background:#ecfdf5;font-weight:700">Correction Deadline</td><td style="padding:11px">${escapeHtml(correctionDeadline.toISOString().slice(0, 10))} (2-day correction window)</td></tr>` : ''}
       <tr><td style="padding:11px;background:#ecfdf5;font-weight:700">Claimed By</td><td style="padding:11px">${escapeHtml(claimantName)}</td></tr>

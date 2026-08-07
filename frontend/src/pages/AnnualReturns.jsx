@@ -168,7 +168,7 @@ export default function AnnualReturns() {
             <table className="annual-list-table w-full min-w-[1320px] text-left text-sm">
               <thead className="sticky top-0 z-20 text-xs font-black uppercase tracking-[0.06em] shadow-sm">
                 <tr>
-                  {['Client Name', 'Annual Year', 'PIBO Category', 'EPR Category', 'Current SPOC', 'Previous SPOC', 'Status', 'Saved At', 'Actions'].map((header) => (
+                  {['Client Name', 'Annual Year', 'PIBO Category', 'Service Category', 'Current SPOC', 'Previous SPOC', 'Status', 'Saved At', 'Actions'].map((header) => (
                     <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
                   ))}
                 </tr>

@@ -5269,7 +5269,7 @@ export default function AdminDashboard() {
                   <table className="operations-table">
                     <thead>
                       <tr>
-                        {['User', 'Clients', 'Company', 'EPR Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number'].map((header) => <th key={header}>{header}</th>)}
+                        {['User', 'Clients', 'Company', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number'].map((header) => <th key={header}>{header}</th>)}
                       </tr>
                     </thead>
                     <tbody>

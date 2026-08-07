@@ -481,7 +481,7 @@ function buildCompanyAudit(query, liveClients = []) {
         { label: 'Legal Name', path: 'basic.clientLegalName' },
         { label: 'Trade Name', path: 'basic.tradeName' },
         { label: 'PIBO Category', path: 'basic.piboCategory' },
-        { label: 'EPR Category', path: 'basic.eprCategory' },
+        { label: 'Service Category', path: 'basic.eprCategory' },
         { label: 'Assigned User', value: () => getAssignedName(matchedClient) },
         { label: 'Visibility', value: () => getVisibilityStatus(matchedClient) }
       ]

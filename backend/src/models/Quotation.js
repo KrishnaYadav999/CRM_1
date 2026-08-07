@@ -33,6 +33,7 @@ const QuoteItemSchema = new mongoose.Schema({
   serviceEndDate: { type: String, trim: true },
   servicesForYear: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
+  businessCategory: { type: String, trim: true, enum: ['EPR Consultancy', 'EPR Credit'] },
   piboParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
   piboCategoryParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
   piboCategory: { type: String, trim: true },
