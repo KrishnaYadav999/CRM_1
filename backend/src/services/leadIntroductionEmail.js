@@ -5,7 +5,10 @@ const { sendMail } = require('../utils/mailer');
 
 const EPR_SERVICE_FILENAME = 'EPR Compliance Service.pdf';
 const COMPANY_PROFILE_FILENAME = 'Company Profile - AnantTattva Private Limited.pdf';
+const LOGO_FILENAME = 'ananttattva-logo.png';
+const LOGO_CONTENT_ID = 'ananttattva-introduction-logo';
 const ASSETS_PATH = path.join(__dirname, '..', '..', 'assets');
+const LOGO_PATH = path.join(__dirname, '..', '..', '..', 'frontend', 'public', LOGO_FILENAME);
 
 function numberedList(items) {
   return `<ol style="margin:8px 0 20px;padding-left:28px">${items.map((item) => `<li style="margin:8px 0;line-height:1.55"><strong>${item}</strong></li>`).join('')}</ol>`;
@@ -36,21 +39,19 @@ function buildLeadIntroductionEmail(lead = {}) {
         <p style="font-weight:700">Looking forward to your positive revert at the earliest and time for meeting with yourself and the team as per the convenience of all.</p>
         <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;font-size:15px;line-height:1.7;color:#111827">
           <p style="margin:0"><strong>Thanks &amp; Regards,</strong><br/><strong>Team AnantTattva</strong></p>
-          <img src="https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg" alt="AnantTattva" width="150" style="display:block;margin:12px 0 8px;border:0" />
-          <p style="margin:0 0 10px;font-weight:700;font-size:15px">India's Leading and Only Advisors for Compliance, Risk Management and Policy Advocacy for:</p>
-          <ul style="margin:6px 0 14px;padding-left:20px;line-height:1.6">
-            <li><strong>EPR of 70+ Countries</strong></li>
-            <li><strong>ESG</strong></li>
-            <li><strong>Circular Economy</strong></li>
-            <li><strong>Sustainability solutions</strong></li>
-          </ul>
-          <p style="margin:0 0 14px;font-weight:700;font-size:16px">आओ सब मिलकर भारत को विश्वगुरु बनाते हैं।</p>
-          <p style="margin:0 0 8px;font-weight:700">AnantTattva Private Limited</p>
-          <p style="margin:0 0 8px">1st Floor, A/25, Technocraft House, Road No. 3, MIDC, Andheri East, Mumbai 400093</p>
-          <p style="margin:0 0 8px"><strong>Official Numbers:</strong> <a href="tel:+918169727341" style="color:#0f766e">+91 8169727341</a> / <a href="tel:+919004005520" style="color:#0f766e">+91 9004005520</a></p>
-          <p style="margin:0 0 8px"><strong>Website:</strong> <a href="https://www.ananttattva.com" style="color:#0f766e">www.ananttattva.com</a></p>
-          <p style="margin:0 0 8px"><strong>LinkedIn:</strong> <a href="https://www.linkedin.com/company/anant-tattva-pvt-ltd/" style="color:#0f766e">AnantTattva Private Limited</a></p>
-          <p style="margin:0"><strong>WhatsApp Channel:</strong> <a href="https://whatsapp.com/channel/0029Va9QtNQDeONChC6Juj0t" style="color:#0f766e">Follow AnantTattva</a></p>
+          <img src="cid:${LOGO_CONTENT_ID}" alt="AnantTattva" width="150" height="60" style="display:block;width:150px;height:60px;margin:14px 0 8px;border:0" />
+          <p style="margin:0 0 16px;font-weight:700;font-size:16px">आओ सब मिलकर भारत को विश्वगुरु बनाते हैं।</p>
+          <p style="margin:0 0 12px;font-weight:700;font-size:16px">AnantTattva Private Limited</p>
+          <p style="margin:0 0 14px">1st Floor, A/25, Technocraft House, Road No.3, MIDC, Andheri East Mumbai 400093</p>
+          <p style="margin:0 0 12px;font-weight:700;font-size:15px">India’s Leading and Only Advisors for Compliance, Risk Management and Policy Advocacy for:</p>
+          <p style="margin:0 0 8px">- EPR of 70+Countries</p>
+          <p style="margin:0 0 8px">- ESG</p>
+          <p style="margin:0 0 8px">- Circular Economy and</p>
+          <p style="margin:0 0 24px">- Sustainability solutions</p>
+          <p style="margin:0 0 8px;font-weight:700">Follow us on our WhatsApp Channel on:</p>
+          <p style="margin:0 0 14px"><a href="https://whatsapp.com/channel/0029Va9QtNQDeONChC6Juj0t" style="color:#3f7182;text-decoration:underline">https://whatsapp.com/channel/0029Va9QtNQDeONChC6Juj0t</a></p>
+          <p style="margin:0 0 8px;font-weight:700">LinkedIn:</p>
+          <p style="margin:0"><a href="https://www.linkedin.com/company/anant-tattva-pvt-ltd/" style="color:#3f7182;text-decoration:underline">https://www.linkedin.com/company/anant-tattva-pvt-ltd/</a></p>
         </div>
         </div>
       </div>
@@ -64,6 +65,18 @@ function getIntroductionAttachments() {
     content: fs.readFileSync(path.join(ASSETS_PATH, filename)),
     contentType: 'application/pdf'
   }));
+}
+
+function getIntroductionLogoAttachment() {
+  return {
+    filename: LOGO_FILENAME,
+    content: fs.readFileSync(LOGO_PATH),
+    contentType: 'image/png',
+    cid: LOGO_CONTENT_ID,
+    contentId: LOGO_CONTENT_ID,
+    contentDisposition: 'inline',
+    isInline: true
+  };
 }
 
 function getLeadEmailRecipients(lead = {}) {
@@ -92,9 +105,9 @@ async function sendLeadIntroductionEmail({ lead, creator }) {
   await sendMail(recipients, content.subject, content.html, {
     branded: false,
     cc,
-    attachments: getIntroductionAttachments()
+    attachments: [...getIntroductionAttachments(), getIntroductionLogoAttachment()]
   });
   return { sent: true, recipients, cc, attachments: [EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME] };
 }
 
-module.exports = { EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME, buildLeadIntroductionEmail, getIntroductionAttachments, getLeadEmailRecipients, getIntroductionCc, sendLeadIntroductionEmail };
+module.exports = { EPR_SERVICE_FILENAME, COMPANY_PROFILE_FILENAME, LOGO_FILENAME, LOGO_CONTENT_ID, buildLeadIntroductionEmail, getIntroductionAttachments, getIntroductionLogoAttachment, getLeadEmailRecipients, getIntroductionCc, sendLeadIntroductionEmail };

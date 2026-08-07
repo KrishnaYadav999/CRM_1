@@ -3,8 +3,11 @@ const assert = require('node:assert/strict');
 const {
   EPR_SERVICE_FILENAME,
   COMPANY_PROFILE_FILENAME,
+  LOGO_FILENAME,
+  LOGO_CONTENT_ID,
   buildLeadIntroductionEmail,
   getIntroductionAttachments,
+  getIntroductionLogoAttachment,
   getLeadEmailRecipients,
   getIntroductionCc
 } = require('../src/services/leadIntroductionEmail');
@@ -17,9 +20,12 @@ test('lead introduction email is professionally formatted with the company closi
   assert.match(email.html, /PPWR \(Europe Policy\)/);
   assert.match(email.html, /P-EPR \(UK Policy\)/);
   assert.match(email.html, /Looking forward to your positive revert/);
-  assert.match(email.html, /8169727341/);
+  assert.doesNotMatch(email.html, /8169727341/);
   assert.match(email.html, /आओ सब मिलकर भारत को विश्वगुरु बनाते हैं।/);
-  assert.match(email.html, /India\'s Leading and Only Advisors/);
+  assert.match(email.html, /India’s Leading and Only Advisors/);
+  assert.match(email.html, new RegExp(`cid:${LOGO_CONTENT_ID}`));
+  assert.doesNotMatch(email.html, /Official Numbers:/);
+  assert.doesNotMatch(email.html, /Website:/);
   assert.match(email.html, /Sustainability-Based Market Intelligence/);
   assert.match(email.html, /EPR Compliance Service/);
   assert.match(email.html, /AnantTattva Company Profile/);
@@ -28,6 +34,16 @@ test('lead introduction email is professionally formatted with the company closi
   assert.doesNotMatch(email.html, /Team AnantTattva Private Limited/);
   assert.doesNotMatch(email.html, /CRM Lead:/);
   assert.doesNotMatch(email.html, /Lead ID:/);
+});
+
+test('lead introduction uses an inline email-safe PNG logo', () => {
+  const logo = getIntroductionLogoAttachment();
+  assert.equal(logo.filename, LOGO_FILENAME);
+  assert.equal(logo.contentType, 'image/png');
+  assert.equal(logo.contentId, LOGO_CONTENT_ID);
+  assert.equal(logo.isInline, true);
+  assert.ok(Buffer.isBuffer(logo.content));
+  assert.equal(logo.content.subarray(1, 4).toString(), 'PNG');
 });
 
 test('lead introduction CC contains only the original generator and never admins', () => {

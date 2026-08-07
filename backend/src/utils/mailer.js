@@ -191,7 +191,7 @@ function toGraphAttachments(attachments = []) {
     if (content === undefined || content === null) {
       throw new Error(`Microsoft Graph attachment "${attachment.filename || attachment.name || 'attachment'}" has no content`);
     }
-    return {
+    const graphAttachment = {
       '@odata.type': '#microsoft.graph.fileAttachment',
       name: attachment.filename || attachment.name || 'attachment',
       contentType: attachment.contentType || 'application/octet-stream',
@@ -199,6 +199,11 @@ function toGraphAttachments(attachments = []) {
         ? content.toString('base64')
         : Buffer.from(String(content)).toString('base64')
     };
+    if (attachment.isInline || attachment.cid || attachment.contentId) {
+      graphAttachment.isInline = true;
+      graphAttachment.contentId = attachment.contentId || attachment.cid;
+    }
+    return graphAttachment;
   });
 }
 

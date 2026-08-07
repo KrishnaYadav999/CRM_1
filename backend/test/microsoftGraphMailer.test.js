@@ -105,6 +105,33 @@ test('Microsoft Graph access token is reused until it nears expiry', async () =>
   });
 });
 
+test('Microsoft Graph preserves inline CID image metadata', async () => {
+  await withGraphEnvironment(async () => {
+    const previousFetch = global.fetch;
+    const calls = [];
+    global.fetch = async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (String(url).includes('/oauth2/v2.0/token')) {
+        return new Response(JSON.stringify({ access_token: 'inline-token', expires_in: 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(null, { status: 202 });
+    };
+
+    try {
+      await sendMail('customer@example.com', 'Inline logo', '<img src="cid:company-logo" />', {
+        branded: false,
+        attachments: [{ filename: 'logo.png', contentType: 'image/png', content: Buffer.from('png'), cid: 'company-logo', isInline: true }]
+      });
+      const payload = JSON.parse(calls[1].options.body);
+      const attachment = payload.message.attachments[0];
+      assert.equal(attachment.isInline, true);
+      assert.equal(attachment.contentId, 'company-logo');
+    } finally {
+      global.fetch = previousFetch;
+    }
+  });
+});
+
 test('large PDF attachments use a Microsoft Graph upload session before sending', async () => {
   await withGraphEnvironment(async () => {
     const previousFetch = global.fetch;
