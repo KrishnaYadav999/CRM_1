@@ -20,16 +20,18 @@ import ComplianceHealthDashboard from './pages/ComplianceHealthDashboard'
 import PendingLeads from './pages/PendingLeads'
 import HelpYourself from './pages/HelpYourself'
 import SupportTickets from './pages/SupportTickets'
+import SuperAdminDashboard from './pages/SuperAdminDashboard'
 import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
 
 function ActiveCrmTracker() {
   useEffect(() => {
     let timer
     const isActive = () => hasStoredAuthToken() && document.visibilityState === 'visible' && document.hasFocus()
-    const heartbeat = () => { if (isActive()) api.post(API_ENDPOINTS.auth.activityHeartbeat).catch(() => {}) }
+    const heartbeat = (state = 'active') => api.post(API_ENDPOINTS.auth.activityHeartbeat, { state }).catch(() => {})
     const refresh = () => {
       clearInterval(timer)
-      if (isActive()) { heartbeat(); timer = setInterval(heartbeat, 15000) }
+      if (isActive()) { heartbeat('active'); timer = setInterval(() => heartbeat('active'), 15000) }
+      else if (hasStoredAuthToken()) heartbeat('away')
     }
     window.addEventListener('focus', refresh)
     window.addEventListener('blur', refresh)
@@ -53,6 +55,7 @@ function App(){
         <Route path="/forgotpassword" element={<Navigate to="/forgot-password" replace />} />
         <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/dashboard/users" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminDashboard/></ProtectedRoute>} />
+        <Route path="/superadmin-dashboard" element={<ProtectedRoute allowedRoles={['superadmin']}><SuperAdminDashboard/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingApproval/></ProtectedRoute>} />
         <Route path="/pending-leads" element={<Navigate to="/pending-leads/open" replace />} />
         <Route path="/pending-leads/open" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingLeads mode="open"/></ProtectedRoute>} />

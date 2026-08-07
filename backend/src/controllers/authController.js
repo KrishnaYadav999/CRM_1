@@ -609,16 +609,37 @@ exports.activityHeartbeat = async (req, res) => {
   // Heartbeat is optional telemetry and must never create repeated 400 errors.
   if (!req.authSessionId) return res.json({ ok: true, tracking: false, reason: 'legacy-session' });
   const now = new Date();
+  const requestedState = String(req.body?.state || 'active').toLowerCase() === 'away' ? 'away' : 'active';
   const session = await UserSession.findOne({ sessionId: req.authSessionId, userId: req.user._id, logoutAt: null });
   if (!session) return res.json({ ok: true, tracking: false, reason: 'session-not-found' });
   const previous = session.lastHeartbeatAt || session.lastActivityAt || now;
   const elapsed = Math.max(0, Math.min(30, Math.round((now.getTime() - new Date(previous).getTime()) / 1000)));
-  // The client sends heartbeats only while the CRM tab is visible and focused.
-  session.activeSeconds = Math.max(0, Number(session.activeSeconds) || 0) + elapsed;
+  if (requestedState === 'active') session.activeSeconds = Math.max(0, Number(session.activeSeconds) || 0) + elapsed;
+  if (session.presenceState !== requestedState) {
+    session.presenceTimeline = [...(Array.isArray(session.presenceTimeline) ? session.presenceTimeline : []), {
+      state: requestedState, at: now, description: requestedState === 'away' ? 'Away from CRM (another tab or website)' : 'Returned to CRM and became active'
+    }].slice(-100);
+  }
+  session.presenceState = requestedState;
+  session.awaySince = requestedState === 'away' ? (session.awaySince || now) : null;
   session.lastHeartbeatAt = now;
-  session.lastActivityAt = now;
+  if (requestedState === 'active') session.lastActivityAt = now;
   await session.save();
-  res.json({ ok: true, activeSeconds: session.activeSeconds });
+  res.json({ ok: true, activeSeconds: session.activeSeconds, presenceState: session.presenceState });
+};
+
+exports.superAdminOverview = async (_req, res) => {
+  const [users, leads] = await Promise.all([
+    User.find().select('name email role team isActive lastLogin').lean(),
+    Lead.find().select('createdBy createdByName company leadCode status workflowStatus closedBy closedAt submittedAt').lean()
+  ]);
+  const userRows = users.map((user) => {
+    const owned = leads.filter((lead) => String(lead.createdBy || '') === String(user._id));
+    const closed = owned.filter((lead) => lead.closedBy || /closed/i.test(String(lead.status || ''))).length;
+    return { id: user._id, name: user.name || user.email, email: user.email, role: user.role, team: user.team, active: user.isActive !== false, totalLeads: owned.length, openLeads: owned.length - closed, closedLeads: closed, lastLogin: user.lastLogin || null };
+  });
+  const closedLeads = leads.filter((lead) => lead.closedBy || /closed/i.test(String(lead.status || ''))).length;
+  res.json({ ok: true, summary: { users: users.length, activeUsers: users.filter((user) => user.isActive !== false).length, leads: leads.length, openLeads: leads.length - closedLeads, closedLeads }, users: userRows.sort((a, b) => b.totalLeads - a.totalLeads) });
 };
 
 exports.listAuditLogs = async (req, res) => {
@@ -668,7 +689,7 @@ exports.listAuditLogs = async (req, res) => {
       activeSeconds: Math.max(0, Number(session.activeSeconds) || 0),
       offlineSince: session.logoutAt || (now - new Date(session.lastActivityAt).getTime() >= 15 * 60 * 1000 ? session.lastActivityAt : null),
       activityCount: sessionActivities.length || session.activityCount || 0, ipAddress: session.ipAddress || '',
-      device: session.userAgent || '', activities: sessionActivities.map((item) => ({ id: item._id, action: item.action, module: item.module, description: item.description, occurredAt: item.occurredAt, statusCode: item.statusCode })),
+      device: session.userAgent || '', presenceState: session.presenceState || 'active', awaySince: session.awaySince || null, presenceTimeline: session.presenceTimeline || [], activities: sessionActivities.map((item) => ({ id: item._id, action: item.action, module: item.module, description: item.description, occurredAt: item.occurredAt, statusCode: item.statusCode })),
       completedLeads: (leadsByUser.get(String(session.userId)) || []).filter((lead) => {
         const completed = new Date(lead.submittedAt || lead.updatedAt || 0).getTime();
         return completed >= new Date(session.loginAt).getTime() && completed <= new Date(endAt).getTime() + 60000;

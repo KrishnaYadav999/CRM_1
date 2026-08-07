@@ -14,6 +14,7 @@ const API_ENDPOINTS = {
     logout: '/auth/logout',
     activityHeartbeat: '/auth/activity-heartbeat',
     auditLogs: '/auth/admin/logs',
+    superAdminOverview: '/auth/superadmin/overview',
     users: '/auth/users',
     roles: '/auth/roles',
     adminUsers: '/auth/admin/users',

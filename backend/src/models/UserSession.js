@@ -11,7 +11,10 @@ const UserSessionSchema = new mongoose.Schema({
   loginMode: { type: String, trim: true },
   activityCount: { type: Number, default: 0 },
   activeSeconds: { type: Number, default: 0 },
-  lastHeartbeatAt: { type: Date }
+  lastHeartbeatAt: { type: Date },
+  presenceState: { type: String, enum: ['active', 'away'], default: 'active' },
+  awaySince: { type: Date },
+  presenceTimeline: { type: Array, default: [] }
 }, { timestamps: true });
 
 module.exports = mongoose.model('UserSession', UserSessionSchema);

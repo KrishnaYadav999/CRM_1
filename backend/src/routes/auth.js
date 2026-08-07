@@ -13,6 +13,7 @@ router.post('/reset-password', authCtrl.resetPassword);
 router.post('/logout', requireAuth, authCtrl.logout);
 router.post('/activity-heartbeat', requireAuth, authCtrl.activityHeartbeat);
 router.get('/admin/logs', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.listAuditLogs);
+router.get('/superadmin/overview', requireAuth, requireRoles(['superadmin']), authCtrl.superAdminOverview);
 router.get('/me', requireAuth, authCtrl.me);
 router.put('/me', requireAuth, authCtrl.updateMe);
 router.put('/me/password', requireAuth, authCtrl.updatePassword);
