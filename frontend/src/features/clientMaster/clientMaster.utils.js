@@ -609,7 +609,12 @@ function getMsmeSummary(data) {
 
 function getClientUniqueId(item) {
   const data = readClientData(item);
-  return data.importMeta?.uniqueId || item?.selectedLead?.leadCode || data.importMeta?.leadNumber || '-';
+  const value = data.importMeta?.uniqueId || item?.selectedLead?.leadCode || data.importMeta?.leadNumber || '-';
+  // Client Master has its own compact client-code presentation. Old and new
+  // lead code formats both resolve to the same client code without altering
+  // the linked Lead document or any quotation/PO references.
+  const match = String(value || '').trim().match(/^ATPL(?:-LEAD)?-(\d+)$/i);
+  return match ? `ATPL-${match[1].padStart(4, '0')}` : value;
 }
 
 function normalizeQuotationToken(value) {

@@ -328,12 +328,19 @@ function validateClosureAssignments(data = {}) {
   return '';
 }
 
+function leadCodeSequence(value) {
+  const match = String(value || '').trim().match(/^ATPL(?:-LEAD)?-(\d+)$/i);
+  return match ? Number.parseInt(match[1], 10) || 0 : 0;
+}
+
 async function getNextLeadCode() {
-  const latest = await Lead.findOne({ leadCode: { $exists: true, $ne: '' } })
-    .sort({ leadCode: -1 })
+  // The old records used ATPL-0001 while new records use ATPL-LEAD-0001.
+  // Calculate the next sequence from both formats, rather than relying on a
+  // lexical sort where ATPL-LEAD-* and ATPL-* do not sort together.
+  const rows = await Lead.find({ leadCode: { $exists: true, $ne: '' } })
     .select('leadCode')
     .lean();
-  const latestNumber = Number.parseInt(String(latest?.leadCode || '').replace(LEAD_CODE_PREFIX, ''), 10) || 0;
+  const latestNumber = rows.reduce((maximum, row) => Math.max(maximum, leadCodeSequence(row.leadCode)), 0);
   return `${LEAD_CODE_PREFIX}${String(latestNumber + 1).padStart(4, '0')}`;
 }
 
@@ -1189,7 +1196,8 @@ exports._test = {
   buildBulkUserIndex,
   resolveBulkCreator,
   changedFollowUpIndexes,
-  validateServiceRemovalPermission
+  validateServiceRemovalPermission,
+  leadCodeSequence
 };
 
 const LeadServiceCatalog = require('../models/LeadServiceCatalog');

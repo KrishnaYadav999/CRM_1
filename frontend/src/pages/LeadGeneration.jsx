@@ -250,8 +250,8 @@ const stateCities = {
 
 function displayLeadId(item = {}) {
   const value = String(item.leadCode || item.leadNumber || item.sourceLeadId || '').trim();
-  const businessMatch = value.match(/^ATPL-LEAD-(\d+)$/i);
-  if (businessMatch) return `ATPL-${businessMatch[1]}`;
+  const businessMatch = value.match(/^ATPL(?:-LEAD)?-(\d+)$/i);
+  if (businessMatch) return `ATPL-LEAD-${businessMatch[1].padStart(4, '0')}`;
   return /^[a-f\d]{24}$/i.test(value) ? '-' : (value || '-');
 }
 
@@ -260,7 +260,7 @@ function nextVisibleLeadCode(leads = []) {
     const match = String(item.leadCode || item.leadNumber || '').match(/^ATPL(?:-LEAD)?-(\d+)$/i);
     return match ? Math.max(max, Number(match[1]) || 0) : max;
   }, 0);
-  return `ATPL-${String(maximum + 1).padStart(4, '0')}`;
+  return `ATPL-LEAD-${String(maximum + 1).padStart(4, '0')}`;
 }
 
 function normalizeCompanyIdentity(value) {
@@ -1402,7 +1402,7 @@ export default function LeadGeneration() {
       return services.map((service, index) => {
         const assignment = assignments[index] || createAssignmentRow(item);
         return {
-          'Communication Mode': item.communicationMode || '', 'Lead ID': item.sourceLeadId || item.leadCode || '', Status: item.status || '', Company: item.company || '',
+          'Communication Mode': item.communicationMode || '', 'Lead ID': displayLeadId(item).replace(/^-$/, ''), Status: item.status || '', Company: item.company || '',
           Industry: service.industryType || '', 'Service Category': service.eprCategory || '', 'Applicant Type': service.applicantType || '',
           'Sub Applicant Type': service.piboCategory || '', 'Services Offered': service.servicesOffered || '', 'Applicable Services': service.applicableService || '',
           'Financial Year': service.firstAnnualReturnYearApplicable || '', Address: item.addressLine1 || item.addresses?.[0]?.addressLine1 || '',
