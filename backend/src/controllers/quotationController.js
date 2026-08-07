@@ -1,4 +1,5 @@
 const Quotation = require('../models/Quotation');
+const ProformaInvoice = require('../models/ProformaInvoice');
 const PendingApproval = require('../models/PendingApproval');
 const QuotationServiceCategory = require('../models/QuotationServiceCategory');
 const QuotationPiboCategory = require('../models/QuotationPiboCategory');
@@ -377,14 +378,114 @@ async function nextQuotationNumber() {
   const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
   const financialYear = `${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`;
   const prefix = `AT/${financialYear}/`;
-  const latest = await Quotation.findOne({ quotationNumber: { $regex: `^AT/${financialYear}/\\d+$`, $options: 'i' } })
-    .sort({ quotationNumber: -1, createdAt: -1 })
-    .select('quotationNumber')
-    .lean();
   const MIN_START = 313;
-  const latestNum = Number.parseInt(String(latest?.quotationNumber || '').split('/').at(-1), 10) || 0;
+  await ensureRenumberedFinancialYear(financialYear);
+  const matches = await Quotation.aggregate([
+    { $match: { quotationNumber: { $regex: `^AT/${financialYear}/\\d+$`, $options: 'i' } } },
+    {
+      $addFields: {
+        seqNum: {
+          $toInt: { $arrayElemAt: [{ $split: ['$quotationNumber', '/'] }, 2] }
+        }
+      }
+    },
+    { $sort: { seqNum: -1, createdAt: -1 } },
+    { $limit: 1 },
+    { $project: { _id: 0, quotationNumber: 1, seqNum: 1 } }
+  ]);
+  const latestNum = matches[0]?.seqNum || 0;
   const next = Math.max(latestNum, MIN_START - 1) + 1;
   return `${prefix}${String(next).padStart(3, '0')}`;
+}
+
+async function ensureRenumberedFinancialYear(financialYear) {
+  const MIN_START = 313;
+  const below = await Quotation.aggregate([
+    { $match: { quotationNumber: { $regex: `^AT/${financialYear}/\\d+$`, $options: 'i' } } },
+    {
+      $addFields: {
+        seqNum: { $toInt: { $arrayElemAt: [{ $split: ['$quotationNumber', '/'] }, 2] } }
+      }
+    },
+    { $match: { seqNum: { $lt: MIN_START } } },
+    { $sort: { seqNum: 1, createdAt: 1 } },
+    { $project: { _id: 1, seqNum: 1, quotationNumber: 1 } }
+  ]);
+  if (!below.length) return { renumbered: 0 };
+
+  const occupied = new Set(
+    (await Quotation.aggregate([
+      { $match: { quotationNumber: { $regex: `^AT/${financialYear}/\\d+$`, $options: 'i' } } },
+      {
+        $addFields: {
+          seqNum: { $toInt: { $arrayElemAt: [{ $split: ['$quotationNumber', '/'] }, 2] } }
+        }
+      },
+      { $match: { seqNum: { $gte: MIN_START } } },
+      { $project: { _id: 0, seqNum: 1 } }
+    ])).map((row) => row.seqNum)
+  );
+
+  let next = MIN_START;
+  const idMap = new Map();
+  const oldToNew = new Map();
+  for (const row of below) {
+    while (occupied.has(next)) next += 1;
+    const newNum = `AT/${financialYear}/${String(next).padStart(3, '0')}`;
+    idMap.set(String(row._id), { newNumber: newNum, oldNumber: row.quotationNumber });
+    oldToNew.set(row.quotationNumber, newNum);
+    occupied.add(next);
+    next += 1;
+  }
+
+  const updates = [];
+  for (const [id, { newNumber, oldNumber }] of idMap.entries()) {
+    updates.push(
+      Quotation.updateOne({ _id: id }, [{
+        $set: {
+          quotationNumber: newNumber,
+          revisionHistory: {
+            $cond: {
+              if: { $isArray: '$revisionHistory' },
+              then: {
+                $map: {
+                  input: '$revisionHistory',
+                  as: 'rev',
+                  in: {
+                    $cond: {
+                      if: { $eq: ['$$rev.quotationNumber', oldNumber] },
+                      then: { $mergeObjects: ['$$rev', { quotationNumber: newNumber }] },
+                      else: '$$rev'
+                    }
+                  }
+                }
+              },
+              else: '$revisionHistory'
+            }
+          }
+        }
+      }])
+    );
+  }
+  await Promise.all(updates);
+
+  if (oldToNew.size) {
+    const proBulk = [];
+    for (const [oldN, newN] of oldToNew.entries()) {
+      proBulk.push(ProformaInvoice.updateMany({ quotationNumber: oldN }, { $set: { quotationNumber: newN } }));
+    }
+    await Promise.all(proBulk);
+    const notifBulk = [];
+    for (const [oldN, newN] of oldToNew.entries()) {
+      notifBulk.push(Notification.updateMany(
+        { 'metadata.quotationNumber': oldN },
+        { $set: { 'metadata.quotationNumber': newN } }
+      ));
+    }
+    await Promise.all(notifBulk);
+  }
+
+  return { renumbered: oldToNew.size };
 }
 
 exports.listQuotations = async (req, res) => {
@@ -402,6 +503,9 @@ exports.listQuotations = async (req, res) => {
       { 'leadDetails.companyName': regex }, { 'leadDetails.contactPerson': regex }
     ];
   }
+  const now = new Date();
+  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = req.query.limit ? Math.min(100, Math.max(1, Number(req.query.limit) || 20)) : 0;
   const query = Quotation.find(filter)
@@ -413,12 +517,18 @@ exports.listQuotations = async (req, res) => {
 };
 
 exports.getQuotation = async (req, res) => {
+  const now = new Date();
+  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const quotation = await Quotation.findById(req.params.id).populate('createdBy', 'name email').lean();
   if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
   return res.json({ ok: true, quotation });
 };
 
 exports.listLeadQuotations = async (req, res) => {
+  const now = new Date();
+  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const leadId = cleanString(req.params.leadId);
   const quotations = await Quotation.find({ leadId }).populate('createdBy', 'name email').sort({ quotationDate: -1, createdAt: -1 }).lean();
   return res.json({ ok: true, quotations });
