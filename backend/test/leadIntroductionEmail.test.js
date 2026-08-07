@@ -15,9 +15,10 @@ test('lead introduction email is professionally formatted with the company closi
   assert.match(email.html, /AnantTattva Pvt Ltd/);
   assert.match(email.html, /Greetings from AnantTattva Private Limited!/);
   assert.match(email.html, /EPR End-to-End Compliance/);
-  assert.match(email.html, /PPWR/);
   assert.match(email.html, /PPWR \(Europe Policy\)/);
   assert.match(email.html, /P-EPR \(UK Policy\)/);
+  assert.match(email.html, /Looking forward to your positive revert/);
+  assert.match(email.html, /8169727341/);
   assert.match(email.html, /Automated Compliance Risk Assessment/);
   assert.match(email.html, /System data integration for SAP, Tally and ERP/);
   assert.match(email.html, /Sustainability-Based Market Intelligence/);

@@ -23,7 +23,7 @@ function buildLeadIntroductionEmail(lead = {}) {
         <p>It was a pleasure connecting with you.</p>
         <p>We are pleased to introduce <strong>AnantTattva Private Limited</strong>, India&rsquo;s leading Government Policy Advocacy organisation, providing specialised 360-degree services related to Circular Economy and Sustainability Policies across more than 70 countries.</p>
         <p style="margin-bottom:6px">AnantTattva is recognised for facilitating industry-stakeholder interactions with government authorities, including the Ministry of MSME, DCPC, FSSAI, MoEF&amp;CC, NITI Aayog, the Department of Customs, the Ministry of Heavy Industries and the Ministry of Finance, and for policies related to:</p>
-        ${numberedList(['EPR', 'ESG', 'PPWR', 'P-EPR', 'PPWR (Europe Policy)', 'P-EPR (UK Policy)'])}
+        ${numberedList(['EPR', 'ESG', 'PPWR (Europe Policy)', 'P-EPR (UK Policy)'])}
         <p>We have a widespread network of more than 20,000 industry stakeholders, including trade associations and chambers of commerce. We regularly engage with them to spread awareness of government policy initiatives and support successful implementation, enabling industry and national growth.</p>
         <p style="margin-bottom:6px"><strong>Our specialised services include:</strong></p>
         ${numberedList(['EPR End-to-End Compliance, Annual Return and Registration', 'EPR Audit &amp; Regulatory Risk Management', 'Automated Compliance Risk Assessment', 'Policy Advocacy, Legal &amp; Regulatory Guidance and Government Representations', 'EPR corporate training for internal and external stakeholders', 'Sustainable Materials &amp; Circular Supply Chain Management', 'SKU-wise supply-chain material and financial forecasting', 'CTO/CTE compliance for internal operations and suppliers', 'ESG Sustainability Alignment', 'System data integration for SAP, Tally and ERP', 'EPR Due Diligence for Mergers &amp; Acquisitions, IPOs and Venture Capital'])}
@@ -35,9 +35,16 @@ function buildLeadIntroductionEmail(lead = {}) {
         ${numberedList(['Forward &amp; Backward Integration', 'Diversification', 'Government &amp; Private Collaboration', 'Mergers &amp; Acquisitions'])}
         <p>With our network of more than 20,000 stakeholders and our successful service track record, we are recognised by leading government departments such as Customs, MSME, DCPC and Pollution Control Boards, as well as non-government organisations including FICCI, industry trade associations and chambers of commerce. We are regarded as a preferred partner for creating mass awareness of EPR policy, compliance and audit mandates, and for supporting the development of sustainable material supply-chain ecosystems.</p>
         <p>Please find our <strong>EPR Compliance Service</strong> presentation and <strong>AnantTattva Company Profile</strong> attached for your reference. We would be pleased to arrange a detailed discussion to understand your requirements and explore the way forward.</p>
+        <p style="font-weight:700">Looking forward to your positive revert at the earliest and time for meeting with yourself and the team as per the convenience of all.</p>
         <div style="margin-top:26px;padding-top:18px;border-top:1px solid #e5e7eb;font-size:15px;line-height:1.7;color:#111827">
-          <p style="margin:0">Thanks and regards,</p>
-          <p style="margin:2px 0 0"><strong>Team AnantTattva</strong></p>
+          <p style="margin:0"><strong>Thanks &amp; Regards,</strong><br/><strong>Team AnantTattva</strong></p>
+          <img src="https://crm.ananttattva.com/assets/at-logo-CTH78yrR.svg" alt="AnantTattva" width="150" style="display:block;margin:12px 0 8px;border:0" />
+          <p style="margin:0 0 8px;font-weight:700">AnantTattva Private Limited</p>
+          <p style="margin:0 0 8px">1st Floor, A/25, Technocraft House, Road No. 3, MIDC, Andheri East, Mumbai 400093</p>
+          <p style="margin:0 0 8px"><strong>Official Numbers:</strong> <a href="tel:+918169727341" style="color:#0f766e">+91 8169727341</a> / <a href="tel:+919004005520" style="color:#0f766e">+91 9004005520</a></p>
+          <p style="margin:0 0 8px"><strong>Website:</strong> <a href="https://www.ananttattva.com" style="color:#0f766e">www.ananttattva.com</a></p>
+          <p style="margin:0 0 8px"><strong>LinkedIn:</strong> <a href="https://www.linkedin.com/company/anant-tattva-pvt-ltd/" style="color:#0f766e">AnantTattva Private Limited</a></p>
+          <p style="margin:0"><strong>WhatsApp Channel:</strong> <a href="https://whatsapp.com/channel/0029Va9QtNQDeONChC6Juj0t" style="color:#0f766e">Follow AnantTattva</a></p>
         </div>
         </div>
       </div>
