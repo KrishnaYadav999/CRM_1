@@ -133,6 +133,13 @@ function cleanItems(items, user = null) {
     .map((item) => {
       const serviceStartDate = normalizeDateOnly(item.serviceStartDate);
       const serviceEndDate = normalizeDateOnly(item.serviceEndDate);
+      const periodUnit = ['days', 'months', 'annual'].includes(String(item.periodUnit || '').trim())
+        ? String(item.periodUnit).trim()
+        : 'annual';
+      const servicePeriodMax = periodUnit === 'days' ? 3650 : periodUnit === 'months' ? 600 : 100;
+      const transitionPeriod = ['Yes', 'No'].includes(String(item.transitionPeriod || '').trim())
+        ? String(item.transitionPeriod).trim()
+        : 'No';
       return {
         id: cleanString(item.id),
         sourceServiceIndex: Number.isInteger(Number(item.sourceServiceIndex)) && Number(item.sourceServiceIndex) >= 0
@@ -142,7 +149,9 @@ function cleanItems(items, user = null) {
         industryType: cleanString(item.industryType),
         financialYear: cleanString(item.financialYear),
         validityPeriod: Math.max(1, Math.min(50, Number(item.validityPeriod) || 1)),
-        servicePeriod: Math.max(1, Math.min(50, Number(item.servicePeriod) || 1)),
+        servicePeriod: Math.max(1, Math.min(servicePeriodMax, Number(item.servicePeriod) || 1)),
+        periodUnit,
+        transitionPeriod,
         annualReturnYears: [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(cleanString).filter(Boolean))],
         servicesOffered: cleanString(item.servicesOffered),
         applicableService: cleanString(item.applicableService),

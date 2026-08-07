@@ -118,13 +118,15 @@ export default function PremiumQuotationModal({
                 </motion.div>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-5">
+              <div className="mt-5 grid gap-3 md:grid-cols-7">
                 {[
                   ['Company Name', companyName],
                   ['User Name', userName],
                   ['Applicant Type', piboCategory],
                   ['Business Category', businessCategory],
-                  ['Service Category', serviceCategory]
+                  ['Service Category', serviceCategory],
+                  ['Select Period', typeof items[items.length - 1]?.periodUnit === 'string' ? (items[items.length - 1].periodUnit === 'days' ? 'Days' : items[items.length - 1].periodUnit === 'months' ? 'Month' : 'Annual') : 'Annual'],
+                  ['Transition Period', items[items.length - 1]?.transitionPeriod || 'No']
                 ].map(([label, value], index) => (
                   <motion.div
                     key={label}
@@ -147,10 +149,10 @@ export default function PremiumQuotationModal({
                   </span>
                 </div>
                 <div className="overflow-auto rounded-lg border border-slate-200">
-                  <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                  <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
                     <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-[0.06em] text-slate-600">
                       <tr>
-                        {['Sr.No', 'Business Category', 'Service Category', 'Year', 'Service Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => (
+                        {['Sr.No', 'Business Category', 'Service Category', 'Service Period', 'Select Period', 'Transition Period', 'Service Category', 'Applicant Type', 'Unit', 'Basic Amount (INR)'].map((header) => (
                           <th key={header} className="border-r border-slate-200 px-3 py-3 last:border-r-0">{header}</th>
                         ))}
                       </tr>
@@ -167,7 +169,9 @@ export default function PremiumQuotationModal({
                           <td className="px-3 py-3 text-center font-black text-slate-800">{index + 1}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-800">{item.businessCategory || '-'}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-800">{item.serviceCategory || '-'}</td>
-                          <td className="px-3 py-3 font-black text-slate-700">{item.servicesForYear || '-'}</td>
+                          <td className="px-3 py-3 font-black text-slate-700">{String(item.periodUnit || 'annual') === 'days' ? 'Day(s)' : String(item.periodUnit || 'annual') === 'months' ? 'Month(s)' : 'Year(s)'}</td>
+                          <td className="px-3 py-3 font-black text-slate-700">{String(item.periodUnit || 'annual') === 'days' ? 'Days' : String(item.periodUnit || 'annual') === 'months' ? 'Month' : 'Annual'}</td>
+                          <td className="px-3 py-3 font-black text-slate-700">{item.transitionPeriod || 'No'}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-700">{item.eprCategory || '-'}</td>
                           <td className="px-3 py-3 font-black uppercase text-slate-700">{item.piboCategory || '-'}</td>
                           <td className="px-3 py-3 font-black text-slate-700">{item.unit || '-'}</td>
@@ -176,7 +180,7 @@ export default function PremiumQuotationModal({
                           </td>
                         </motion.tr>
                       )) : (
-                        <tr><td colSpan={8} className="px-4 py-8 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                        <tr><td colSpan={10} className="px-4 py-8 text-center font-black text-slate-400">No quotation items added.</td></tr>
                       )}
                     </tbody>
                   </table>

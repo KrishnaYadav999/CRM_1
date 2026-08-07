@@ -29,15 +29,27 @@ async function nextProformaNumber() {
 
 function cleanPayload(body = {}) {
   const leadDetails = body.leadDetails && typeof body.leadDetails === 'object' ? body.leadDetails : {};
-  const items = (Array.isArray(body.items) ? body.items : []).map((item) => ({
-    serviceCategory: text(item.serviceCategory), servicesForYear: text(item.servicesForYear), financialYear: text(item.financialYear),
-    validityPeriod: Math.max(1, Math.min(50, Number(item.validityPeriod) || 1)),
-    annualReturnYears: [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(text).filter(Boolean))],
-    servicesOffered: text(item.servicesOffered), applicableService: text(item.applicableService),
-    serviceStartDate: text(item.serviceStartDate), serviceEndDate: text(item.serviceEndDate),
-    eprCategory: text(item.eprCategory), businessCategory: text(item.businessCategory) || undefined, piboParent: text(item.piboParent),
-    piboCategory: text(item.piboCategory), unit: text(item.unit), basicAmount: money(item.basicAmount)
-  })).filter((item) => item.serviceCategory || item.piboCategory || item.basicAmount);
+  const items = (Array.isArray(body.items) ? body.items : []).map((item) => {
+    const periodUnit = ['days', 'months', 'annual'].includes(String(item.periodUnit || '').trim())
+      ? String(item.periodUnit).trim()
+      : 'annual';
+    const servicePeriodMax = periodUnit === 'days' ? 3650 : periodUnit === 'months' ? 600 : 100;
+    const transitionPeriod = ['Yes', 'No'].includes(String(item.transitionPeriod || '').trim())
+      ? String(item.transitionPeriod).trim()
+      : 'No';
+    return {
+      serviceCategory: text(item.serviceCategory), servicesForYear: text(item.servicesForYear), financialYear: text(item.financialYear),
+      validityPeriod: Math.max(1, Math.min(50, Number(item.validityPeriod) || 1)),
+      servicePeriod: Math.max(1, Math.min(servicePeriodMax, Number(item.servicePeriod) || 1)),
+      periodUnit,
+      transitionPeriod,
+      annualReturnYears: [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(text).filter(Boolean))],
+      servicesOffered: text(item.servicesOffered), applicableService: text(item.applicableService),
+      serviceStartDate: text(item.serviceStartDate), serviceEndDate: text(item.serviceEndDate),
+      eprCategory: text(item.eprCategory), businessCategory: text(item.businessCategory) || undefined, piboParent: text(item.piboParent),
+      piboCategory: text(item.piboCategory), unit: text(item.unit), basicAmount: money(item.basicAmount)
+    };
+  }).filter((item) => item.serviceCategory || item.piboCategory || item.basicAmount);
   const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
   const individualTotal = items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * item.basicAmount), 0);
   const combinedBasicAmount = pricingMode === 'combined' ? money(body.combinedBasicAmount) : 0;
