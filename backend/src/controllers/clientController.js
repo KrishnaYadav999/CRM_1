@@ -677,6 +677,7 @@ function mapClientPendingApprovalRow(client, createdByLabel = 'CRM User') {
 
   return {
     id: client._id,
+    selectedLeadId: client.selectedLead?._id || client.selectedLead || data.selectedLead || '',
     source: 'crm',
     uniqueId: data.importMeta?.uniqueId || '',
     clientName: data.basic?.clientLegalName || data.basic?.tradeName || 'Untitled client',
@@ -780,6 +781,7 @@ exports.listPendingApprovals = async (req, res) => {
     const approvalStatus = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
     return {
       id: client._id,
+      selectedLeadId: client.selectedLead?._id || client.selectedLead || client.data?.selectedLead || '',
       source: 'crm',
       uniqueId: client.data?.importMeta?.uniqueId || client.selectedLead?.leadCode || '',
       clientName: readClientName(client),
@@ -822,10 +824,14 @@ exports.listPendingApprovals = async (req, res) => {
 
   backgroundSyncPendingApprovals(pendingClientRows, pendingQuotations);
 
+  const requesterRole = String(req.user?.role || '').trim().toLowerCase();
+  const isComplianceReviewer = requesterRole === 'compliance';
+  const isAdministrativeReviewer = ['admin', 'superadmin'].includes(requesterRole);
+
   res.json({
     ok: true,
-    pendingClients: responseClients,
-    pendingQuotations: responseQuotations,
+    pendingClients: isComplianceReviewer ? responseClients : [],
+    pendingQuotations: isAdministrativeReviewer ? responseQuotations : [],
     debug: {
       source: pendingClientRows.length || pendingQuotations.length ? 'live' : 'stored-fallback',
       ms: Date.now() - startedAt,

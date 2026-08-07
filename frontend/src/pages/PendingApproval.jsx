@@ -161,8 +161,12 @@ export default function PendingApproval() {
   const location = useLocation();
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const canApprove = adminRoles.includes(normalizedRole);
+  const isComplianceApprovalView = normalizedRole === 'compliance';
+  const canApproveClients = isComplianceApprovalView;
 
-  const allApprovalRows = useMemo(() => [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals], [pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals]);
+  const allApprovalRows = useMemo(() => isComplianceApprovalView
+    ? pendingClients
+    : [...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals], [isComplianceApprovalView, pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals]);
   const piboOptions = useMemo(() => {
     const values = allApprovalRows
       .map((row) => formatApprovalValue(row?.piboCategory))
@@ -207,8 +211,14 @@ export default function PendingApproval() {
 
   useEffect(() => {
     const tab = new URLSearchParams(location.search).get('tab');
-    if (tab === 'quotations' || tab === 'clients' || tab === 'duplicates' || tab === 'royalty' || tab === 'services') setActiveTab(tab);
-  }, [location.search]);
+    if (isComplianceApprovalView) {
+      setActiveTab('clients');
+      setTypeFilter('clients');
+      return;
+    }
+    if (tab === 'quotations' || tab === 'duplicates' || tab === 'royalty' || tab === 'services') setActiveTab(tab);
+    else setActiveTab('quotations');
+  }, [isComplianceApprovalView, location.search, normalizedRole]);
 
   useEffect(() => {
     setClientPage(1);
@@ -217,7 +227,7 @@ export default function PendingApproval() {
 
   function resetFilters() {
     setSearchTerm('');
-    setTypeFilter('all');
+    setTypeFilter(isComplianceApprovalView ? 'clients' : 'all');
     setStatusFilter('all');
     setPiboFilter('all');
   }
@@ -351,7 +361,7 @@ export default function PendingApproval() {
   }
 
   async function updateApproval(row, status) {
-    if (!canApprove) return;
+    if (!canApproveClients) return;
     const id = row?.id;
     setSavingId(`${id}-${status}`);
     setError('');
@@ -486,7 +496,7 @@ export default function PendingApproval() {
   }
 
   async function approveAllPendingClients() {
-    if (!canApprove) return;
+    if (!canApproveClients) return;
     if (!pendingClients.length) return;
     setSavingId('approve-all');
     setError('');
@@ -503,6 +513,17 @@ export default function PendingApproval() {
     } finally {
       setSavingId('');
     }
+  }
+
+  function openClientMaster(row) {
+    const selectedLeadId = row?.selectedLeadId || row?.leadId || row?.uniqueId || row?.payload?.selectedLeadId || row?.payload?.selectedLead;
+    navigate('/sales/client-master', {
+      state: {
+        selectedLeadId,
+        companyName: row?.clientName || row?.companyName || '',
+        fromPendingApproval: true
+      }
+    });
   }
 
   async function approveAllPendingQuotations() {
@@ -593,10 +614,10 @@ export default function PendingApproval() {
           {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
 
           <div className="pending-metrics">
-            <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />
-            <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" />
-            <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" />
-            <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" />
+            {isComplianceApprovalView && <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />}
+            {!isComplianceApprovalView && <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" />}
+            {!isComplianceApprovalView && <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" />}
+            {!isComplianceApprovalView && <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" />}
             <Metric icon={CheckCircle2} label="Approved Today" value={approvedTodayCount} hint="Since midnight" tone="teal" />
             <Metric icon={XCircle} label="Rejected" value={rejectedCount} hint="Since midnight" tone="rose" />
           </div>
@@ -612,14 +633,14 @@ export default function PendingApproval() {
                   placeholder="Search approval..."
                 />
               </label>
-              <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Filter approval type">
+              {!isComplianceApprovalView && <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Filter approval type">
                 <option value="all">All Types</option>
                 <option value="clients">Clients</option>
                 <option value="quotations">Quotations</option>
                 <option value="duplicates">Special Approvals</option>
                 <option value="services">Service Pending</option>
                 <option value="royalty">Royalty Claims</option>
-              </select>
+              </select>}
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter approval status">
                 <option value="all">All Status</option>
                 <option value="PENDING">Pending</option>
@@ -648,45 +669,45 @@ export default function PendingApproval() {
             </div>
             <div className="pending-tabs-wrap">
               <div className="pending-tabs">
-                <ApprovalTab
+                {isComplianceApprovalView && <ApprovalTab
                   active={activeTab === 'clients'}
                   icon={Clock3}
                   label="Pending Clients"
                   count={filteredClients.length}
                   onClick={() => setActiveTab('clients')}
-                />
-                <ApprovalTab
+                />}
+                {!isComplianceApprovalView && <ApprovalTab
                   active={activeTab === 'quotations'}
                   icon={FileText}
                   label="Pending Quotations"
                   count={filteredQuotations.length}
                   onClick={() => setActiveTab('quotations')}
-                />
-                <ApprovalTab
+                />}
+                {!isComplianceApprovalView && <ApprovalTab
                   active={activeTab === 'royalty'}
                   icon={Users}
                   label="Royalty Claims"
                   count={filteredRoyalty.length}
                   onClick={() => setActiveTab('royalty')}
-                />
-                <ApprovalTab
+                />}
+                {!isComplianceApprovalView && <ApprovalTab
                   active={activeTab === 'services'}
                   icon={FileText}
                   label="Service Pending"
                   count={filteredServices.length}
                   onClick={() => setActiveTab('services')}
-                />
-                <ApprovalTab
+                />}
+                {!isComplianceApprovalView && <ApprovalTab
                   active={activeTab === 'duplicates'}
                   icon={Users}
                   label="Special Approvals"
                   count={filteredDuplicateLeads.length}
                   onClick={() => setActiveTab('duplicates')}
-                />
+                />}
               </div>
             </div>
 
-            {activeTab === 'clients' ? (
+            {isComplianceApprovalView ? (
               <ApprovalTable
                 title="Pending Clients"
                 columns={['Client Name', 'Approval Status', 'Applicant Type', 'EPR Category', 'Created By', 'Request Date', 'Actions']}
@@ -697,7 +718,7 @@ export default function PendingApproval() {
                 total={filteredClients.length}
                 onPrev={() => setClientPage((value) => Math.max(1, value - 1))}
                 onNext={() => setClientPage((value) => Math.min(clientTotalPages, value + 1))}
-                actions={canApprove ? (
+                actions={canApproveClients ? (
                   <button
                     type="button"
                     disabled={!pendingClients.length || Boolean(savingId)}
@@ -713,13 +734,13 @@ export default function PendingApproval() {
               >
                 {visibleClients.map((client) => (
                   <tr key={client.id}>
-                    <Cell strong>{client.clientName}</Cell>
+                    <Cell strong><button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></Cell>
                     <Cell>{statusBadge(client.approvalStatus)}</Cell>
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>
                     <Cell>{client.createdBy}</Cell>
                     <Cell>{[formatApprovalValue(client.requestDate), formatApprovalValue(client.requestTime)].filter((item) => item !== '-').join(' ')}</Cell>
-                    <ActionCell row={client} savingId={savingId} onUpdate={updateApproval} canApprove={canApprove} />
+                    <ActionCell row={client} savingId={savingId} onUpdate={updateApproval} canApprove={canApproveClients} />
                   </tr>
                 ))}
               </ApprovalTable>

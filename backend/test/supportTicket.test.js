@@ -42,6 +42,14 @@ test('ticket creation requires at least one valid issue screenshot', () => {
   assert.equal(cleanAttachments([{ url: 'https://example.com/error.webp', type: 'image/webp' }]).length, 1);
 });
 
+test('ticket screenshots render inside the conversation at a compact size', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/SupportTickets.jsx'), 'utf8');
+  assert.match(page, /document\.querySelector\('aside > div\.flex-1\.overflow-y-auto'\)/);
+  assert.match(page, /max-w-md/);
+  assert.match(page, /h-20 w-full object-cover/);
+  assert.doesNotMatch(page, /fixed bottom-24 right-5/);
+});
+
 test('new-ticket email goes to both IT mailboxes with user and issue details', () => {
   assert.deepEqual(SUPPORT_RECIPIENTS, ['it_support@ananttattva.com', 'it_admin@ananttattva.com']);
   const email = buildRaisedEmail({ ticketNumber: 'TKT-2026-00001', createdByName: 'CRM User', createdByEmail: 'user@example.com', category: 'Lead', priority: 'High', subject: 'Unable to save', description: 'Save button returns an error.' });

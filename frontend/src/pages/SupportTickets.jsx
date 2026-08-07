@@ -27,8 +27,12 @@ function TicketImageUpload({ attachments = [], uploading, onFiles, onRemove }) {
 }
 
 function TicketAttachments({ attachments = [] }) {
-  if (!attachments.length) return null
-  return createPortal(<div className="fixed bottom-24 right-5 z-[95] w-[min(38rem,calc(100vw-2.5rem))] rounded-2xl border border-emerald-100 bg-white p-4 shadow-2xl"><p className="text-xs font-black uppercase tracking-wider text-slate-500">Issue screenshots in this ticket</p><div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">{attachments.map((image, index) => <a key={`${image.publicId || image.url}-${index}`} href={image.url} target="_blank" rel="noopener noreferrer" title="Open full image in a new tab" className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><img src={image.url} alt={image.name || `Ticket image ${index + 1}`} loading="lazy" className="h-24 w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-slate-950/25 text-white transition group-hover:bg-slate-950/45"><Eye className="h-6 w-6" /></span><span className="block truncate px-2 pt-2 text-[10px] font-bold text-slate-600">{image.name || `Image ${index + 1}`}</span><span className="block px-2 pb-2 text-[10px] font-black text-emerald-700 underline">Open full image</span></a>)}</div></div>, document.body)
+  const [conversationTarget, setConversationTarget] = useState(null)
+  useEffect(() => {
+    setConversationTarget(document.querySelector('aside > div.flex-1.overflow-y-auto'))
+  }, [attachments])
+  if (!attachments.length || !conversationTarget) return null
+  return createPortal(<div className="ml-auto w-full max-w-md rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm"><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Issue screenshots in this ticket</p><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">{attachments.map((image, index) => <a key={`${image.publicId || image.url}-${index}`} href={image.url} target="_blank" rel="noopener noreferrer" title="Open full image in a new tab" className="group overflow-hidden rounded-xl border border-slate-200 bg-white"><span className="relative block"><img src={image.url} alt={image.name || `Ticket image ${index + 1}`} loading="lazy" className="h-20 w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-slate-950/20 text-white transition group-hover:bg-slate-950/40"><Eye className="h-5 w-5" /></span></span><span className="block truncate px-2 pt-1.5 text-[10px] font-bold text-slate-600">{image.name || `Image ${index + 1}`}</span><span className="block px-2 pb-1.5 text-[10px] font-black text-emerald-700 underline">Open full image</span></a>)}</div></div>, conversationTarget)
 }
 
 export default function SupportTickets() {

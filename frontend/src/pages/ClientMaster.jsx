@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
@@ -638,6 +638,8 @@ export default function ClientMaster() {
   const [excelRows, setExcelRows] = useState([]);
   const [excelImportMode, setExcelImportMode] = useState('clients');
   const navigate = useNavigate();
+  const location = useLocation();
+  const pendingApprovalLeadHandled = useRef('');
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
 
@@ -661,6 +663,21 @@ export default function ClientMaster() {
   useEffect(() => {
     loadPage();
   }, []);
+
+  useEffect(() => {
+    if (loading || !leads.length || !location.state?.fromPendingApproval) return;
+    const requestedLead = String(location.state.selectedLeadId || '').trim();
+    const requestedCompany = String(location.state.companyName || '').trim().toLowerCase();
+    const matchingLead = findLeadByValue(leads, requestedLead)
+      || leads.find((lead) => String(lead.company || lead.companyName || lead.clientName || '').trim().toLowerCase() === requestedCompany);
+    if (!matchingLead) return;
+    const leadValue = getLeadSelectValue(matchingLead);
+    if (!leadValue || pendingApprovalLeadHandled.current === leadValue) return;
+    pendingApprovalLeadHandled.current = leadValue;
+    setViewMode('form');
+    handleLeadSelect(leadValue);
+    navigate('/sales/client-master', { replace: true, state: null });
+  }, [leads, loading, location.state, navigate]);
 
   useEffect(() => {
     if (!routeClientKey || (!clients.length && !annualReturnRecords.length)) {
@@ -801,9 +818,14 @@ export default function ClientMaster() {
   }
 
   function getVisibleServiceRows(lead) {
-    return Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
+    const rows = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
       ? lead.serviceSelections
-      : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
+      : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, applicantType: lead?.applicantType || lead?.piboParent, subApplicantType: lead?.subApplicantType, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
+    return rows.map((row) => ({
+      ...row,
+      applicantType: row.applicantType || row.piboParent || row.piboCategoryParent || '',
+      piboCategory: row.subApplicantType || row.piboCategory || ''
+    }));
   }
 
   async function loadPage() {
@@ -1439,12 +1461,11 @@ export default function ClientMaster() {
                 </header>
                 <div className="grid gap-3 p-6 sm:grid-cols-2">
                   {pendingLeadServices.services.map((service, index) => {
-                    const hasSubApplicantType = Boolean(String(service.piboCategory || '').trim());
-                    const applicantLabel = hasSubApplicantType ? 'Sub Applicant Type' : 'Applicant Type';
-                    const applicantValue = hasSubApplicantType ? service.piboCategory : service.applicantType;
+                    const applicantType = service.applicantType || service.piboParent || service.piboCategoryParent || '-';
+                    const subApplicantType = service.subApplicantType || service.piboCategory || 'Not applicable';
                     return (
                     <button key={`${service.industryType}-${service.servicesOffered}-${index}`} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
-                      <strong className="block text-base font-black text-slate-950">{service.eprCategory || `Service ${index + 1}`} · {applicantValue || '-'}</strong>
+                      <strong className="block text-base font-black text-slate-950">{service.eprCategory || `Service ${index + 1}`} · {applicantType}</strong>
                       <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
                       {service.applicableService && <span className="mt-1 block rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">Applicable: {service.applicableService}</span>}
                       <span className="mt-2 block text-xs font-bold text-slate-500">Industry Type: {service.industryType || '-'}</span>
@@ -1453,7 +1474,10 @@ export default function ClientMaster() {
                           EPR Category: {service.eprCategory || '-'}
                         </span>
                         <span className="rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-1.5 text-xs font-black text-cyan-800 shadow-sm">
-                          {applicantLabel}: {applicantValue || '-'}
+                          Applicant Type: {applicantType}
+                        </span>
+                        <span className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-black text-violet-800 shadow-sm">
+                          Sub Applicant Type: {subApplicantType}
                         </span>
                       </span>
                     </button>
