@@ -84,11 +84,12 @@ test('transition dates are system-derived and frozen against update payloads', (
   assert.equal(autoStarted.items[0].serviceEndDate, '2026-11-06');
 });
 
-test('both quotation mapping popups expose Select Period in the requested column order', () => {
+test('period controls appear in the mapping popup and not in the main quotation table', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
-  assert.match(page, /'Service Period', 'Select Period', \.\.\.\(financialYearNeedsEprData \? \['Annual Return EPR Year'\]/);
+  assert.match(page, /'Service Period', 'Select Period', 'Transition Period', \.\.\.\(financialYearNeedsEprData \? \['Annual Return EPR Year'\]/);
   assert.match(page, /'Annual Return EPR Year'\]\s*:\s*\[\]\), 'Service Category', 'Business Category'/);
-  assert.doesNotMatch(page, /'Service Period', 'Select Period', 'Transition Period', \.\.\.\(financialYearNeedsEprData/);
+  assert.match(page, /financialYearDraft\.transitionPeriod \|\| 'No'.*TRANSITION_PERIOD_OPTIONS/s);
+  assert.doesNotMatch(page, /'EPR \/ Service Period', 'Select Period', 'Transition Period', 'Industry Type'/);
   assert.match(page, /periodDisplay\(financialYearDraft\.servicePeriod, financialYearDraft\.periodUnit\)/);
 });
 
