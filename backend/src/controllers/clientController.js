@@ -314,6 +314,16 @@ function normalizeClientRequestPayload(body = {}) {
   return { data, adminControls };
 }
 
+function mergeAssignedServiceCpcbData(existingData = {}, incomingData = {}) {
+  return {
+    ...incomingData,
+    cpcbDataByAssignedServiceId: {
+      ...(isPlainObject(existingData.cpcbDataByAssignedServiceId) ? existingData.cpcbDataByAssignedServiceId : {}),
+      ...(isPlainObject(incomingData.cpcbDataByAssignedServiceId) ? incomingData.cpcbDataByAssignedServiceId : {})
+    }
+  };
+}
+
 function readSelectedLeadId(value) {
   const id = String(value || '').trim();
   return mongoose.Types.ObjectId.isValid(id) ? id : undefined;
@@ -977,7 +987,8 @@ exports.updateClient = async (req, res) => {
 
   client.selectedLead = selectedLead;
   client.adminControls = adminControls;
-  client.data = data;
+  const existingData = isPlainObject(client.data) ? client.data : {};
+  client.data = mergeAssignedServiceCpcbData(existingData, data);
   client.workflowStatus = workflowStatus;
   client.markModified('data');
   await client.save();
@@ -1327,5 +1338,6 @@ exports.approveAllPendingClients = async (req, res) => {
 };
 
 exports.__test = {
-  buildClientApprovalPayload
+  buildClientApprovalPayload,
+  mergeAssignedServiceCpcbData
 };

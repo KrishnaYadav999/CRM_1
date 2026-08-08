@@ -1,5 +1,6 @@
 const Lead = require('../models/Lead');
 const mongoose = require('mongoose');
+const { randomUUID } = require('crypto');
 const LeadActivity = require('../models/LeadActivity');
 const Quotation = require('../models/Quotation');
 const PendingApproval = require('../models/PendingApproval');
@@ -177,6 +178,7 @@ function cleanBody(body) {
       }
       if (key === 'serviceSelections') {
         data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          assignedServiceId: String(row?.assignedServiceId || row?.serviceAssignmentId || `service_assignment_${randomUUID()}`).trim(),
           industryType: String(row?.industryType || '').trim(),
           eprCategory: String(row?.eprCategory || '').trim(),
           businessCategory: ['EPR Consultancy', 'EPR Credit'].includes(String(row?.businessCategory || '').trim()) ? String(row.businessCategory).trim() : '',
@@ -679,6 +681,19 @@ exports.listLeads = async (req, res) => {
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .sort({ leadCode: 1, createdAt: 1 });
+  await Promise.all(leads.map(async (lead) => {
+    if (!Array.isArray(lead.serviceSelections)) return;
+    let changed = false;
+    lead.serviceSelections = lead.serviceSelections.map((row) => {
+      if (row?.assignedServiceId || row?.serviceAssignmentId) return row;
+      changed = true;
+      return { ...row, assignedServiceId: `service_assignment_${randomUUID()}` };
+    });
+    if (changed) {
+      lead.markModified('serviceSelections');
+      await lead.save();
+    }
+  }));
   res.json({ ok: true, leads });
 };
 

@@ -515,6 +515,8 @@ function getClientMasterRows(crmClients = [], ccpClients = []) {
 
 const emptyClient = {
   selectedLead: '',
+  assignedServiceId: '',
+  cpcbDataByAssignedServiceId: {},
   adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'LIVE', assignedTo: '' },
   companyOverview: {
     companyName: '',
@@ -539,6 +541,31 @@ const emptyClient = {
   authorised: {},
   coordinating: {}
 };
+
+function readAssignedServiceId(service = {}) {
+  return String(service.assignedServiceId || service.serviceAssignmentId || service.assignmentId || '').trim();
+}
+
+function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
+  const assignedServiceId = readAssignedServiceId(service);
+  const scoped = data.cpcbDataByAssignedServiceId?.[assignedServiceId];
+  const savedAssignmentId = String(data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
+  const legacyServiceName = String(data.selectedLeadSnapshot?.servicesOffered || '').trim();
+  const selectedServiceName = String(service.servicesOffered || '').trim();
+  const allowLegacy = savedAssignmentId
+    ? savedAssignmentId === assignedServiceId
+    : serviceCount === 1 || (legacyServiceName && legacyServiceName === selectedServiceName);
+  return {
+    ...data,
+    assignedServiceId,
+    cpcb: scoped
+      ? { linkedToCommonPortal: '', ...(scoped.cpcb || scoped.details || {}) }
+      : (allowLegacy ? { linkedToCommonPortal: '', ...(data.cpcb || {}) } : { linkedToCommonPortal: '' }),
+    cpcbScreenshots: scoped
+      ? (Array.isArray(scoped.cpcbScreenshots) ? scoped.cpcbScreenshots : (Array.isArray(scoped.documents) ? scoped.documents : []))
+      : (allowLegacy && Array.isArray(data.cpcbScreenshots) ? data.cpcbScreenshots : [])
+  };
+}
 
 const calendarTodoStorageKey = 'crm.calendar.todos.v1';
 const clientDraftStorageKey = 'crm.clientMaster.drafts.v1';
@@ -926,12 +953,6 @@ export default function ClientMaster() {
         data.importMeta?.uniqueId
       ].map(normalizeDraftKey).filter(Boolean);
       if (!itemKeys.some((key) => strongLeadKeys.includes(key))) return false;
-      const targetIndustry = normalizeDraftKey(selectedLead?.industryType);
-      const savedIndustry = normalizeDraftKey(data.selectedLeadSnapshot?.industryType);
-      const targetEpr = normalizeDraftKey(selectedLead?.eprCategory);
-      const savedEpr = normalizeDraftKey(data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory);
-      if (targetIndustry && savedIndustry) return targetIndustry === savedIndustry;
-      if (targetEpr && savedEpr) return targetEpr === savedEpr;
       return true;
     });
     if (matchedClient) {
@@ -963,9 +984,28 @@ export default function ClientMaster() {
     const leadValue = getLeadSelectValue(selectedLead);
     const existingDraft = findClientDraftForLead(selectedLead, leadValue);
     if (existingDraft?.data) {
+      const currentAssignmentId = String(client.assignedServiceId || client.selectedLeadSnapshot?.assignedServiceId || '').trim();
+      const sameLeadIsOpen = normalizeDraftKey(client.selectedLead) === normalizeDraftKey(leadValue);
+      const localAssignmentData = sameLeadIsOpen && currentAssignmentId
+        ? {
+            [currentAssignmentId]: {
+              assignedServiceId: currentAssignmentId,
+              cpcb: { ...(client.cpcb || {}) },
+              cpcbScreenshots: Array.isArray(client.cpcbScreenshots) ? client.cpcbScreenshots : []
+            }
+          }
+        : {};
+      const scopedData = activateAssignedService({
+        ...existingDraft.data,
+        cpcbDataByAssignedServiceId: {
+          ...(existingDraft.data.cpcbDataByAssignedServiceId || {}),
+          ...(client.cpcbDataByAssignedServiceId || {}),
+          ...localAssignmentData
+        }
+      }, service, visibleServices.length);
       setClient({
         ...emptyClient,
-        ...existingDraft.data,
+        ...scopedData,
         selectedLead: leadValue,
         adminControls: { ...emptyClient.adminControls, ...(existingDraft.adminControls || existingDraft.data.adminControls || {}) }
       });
@@ -1004,6 +1044,7 @@ export default function ClientMaster() {
         numberOfEmployees: selectedLead.numberOfEmployees || ''
       },
       selectedLeadSnapshot: {
+        assignedServiceId: readAssignedServiceId(service),
         id: leadValue,
         sourceLeadId: selectedLead.sourceLeadId || '',
         leadCode,
@@ -1287,6 +1328,27 @@ export default function ClientMaster() {
           tradeName: client.basic?.tradeName || client.companyOverview?.companyName || ''
         }
       };
+      const assignedServiceId = String(normalizedClient.assignedServiceId || normalizedClient.selectedLeadSnapshot?.assignedServiceId || '').trim();
+      if (!assignedServiceId) {
+        setError('The selected service has no assignedServiceId. Reload the page and select the service again.');
+        return;
+      }
+      normalizedClient.assignedServiceId = assignedServiceId;
+      normalizedClient.selectedLeadSnapshot = { ...(normalizedClient.selectedLeadSnapshot || {}), assignedServiceId };
+      normalizedClient.cpcbScreenshots = (normalizedClient.cpcbScreenshots || []).map((document) => ({
+        ...document,
+        documentId: document.documentId || document.id || crypto.randomUUID(),
+        assignedServiceId
+      }));
+      normalizedClient.cpcbDataByAssignedServiceId = {
+        ...(normalizedClient.cpcbDataByAssignedServiceId || {}),
+        [assignedServiceId]: {
+          assignedServiceId,
+          cpcb: { ...(normalizedClient.cpcb || {}) },
+          cpcbScreenshots: normalizedClient.cpcbScreenshots,
+          updatedAt: new Date().toISOString()
+        }
+      };
       const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
       if (invalidScreenshot) {
         setError('Every CPCB screenshot/document must have a name and an uploaded file.');
@@ -1464,7 +1526,7 @@ export default function ClientMaster() {
                     const applicantType = service.applicantType || service.piboParent || service.piboCategoryParent || '-';
                     const subApplicantType = service.subApplicantType || service.piboCategory || 'Not applicable';
                     return (
-                    <button key={`${service.industryType}-${service.servicesOffered}-${index}`} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
+                    <button key={readAssignedServiceId(service)} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
                       <strong className="block text-base font-black text-slate-950">{service.eprCategory || `Service ${index + 1}`} · {applicantType}</strong>
                       <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
                       {service.applicableService && <span className="mt-1 block rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">Applicable: {service.applicableService}</span>}

@@ -322,6 +322,7 @@ function applicableServiceOptions(value) {
 
 function createServiceSelection(source = {}) {
   return {
+    assignedServiceId: source.assignedServiceId || source.serviceAssignmentId || `service_assignment_${crypto.randomUUID()}`,
     industryType: source.industryType || '',
     eprCategory: source.eprCategory || '',
     businessCategory: source.businessCategory || '',
