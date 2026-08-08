@@ -189,7 +189,7 @@ async function remindFollowUps(leads, now) {
     const assignmentRows = Array.isArray(lead.assignments) ? lead.assignments : [];
     const openServices = serviceRows.map((service, index) => ({ service, index })).filter(({ service, index }) => {
       const assignment = assignmentRows[index] || {};
-      return !service.closedBy && !service.closedByText && !service.closedAt
+      return !service.followUpClosedAt && !service.closedBy && !service.closedByText && !service.closedAt
         && !assignment.closedBy && !assignment.closedByText && !assignment.closedAt
         && !(serviceRows.length === 1 && (lead.closedBy || lead.closedByText || lead.closedAt));
     });

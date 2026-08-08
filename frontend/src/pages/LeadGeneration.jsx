@@ -3581,6 +3581,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const [detailLead, setDetailLead] = useState(lead);
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
   const [followUpEditing, setFollowUpEditing] = useState(false);
+  const [followUpCloseMode, setFollowUpCloseMode] = useState(false);
   const [viewFollowUp, setViewFollowUp] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [followUpError, setFollowUpError] = useState('');
@@ -3813,6 +3814,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       return;
     }
     setFollowUpEditing(Boolean(item));
+    setFollowUpCloseMode(false);
     setFollowUpDraft({
       serviceIndex: String(serviceIndex),
       scheduledDate: item?.scheduledDate || service.nextFollowUpDate || todayDateKey(),
@@ -3878,6 +3880,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         nextFollowUpTime: newEntry.scheduledTime,
         followUpRemarks: newEntry.remarks,
         followUpPriority: newEntry.priority,
+        followUpClosedAt: '',
+        followUpClosedBy: '',
+        followUpCloseReason: '',
         followUpUpdatedAt: new Date().toISOString(),
         followUpHistory: [...previousCurrent, ...(Array.isArray(service.followUpHistory) ? service.followUpHistory : [])]
       } : service)
@@ -3906,6 +3911,66 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       setFollowUpModalOpen(false);
     } catch (err) {
       setFollowUpError(err?.response?.data?.error || 'Unable to save follow-up.');
+    } finally {
+      setFollowUpSaving(false);
+    }
+  }
+
+  async function closeFollowUp() {
+    if (!followUpDraft.remarks.trim() || !followUpDraft.reason.trim()) {
+      setFollowUpError('Follow-Up close remarks and close reason are required.');
+      return;
+    }
+    const leadId = activeLead._id || activeLead.id;
+    const serviceIndex = Number(followUpDraft.serviceIndex);
+    const selectedService = detailServices[serviceIndex];
+    if (!leadId || !selectedService || !ownedServiceOptions.some((option) => Number(option.value) === serviceIndex)) {
+      setFollowUpError('This follow-up cannot be closed for the selected service.');
+      return;
+    }
+    const closedAt = new Date().toISOString();
+    const closedEntry = {
+      id: `follow-up-closed-${Date.now()}`,
+      scheduledDate: selectedService.nextFollowUpDate || followUpDraft.scheduledDate || '',
+      scheduledTime: selectedService.nextFollowUpTime || followUpDraft.scheduledTime || '',
+      remarks: followUpDraft.remarks.trim(),
+      previousRemarks: selectedService.followUpRemarks || '',
+      reason: followUpDraft.reason.trim(),
+      priority: selectedService.followUpPriority || followUpDraft.priority,
+      status: 'closed',
+      owner: currentUser?.name || currentUser?.email || 'CRM User',
+      closedBy: currentUser?.name || currentUser?.email || 'CRM User',
+      closedAt,
+      updatedAt: closedAt,
+      createdAt: closedAt
+    };
+    const payload = {
+      ...activeLead,
+      assignedTo: activeLead.assignedTo?._id || activeLead.assignedTo?.id || activeLead.assignedTo || '',
+      serviceSelections: detailServices.map((service, index) => index === serviceIndex ? {
+        ...service,
+        nextFollowUpDate: '',
+        nextFollowUpTime: '',
+        followUpRemarks: '',
+        followUpFlag: 'GREEN',
+        followUpClosedAt: closedAt,
+        followUpClosedBy: closedEntry.closedBy,
+        followUpCloseReason: closedEntry.reason,
+        followUpUpdatedAt: closedAt,
+        followUpHistory: [closedEntry, ...(Array.isArray(service.followUpHistory) ? service.followUpHistory : [])]
+      } : service)
+    };
+    setFollowUpSaving(true);
+    setFollowUpError('');
+    try {
+      const response = await api.put(API_ENDPOINTS.leads.detail(leadId), payload);
+      const updatedLead = response.data?.lead || payload;
+      setDetailLead(updatedLead);
+      onLeadUpdated?.(updatedLead);
+      setFollowUpModalOpen(false);
+      setFollowUpCloseMode(false);
+    } catch (err) {
+      setFollowUpError(err?.response?.data?.error || 'Unable to close follow-up.');
     } finally {
       setFollowUpSaving(false);
     }
@@ -4110,22 +4175,21 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
             <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-600">Follow-Up</p>
-                <h3 className="mt-1 text-2xl font-black text-slate-950">{followUpEditing ? 'Update Lead Follow-Up' : 'Add Lead Follow-Up'}</h3>
+                <h3 className="mt-1 text-2xl font-black text-slate-950">{followUpCloseMode ? 'Close Lead Follow-Up' : followUpEditing ? 'Update Lead Follow-Up' : 'Add Lead Follow-Up'}</h3>
               </div>
               <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-50 text-slate-600 hover:bg-slate-100"><X className="h-5 w-5" /></button>
             </div>
             <div className="grid gap-4 px-6 py-5 sm:grid-cols-2">
               <Field label="Your Service" required className="sm:col-span-2"><select className="form-input" value={followUpDraft.serviceIndex} disabled={followUpEditing} onChange={(event) => { const serviceIndex = event.target.value; const service = detailServices[Number(serviceIndex)] || {}; setFollowUpDraft((current) => ({ ...current, serviceIndex, scheduledDate: service.nextFollowUpDate || todayDateKey(), scheduledTime: service.nextFollowUpTime || '', remarks: service.followUpRemarks || '', priority: service.followUpPriority || 'Medium' })); }}><option value="">Select your service</option>{ownedServiceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-              <Field label="Scheduled Date" required><PremiumDatePicker value={followUpDraft.scheduledDate} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field>
-              <Field label="Scheduled Time"><input type="time" className="form-input" value={followUpDraft.scheduledTime} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field>
-              <Field label="Priority"><select className="form-input" value={followUpDraft.priority} onChange={(event) => setFollowUpDraft((current) => ({ ...current, priority: event.target.value }))}><option>Low</option><option>Medium</option><option>High</option></select></Field>
-              <Field label="Follow-Up Remarks" required className="sm:col-span-2"><textarea className="form-input min-h-28 resize-y" value={followUpDraft.remarks} onChange={(event) => setFollowUpDraft((current) => ({ ...current, remarks: event.target.value }))} placeholder="Enter follow-up note or outcome" /></Field>
-              <Field label="Update Reason" required={followUpEditing} className="sm:col-span-2"><textarea className="form-input min-h-20 resize-y" value={followUpDraft.reason} onChange={(event) => setFollowUpDraft((current) => ({ ...current, reason: event.target.value }))} placeholder={followUpEditing ? 'Why is this follow-up being updated?' : 'Why is this follow-up being added?'} /></Field>
+              {!followUpCloseMode && <><Field label="Scheduled Date" required><PremiumDatePicker value={followUpDraft.scheduledDate} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></Field><Field label="Scheduled Time"><input type="time" className="form-input" value={followUpDraft.scheduledTime} onChange={(event) => setFollowUpDraft((current) => ({ ...current, scheduledTime: event.target.value }))} /></Field><Field label="Priority"><select className="form-input" value={followUpDraft.priority} onChange={(event) => setFollowUpDraft((current) => ({ ...current, priority: event.target.value }))}><option>Low</option><option>Medium</option><option>High</option></select></Field></>}
+              <Field label={followUpCloseMode ? 'Follow-Up Close Remarks' : 'Follow-Up Remarks'} required className="sm:col-span-2"><textarea className="form-input min-h-28 resize-y" value={followUpDraft.remarks} onChange={(event) => setFollowUpDraft((current) => ({ ...current, remarks: event.target.value }))} placeholder={followUpCloseMode ? 'Enter the final follow-up outcome' : 'Enter follow-up note or outcome'} /></Field>
+              <Field label={followUpCloseMode ? 'Close Reason' : 'Update Reason'} required={followUpEditing || followUpCloseMode} className="sm:col-span-2"><textarea className="form-input min-h-20 resize-y" value={followUpDraft.reason} onChange={(event) => setFollowUpDraft((current) => ({ ...current, reason: event.target.value }))} placeholder={followUpCloseMode ? 'Why is this follow-up being closed?' : followUpEditing ? 'Why is this follow-up being updated?' : 'Why is this follow-up being added?'} /></Field>
               {followUpError && <p className="sm:col-span-2 rounded-lg bg-red-50 px-4 py-3 text-sm font-black text-red-600">{followUpError}</p>}
             </div>
             <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
               <button type="button" disabled={followUpSaving} onClick={() => setFollowUpModalOpen(false)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Cancel</button>
-              <button type="button" disabled={followUpSaving || followUpDraft.serviceIndex === '' || !followUpDraft.scheduledDate || !followUpDraft.remarks.trim() || (followUpEditing && !followUpDraft.reason.trim())} onClick={saveFollowUp} className="min-h-10 rounded-lg bg-orange-500 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Saving...' : followUpEditing ? 'Update Follow-Up' : 'Save Follow-Up'}</button>
+              {followUpEditing && !followUpCloseMode && <button type="button" disabled={followUpSaving} onClick={() => { setFollowUpCloseMode(true); setFollowUpDraft((current) => ({ ...current, remarks: '', reason: '' })); setFollowUpError(''); }} className="min-h-10 rounded-lg bg-red-600 px-5 font-black text-white">Follow-Up Close</button>}
+              {followUpCloseMode ? <button type="button" disabled={followUpSaving || !followUpDraft.remarks.trim() || !followUpDraft.reason.trim()} onClick={closeFollowUp} className="min-h-10 rounded-lg bg-red-600 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Closing...' : 'Close Follow-Up'}</button> : <button type="button" disabled={followUpSaving || followUpDraft.serviceIndex === '' || !followUpDraft.scheduledDate || !followUpDraft.remarks.trim() || (followUpEditing && !followUpDraft.reason.trim())} onClick={saveFollowUp} className="min-h-10 rounded-lg bg-orange-500 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60">{followUpSaving ? 'Saving...' : followUpEditing ? 'Update Follow-Up' : 'Save Follow-Up'}</button>}
             </div>
           </section>
         </div>

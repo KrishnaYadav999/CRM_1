@@ -18,3 +18,17 @@ test('updating a follow-up closes the prior item and keeps closed history visibl
   assert.match(page, /item\.status === 'closed' \? 'Follow up closed' : item\.reason/);
   assert.match(page, /\.filter\(\(item\) => !item\.isCurrent \|\| !item\.scheduledDate \|\| item\.scheduledDate < todayKey\)/);
 });
+
+test('follow-up edit can explicitly close the reminder workflow', () => {
+  const page = fs.readFileSync(path.join(frontendRoot, 'pages/LeadGeneration.jsx'), 'utf8');
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
+  const reminders = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
+  assert.match(page, />Follow-Up Close<\/button>/);
+  assert.match(page, /async function closeFollowUp\(\)/);
+  assert.match(page, /nextFollowUpDate:\s*''/);
+  assert.match(page, /followUpClosedAt:\s*closedAt/);
+  assert.match(page, /followUpCloseReason:\s*closedEntry\.reason/);
+  assert.match(page, /followUpClosedAt:\s*''/);
+  assert.match(controller, /followUpClosedAt:\s*String\(row\?\.followUpClosedAt/);
+  assert.match(reminders, /!service\.followUpClosedAt/);
+});
