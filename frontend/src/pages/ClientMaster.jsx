@@ -517,6 +517,7 @@ const emptyClient = {
   selectedLead: '',
   assignedServiceId: '',
   cpcbDataByAssignedServiceId: {},
+  serviceDetailsByAssignedServiceId: {},
   adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'LIVE', assignedTo: '' },
   companyOverview: {
     companyName: '',
@@ -552,12 +553,24 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
   const savedAssignmentId = String(data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
   const legacyServiceName = String(data.selectedLeadSnapshot?.servicesOffered || '').trim();
   const selectedServiceName = String(service.servicesOffered || '').trim();
+  const scopedDetails = data.serviceDetailsByAssignedServiceId?.[assignedServiceId];
+  const address = service.addressData || {};
+  const contact = service.contactData || {};
   const allowLegacy = savedAssignmentId
     ? savedAssignmentId === assignedServiceId
     : serviceCount === 1 || (legacyServiceName && legacyServiceName === selectedServiceName);
   return {
     ...data,
     assignedServiceId,
+    registeredAddress: scopedDetails?.registeredAddress || (allowLegacy ? data.registeredAddress : {
+      address1: address.addressLine1 || '', address2: address.addressLine2 || '', address3: address.addressLine3 || '', state: address.state || '', city: address.city || '', pincode: address.pinCode || ''
+    }),
+    communicationAddress: scopedDetails?.communicationAddress || (allowLegacy ? data.communicationAddress : {
+      address1: address.addressLine1 || '', address2: address.addressLine2 || '', address3: address.addressLine3 || '', state: address.state || '', city: address.city || '', pincode: address.pinCode || ''
+    }),
+    otp: scopedDetails?.otp || (allowLegacy ? data.otp : { mobile: contact.mobileNo1 || '', personName: contact.contactPerson || '', designation: contact.designation || '' }),
+    authorised: scopedDetails?.authorised || (allowLegacy ? data.authorised : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
+    coordinating: scopedDetails?.coordinating || (allowLegacy ? data.coordinating : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
     cpcb: scoped
       ? { linkedToCommonPortal: '', ...(scoped.cpcb || scoped.details || {}) }
       : (allowLegacy ? { linkedToCommonPortal: '', ...(data.cpcb || {}) } : { linkedToCommonPortal: '' }),
@@ -848,10 +861,13 @@ export default function ClientMaster() {
     const rows = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
       ? lead.serviceSelections
       : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, applicantType: lead?.applicantType || lead?.piboParent, subApplicantType: lead?.subApplicantType, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
-    return rows.map((row) => ({
+    return rows.map((row, index) => ({
       ...row,
       applicantType: row.applicantType || row.piboParent || row.piboCategoryParent || '',
-      piboCategory: row.subApplicantType || row.piboCategory || ''
+      piboCategory: row.subApplicantType || row.piboCategory || '',
+      addressData: (lead.addresses || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId) || lead.addresses?.[index] || {},
+      contactData: (lead.contacts || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId) || lead.contacts?.[index] || {},
+      assignmentData: (lead.assignments || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId) || lead.assignments?.[index] || {}
     }));
   }
 
@@ -995,12 +1011,20 @@ export default function ClientMaster() {
             }
           }
         : {};
+      const localServiceDetails = sameLeadIsOpen && currentAssignmentId
+        ? { [currentAssignmentId]: { registeredAddress: client.registeredAddress, communicationAddress: client.communicationAddress, otp: client.otp, authorised: client.authorised, coordinating: client.coordinating } }
+        : {};
       const scopedData = activateAssignedService({
         ...existingDraft.data,
         cpcbDataByAssignedServiceId: {
           ...(existingDraft.data.cpcbDataByAssignedServiceId || {}),
           ...(client.cpcbDataByAssignedServiceId || {}),
           ...localAssignmentData
+        },
+        serviceDetailsByAssignedServiceId: {
+          ...(existingDraft.data.serviceDetailsByAssignedServiceId || {}),
+          ...(client.serviceDetailsByAssignedServiceId || {}),
+          ...localServiceDetails
         }
       }, service, visibleServices.length);
       setClient({
@@ -1017,6 +1041,8 @@ export default function ClientMaster() {
     const leadCode = selectedLead.leadCode || selectedLead.uniqueId || selectedLead.sourceLeadId || leadValue || '';
     const company = selectedLead.company || selectedLead.companyName || selectedLead.clientName || '';
     const email = String(selectedLead.emails || selectedLead.email || '').split(/[,\s;]+/).find(Boolean) || '';
+    const serviceAddress = selectedLead.addressData || {};
+    const serviceContact = selectedLead.contactData || {};
 
     setClient({
       ...emptyClient,
@@ -1053,27 +1079,28 @@ export default function ClientMaster() {
         eprCategory: selectedLead.eprCategory || '',
         industryType: selectedLead.industryType || '',
         servicesOffered: selectedLead.servicesOffered || '',
+        plantUnit: selectedLead.plantUnit || '',
         contactPerson: selectedLead.contactPerson || '',
         mobileNo1: selectedLead.mobileNo1 || '',
         email,
         source: selectedLead.source || ''
       },
       registeredAddress: {
-        address1: selectedLead.addressLine1 || '', address2: selectedLead.addressLine2 || '', address3: selectedLead.addressLine3 || '',
-        state: selectedLead.state || '', city: selectedLead.city || '', pincode: selectedLead.pinCode || ''
+        address1: serviceAddress.addressLine1 || selectedLead.addressLine1 || '', address2: serviceAddress.addressLine2 || selectedLead.addressLine2 || '', address3: serviceAddress.addressLine3 || selectedLead.addressLine3 || '',
+        state: serviceAddress.state || selectedLead.state || '', city: serviceAddress.city || selectedLead.city || '', pincode: serviceAddress.pinCode || selectedLead.pinCode || ''
       },
       communicationAddress: {
-        address1: selectedLead.addressLine1 || '', address2: selectedLead.addressLine2 || '', address3: selectedLead.addressLine3 || '',
-        state: selectedLead.state || '', city: selectedLead.city || '', pincode: selectedLead.pinCode || ''
+        address1: serviceAddress.addressLine1 || selectedLead.addressLine1 || '', address2: serviceAddress.addressLine2 || selectedLead.addressLine2 || '', address3: serviceAddress.addressLine3 || selectedLead.addressLine3 || '',
+        state: serviceAddress.state || selectedLead.state || '', city: serviceAddress.city || selectedLead.city || '', pincode: serviceAddress.pinCode || selectedLead.pinCode || ''
       },
       otp: {
-        mobile: selectedLead.mobileNo1 || '', personName: selectedLead.contactPerson || '', designation: selectedLead.designation || ''
+        mobile: serviceContact.mobileNo1 || selectedLead.mobileNo1 || '', personName: serviceContact.contactPerson || selectedLead.contactPerson || '', designation: serviceContact.designation || selectedLead.designation || ''
       },
       authorised: {
-        name: selectedLead.contactPerson || '', designation: selectedLead.designation || '', mobile: selectedLead.mobileNo1 || '', email
+        name: serviceContact.contactPerson || selectedLead.contactPerson || '', designation: serviceContact.designation || selectedLead.designation || '', mobile: serviceContact.mobileNo1 || selectedLead.mobileNo1 || '', email: serviceContact.emails || email
       },
       coordinating: {
-        name: selectedLead.contactPerson || '', designation: selectedLead.designation || '', mobile: selectedLead.mobileNo1 || '', email
+        name: serviceContact.contactPerson || selectedLead.contactPerson || '', designation: serviceContact.designation || selectedLead.designation || '', mobile: serviceContact.mobileNo1 || selectedLead.mobileNo1 || '', email: serviceContact.emails || email
       }
     });
     setEditingClientId('');
@@ -1349,6 +1376,18 @@ export default function ClientMaster() {
           updatedAt: new Date().toISOString()
         }
       };
+      normalizedClient.serviceDetailsByAssignedServiceId = {
+        ...(normalizedClient.serviceDetailsByAssignedServiceId || {}),
+        [assignedServiceId]: {
+          assignedServiceId,
+          registeredAddress: { ...(normalizedClient.registeredAddress || {}) },
+          communicationAddress: { ...(normalizedClient.communicationAddress || {}) },
+          otp: { ...(normalizedClient.otp || {}) },
+          authorised: { ...(normalizedClient.authorised || {}) },
+          coordinating: { ...(normalizedClient.coordinating || {}) },
+          updatedAt: new Date().toISOString()
+        }
+      };
       const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
       if (invalidScreenshot) {
         setError('Every CPCB screenshot/document must have a name and an uploaded file.');
@@ -1531,6 +1570,7 @@ export default function ClientMaster() {
                       <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
                       {service.applicableService && <span className="mt-1 block rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">Applicable: {service.applicableService}</span>}
                       <span className="mt-2 block text-xs font-bold text-slate-500">Industry Type: {service.industryType || '-'}</span>
+                      <span className="mt-1 block text-xs font-black text-teal-700">Plant Unit: {service.plantUnit || '-'}</span>
                       <span className="mt-2 flex flex-wrap items-center gap-2">
                         <span className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-black text-orange-700 shadow-sm">
                           Service Category: {service.eprCategory || '-'}

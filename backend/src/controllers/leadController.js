@@ -186,6 +186,7 @@ function cleanBody(body) {
           subApplicantType: String(row?.subApplicantType || row?.piboCategory || '').trim(),
           servicesOffered: String(row?.servicesOffered || '').trim(),
           applicableService: String(row?.applicableService || '').trim(),
+          plantUnit: /^Unit (?:[1-9]|10)$/.test(String(row?.plantUnit || '').trim()) ? String(row.plantUnit).trim() : '',
           firstAnnualReturnYearApplicable: String(row?.firstAnnualReturnYearApplicable || '').trim(),
           nextFollowUpDate: String(row?.nextFollowUpDate || '').trim(),
           nextFollowUpTime: String(row?.nextFollowUpTime || '').trim(),
@@ -202,6 +203,8 @@ function cleanBody(body) {
       }
       if (key === 'addresses') {
         data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          assignedServiceId: String(row?.assignedServiceId || '').trim(),
+          plantUnit: String(row?.plantUnit || '').trim(),
           addressLine1: String(row?.addressLine1 || '').trim(),
           addressLine2: String(row?.addressLine2 || '').trim(),
           addressLine3: String(row?.addressLine3 || '').trim(),
@@ -216,6 +219,8 @@ function cleanBody(body) {
       }
       if (key === 'contacts') {
         data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          assignedServiceId: String(row?.assignedServiceId || '').trim(),
+          plantUnit: String(row?.plantUnit || '').trim(),
           salutation: String(row?.salutation || '').trim(),
           contactPerson: String(row?.contactPerson || '').trim(),
           designation: String(row?.designation || '').trim(),
@@ -232,6 +237,8 @@ function cleanBody(body) {
       }
       if (key === 'assignments') {
         data[key] = Array.isArray(value) ? value.slice(0, 25).map((row) => ({
+          assignedServiceId: String(row?.assignedServiceId || '').trim(),
+          plantUnit: String(row?.plantUnit || '').trim(),
           assignedTo: String(row?.assignedTo || '').trim(),
           assignedToText: String(row?.assignedToText || '').trim(),
           assignedToEmail: String(row?.assignedToEmail || '').trim(),
@@ -293,6 +300,8 @@ function validateSubmittedLead(data) {
     ['businessCategory', 'Business Category'],
     ['firstAnnualReturnYearApplicable', 'Financial Year']
   ];
+  const usesPlantUnits = serviceRows.some((row) => String(row?.plantUnit || '').trim());
+  if (usesPlantUnits) requiredServiceFields.splice(2, 0, ['plantUnit', 'Plant Unit']);
   for (let index = 0; index < serviceRows.length; index += 1) {
     const missingServiceFields = requiredServiceFields
       .filter(([field]) => !String(serviceRows[index]?.[field] || '').trim())
@@ -303,6 +312,9 @@ function validateSubmittedLead(data) {
   const addresses = Array.isArray(data.addresses) && data.addresses.length ? data.addresses : [data];
   if (addresses.some((row) => !/^\d{6}$/.test(String(row?.pinCode || '')))) return 'Every PIN code must contain exactly 6 digits';
   const contacts = Array.isArray(data.contacts) && data.contacts.length ? data.contacts : [data];
+  const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+  if (usesPlantUnits && (addresses.length !== serviceRows.length || contacts.length !== serviceRows.length || assignments.length !== serviceRows.length)) return 'Every service must have one matching Address, Contact, and Assignment row';
+  if (usesPlantUnits && serviceRows.some((service, index) => addresses[index]?.assignedServiceId !== service.assignedServiceId || contacts[index]?.assignedServiceId !== service.assignedServiceId || assignments[index]?.assignedServiceId !== service.assignedServiceId)) return 'Address, Contact, and Assignment rows must match their assignedServiceId';
   if (contacts.some((row) => !row.salutation || !row.contactPerson || !row.designation || !row.emails || !row.mobileNo1 || !row.referredBy || !row.source)) return 'All contact fields except Mobile No. 2 and Business Card are required';
   if (contacts.some((row) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.emails || '')))) return 'Every contact must have a valid email address';
   if (contacts.some((row) => !/^\d{10}$/.test(String(row.mobileNo1 || '')))) return 'Every primary mobile number must contain exactly 10 digits';
@@ -311,7 +323,7 @@ function validateSubmittedLead(data) {
   return '';
 }
 
-const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'subApplicantType', 'servicesOffered', 'firstAnnualReturnYearApplicable'];
+const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'subApplicantType', 'servicesOffered', 'plantUnit', 'firstAnnualReturnYearApplicable'];
 
 function validateDuplicateServiceSelections(data = {}) {
   const rows = Array.isArray(data.serviceSelections) ? data.serviceSelections : [];

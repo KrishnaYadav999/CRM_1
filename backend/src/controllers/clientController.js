@@ -320,6 +320,10 @@ function mergeAssignedServiceCpcbData(existingData = {}, incomingData = {}) {
     cpcbDataByAssignedServiceId: {
       ...(isPlainObject(existingData.cpcbDataByAssignedServiceId) ? existingData.cpcbDataByAssignedServiceId : {}),
       ...(isPlainObject(incomingData.cpcbDataByAssignedServiceId) ? incomingData.cpcbDataByAssignedServiceId : {})
+    },
+    serviceDetailsByAssignedServiceId: {
+      ...(isPlainObject(existingData.serviceDetailsByAssignedServiceId) ? existingData.serviceDetailsByAssignedServiceId : {}),
+      ...(isPlainObject(incomingData.serviceDetailsByAssignedServiceId) ? incomingData.serviceDetailsByAssignedServiceId : {})
     }
   };
 }
