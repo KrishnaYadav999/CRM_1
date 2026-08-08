@@ -652,8 +652,8 @@ exports.listAuditLogs = async (req, res) => {
   const users = await User.find(userQuery).select('name email role team isActive lastLogin').lean();
   const userIds = users.map((user) => user._id);
   const dateQuery = {};
-  if (from) dateQuery.$gte = new Date(`${from}T00:00:00.000Z`);
-  if (to) dateQuery.$lte = new Date(`${to}T23:59:59.999Z`);
+  if (from) dateQuery.$gte = new Date(`${from}T00:00:00.000+05:30`);
+  if (to) dateQuery.$lte = new Date(`${to}T23:59:59.999+05:30`);
   const common = { userId: { $in: userIds }, ...(Object.keys(dateQuery).length ? { loginAt: dateQuery } : {}) };
   const [sessions, activities, completedLeads] = await Promise.all([
     UserSession.find(common).sort({ loginAt: -1 }).limit(5000).lean(),

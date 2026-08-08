@@ -201,6 +201,93 @@ function formatDuration(totalSeconds) {
   return [hours ? `${hours}h` : '', minutes ? `${minutes}m` : '', `${remaining}s`].filter(Boolean).join(' ')
 }
 
+function auditDateKey(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
+  const pick = (type) => parts.find((item) => item.type === type)?.value || ''
+  return `${pick('year')}-${pick('month')}-${pick('day')}`
+}
+
+function formatAuditDate(value) {
+  if (!value) return '-'
+  return new Date(`${value}T00:00:00+05:30`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function formatAuditTime(value) {
+  if (!value) return '-'
+  return new Date(value).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
+}
+
+function buildDailyLogRows(sessionRows = []) {
+  const groups = new Map()
+  const timestamp = (value) => value ? new Date(value).getTime() : 0
+  for (const row of sessionRows) {
+    const logDate = auditDateKey(row.loginAt || row.lastActivityAt)
+    if (!logDate) continue
+    const userKey = String(row.userId || row.email || row.name || 'unknown')
+    const key = `${userKey}:${logDate}`
+    const existing = groups.get(key)
+    const endAt = row.logoutAt || row.offlineSince || row.lastActivityAt || row.loginAt
+    if (!existing) {
+      groups.set(key, {
+        ...row,
+        id: `daily-${key}`,
+        logDate,
+        firstLoginAt: row.loginAt,
+        lastActivityAt: row.lastActivityAt || row.loginAt,
+        offlineAt: row.sessionStatus === 'Online' ? null : endAt,
+        durationSeconds: Math.max(0, Number(row.durationSeconds) || 0),
+        activeSeconds: Math.max(0, Number(row.activeSeconds) || 0),
+        awaySeconds: Math.max(0, (Number(row.durationSeconds) || 0) - (Number(row.activeSeconds) || 0)),
+        sessionCount: 1,
+        activityCount: Math.max(0, Number(row.activityCount) || 0),
+        activities: [...(row.activities || [])],
+        completedLeads: [...(row.completedLeads || [])]
+      })
+      continue
+    }
+    existing.firstLoginAt = timestamp(row.loginAt) < timestamp(existing.firstLoginAt) ? row.loginAt : existing.firstLoginAt
+    if (timestamp(row.lastActivityAt) >= timestamp(existing.lastActivityAt)) {
+      existing.lastActivityAt = row.lastActivityAt || existing.lastActivityAt
+      existing.ipAddress = row.ipAddress || existing.ipAddress
+      existing.device = row.device || existing.device
+    }
+    existing.durationSeconds += Math.max(0, Number(row.durationSeconds) || 0)
+    existing.activeSeconds += Math.max(0, Number(row.activeSeconds) || 0)
+    existing.awaySeconds += Math.max(0, (Number(row.durationSeconds) || 0) - (Number(row.activeSeconds) || 0))
+    existing.sessionCount += 1
+    existing.activityCount += Math.max(0, Number(row.activityCount) || 0)
+    existing.activities.push(...(row.activities || []))
+    existing.completedLeads.push(...(row.completedLeads || []))
+    if (row.sessionStatus === 'Online') {
+      existing.sessionStatus = 'Online'
+      existing.offlineAt = null
+    } else if (existing.sessionStatus !== 'Online' && timestamp(endAt) >= timestamp(existing.offlineAt)) {
+      existing.sessionStatus = row.sessionStatus
+      existing.offlineAt = endAt
+    }
+  }
+  return [...groups.values()].map((row) => ({
+    ...row,
+    loginAt: row.firstLoginAt,
+    logoutAt: row.offlineAt,
+    offlineSince: row.offlineAt,
+    activities: row.activities.sort((a, b) => timestamp(b.occurredAt) - timestamp(a.occurredAt))
+  })).sort((a, b) => b.logDate.localeCompare(a.logDate) || timestamp(b.firstLoginAt) - timestamp(a.firstLoginAt))
+}
+
+function latestUserSessions(rows = []) {
+  const latest = new Map()
+  for (const row of rows) {
+    const key = String(row.userId || row.email || row.name || row.id)
+    const current = latest.get(key)
+    if (!current || new Date(row.loginAt || 0).getTime() > new Date(current.loginAt || 0).getTime()) latest.set(key, row)
+  }
+  return [...latest.values()]
+}
+
 function UserLogsModal({ onClose }) {
   const [rows, setRows] = useState([])
   const [modules, setModules] = useState([])
@@ -226,7 +313,10 @@ function UserLogsModal({ onClose }) {
   }
 
   useEffect(() => { loadLogs() }, [filters.role, filters.status, filters.module, filters.from, filters.to])
-  const visible = rows.filter((row) => `${row.name} ${row.email} ${row.team} ${row.ipAddress}`.toLowerCase().includes(filters.search.toLowerCase()))
+  const dailyRows = useMemo(() => buildDailyLogRows(rows), [rows])
+  const matchesSearch = (row) => `${row.name} ${row.email} ${row.team} ${row.ipAddress}`.toLowerCase().includes(filters.search.toLowerCase())
+  const visible = dailyRows.filter(matchesSearch)
+  const statusRows = latestUserSessions(rows).filter(matchesSearch)
 
   useEffect(() => {
     try {
@@ -249,7 +339,18 @@ function UserLogsModal({ onClose }) {
   }, [visible])
 
   function exportLogs() {
-    const sessionRows = visible.map((row) => ({
+    const dailyExportRows = visible.map((row) => ({
+      Date: formatAuditDate(row.logDate), Name: row.name, Email: row.email, Role: row.role, Team: row.team,
+      'First Login': row.firstLoginAt ? new Date(row.firstLoginAt).toLocaleString('en-IN') : '',
+      'Offline / Last Seen': row.offlineAt ? new Date(row.offlineAt).toLocaleString('en-IN') : 'Still online',
+      'Online Window': `${formatAuditTime(row.firstLoginAt)} - ${row.offlineAt ? formatAuditTime(row.offlineAt) : 'Online'}`,
+      'Online / Active Duration': formatDuration(row.activeSeconds),
+      'Away / Other Tab Duration': formatDuration(row.awaySeconds),
+      'Total Open Duration': formatDuration(row.durationSeconds),
+      Sessions: row.sessionCount, Activities: row.activityCount, Status: row.sessionStatus,
+      'IP Address': row.ipAddress, Device: row.device
+    }))
+    const rawSessionRows = rows.filter(matchesSearch).map((row) => ({
       Name: row.name, Email: row.email, Role: row.role, Team: row.team, 'User Status': row.userStatus,
       Login: row.loginAt ? new Date(row.loginAt).toLocaleString('en-IN') : '',
       'Last Activity': row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleString('en-IN') : '',
@@ -274,7 +375,8 @@ function UserLogsModal({ onClose }) {
       'Time To Fill': formatDuration(lead.fillDurationSeconds)
     })))
     const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sessionRows), 'Login Sessions')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyExportRows), 'Daily User Summary')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rawSessionRows), 'Login Sessions')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(activityRows), 'CRM Activities')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(leadRows), 'Lead Completion Time')
     XLSX.writeFile(workbook, `CRM_User_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -297,7 +399,7 @@ function UserLogsModal({ onClose }) {
       </div>
       <div className="overflow-auto p-4">
         {error && <ToastMessage type="error">{error}</ToastMessage>}
-        {!loading && visible.length > 0 && <div className="mb-3 flex gap-2 overflow-x-auto pb-1">{visible.map((row) => {
+        {!loading && statusRows.length > 0 && <div className="mb-3 flex gap-2 overflow-x-auto pb-1">{statusRows.map((row) => {
           const online = row.sessionStatus === 'Online'
           const offlineSeconds = Math.max(0, Math.round((statusClock - new Date(row.offlineSince || row.lastActivityAt).getTime()) / 1000))
           return <article key={`status-${row.id}`} className={`min-w-[220px] rounded-xl border px-3 py-2 ${online ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
@@ -306,7 +408,7 @@ function UserLogsModal({ onClose }) {
             <small className="block text-[10px] font-semibold text-slate-500">{online ? `Away/other tabs: ${formatDuration(Math.max(0, row.durationSeconds - row.activeSeconds))}` : `Last seen: ${formatDateTime(row.offlineSince || row.lastActivityAt)}`}</small>
           </article>
         })}</div>}
-        {loading ? <div className="p-12 text-center font-black text-slate-500">Loading user logs...</div> : <table className="w-full min-w-[1250px] border-separate border-spacing-y-2 text-left text-sm"><thead><tr className="text-xs uppercase text-slate-500">{['User','Role / Team','Login','Last activity','Logout','Duration','Status','Actions','IP / Device','Details'].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{visible.map((row) => <React.Fragment key={row.id}><tr className="bg-slate-50 font-semibold text-slate-700"><td className="rounded-l-xl px-3 py-3"><strong className="block text-slate-950">{row.name}</strong><small>{row.email}</small></td><td className="px-3"><strong>{roleLabels[row.role] || row.role}</strong><small className="block">{row.team}</small></td><td className="px-3">{formatDateTime(row.loginAt)}</td><td className="px-3">{formatDateTime(row.lastActivityAt)}</td><td className="px-3">{row.logoutAt ? formatDateTime(row.logoutAt) : '-'}</td><td className="px-3 font-black">{formatDuration(row.durationSeconds)}</td><td className="px-3"><span className={`rounded-full px-2 py-1 text-xs font-black ${row.sessionStatus === 'Online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{row.sessionStatus}</span></td><td className="px-3 font-black">{row.activityCount}</td><td className="max-w-[230px] px-3"><strong>{row.ipAddress || '-'}</strong><small className="block truncate" title={row.device}>{row.device || '-'}</small></td><td className="rounded-r-xl px-3"><button type="button" onClick={() => setExpanded((v) => v === row.id ? '' : row.id)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-black text-emerald-700">{expanded === row.id ? 'Hide' : 'View'}</button></td></tr>{expanded === row.id && <tr><td colSpan="10" className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{row.activities?.length ? row.activities.map((item) => <article key={item.id} className="rounded-xl bg-white p-3 shadow-sm"><div className="flex justify-between gap-2"><strong className="text-emerald-800">{item.module}</strong><small>{formatDateTime(item.occurredAt)}</small></div><p className="mt-1 font-bold text-slate-700">{item.description}</p></article>) : <p className="font-bold text-slate-500">No recorded CRM changes in this session.</p>}</div></td></tr>}</React.Fragment>)}</tbody></table>}
+        {loading ? <div className="p-12 text-center font-black text-slate-500">Loading user logs...</div> : <table className="w-full min-w-[1500px] border-separate border-spacing-y-2 text-left text-sm"><thead><tr className="text-xs uppercase text-slate-500">{['User','Date','Role / Team','Online From - Offline At','Online Duration','Away Duration','Total Duration','Status','Sessions / Actions','IP / Device','Details'].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{visible.map((row) => <React.Fragment key={row.id}><tr className="bg-slate-50 font-semibold text-slate-700"><td className="rounded-l-xl px-3 py-3"><strong className="block text-slate-950">{row.name}</strong><small>{row.email}</small></td><td className="px-3 font-black text-slate-900">{formatAuditDate(row.logDate)}</td><td className="px-3"><strong>{roleLabels[row.role] || row.role}</strong><small className="block">{row.team}</small></td><td className="px-3"><strong className="block text-slate-900">{formatAuditTime(row.firstLoginAt)} - {row.offlineAt ? formatAuditTime(row.offlineAt) : 'Online'}</strong><small className="block">First login to {row.offlineAt ? 'offline/last seen' : 'current session'}</small></td><td className="px-3 font-black text-emerald-700">{formatDuration(row.activeSeconds)}</td><td className="px-3 font-black text-amber-700">{formatDuration(row.awaySeconds)}</td><td className="px-3 font-black">{formatDuration(row.durationSeconds)}</td><td className="px-3"><span className={`rounded-full px-2 py-1 text-xs font-black ${row.sessionStatus === 'Online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{row.sessionStatus}</span></td><td className="px-3"><strong>{row.sessionCount} session{row.sessionCount === 1 ? '' : 's'}</strong><small className="block">{row.activityCount} actions</small></td><td className="max-w-[230px] px-3"><strong>{row.ipAddress || '-'}</strong><small className="block truncate" title={row.device}>{row.device || '-'}</small></td><td className="rounded-r-xl px-3"><button type="button" onClick={() => setExpanded((v) => v === row.id ? '' : row.id)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-black text-emerald-700">{expanded === row.id ? 'Hide' : 'View'}</button></td></tr>{expanded === row.id && <tr><td colSpan="11" className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><div className="mb-3 grid gap-2 sm:grid-cols-3"><div className="rounded-xl bg-white p-3"><small className="font-black uppercase text-slate-400">First login</small><strong className="mt-1 block">{formatDateTime(row.firstLoginAt)}</strong></div><div className="rounded-xl bg-white p-3"><small className="font-black uppercase text-slate-400">Offline / Last seen</small><strong className="mt-1 block">{row.offlineAt ? formatDateTime(row.offlineAt) : 'Currently online'}</strong></div><div className="rounded-xl bg-white p-3"><small className="font-black uppercase text-slate-400">Daily duration</small><strong className="mt-1 block">Online {formatDuration(row.activeSeconds)} · Away {formatDuration(row.awaySeconds)}</strong></div></div><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{row.activities?.length ? row.activities.map((item) => <article key={item.id} className="rounded-xl bg-white p-3 shadow-sm"><div className="flex justify-between gap-2"><strong className="text-emerald-800">{item.module}</strong><small>{formatDateTime(item.occurredAt)}</small></div><p className="mt-1 font-bold text-slate-700">{item.description}</p></article>) : <p className="font-bold text-slate-500">No recorded CRM changes on this date.</p>}</div></td></tr>}</React.Fragment>)}</tbody></table>}
         {!loading && !visible.length && <div className="p-12 text-center font-black text-slate-500">No logs match these filters.</div>}
       </div>
     </section>
