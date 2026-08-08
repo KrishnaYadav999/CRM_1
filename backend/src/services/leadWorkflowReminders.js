@@ -255,6 +255,13 @@ function indiaMonthKeyOnFirst(now) {
   return parts.day === '01' ? `${parts.year}-${parts.month}` : '';
 }
 
+function indiaMonthEndKey(now) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(now)).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  const lastDay = new Date(Date.UTC(Number(parts.year), Number(parts.month), 0)).getUTCDate();
+  return Number(parts.day) === lastDay ? `${parts.year}-${parts.month}` : '';
+}
+
 function parseServiceDate(value) {
   const text = String(value || '').trim();
   if (!text) return null;
@@ -372,7 +379,7 @@ async function remindApprovals(now) {
   }
 }
 
-async function remindOldDrafts(leads, now) {
+async function remindOldDraftsLegacy(leads, now) {
   const monthKey = indiaMonthKeyOnFirst(now);
   if (!monthKey) return;
   const rows = leads.filter((lead) => {
@@ -426,6 +433,35 @@ async function remindOldDrafts(leads, now) {
   await Promise.allSettled(recipients.filter((user) => user.email).map((user) => sendMail(user.email, `30-day Unclosed Leads (${rows.length})`, html, { branded: false })));
 }
 
+async function remindOldDrafts(leads, now) {
+  const monthKey = indiaMonthEndKey(now);
+  if (!monthKey) return;
+  const key = `month-end-lead-summary:${monthKey}`;
+  if (await Notification.exists({ kind: 'month_end_lead_summary', 'metadata.key': key })) return;
+  const isServiceClosed = (lead, index) => {
+    const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
+    const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+    const service = services[index] || {};
+    const assignment = assignments[index] || {};
+    return Boolean(service.closedBy || service.closedByText || service.closedAt || assignment.closedBy || assignment.closedByText || assignment.closedAt || (services.length === 1 && (lead.closedBy || lead.closedByText || lead.closedAt)));
+  };
+  const openRows = leads.filter((lead) => {
+    const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
+    return services.some((_, index) => !isServiceClosed(lead, index));
+  });
+  const closedRows = leads.filter((lead) => {
+    const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
+    return services.length > 0 && services.every((_, index) => isServiceClosed(lead, index));
+  });
+  const recipients = await admins(['superadmin']);
+  if (!recipients.length) return;
+  const description = `${monthKey} month-end summary: ${openRows.length} open lead(s) and ${closedRows.length} closed lead(s).`;
+  const item = await Notification.create({ title: 'Month-end lead summary', description, tag: 'Lead Review', kind: 'month_end_lead_summary', audience: recipients.map((user) => user._id), visibleToRoles: ['superadmin'], metadata: { key, monthKey, openLeadCount: openRows.length, closedLeadCount: closedRows.length } });
+  item.crmNotificationId = String(item._id); await item.save();
+  const html = `<div style="margin:0;padding:30px 14px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#334155"><div style="max-width:620px;margin:auto;border:1px solid #dbe5e7;border-radius:16px;background:#fff;overflow:hidden"><div style="height:7px;background:#0f766e"></div><div style="padding:30px 34px"><span style="color:#0f766e;font-size:11px;font-weight:700;letter-spacing:.8px">MONTH-END LEAD REVIEW</span><h1 style="margin:12px 0 8px;color:#0f172a">Monthly lead summary</h1><p style="color:#64748b">${escapeHtml(description)}</p><table width="100%" cellspacing="0" cellpadding="0" style="margin-top:22px;border-collapse:collapse"><tr><td style="padding:18px;border:1px solid #dbe5e7;background:#fff7ed"><strong style="display:block;font-size:28px;color:#c2410c">${openRows.length}</strong><span>Open Leads</span></td><td style="padding:18px;border:1px solid #dbe5e7;background:#ecfdf5"><strong style="display:block;font-size:28px;color:#047857">${closedRows.length}</strong><span>Closed Leads</span></td></tr></table><p style="margin-top:22px;color:#64748b;font-size:13px">Open CRM Lead Review for complete details.</p></div></div></div>`;
+  await Promise.allSettled(recipients.filter((user) => user.email).map((user) => sendMail(user.email, `Month-end Lead Summary ${monthKey} - Open ${openRows.length}, Closed ${closedRows.length}`, html, { branded: false })));
+}
+
 async function runLeadWorkflowReminders() {
   if (running) return { skipped: true };
   running = true;
@@ -445,13 +481,13 @@ function startLeadWorkflowReminderScheduler() {
   if (started) return;
   started = true;
   setTimeout(() => runLeadWorkflowReminders().catch((error) => console.error('Lead workflow reminders failed', error)), 10000);
-  // Follow-up stages are checked every minute. Monthly pending reminders run
-  // only on the first day in India and are deduplicated by month.
+  // Follow-up stages are checked every minute. The lead summary runs only on
+  // the last day in India and is deduplicated by month.
   setInterval(() => runLeadWorkflowReminders().catch((error) => console.error('Lead workflow reminders failed', error)), 60 * 1000);
 }
 
 module.exports = {
   runLeadWorkflowReminders,
   startLeadWorkflowReminderScheduler,
-  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr, followUpEscalationStage, indiaMonthKeyOnFirst }
+  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr, followUpEscalationStage, indiaMonthKeyOnFirst, indiaMonthEndKey }
 };

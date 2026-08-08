@@ -6,7 +6,13 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 function idFor(row = {}) { return row._id || row.id || row.sourceLeadId || row.leadCode || ''; }
 function dateFor(row = {}) { return row.createdAt || row.importedCreatedAt || row.leadDate || ''; }
-const PENDING_AFTER_MS = 15 * 60 * 1000;
+function isIndiaMonthEnd(input = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(input)).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  const currentDay = Number(parts.day);
+  const lastDay = new Date(Date.UTC(Number(parts.year), Number(parts.month), 0)).getUTCDate();
+  return currentDay === lastDay;
+}
 function allServices(row = {}) {
   return Array.isArray(row.serviceSelections) && row.serviceSelections.length ? row.serviceSelections : [row];
 }
@@ -31,8 +37,7 @@ function servicesForMode(row = {}, mode = 'open') {
   })).filter((item) => mode === 'closed' ? item.closed : !item.closed);
 }
 function pendingDraft(row) {
-  const date = new Date(dateFor(row) || 0);
-  return Boolean(date.getTime() && Date.now() - date.getTime() >= PENDING_AFTER_MS && servicesForMode(row, 'open').length);
+  return Boolean(isIndiaMonthEnd() && servicesForMode(row, 'open').length);
 }
 function closedLead(row) {
   return servicesForMode(row, 'closed').length > 0;
@@ -137,7 +142,7 @@ export default function PendingLeads({ mode = 'open' }) {
   return <DashboardShell currentUser={currentUser}>
     <div className="p-6">
       <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Review</p><h1 className="text-3xl font-black">{mode === 'closed' ? 'Lead Close' : 'Lead Open'}</h1><p className="mt-1 font-bold text-slate-500">{mode === 'closed' ? 'Closed leads visible within your assigned scope.' : 'Visible unclosed leads pending for 15 minutes or more.'}</p></div>
+        <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Review</p><h1 className="text-3xl font-black">{mode === 'closed' ? 'Lead Close' : 'Lead Open'}</h1><p className="mt-1 font-bold text-slate-500">{mode === 'closed' ? 'Closed leads visible within your assigned scope.' : 'Month-end open lead review. Records become visible on the last day of each month.'}</p></div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Month<select value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><option value="all">All Months</option>{monthOptions.map((month) => <option key={month} value={month}>{new Date(`${month}-01`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</option>)}</select></label>
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Days<select value={dayFilter} onChange={(event) => setDayFilter(event.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><option value="all">All Days</option><option value="7">Last 7 Days</option><option value="15">Last 15 Days</option></select></label>
@@ -152,7 +157,7 @@ export default function PendingLeads({ mode = 'open' }) {
             const quotation = [...quotations].filter((item) => quotationMatchesLead(item, row)).sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0];
             const contributors = [...new Set(matchingServices.map(({ service }) => service.createdByName || service.createdByEmail || row.importedCreatedBy || row.createdByName || row.createdByEmail).filter(Boolean))];
             return <tr className="border-t border-slate-100 hover:bg-emerald-50/30" key={idFor(row)}><td className="px-4 py-4 font-black">{index + 1}</td><td className="px-4 py-4">{value(filterDateFor(row, mode)).slice(0, 10)}</td><td className="px-4 py-4"><span className={`rounded-full px-3 py-1 font-black ${mode === 'closed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{mode === 'closed' ? 'Closed' : pendingFor(row)}</span></td><td className="px-4 py-4">{value(row.importedCreatedBy || row.createdByName || row.createdByEmail)}</td><td className="px-4 py-4"><button type="button" onClick={() => view(row)} className="text-left font-black text-slate-950 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-700">{value(row.company)}</button></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.servicesOffered).filter(Boolean))].join(', '))}</td><td className="px-4 py-4"><div className="flex flex-wrap gap-1.5">{contributors.length ? contributors.map((name) => <span key={name} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-black text-sky-700">{name}</span>) : '-'}</div></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.firstAnnualReturnYearApplicable).filter(Boolean))].join(', '))}</td><td className="px-4 py-4 font-black text-emerald-700">{quotation ? formatInr(quotationBasicAmount(quotation)) : '-'}</td></tr>;
-          })}{!rows.length && <tr><td colSpan={9} className="p-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : mode === 'closed' ? 'No closed leads found.' : 'No leads pending for 15 minutes.'}</td></tr>}</tbody>
+          })}{!rows.length && <tr><td colSpan={9} className="p-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : mode === 'closed' ? 'No closed leads found.' : isIndiaMonthEnd() ? 'No open leads found for this month-end review.' : 'Open leads will be available on the last day of the month.'}</td></tr>}</tbody>
         </table>
       </div>
     </div>
