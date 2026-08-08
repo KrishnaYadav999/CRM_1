@@ -1685,7 +1685,9 @@
 
 .calendar-bucket-list {
   display: grid;
+  grid-auto-rows: minmax(112px, auto);
   gap: 12px;
+  min-height: 0;
   overflow: auto;
   padding: 16px 22px;
 }
@@ -1783,6 +1785,9 @@
 }
 
 .calendar-bucket-actions button:first-child {
+  min-width: 130px;
+  position: relative;
+  z-index: 1;
   border: 1px solid #dbe7e5;
   background: #ffffff;
   color: #0f766e;
@@ -1823,21 +1828,27 @@
 
 .calendar-bucket-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   gap: 12px;
   border-top: 1px solid #edf2f7;
   padding: 16px 22px 20px;
 }
 
-.calendar-bucket-footer button:first-child {
+.calendar-bucket-footer-actions {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.calendar-bucket-footer-actions button:first-child {
   border: 1px solid #dbe7e5;
   background: #ffffff;
   color: #334155;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045);
 }
 
-.calendar-bucket-footer button:last-child {
+.calendar-bucket-footer-actions button:last-child {
   background: linear-gradient(135deg, #0f766e, #2563eb);
   color: #ffffff;
   box-shadow: 0 14px 26px rgba(37, 99, 235, 0.2);
