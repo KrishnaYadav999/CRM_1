@@ -9,6 +9,7 @@ const AuditLog = require('../models/AuditLog');
 const UserSession = require('../models/UserSession');
 const Lead = require('../models/Lead');
 const { clientIp } = require('../middleware/activityAudit');
+const { getUserProductivityReport } = require('../services/userProductivityReport');
  
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -640,6 +641,15 @@ exports.superAdminOverview = async (_req, res) => {
   });
   const closedLeads = leads.filter((lead) => lead.closedBy || /closed/i.test(String(lead.status || ''))).length;
   res.json({ ok: true, summary: { users: users.length, activeUsers: users.filter((user) => user.isActive !== false).length, leads: leads.length, openLeads: leads.length - closedLeads, closedLeads }, users: userRows.sort((a, b) => b.totalLeads - a.totalLeads) });
+};
+
+exports.userProductivityReport = async (req, res) => {
+  try {
+    const report = await getUserProductivityReport({ from: req.query.from, to: req.query.to });
+    res.json({ ok: true, ...report });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Unable to generate the user activity report' });
+  }
 };
 
 exports.listAuditLogs = async (req, res) => {
