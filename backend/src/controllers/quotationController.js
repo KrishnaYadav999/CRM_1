@@ -101,6 +101,8 @@ function financialYearFromDate(value) {
   return `${startYear}-${String(startYear + 1).slice(-2)}`;
 }
 
+const EPR_CREDIT_YEAR_OPTIONS = new Set(['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30']);
+
 function isMeaningfulItem(item = {}) {
   return [
     item.industryType,
@@ -136,6 +138,22 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         throw new Error(`Quotation item ${index + 1}: Transition Period must be Yes or No.`);
       }
       const transitionPeriod = rawTransitionPeriod;
+      const businessCategory = cleanString(item.businessCategory ?? existingItem.businessCategory) || undefined;
+      const unitLabel = cleanString(item.unitLabel ?? existingItem.unitLabel).toUpperCase();
+      const rawEprCreditYears = Array.isArray(item.annualReturnEprCreditYears)
+        ? item.annualReturnEprCreditYears
+        : (Array.isArray(existingItem.annualReturnEprCreditYears) ? existingItem.annualReturnEprCreditYears : []);
+      const annualReturnEprCreditYears = [...new Set(rawEprCreditYears.map(cleanString).filter(Boolean))];
+      const isEprCredit = String(businessCategory || '').toLowerCase() === 'epr credit';
+      if (isEprCredit && annualReturnEprCreditYears.some((year) => !EPR_CREDIT_YEAR_OPTIONS.has(year))) {
+        throw new Error(`Quotation item ${index + 1}: Annual Return EPR Credit Years contains an unsupported financial year.`);
+      }
+      if (isEprCredit && !['KG', 'MT'].includes(unitLabel)) {
+        throw new Error(`Quotation item ${index + 1}: UOM must be KG or MT for EPR Credit.`);
+      }
+      if (isEprCredit && !annualReturnEprCreditYears.length) {
+        throw new Error(`Quotation item ${index + 1}: select at least one Annual Return EPR Credit Year.`);
+      }
       const annualReturnYears = [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(cleanString).filter(Boolean))];
       const existingTransitionIsFrozen = transitionPeriod === 'Yes' && String(existingItem.transitionPeriod || '') === 'Yes';
       if (existingTransitionIsFrozen && (
@@ -172,6 +190,7 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         periodUnit,
         transitionPeriod,
         annualReturnYears,
+        annualReturnEprCreditYears: isEprCredit ? annualReturnEprCreditYears : [],
         servicesOffered: cleanString(item.servicesOffered),
         applicableService: cleanString(item.applicableService),
         serviceCategory: cleanString(item.serviceCategory),
@@ -179,11 +198,13 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         serviceEndDate,
         servicesForYear: financialYearFromDate(serviceStartDate || serviceEndDate) || cleanString(item.servicesForYear),
         eprCategory: cleanString(item.eprCategory),
-        businessCategory: cleanString(item.businessCategory) || undefined,
+        businessCategory,
         piboParent: normalizeParent(item.piboParent || item.piboCategoryParent) || inferPiboParent(item.piboCategory) || undefined,
         piboCategory: cleanString(item.piboCategory),
+        applicantType: cleanString(item.applicantType ?? existingItem.applicantType),
+        subApplicantType: cleanString(item.subApplicantType ?? existingItem.subApplicantType),
         unit: '1',
-        unitLabel: cleanString(item.unitLabel),
+        unitLabel: isEprCredit ? unitLabel : undefined,
         basicAmount: roundMoney(item.basicAmount)
       };
     })

@@ -54,6 +54,32 @@ test('quotation API sanitization rejects invalid units and non-integer periods',
   );
 });
 
+test('EPR Credit quotations require KG or MT UOM and normalize it', () => {
+  assert.throws(
+    () => quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] }),
+    /UOM must be KG or MT/
+  );
+  const body = quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', unitLabel: 'kg', annualReturnEprCreditYears: ['2024-25'], serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] });
+  assert.equal(body.items[0].unit, '1');
+  assert.equal(body.items[0].unitLabel, 'KG');
+});
+
+test('EPR Credit years are required, validated, persisted, and cleared for consultancy items', () => {
+  assert.throws(
+    () => quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', unitLabel: 'MT', serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] }),
+    /select at least one Annual Return EPR Credit Year/
+  );
+  assert.throws(
+    () => quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', unitLabel: 'MT', annualReturnEprCreditYears: ['2030-31'], serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] }),
+    /unsupported financial year/
+  );
+  const credit = quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', unitLabel: 'MT', annualReturnEprCreditYears: ['2025-26', '2024-25', '2025-26'], applicantType: 'Recycler', serviceCategory: 'EPR - Used Oil', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] });
+  assert.deepEqual(credit.items[0].annualReturnEprCreditYears, ['2025-26', '2024-25']);
+  assert.equal(credit.items[0].applicantType, 'Recycler');
+  const consultancy = quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Consultancy', annualReturnEprCreditYears: ['2024-25'], serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] });
+  assert.deepEqual(consultancy.items[0].annualReturnEprCreditYears, []);
+});
+
 test('transition dates are system-derived and frozen against update payloads', () => {
   const existing = [{
     id: 'service-1', serviceCategory: 'EPR - Plastic Waste', servicePeriod: 1, periodUnit: 'annual',
@@ -87,10 +113,25 @@ test('transition dates are system-derived and frozen against update payloads', (
 test('period controls appear in the mapping popup and not in the main quotation table', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /'Service Period', 'Select Period', 'Transition Period', \.\.\.\(financialYearNeedsEprData \? \['Annual Return EPR Year'\]/);
-  assert.match(page, /'Annual Return EPR Year'\]\s*:\s*\[\]\), 'Service Category', 'Business Category'/);
+  assert.match(page, /'Annual Return EPR Year'\]\s*:\s*\[\]\), \.\.\.\(financialYearNeedsEprCreditYears \? \['Annual Return EPR Credit Years'\]/);
+  assert.match(page, /'Annual Return EPR Credit Years'\]\s*:\s*\[\]\), 'Applicant Type', 'Service Category', 'Business Category'/);
   assert.match(page, /financialYearDraft\.transitionPeriod \|\| 'No'.*TRANSITION_PERIOD_OPTIONS/s);
   assert.doesNotMatch(page, /'EPR \/ Service Period', 'Select Period', 'Transition Period', 'Industry Type'/);
   assert.match(page, /periodDisplay\(financialYearDraft\.servicePeriod, financialYearDraft\.periodUnit\)/);
+});
+
+test('quotation UI shares applicant fallback logic and conditionally renders EPR Credit years', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  const model = fs.readFileSync(path.resolve(__dirname, '../src/models/Quotation.js'), 'utf8');
+  assert.match(page, /function getQuotationApplicantType\(item = \{\}, source = \{\}\)/);
+  assert.match(page, /source\.subApplicantType \|\| source\.piboCategory \|\| item\.subApplicantType \|\| item\.piboCategory \|\| source\.applicantType/);
+  assert.match(page, /financialYearNeedsEprCreditYears && <td[^>]*><QuoteYearMultiSelect/);
+  assert.match(page, /Please select at least one Annual Return EPR Credit Year/);
+  assert.match(page, /getQuotationApplicantType\(financialYearDraft\)/);
+  assert.match(page, /quotationEprCreditYears\(item\)\.join\(', '\)/);
+  assert.match(model, /annualReturnEprCreditYears:[\s\S]*2022-23[\s\S]*2029-30/);
+  assert.match(model, /applicantType: \{ type: String/);
+  assert.match(model, /subApplicantType: \{ type: String/);
 });
 
 test('quotation views and printable tables omit period-unit and transition columns', () => {

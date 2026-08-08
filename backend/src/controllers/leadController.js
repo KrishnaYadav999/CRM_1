@@ -285,6 +285,18 @@ function cleanBody(body) {
 function validateSubmittedLead(data) {
   const missing = REQUIRED_FIELDS.filter((field) => !data[field]);
   if (missing.length) return `Missing required fields: ${missing.join(', ')}`;
+  const serviceRows = Array.isArray(data.serviceSelections) && data.serviceSelections.length ? data.serviceSelections : [data];
+  const requiredServiceFields = [
+    ['industryType', 'Industry Type'],
+    ['businessCategory', 'Business Category'],
+    ['firstAnnualReturnYearApplicable', 'Financial Year']
+  ];
+  for (let index = 0; index < serviceRows.length; index += 1) {
+    const missingServiceFields = requiredServiceFields
+      .filter(([field]) => !String(serviceRows[index]?.[field] || '').trim())
+      .map(([, label]) => label);
+    if (missingServiceFields.length) return `Service row ${index + 1}: ${missingServiceFields.join(', ')} ${missingServiceFields.length === 1 ? 'is' : 'are'} required`;
+  }
   if (!usesDirectApplicantType(data.eprCategory) && !data.subApplicantType) return 'Sub Applicant Type is required';
   const addresses = Array.isArray(data.addresses) && data.addresses.length ? data.addresses : [data];
   if (addresses.some((row) => !/^\d{6}$/.test(String(row?.pinCode || '')))) return 'Every PIN code must contain exactly 6 digits';

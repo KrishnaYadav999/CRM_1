@@ -28,6 +28,10 @@ const QuoteItemSchema = new mongoose.Schema({
   periodUnit: { type: String, trim: true, enum: ['days', 'months', 'annual'], default: 'annual' },
   transitionPeriod: { type: String, trim: true, enum: ['Yes', 'No'], default: 'No' },
   annualReturnYears: { type: [String], default: [] },
+  annualReturnEprCreditYears: {
+    type: [{ type: String, enum: ['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30'] }],
+    default: []
+  },
   servicesOffered: { type: String, trim: true },
   applicableService: { type: String, trim: true },
   serviceCategory: { type: String, trim: true },
@@ -39,6 +43,8 @@ const QuoteItemSchema = new mongoose.Schema({
   piboParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
   piboCategoryParent: { type: String, enum: ['PIBO', 'SIMP', 'PWP'], trim: true },
   piboCategory: { type: String, trim: true },
+  applicantType: { type: String, trim: true },
+  subApplicantType: { type: String, trim: true },
   unit: { type: String, trim: true },
   unitLabel: { type: String, trim: true },
   basicAmount: { type: Number, default: 0 }

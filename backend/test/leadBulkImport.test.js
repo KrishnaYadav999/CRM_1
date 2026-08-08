@@ -2,12 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { _test } = require('../src/controllers/leadController');
 
-const firstService = { industryType: 'Manufacturing', eprCategory: 'Plastic Waste', applicantType: 'PIBO', piboCategory: 'Producer', servicesOffered: 'Registration', applicableService: 'Registration', firstAnnualReturnYearApplicable: '2025-26' };
-const secondService = { industryType: 'Manufacturing', eprCategory: 'E-Waste', applicantType: 'PIBO', piboCategory: 'Importer', servicesOffered: 'Annual Return', applicableService: 'Annual Filing', firstAnnualReturnYearApplicable: '2026-27' };
+const firstService = { industryType: 'Manufacturing', businessCategory: 'EPR Consultancy', eprCategory: 'Plastic Waste', applicantType: 'PIBO', piboCategory: 'Producer', servicesOffered: 'Registration', applicableService: 'Registration', firstAnnualReturnYearApplicable: '2025-26' };
+const secondService = { industryType: 'Manufacturing', businessCategory: 'EPR Consultancy', eprCategory: 'E-Waste', applicantType: 'PIBO', piboCategory: 'Importer', servicesOffered: 'Annual Return', applicableService: 'Annual Filing', firstAnnualReturnYearApplicable: '2026-27' };
 
 test('direct EPR applicant types submit without a separate PIBO category', () => {
   const error = _test.validateSubmittedLead({
-    status: 'Qualified', company: 'Example Pvt Ltd', eprCategory: 'EPR - Battery Waste',
+    status: 'Qualified', company: 'Example Pvt Ltd', industryType: 'Manufacturing', businessCategory: 'EPR Consultancy', firstAnnualReturnYearApplicable: '2025-26', eprCategory: 'EPR - Battery Waste',
     applicantType: 'Recycler', servicesOffered: 'EPR - Battery Waste Compliance',
     addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001',
     addresses: [{ addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001' }],
@@ -18,11 +18,20 @@ test('direct EPR applicant types submit without a separate PIBO category', () =>
 
 test('plastic applicant hierarchy still requires a sub applicant type', () => {
   const error = _test.validateSubmittedLead({
-    status: 'Qualified', company: 'Example Pvt Ltd', eprCategory: 'EPR - Plastic Waste',
+    status: 'Qualified', company: 'Example Pvt Ltd', industryType: 'Manufacturing', businessCategory: 'EPR Consultancy', firstAnnualReturnYearApplicable: '2025-26', eprCategory: 'EPR - Plastic Waste',
     applicantType: 'PIBO', servicesOffered: 'EPR - Plastic Compliance',
     addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001'
   });
   assert.equal(error, 'Sub Applicant Type is required');
+});
+
+test('submitted leads require industry, business category, and financial year in every service row', () => {
+  const error = _test.validateSubmittedLead({
+    status: 'Qualified', company: 'Example Pvt Ltd', eprCategory: 'EPR - Battery Waste', applicantType: 'Recycler', servicesOffered: 'Compliance',
+    addressLine1: 'Main Road', state: 'Maharashtra', city: 'Mumbai', pinCode: '400001',
+    serviceSelections: [{ eprCategory: 'EPR - Battery Waste', applicantType: 'Recycler', servicesOffered: 'Compliance' }]
+  });
+  assert.equal(error, 'Service row 1: Industry Type, Business Category, Financial Year are required');
 });
 
 test('legacy top-level service and a different saved service are both preserved', () => {

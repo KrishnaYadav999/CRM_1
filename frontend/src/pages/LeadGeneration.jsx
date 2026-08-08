@@ -508,7 +508,9 @@ export default function LeadGeneration() {
   const resolvedPiboParent = lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory);
   const primaryDirectSelection = Boolean(directApplicantOptions(lead.eprCategory));
   const resolvedApplicantType = primaryDirectSelection ? lead.applicantType : resolvedPiboParent;
-  const isFirstStepReady = Boolean(lead.status && lead.company && resolvedApplicantType && (primaryDirectSelection || lead.piboCategory) && lead.servicesOffered);
+  const basicStepServiceRows = normalizeLegacyServiceSelections(lead);
+  const areBasicServiceRowsComplete = basicStepServiceRows.every((row) => row.industryType && row.businessCategory && row.eprCategory && row.applicantType && row.servicesOffered && row.firstAnnualReturnYearApplicable && (directApplicantOptions(row.eprCategory) || row.piboCategory));
+  const isFirstStepReady = Boolean(lead.status && lead.company && resolvedApplicantType && (primaryDirectSelection || lead.piboCategory) && lead.servicesOffered && areBasicServiceRowsComplete);
   const ownershipRequired = Boolean(!editingLeadId && !serviceOnlyMode && lead.company.trim() && !generatedForConfirmed);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const canUseExcelBulkImport = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
@@ -1350,7 +1352,7 @@ export default function LeadGeneration() {
       return;
     }
     if (tabId !== 'basic' && !isFirstStepReady) {
-      showToast('First complete Company, Status, Applicant Type and Services Offered.', 'warning');
+      showToast('Complete Company, Status, and every required Service & Applicant field.', 'warning');
       return;
     }
     setActiveTab(tabId);
@@ -1365,7 +1367,7 @@ export default function LeadGeneration() {
       return;
     }
     if (!isFirstStepReady) {
-      setError('Complete Company, Status, Applicant Type, and Services Offered before moving ahead.');
+      setError('Complete Company, Status, Industry Type, Business Category, Applicant Type, Services Offered, and Financial Year before moving ahead.');
       showToast('Complete required first-step fields before next step.', 'warning');
       return;
     }
@@ -1533,8 +1535,8 @@ export default function LeadGeneration() {
     const missing = required.find((field) => !String(lead[field] ?? '').trim());
     if (missing) return `${missing.replace(/([A-Z])/g, ' $1')} is required before submit.`;
     if (workflowStatus === 'submitted') {
-      const incompleteRow = serviceRows.findIndex((row) => !row.eprCategory || !row.applicantType || !row.servicesOffered || (!directApplicantOptions(row.eprCategory) && !row.piboCategory));
-      if (incompleteRow >= 0) return `Complete Service Category, Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Sub Applicant Type, and '}Services Offered in service row ${incompleteRow + 1}.`;
+      const incompleteRow = serviceRows.findIndex((row) => !row.industryType || !row.businessCategory || !row.eprCategory || !row.applicantType || !row.servicesOffered || !row.firstAnnualReturnYearApplicable || (!directApplicantOptions(row.eprCategory) && !row.piboCategory));
+      if (incompleteRow >= 0) return `Complete Industry Type, Business Category, Service Category, Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Sub Applicant Type, '}Services Offered, and Financial Year in service row ${incompleteRow + 1}.`;
       const seenServices = new Map();
       for (let index = 0; index < serviceRows.length; index += 1) {
         const identity = serviceSelectionIdentity(serviceRows[index]);
@@ -2146,7 +2148,7 @@ export default function LeadGeneration() {
                 <div className={`lead-service-matrix ${ownershipRequired ? 'pointer-events-none select-none opacity-45' : ''}`} aria-disabled={ownershipRequired}>
                   <div className="lead-service-matrix-title"><div><p>Service &amp; Applicant</p><span>Add one or more service combinations for this lead.</span></div><button type="button" onClick={addServiceRow}><Plus className="h-4 w-4" />Add</button></div>
                   <div className="overflow-x-auto">
-                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type</span><span>Business Category</span><span>Service Category <b aria-label="required">*</b></span><span>Applicant Type <b aria-label="required">*</b></span><span>Sub Applicant Type <b aria-label="required">*</b></span><span>Services Offered <b aria-label="required">*</b></span><span>Financial Year</span><span>Action</span></div>
+                    <div className="lead-service-matrix-head"><span>#</span><span>Industry Type <b aria-label="required">*</b></span><span>Business Category <b aria-label="required">*</b></span><span>Service Category <b aria-label="required">*</b></span><span>Applicant Type <b aria-label="required">*</b></span><span>Sub Applicant Type <b aria-label="required">*</b></span><span>Services Offered <b aria-label="required">*</b></span><span>Financial Year <b aria-label="required">*</b></span><span>Action</span></div>
                     {serviceRows.map((row, index) => {
                       const currentIds = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name].filter(Boolean).map((value) => String(value).toLowerCase());
                       const rowOwners = [
