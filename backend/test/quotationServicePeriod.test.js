@@ -143,6 +143,18 @@ test('quotation views and printable tables omit period-unit and transition colum
   assert.doesNotMatch(page, /\['Select Period', periodUnitLongLabel/);
 });
 
+test('quotation PDF places applicant beside the date range and combines annual and credit year mapping', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /function quotationServiceDateRange\(item = \{\}\)/);
+  assert.match(page, /return `\$\{formatServiceDate\(startDate\)\} - \$\{formatServiceDate\(endDate\)\}`/);
+  assert.match(page, /'Service Period', 'Applicant Type', 'Services Offered', 'Unit'/);
+  assert.match(page, /<td[^>]*>\{quotationServiceDateRange\(item\)\}<\/td>\s*<td[^>]*>\{getQuotationApplicantType\(item\)\}<\/td>/);
+  assert.match(page, /Annual Return EPR Year \/ Credit Year/);
+  assert.match(page, /quotationAnnualReturnOrCreditYears\(item\)\.join\(', '\)/);
+  assert.doesNotMatch(page, /EPR \/ Service Period<\/th><th[^>]*>Applicant Type/);
+  assert.match(page, /const ANANT_TATTVA_GST_NUMBER = '27AAZCA6657R1ZB'/);
+});
+
 test('quotation selects safely normalize object and string options before filtering', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /option && typeof option === 'object'/);

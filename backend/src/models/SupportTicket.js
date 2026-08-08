@@ -1,12 +1,5 @@
 const mongoose = require('mongoose');
 
-const TicketMessageSchema = new mongoose.Schema({
-  message: { type: String, required: true, trim: true },
-  author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  authorName: { type: String, trim: true, default: '' },
-  authorRole: { type: String, trim: true, default: '' }
-}, { timestamps: true, _id: true });
-
 const TicketAttachmentSchema = new mongoose.Schema({
   name: { type: String, trim: true, default: '' },
   url: { type: String, required: true, trim: true },
@@ -14,6 +7,14 @@ const TicketAttachmentSchema = new mongoose.Schema({
   type: { type: String, trim: true, default: '' },
   size: { type: Number, default: 0 }
 }, { _id: false });
+
+const TicketMessageSchema = new mongoose.Schema({
+  message: { type: String, required: true, trim: true },
+  author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  authorName: { type: String, trim: true, default: '' },
+  authorRole: { type: String, trim: true, default: '' },
+  attachments: { type: [TicketAttachmentSchema], default: [] }
+}, { timestamps: true, _id: true });
 
 const SupportTicketSchema = new mongoose.Schema({
   ticketNumber: { type: String, unique: true, index: true },

@@ -24,11 +24,13 @@ function buildRaisedEmail(ticket) {
   };
 }
 
-function buildResolvedEmail(ticket, actor, resolutionNote = '') {
+function buildResolvedEmail(ticket, actor, resolutionNote = '', attachments = []) {
   const isClosed = ticket.status === 'Closed';
   const action = isClosed ? 'closed' : 'resolved';
   const note = resolutionNote ? `<div style="margin-top:18px;padding:16px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px"><div style="font-size:12px;font-weight:700;color:#047857;text-transform:uppercase;letter-spacing:1px">Resolution note</div><div style="margin-top:8px;font-size:14px;line-height:1.7;color:#065f46;white-space:pre-wrap">${escapeHtml(resolutionNote)}</div></div>` : '';
-  const table = `<table style="width:100%;border-collapse:collapse;border:1px solid #d1fae5;border-radius:12px;overflow:hidden">${detailRow('Ticket Number', ticket.ticketNumber)}${detailRow('Category', ticket.category)}${detailRow('Subject', ticket.subject)}${detailRow('Final Status', ticket.status)}${detailRow('Resolved By', actor?.name || actor?.email || 'IT Support Team')}</table>${note}`;
+  const evidence = (Array.isArray(attachments) ? attachments : []).filter((item) => /^https:\/\//i.test(String(item?.url || ''))).map((item, index) => `<a href="${escapeHtml(item.url)}" style="display:inline-block;margin:8px 8px 0 0;padding:9px 12px;background:#ffffff;border:1px solid #a7f3d0;border-radius:8px;color:#047857;font-size:12px;font-weight:700;text-decoration:none">View screenshot ${index + 1}</a>`).join('');
+  const evidenceBlock = evidence ? `<div style="margin-top:16px;padding:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px"><div style="font-size:12px;font-weight:700;color:#047857;text-transform:uppercase;letter-spacing:1px">Resolution screenshots</div>${evidence}</div>` : '';
+  const table = `<table style="width:100%;border-collapse:collapse;border:1px solid #d1fae5;border-radius:12px;overflow:hidden">${detailRow('Ticket Number', ticket.ticketNumber)}${detailRow('Category', ticket.category)}${detailRow('Subject', ticket.subject)}${detailRow('Final Status', ticket.status)}${detailRow('Resolved By', actor?.name || actor?.email || 'IT Support Team')}</table>${note}${evidenceBlock}`;
   return {
     subject: `Successfully ${isClosed ? 'Closed' : 'Resolved'}: ${ticket.ticketNumber} - ${ticket.subject}`,
     html: emailFrame(`Your support ticket has been successfully ${action}`, `Hello <strong>${escapeHtml(ticket.createdByName || 'User')}</strong>,<br><br>We are pleased to inform you that your support request has been successfully ${action}.`, `${table}<p style="margin:20px 0 0;font-size:14px;line-height:1.7">If you still need assistance, please raise a new request from the Support Tickets section in the CRM.</p>`, '#059669')
@@ -40,9 +42,9 @@ async function notifyTicketRaised(ticket) {
   return sendMail(SUPPORT_RECIPIENTS, content.subject, content.html, { branded: false });
 }
 
-async function notifyTicketResolved(ticket, actor, resolutionNote) {
+async function notifyTicketResolved(ticket, actor, resolutionNote, attachments = []) {
   if (!ticket.createdByEmail) return null;
-  const content = buildResolvedEmail(ticket, actor, resolutionNote);
+  const content = buildResolvedEmail(ticket, actor, resolutionNote, attachments);
   return sendMail(ticket.createdByEmail, content.subject, content.html, { branded: false });
 }
 

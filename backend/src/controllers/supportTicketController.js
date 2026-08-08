@@ -65,7 +65,9 @@ exports.updateTicket = async (req, res) => {
 
   const previousStatus = ticket.status;
   const message = String(req.body.message || '').trim();
-  if (message) ticket.messages.push({ message, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role });
+  const completingTicket = ['Resolved', 'Closed'].includes(req.body.status);
+  const messageAttachments = completingTicket && isAdmin(req.user) ? cleanAttachments(req.body.attachments) : [];
+  if (message) ticket.messages.push({ message, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role, attachments: messageAttachments });
   if (req.body.status && isAdmin(req.user)) {
     if (!STATUSES.includes(req.body.status)) return res.status(400).json({ error: 'Invalid ticket status' });
     if (['Resolved', 'Closed'].includes(req.body.status) && !message) return res.status(400).json({ error: `A ${req.body.status.toLowerCase()} note is required` });
@@ -78,7 +80,7 @@ exports.updateTicket = async (req, res) => {
   const savedTicket = await SupportTicket.findById(ticket._id).lean();
   const completedStatusChanged = previousStatus !== ticket.status && ['Resolved', 'Closed'].includes(ticket.status);
   if (completedStatusChanged) {
-    await notifyTicketResolved(savedTicket, req.user, message).catch((error) => console.error(`Support ticket ${ticket.ticketNumber} resolution email failed`, error.message));
+    await notifyTicketResolved(savedTicket, req.user, message, messageAttachments).catch((error) => console.error(`Support ticket ${ticket.ticketNumber} resolution email failed`, error.message));
   }
   res.json({ ok: true, ticket: savedTicket });
 };

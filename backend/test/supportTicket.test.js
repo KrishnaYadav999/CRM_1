@@ -50,6 +50,18 @@ test('ticket screenshots render inside the conversation at a compact size', () =
   assert.doesNotMatch(page, /fixed bottom-24 right-5/);
 });
 
+test('admins can optionally attach screenshots when resolving or closing a ticket', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/SupportTickets.jsx'), 'utf8');
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/supportTicketController.js'), 'utf8');
+  const messageAttachments = SupportTicket.schema.path('messages').schema.path('attachments');
+  assert.ok(messageAttachments);
+  assert.match(page, /function TicketOptionalImageUpload/);
+  assert.match(page, /crm\/support-tickets\/resolutions/);
+  assert.match(page, /attachments: statusAttachments/);
+  assert.match(page, /label="Resolution screenshots"/);
+  assert.match(controller, /completingTicket && isAdmin\(req\.user\) \? cleanAttachments\(req\.body\.attachments\) : \[\]/);
+});
+
 test('new-ticket email goes to both IT mailboxes with user and issue details', () => {
   assert.deepEqual(SUPPORT_RECIPIENTS, ['it_support@ananttattva.com', 'it_admin@ananttattva.com']);
   const email = buildRaisedEmail({ ticketNumber: 'TKT-2026-00001', createdByName: 'CRM User', createdByEmail: 'user@example.com', category: 'Lead', priority: 'High', subject: 'Unable to save', description: 'Save button returns an error.' });
@@ -59,10 +71,12 @@ test('new-ticket email goes to both IT mailboxes with user and issue details', (
 });
 
 test('resolution email uses professional success wording', () => {
-  const email = buildResolvedEmail({ ticketNumber: 'TKT-2026-00001', createdByName: 'CRM User', category: 'Lead', subject: 'Unable to save', status: 'Resolved' }, { name: 'IT Admin' }, 'Access has been restored.');
+  const email = buildResolvedEmail({ ticketNumber: 'TKT-2026-00001', createdByName: 'CRM User', category: 'Lead', subject: 'Unable to save', status: 'Resolved' }, { name: 'IT Admin' }, 'Access has been restored.', [{ url: 'https://example.com/resolved.png' }]);
   assert.match(email.subject, /Successfully Resolved/);
   assert.match(email.html, /successfully resolved/i);
   assert.match(email.html, /Access has been restored/);
+  assert.match(email.html, /View screenshot 1/);
+  assert.match(email.html, /https:\/\/example\.com\/resolved\.png/);
 });
 
 test('closed-ticket email uses status-specific success wording', () => {
