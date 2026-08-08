@@ -410,6 +410,38 @@ function createContactRow(source = {}) {
   };
 }
 
+function plantUnitGroups(services = []) {
+  const seen = new Set();
+  return services.filter((service) => {
+    const key = String(service?.plantUnit || service?.assignedServiceId || '').trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function alignRowsToPlantUnits(services = [], savedRows = [], factory) {
+  const rows = Array.isArray(savedRows) ? savedRows : [];
+  const groups = plantUnitGroups(services);
+  const activeUnits = new Set(groups.map((service) => String(service?.plantUnit || '').trim().toLowerCase()).filter(Boolean));
+  const usedRows = new Set();
+  return groups.map((service) => {
+    const unit = String(service?.plantUnit || '').trim();
+    let matchIndex = rows.findIndex((row, index) => !usedRows.has(index) && unit && String(row?.plantUnit || '').trim().toLowerCase() === unit.toLowerCase());
+    if (matchIndex < 0) {
+      matchIndex = rows.findIndex((row, index) => {
+        const savedUnit = String(row?.plantUnit || '').trim().toLowerCase();
+        return !usedRows.has(index)
+          && row?.assignedServiceId === service.assignedServiceId
+          && (!savedUnit || !activeUnits.has(savedUnit));
+      });
+    }
+    if (matchIndex >= 0) usedRows.add(matchIndex);
+    const match = matchIndex >= 0 ? rows[matchIndex] : factory(service);
+    return { ...match, assignedServiceId: service.assignedServiceId, plantUnit: unit };
+  });
+}
+
 function createAssignmentRow(source = {}) {
   return {
     assignedServiceId: source.assignedServiceId || '',
@@ -608,8 +640,9 @@ export default function LeadGeneration() {
       || factory(index === 0 ? lead : {});
     return { ...match, assignedServiceId: service.assignedServiceId, plantUnit: service.plantUnit || match.plantUnit || '' };
   });
-  const addressRows = alignRowsToServices(lead.addresses, createAddressRow);
-  const contactRows = alignRowsToServices(lead.contacts, createContactRow);
+  const unitServices = plantUnitGroups(serviceRows);
+  const addressRows = alignRowsToPlantUnits(serviceRows, lead.addresses, createAddressRow);
+  const contactRows = alignRowsToPlantUnits(serviceRows, lead.contacts, createContactRow);
   const savedAssignmentRows = Array.isArray(lead.assignments) ? lead.assignments : [];
   const assignmentRows = alignRowsToServices(savedAssignmentRows, createAssignmentRow);
   const assignmentHasPlastic = serviceRows.some((row) => /plastic\s+waste/i.test(String(row?.eprCategory || '')));
@@ -1565,7 +1598,7 @@ export default function LeadGeneration() {
     if (workflowStatus === 'submitted') {
       const incompleteRow = serviceRows.findIndex((row) => !row.industryType || !row.businessCategory || !row.eprCategory || !row.applicantType || !row.servicesOffered || !row.plantUnit || !row.firstAnnualReturnYearApplicable || (!directApplicantOptions(row.eprCategory) && !row.piboCategory));
       if (incompleteRow >= 0) return `Complete Industry Type, Business Category, Service Category, Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Sub Applicant Type, '}Services Offered, Plant Unit, and Financial Year in service row ${incompleteRow + 1}.`;
-      if (addressRows.length !== serviceRows.length || contactRows.length !== serviceRows.length || assignmentRows.length !== serviceRows.length) return 'Every service must have one matching Address, Contact, and Assignment row.';
+      if (addressRows.length !== unitServices.length || contactRows.length !== unitServices.length || assignmentRows.length !== serviceRows.length) return 'Every Plant Unit must have one matching Address and Contact row, and every service must have one Assignment row.';
       const seenServices = new Map();
       for (let index = 0; index < serviceRows.length; index += 1) {
         const identity = serviceSelectionIdentity(serviceRows[index]);
@@ -2200,7 +2233,7 @@ export default function LeadGeneration() {
                       const applicantOptions = directOptions || PIBO_PARENTS;
                       const categoryOptions = direct ? [] : normalizePiboCategories(piboCategories).filter((category) => category.parent === row.applicantType).map((category) => category.name);
                       return <div className="lead-service-matrix-row" key={index}>
-                        <span className="lead-service-row-number" title={serviceRows[index]?.plantUnit || ''}>{index + 1}<small className="block text-[8px] text-teal-700">{serviceRows[index]?.plantUnit || ''}</small></span>
+                        <span className="lead-service-row-number" title={row.plantUnit || ''}>{index + 1}<small className="block text-[8px] text-teal-700">{row.plantUnit || ''}</small></span>
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.industryType} options={withCustomOptions('industryType', options.industryType)} onChange={(value) => updateServiceRow(index, 'industryType', value)} placeholder="Select industry" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'industryType', label: 'Industry Type', scope: 'service', index, targetField: 'industryType' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Industry Type</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.businessCategory} options={withCustomOptions('businessCategory', BUSINESS_CATEGORY_OPTIONS)} onChange={(value) => updateServiceRow(index, 'businessCategory', value)} placeholder="Select Business Category" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'businessCategory', label: 'Business Category', scope: 'service', index, targetField: 'businessCategory' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Business Category</button>}</div>
                         <div className="lead-service-select-cell"><SearchableSelect allowCustom={false} disabled={rowFrozen} value={row.eprCategory} options={serviceCategoryOptions} onChange={(value) => updateServiceRow(index, 'eprCategory', value)} placeholder="Select Service Category" />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openCatalogDialog('category', index)} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Service Category</button>}</div>
@@ -2274,7 +2307,7 @@ export default function LeadGeneration() {
                   {contactRows.map((row, index) => {
                     const rowFrozen = serviceOnlyMode && index < frozenContactRowCount;
                     return <div className="lead-contact-row" key={index}>
-                    <span className="lead-service-row-number" title={serviceRows[index]?.plantUnit || ''}>{index + 1}<small className="block text-[8px] text-teal-700">{serviceRows[index]?.plantUnit || ''}</small></span>
+                    <span className="lead-service-row-number" title={row.plantUnit || ''}>{index + 1}<small className="block text-[8px] text-teal-700">{row.plantUnit || ''}</small></span>
                     <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.salutation} options={withCustomOptions('salutation', options.salutations)} onChange={(value) => updateContactRow(index, 'salutation', value)} placeholder="Select" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'salutation', label: 'Salutation', scope: 'contact', index, targetField: 'salutation' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Salutation</button>}</div>
                     <input disabled={rowFrozen} className="form-input" value={row.contactPerson} onChange={(event) => updateContactRow(index, 'contactPerson', event.target.value)} placeholder="Contact person" />
                     <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.designation} options={withCustomOptions('designation', options.designation)} onChange={(value) => updateContactRow(index, 'designation', value)} placeholder="Designation" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'designation', label: 'Designation', scope: 'contact', index, targetField: 'designation' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Designation</button>}</div>
