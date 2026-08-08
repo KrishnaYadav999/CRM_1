@@ -62,6 +62,24 @@ test('EPR Credit quotations require KG or MT UOM and normalize it', () => {
   const body = quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', unitLabel: 'kg', annualReturnEprCreditYears: ['2024-25'], serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] });
   assert.equal(body.items[0].unit, '1');
   assert.equal(body.items[0].unitLabel, 'KG');
+  assert.equal(body.items[0].servicePeriod, 0);
+  assert.equal(body.items[0].periodUnit, 'annual');
+  assert.equal(body.items[0].serviceStartDate, '');
+  assert.equal(body.items[0].serviceEndDate, '');
+});
+
+test('EPR Credit accepts the dashed business label and always clears legacy service-period values', () => {
+  const body = quotationController._test.cleanBody({ items: [{
+    businessCategory: 'EPR - Credit', unitLabel: 'MT', annualReturnEprCreditYears: ['2025-26'],
+    serviceCategory: 'EPR - Execution', servicePeriod: 25, periodUnit: 'days', transitionPeriod: 'Yes',
+    serviceStartDate: '2026-08-07', serviceEndDate: '2026-09-01'
+  }] });
+  assert.equal(body.items[0].businessCategory, 'EPR Credit');
+  assert.equal(body.items[0].servicePeriod, 0);
+  assert.equal(body.items[0].periodUnit, 'annual');
+  assert.equal(body.items[0].transitionPeriod, 'No');
+  assert.equal(body.items[0].serviceStartDate, '');
+  assert.equal(body.items[0].serviceEndDate, '');
 });
 
 test('EPR Credit years are required, validated, persisted, and cleared for consultancy items', () => {
@@ -118,6 +136,16 @@ test('period controls appear in the mapping popup and not in the main quotation 
   assert.match(page, /financialYearDraft\.transitionPeriod \|\| 'No'.*TRANSITION_PERIOD_OPTIONS/s);
   assert.doesNotMatch(page, /'EPR \/ Service Period', 'Select Period', 'Transition Period', 'Industry Type'/);
   assert.match(page, /periodDisplay\(financialYearDraft\.servicePeriod, financialYearDraft\.periodUnit\)/);
+});
+
+test('EPR Credit period controls are disabled and validity notes use business category and quotation validity', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /disabled=\{financialYearNeedsEprCreditYears\}/);
+  assert.match(page, /financialYearNeedsEprCreditYears \? 'N\/A'/);
+  assert.match(page, /The EPR – Credit rates are valid till:/);
+  assert.match(page, /servicePeriodValidityNote\(financialYearDraft, quotation\.validUntil\)/);
+  assert.match(page, /item\.businessCategory \? ` for \$\{item\.businessCategory\}`/);
+  assert.doesNotMatch(page, /item\.serviceCategory \? ` for \$\{item\.serviceCategory\}`/);
 });
 
 test('quotation UI shares applicant fallback logic and conditionally renders EPR Credit years', () => {
