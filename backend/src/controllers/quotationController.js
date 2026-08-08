@@ -123,13 +123,21 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
     .map((item, index) => {
       const matchedExistingItem = existingItems.find((row) => item?.id && String(row?.id || '') === String(item.id)) || existingItems[index];
       const existingItem = matchedExistingItem || {};
+      const rawBusinessCategory = cleanString(item.businessCategory ?? existingItem.businessCategory) || undefined;
+      const isEprCredit = String(rawBusinessCategory || '').toLowerCase().replace(/[^a-z0-9]+/g, '') === 'eprcredit';
+      const businessCategory = isEprCredit ? 'EPR Credit' : rawBusinessCategory;
       let periodUnit;
       let servicePeriod;
       try {
+        if (isEprCredit) {
+          periodUnit = 'annual';
+          servicePeriod = 0;
+        } else {
         periodUnit = normalizePeriodUnit(item.periodUnit ?? existingItem.periodUnit, { allowMissing: Boolean(matchedExistingItem) });
         const rawPeriod = item.servicePeriod ?? existingItem.servicePeriod;
         if (rawPeriod === '' || rawPeriod === null || rawPeriod === undefined) throw new Error('Service Period is required.');
         servicePeriod = validateServicePeriod(rawPeriod, periodUnit);
+        }
       } catch (error) {
         throw new Error(`Quotation item ${index + 1}: ${error.message}`);
       }
@@ -138,13 +146,11 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         throw new Error(`Quotation item ${index + 1}: Transition Period must be Yes or No.`);
       }
       const transitionPeriod = rawTransitionPeriod;
-      const businessCategory = cleanString(item.businessCategory ?? existingItem.businessCategory) || undefined;
       const unitLabel = cleanString(item.unitLabel ?? existingItem.unitLabel).toUpperCase();
       const rawEprCreditYears = Array.isArray(item.annualReturnEprCreditYears)
         ? item.annualReturnEprCreditYears
         : (Array.isArray(existingItem.annualReturnEprCreditYears) ? existingItem.annualReturnEprCreditYears : []);
       const annualReturnEprCreditYears = [...new Set(rawEprCreditYears.map(cleanString).filter(Boolean))];
-      const isEprCredit = String(businessCategory || '').toLowerCase() === 'epr credit';
       if (isEprCredit && annualReturnEprCreditYears.some((year) => !EPR_CREDIT_YEAR_OPTIONS.has(year))) {
         throw new Error(`Quotation item ${index + 1}: Annual Return EPR Credit Years contains an unsupported financial year.`);
       }
@@ -155,18 +161,20 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         throw new Error(`Quotation item ${index + 1}: select at least one Annual Return EPR Credit Year.`);
       }
       const annualReturnYears = [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(cleanString).filter(Boolean))];
-      const existingTransitionIsFrozen = transitionPeriod === 'Yes' && String(existingItem.transitionPeriod || '') === 'Yes';
+      const existingTransitionIsFrozen = !isEprCredit && transitionPeriod === 'Yes' && String(existingItem.transitionPeriod || '') === 'Yes';
       if (existingTransitionIsFrozen && (
         periodUnit !== normalizePeriodUnit(existingItem.periodUnit, { allowMissing: true })
         || servicePeriod !== validateServicePeriod(existingItem.servicePeriod || 1, normalizePeriodUnit(existingItem.periodUnit, { allowMissing: true }))
       )) {
         throw new Error(`Quotation item ${index + 1}: Service Period and Select Period are read-only while Transition Period is Yes.`);
       }
-      let serviceStartDate = existingTransitionIsFrozen
+      let serviceStartDate = isEprCredit ? '' : existingTransitionIsFrozen
         ? normalizeDateOnly(existingItem.serviceStartDate)
         : normalizeDateOnly(item.serviceStartDate || existingItem.serviceStartDate);
       let serviceEndDate = '';
-      if (transitionPeriod === 'Yes') {
+      if (isEprCredit) {
+        serviceEndDate = '';
+      } else if (transitionPeriod === 'Yes') {
         if (existingTransitionIsFrozen) {
           serviceEndDate = normalizeDateOnly(existingItem.serviceEndDate);
         } else {
@@ -188,7 +196,7 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         validityPeriod: Math.max(1, Math.min(50, Number(item.validityPeriod) || 1)),
         servicePeriod,
         periodUnit,
-        transitionPeriod,
+        transitionPeriod: isEprCredit ? 'No' : transitionPeriod,
         annualReturnYears,
         annualReturnEprCreditYears: isEprCredit ? annualReturnEprCreditYears : [],
         servicesOffered: cleanString(item.servicesOffered),
