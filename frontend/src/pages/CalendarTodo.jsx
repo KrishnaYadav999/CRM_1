@@ -14,6 +14,7 @@ const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const priorities = ['Low', 'Medium', 'High', 'Urgent'];
 const categories = ['General', 'Sales', 'Support', 'Development', 'Manager', 'Follow-Up'];
 const DAY_PANEL_PAGE_SIZE = 3;
+const BUCKET_PAGE_SIZE = 4;
 const springSoft = { type: 'spring', stiffness: 420, damping: 32, mass: 0.85 };
 const fadeUp = {
   hidden: { opacity: 0, y: 18, scale: 0.985 },
@@ -217,6 +218,7 @@ export default function CalendarTodo() {
   const [drawerDate, setDrawerDate] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
   const [bucketPopup, setBucketPopup] = useState(null);
+  const [bucketPage, setBucketPage] = useState(1);
   const [calendarView, setCalendarView] = useState('month');
   const [dayPanelTab, setDayPanelTab] = useState('agenda');
   const [assignmentTarget, setAssignmentTarget] = useState(null);
@@ -448,6 +450,8 @@ export default function CalendarTodo() {
       : bucketPopup?.type === 'overdue'
         ? 'Overdue Work'
         : 'Day Work';
+  const bucketTotalPages = Math.max(1, Math.ceil(bucketPopupItems.length / BUCKET_PAGE_SIZE));
+  const visibleBucketItems = bucketPopupItems.slice((bucketPage - 1) * BUCKET_PAGE_SIZE, bucketPage * BUCKET_PAGE_SIZE);
   const selectedChartRows = [
     { label: 'Follow-ups', value: selectedFollowUps.length, fill: '#0f766e' },
     { label: 'Todos', value: selectedTodos.length, fill: '#2563eb' },
@@ -466,6 +470,10 @@ export default function CalendarTodo() {
     setTodoPage((page) => Math.min(page, todoTotalPages));
     setTimelinePage((page) => Math.min(page, timelineTotalPages));
   }, [followUpTotalPages, todoTotalPages, timelineTotalPages]);
+
+  useEffect(() => {
+    setBucketPage((page) => Math.min(page, bucketTotalPages));
+  }, [bucketTotalPages]);
 
   function persist(nextItems, changedItem = null, action = 'update') {
     setItems(nextItems);
@@ -649,6 +657,7 @@ export default function CalendarTodo() {
   function openBucketPopup(event, cell, type) {
     event.stopPropagation();
     setSelectedDate(cell);
+    setBucketPage(1);
     setBucketPopup({ dateKey: dateKey(cell), date: cell.toISOString(), type });
   }
 
@@ -933,7 +942,7 @@ export default function CalendarTodo() {
                 <button type="button" onClick={() => setBucketPopup(null)}><X className="h-5 w-5" /></button>
               </div>
               <div className="calendar-bucket-list">
-                {bucketPopupItems.length ? bucketPopupItems.map((item) => {
+                {bucketPopupItems.length ? visibleBucketItems.map((item) => {
                   const tone = getItemTone(item, todayKey);
                   return (
                     <motion.article key={item.id} className={`calendar-bucket-card calendar-bucket-card-${tone}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -3 }} transition={springSoft}>
@@ -949,7 +958,7 @@ export default function CalendarTodo() {
                       </div>
                       <div className="calendar-bucket-actions">
                         <button type="button" onClick={() => { setDetailItem(item); setReviseDraft(item.scheduledDate || ''); }}><Eye className="h-4 w-4" /> View</button>
-                        <button type="button" disabled={item.status === 'completed'} onClick={() => requestCompletion(item)}><CheckCircle2 className="h-4 w-4" /> {item.status === 'completed' ? 'Locked' : 'Complete'}</button>
+                        <button type="button" disabled={item.status === 'completed'} onClick={() => requestCompletion(item)}><CheckCircle2 className="h-4 w-4" /> {item.status === 'completed' ? 'Locked' : (item.type === 'followup' || item.type === 'follow-up' || item.category === 'Follow-Up') ? 'Close Follow-Up' : 'Complete'}</button>
                       </div>
                     </motion.article>
                   );
@@ -962,8 +971,8 @@ export default function CalendarTodo() {
                 )}
               </div>
               <div className="calendar-bucket-footer">
-                <button type="button" onClick={() => setBucketPopup(null)}>Close</button>
-                <button type="button" onClick={() => openAddTodo(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Add Todo</button>
+                {bucketPopupItems.length > BUCKET_PAGE_SIZE && <MiniPager page={bucketPage} totalPages={bucketTotalPages} onPageChange={setBucketPage} />}
+                <div className="calendar-bucket-footer-actions"><button type="button" onClick={() => setBucketPopup(null)}>Close</button><button type="button" onClick={() => openAddTodo(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Add Todo</button></div>
               </div>
             </motion.section>
           </motion.div>
@@ -1037,12 +1046,12 @@ export default function CalendarTodo() {
           <motion.div className="calendar-assignment-backdrop" variants={modalBackdropMotion} initial="hidden" animate="show" onClick={() => setCompletionTarget(null)}>
             <motion.section className="calendar-complete-modal" variants={modalPanelMotion} initial="hidden" animate="show" onClick={(event) => event.stopPropagation()}>
               <div className="calendar-assignment-head">
-                <div><CheckCircle2 className="h-5 w-5" /><strong>Mark Todo as Complete</strong></div>
+                <div><CheckCircle2 className="h-5 w-5" /><strong>{completionTarget.type === 'followup' || completionTarget.type === 'follow-up' || completionTarget.category === 'Follow-Up' ? 'Close Follow-Up' : 'Mark Todo as Complete'}</strong></div>
                 <button type="button" onClick={() => setCompletionTarget(null)}><X className="h-5 w-5" /></button>
               </div>
               <div className="calendar-complete-title">{completionTarget.title}</div>
               <label className="calendar-complete-field">
-                <span><i>*</i> Completion Remarks</span>
+                <span><i>*</i> {completionTarget.type === 'followup' || completionTarget.type === 'follow-up' || completionTarget.category === 'Follow-Up' ? 'Follow-Up Close Remarks' : 'Completion Remarks'}</span>
                 <textarea
                   maxLength={500}
                   value={completionRemarks}
