@@ -34,6 +34,7 @@ const emptyLeadDetails = {
 };
 
 const emptyItem = {
+  assignedServiceId: '',
   industryType: '',
   financialYear: '',
   validityPeriod: '',
@@ -334,6 +335,31 @@ function quotationItemIdentity(row = {}) {
   ].map(normalizeSearchValue).join('|');
 }
 
+function syncQuotationItemsWithLead(items = [], lead = {}) {
+  const services = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : (lead ? [lead] : []);
+  return (Array.isArray(items) ? items : []).map((item, itemIndex) => {
+    const assignedServiceId = String(item?.assignedServiceId || '').trim();
+    const sourceIndex = Number.isInteger(Number(item?.sourceServiceIndex)) ? Number(item.sourceServiceIndex) : itemIndex;
+    const service = services.find((row) => assignedServiceId && String(row?.assignedServiceId || '') === assignedServiceId)
+      || services[sourceIndex]
+      || services.find((row) => quotationItemIdentity(row) === quotationItemIdentity(item));
+    if (!service) return item;
+    return {
+      ...item,
+      assignedServiceId: service.assignedServiceId || assignedServiceId,
+      sourceServiceIndex: services.indexOf(service),
+      businessCategory: service.businessCategory || item.businessCategory || ''
+    };
+  });
+}
+
+function findLeadForQuotation(quotation = {}, leads = []) {
+  const leadId = String(quotation.leadId || '').trim();
+  const leadCode = normalizeSearchValue(quotation.leadCode);
+  return leads.find((lead) => String(lead._id || lead.id || '') === leadId)
+    || leads.find((lead) => leadCode && [lead.leadCode, lead.businessLeadCode, lead.sourceLeadId].map(normalizeSearchValue).includes(leadCode));
+}
+
 function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
   if (adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase())) return true;
   const userTokens = ownerIdentityTokens(
@@ -392,6 +418,7 @@ function mapLeadServiceRows(lead = {}, savedItems = [], serviceState = 'open', c
     return {
       ...emptyItem,
       ...saved,
+      assignedServiceId: row.assignedServiceId || saved.assignedServiceId || '',
       sourceServiceIndex: index,
       serviceAddedBy: row.createdByName || row.createdByEmail || currentUser?.name || currentUser?.email || '',
       servicesOffered: row.servicesOffered || saved.servicesOffered || '',
@@ -526,6 +553,7 @@ function buildQuotationFromContext(context) {
       const applicant = quotationApplicantSelection(service);
       return {
         ...emptyItem,
+        assignedServiceId: service.assignedServiceId || '',
         sourceServiceIndex: Number.isInteger(Number(service.sourceServiceIndex))
           ? Number(service.sourceServiceIndex)
           : sourceServiceIndex,
@@ -981,8 +1009,13 @@ export default function Quotations() {
         api.get(API_ENDPOINTS.quotations.dropdownOptions).catch(() => ({ data: { options: [] } }))
       ]);
       setCurrentUser(me);
-      setLeads(mergeLeadLists(crmLeadsResult.data.leads || []));
-      setQuotations(quotationsResponse.data.quotations || []);
+      const liveLeads = mergeLeadLists(crmLeadsResult.data.leads || []);
+      const liveQuotations = (quotationsResponse.data.quotations || []).map((savedQuotation) => {
+        const lead = findLeadForQuotation(savedQuotation, liveLeads);
+        return lead ? { ...savedQuotation, items: syncQuotationItemsWithLead(savedQuotation.items, lead) } : savedQuotation;
+      });
+      setLeads(liveLeads);
+      setQuotations(liveQuotations);
       setCustomServiceCategories(categoriesResponse.data.categories || []);
       setPiboCategories(piboCategoriesResponse.data.categories || []);
       setCustomDropdownOptions(dropdownOptionsResponse.data.options || []);
@@ -1088,6 +1121,8 @@ export default function Quotations() {
       setMenuId('');
       return;
     }
+    const latestLead = findLeadForQuotation(row, leads);
+    const syncedItems = latestLead ? syncQuotationItemsWithLead(row.items, latestLead) : row.items;
     setQuotation({
       leadId: row.leadId || '',
       leadCode: row.leadCode || '',
@@ -1095,7 +1130,7 @@ export default function Quotations() {
       validUntil: row.validUntil || '',
       pricingMode: row.pricingMode || (Array.isArray(row.items) && row.items.length ? 'individual' : ''),
       combinedBasicAmount: row.combinedBasicAmount ?? '',
-      items: Array.isArray(row.items) ? row.items.map((item) => ({ ...emptyItem, ...item, basicAmount: item.basicAmount ?? '' })) : [],
+      items: Array.isArray(syncedItems) ? syncedItems.map((item) => ({ ...emptyItem, ...item, basicAmount: item.basicAmount ?? '' })) : [],
       terms: Array.isArray(row.terms) ? row.terms.map((term) => String(term ?? '')) : [],
       scopeOfWork: Array.isArray(row.scopeOfWork) ? row.scopeOfWork.map((item) => String(item ?? '')) : [],
       status: row.status || 'draft'

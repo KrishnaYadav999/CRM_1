@@ -123,7 +123,7 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
     .map((item, index) => {
       const matchedExistingItem = existingItems.find((row) => item?.id && String(row?.id || '') === String(item.id)) || existingItems[index];
       const existingItem = matchedExistingItem || {};
-      const rawBusinessCategory = cleanString(item.businessCategory ?? existingItem.businessCategory) || undefined;
+      const rawBusinessCategory = cleanString(item.businessCategory) || cleanString(existingItem.businessCategory) || undefined;
       const isEprCredit = String(rawBusinessCategory || '').toLowerCase().replace(/[^a-z0-9]+/g, '') === 'eprcredit';
       const businessCategory = isEprCredit ? 'EPR Credit' : rawBusinessCategory;
       let periodUnit;
@@ -187,6 +187,7 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
       }
       return {
         id: cleanString(item.id),
+        assignedServiceId: cleanString(item.assignedServiceId) || cleanString(existingItem.assignedServiceId),
         sourceServiceIndex: Number.isInteger(Number(item.sourceServiceIndex)) && Number(item.sourceServiceIndex) >= 0
           ? Number(item.sourceServiceIndex)
           : undefined,
