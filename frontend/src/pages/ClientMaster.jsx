@@ -861,14 +861,24 @@ export default function ClientMaster() {
     const rows = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
       ? lead.serviceSelections
       : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, applicantType: lead?.applicantType || lead?.piboParent, subApplicantType: lead?.subApplicantType, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
-    return rows.map((row, index) => ({
-      ...row,
-      applicantType: row.applicantType || row.piboParent || row.piboCategoryParent || '',
-      piboCategory: row.subApplicantType || row.piboCategory || '',
-      addressData: (lead.addresses || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId) || lead.addresses?.[index] || {},
-      contactData: (lead.contacts || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId) || lead.contacts?.[index] || {},
-      assignmentData: (lead.assignments || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId) || lead.assignments?.[index] || {}
-    }));
+    return rows.map((row, index) => {
+      const addressData = (lead.addresses || []).find((item) => row.plantUnit && item?.plantUnit === row.plantUnit)
+        || (lead.addresses || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId)
+        || (!row.plantUnit ? lead.addresses?.[index] : null)
+        || {};
+      const contactData = (lead.contacts || []).find((item) => row.plantUnit && item?.plantUnit === row.plantUnit)
+        || (lead.contacts || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId)
+        || (!row.plantUnit ? lead.contacts?.[index] : null)
+        || {};
+      return {
+        ...row,
+        applicantType: row.applicantType || row.piboParent || row.piboCategoryParent || '',
+        piboCategory: row.subApplicantType || row.piboCategory || '',
+        addressData,
+        contactData,
+        assignmentData: (lead.assignments || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId) || lead.assignments?.[index] || {}
+      };
+    });
   }
 
   async function loadPage() {

@@ -313,8 +313,10 @@ function validateSubmittedLead(data) {
   if (addresses.some((row) => !/^\d{6}$/.test(String(row?.pinCode || '')))) return 'Every PIN code must contain exactly 6 digits';
   const contacts = Array.isArray(data.contacts) && data.contacts.length ? data.contacts : [data];
   const assignments = Array.isArray(data.assignments) ? data.assignments : [];
-  if (usesPlantUnits && (addresses.length !== serviceRows.length || contacts.length !== serviceRows.length || assignments.length !== serviceRows.length)) return 'Every service must have one matching Address, Contact, and Assignment row';
-  if (usesPlantUnits && serviceRows.some((service, index) => addresses[index]?.assignedServiceId !== service.assignedServiceId || contacts[index]?.assignedServiceId !== service.assignedServiceId || assignments[index]?.assignedServiceId !== service.assignedServiceId)) return 'Address, Contact, and Assignment rows must match their assignedServiceId';
+  const distinctPlantUnits = [...new Set(serviceRows.map((row) => String(row?.plantUnit || '').trim()).filter(Boolean))];
+  if (usesPlantUnits && (addresses.length !== distinctPlantUnits.length || contacts.length !== distinctPlantUnits.length || assignments.length !== serviceRows.length)) return 'Every Plant Unit must have one matching Address and Contact row, and every service must have one Assignment row';
+  if (usesPlantUnits && distinctPlantUnits.some((unit) => !addresses.some((row) => row?.plantUnit === unit) || !contacts.some((row) => row?.plantUnit === unit))) return 'Address and Contact rows must match their Plant Unit';
+  if (usesPlantUnits && serviceRows.some((service, index) => assignments[index]?.assignedServiceId !== service.assignedServiceId)) return 'Assignment rows must match their assignedServiceId';
   if (contacts.some((row) => !row.salutation || !row.contactPerson || !row.designation || !row.emails || !row.mobileNo1 || !row.referredBy || !row.source)) return 'All contact fields except Mobile No. 2 and Business Card are required';
   if (contacts.some((row) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.emails || '')))) return 'Every contact must have a valid email address';
   if (contacts.some((row) => !/^\d{10}$/.test(String(row.mobileNo1 || '')))) return 'Every primary mobile number must contain exactly 10 digits';
