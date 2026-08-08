@@ -82,6 +82,19 @@ test('EPR Credit accepts the dashed business label and always clears legacy serv
   assert.equal(body.items[0].serviceEndDate, '');
 });
 
+test('quotation updates preserve business category and assigned service identity', () => {
+  const existing = [{
+    assignedServiceId: 'service_assignment_002', sourceServiceIndex: 1,
+    businessCategory: 'EPR Consultancy', serviceCategory: 'Consent Compliance Services',
+    servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07'
+  }];
+  const body = quotationController._test.cleanBody({ items: [{
+    ...existing[0], businessCategory: '', basicAmount: 15000
+  }] }, null, existing);
+  assert.equal(body.items[0].businessCategory, 'EPR Consultancy');
+  assert.equal(body.items[0].assignedServiceId, 'service_assignment_002');
+});
+
 test('EPR Credit years are required, validated, persisted, and cleared for consultancy items', () => {
   assert.throws(
     () => quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', unitLabel: 'MT', serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] }),
@@ -146,6 +159,14 @@ test('EPR Credit period controls are disabled and validity notes use business ca
   assert.match(page, /servicePeriodValidityNote\(financialYearDraft, quotation\.validUntil\)/);
   assert.match(page, /item\.businessCategory \? ` for \$\{item\.businessCategory\}`/);
   assert.doesNotMatch(page, /item\.serviceCategory \? ` for \$\{item\.serviceCategory\}`/);
+});
+
+test('quotation items rehydrate business category from their assigned lead service', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /function syncQuotationItemsWithLead\(items = \[\], lead = \{\}\)/);
+  assert.match(page, /service\.assignedServiceId \|\| assignedServiceId/);
+  assert.match(page, /businessCategory: service\.businessCategory \|\| item\.businessCategory \|\| ''/);
+  assert.match(page, /items: syncQuotationItemsWithLead\(savedQuotation\.items, lead\)/);
 });
 
 test('quotation UI shares applicant fallback logic and conditionally renders EPR Credit years', () => {
