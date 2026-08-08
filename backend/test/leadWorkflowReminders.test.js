@@ -12,9 +12,21 @@ test('follow-up escalation uses the production 30m, 60m, 24h and 48h timeline', 
   assert.equal(__test.followUpEscalationStage(due, due + (48 * 60 * 60 * 1000)), 'PERMANENT_RED_48H');
 });
 
-test('pending lead reminders run only on the first day of each India-timezone month', () => {
-  assert.equal(__test.indiaMonthKeyOnFirst(Date.parse('2026-08-31T18:30:00Z')), '2026-09');
-  assert.equal(__test.indiaMonthKeyOnFirst(Date.parse('2026-08-31T18:29:00Z')), '');
+test('lead summary runs only on the last day of each India-timezone month', () => {
+  assert.equal(__test.indiaMonthEndKey(Date.parse('2026-08-30T18:30:00Z')), '2026-08');
+  assert.equal(__test.indiaMonthEndKey(Date.parse('2026-08-29T18:30:00Z')), '');
+  assert.equal(__test.indiaMonthEndKey(Date.parse('2028-02-28T18:30:00Z')), '2028-02');
+});
+
+test('month-end lead email contains separate open and closed counts', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
+  assert.match(source, /kind:\s*'month_end_lead_summary'/);
+  assert.match(source, /openLeadCount:\s*openRows\.length/);
+  assert.match(source, /closedLeadCount:\s*closedRows\.length/);
+  assert.match(source, /Open Leads/);
+  assert.match(source, /Closed Leads/);
 });
 
 test('getCcpLeads returns an empty list when the CCP endpoint is unreachable', async () => {
