@@ -193,6 +193,9 @@ function cleanBody(body) {
           followUpRemarks: String(row?.followUpRemarks || '').trim(),
           followUpPriority: String(row?.followUpPriority || 'Medium').trim(),
           followUpUpdatedAt: String(row?.followUpUpdatedAt || '').trim(),
+          followUpClosedAt: String(row?.followUpClosedAt || '').trim(),
+          followUpClosedBy: String(row?.followUpClosedBy || '').trim(),
+          followUpCloseReason: String(row?.followUpCloseReason || '').trim(),
           followUpFlag: String(row?.followUpFlag || '').trim(),
           followUpHistory: Array.isArray(row?.followUpHistory) ? row.followUpHistory.slice(0, 100) : [],
           createdByCrmUserId: String(row?.createdByCrmUserId || '').trim(),
@@ -525,7 +528,8 @@ function changedFollowUpIndexes(beforeLead = {}, data = {}) {
     const before = beforeRows[index] || {};
     const currentKey = [row?.nextFollowUpDate, row?.nextFollowUpTime, row?.followUpRemarks].map((value) => String(value || '').trim()).join('|');
     const beforeKey = [before?.nextFollowUpDate, before?.nextFollowUpTime, before?.followUpRemarks].map((value) => String(value || '').trim()).join('|');
-    return currentKey && currentKey !== beforeKey ? index : -1;
+    const closeChanged = String(row?.followUpClosedAt || '').trim() !== String(before?.followUpClosedAt || '').trim();
+    return (currentKey !== beforeKey && (currentKey || beforeKey)) || closeChanged ? index : -1;
   }).filter((index) => index >= 0);
 }
 
