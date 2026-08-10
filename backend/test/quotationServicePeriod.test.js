@@ -211,6 +211,14 @@ test('quotation PDF places applicant beside the date range and combines annual a
   assert.match(page, /const ANANT_TATTVA_GST_NUMBER = '27AAZCA6657R1ZB'/);
 });
 
+test('quotation mapping view and print hide the EPR service period column', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.doesNotMatch(page, /<th className="border-r border-t border-slate-950 px-2 py-3">EPR \/ Service Period<\/th>/);
+  assert.doesNotMatch(page, /<td className="border-r border-t border-slate-950 px-2 py-3">\{quotationServicePeriodDisplay\(item\)\}<\/td>/);
+  assert.doesNotMatch(page, /<th>Service Category<\/th><th>EPR \/ Service Period<\/th>/);
+  assert.doesNotMatch(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
+});
+
 test('quotation selects safely normalize object and string options before filtering', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /option && typeof option === 'object'/);
