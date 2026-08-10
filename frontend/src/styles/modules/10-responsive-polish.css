@@ -2220,6 +2220,71 @@
   font-weight: 950;
 }
 
+.pending-decision-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.68);
+  backdrop-filter: blur(8px);
+}
+
+.pending-decision-modal {
+  position: relative;
+  width: min(100%, 560px);
+  overflow: hidden;
+  border: 1px solid #dbe7e5;
+  border-radius: 28px;
+  background: linear-gradient(145deg, #ffffff 62%, #f0fdfa);
+  padding: 34px;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.34);
+}
+
+.pending-decision-modal.is-rejected {
+  background: linear-gradient(145deg, #ffffff 62%, #fff1f2);
+}
+
+.pending-decision-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border-radius: 18px;
+  background: #d1fae5;
+  color: #047857;
+  box-shadow: 0 12px 28px rgba(4, 120, 87, 0.16);
+}
+
+.is-rejected .pending-decision-icon { background: #fee2e2; color: #dc2626; }
+.pending-decision-close { position: absolute; top: 22px; right: 22px; display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: #f1f5f9; color: #475569; }
+.pending-decision-kicker { margin-top: 22px; color: #0f766e; font-size: 11px; font-weight: 950; letter-spacing: .14em; text-transform: uppercase; }
+.is-rejected .pending-decision-kicker { color: #dc2626; }
+.pending-decision-modal h2 { margin-top: 5px; color: #0f172a; font-size: 28px; font-weight: 950; }
+.pending-decision-client { display: block; margin-top: 8px; color: #334155; font-size: 16px; }
+.pending-decision-help { margin-top: 14px; color: #64748b; font-size: 13px; font-weight: 700; line-height: 1.65; }
+.pending-decision-field { display: grid; gap: 8px; margin-top: 22px; }
+.pending-decision-field > span { color: #334155; font-size: 13px; font-weight: 950; }
+.pending-decision-field > span b { color: #dc2626; }
+.pending-decision-field textarea { width: 100%; resize: vertical; border: 1px solid #cbd5e1; border-radius: 16px; background: rgba(255,255,255,.9); padding: 15px; color: #0f172a; font-size: 14px; font-weight: 700; outline: none; transition: border-color 160ms ease, box-shadow 160ms ease; }
+.pending-decision-field textarea:focus { border-color: #14b8a6; box-shadow: 0 0 0 4px rgba(20,184,166,.13); }
+.is-rejected .pending-decision-field textarea:focus { border-color: #f87171; box-shadow: 0 0 0 4px rgba(248,113,113,.13); }
+.pending-decision-field small { display: flex; justify-content: flex-end; color: #94a3b8; font-size: 11px; font-weight: 850; }
+.pending-decision-field small span { color: #475569; }
+.pending-decision-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.pending-decision-actions button { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; gap: 8px; border-radius: 13px; padding: 0 19px; font-size: 13px; font-weight: 950; }
+.pending-decision-actions button:first-child { border: 1px solid #cbd5e1; background: #ffffff; color: #475569; }
+.pending-decision-actions button:last-child { background: linear-gradient(135deg, #10b981, #0f766e); color: #ffffff; box-shadow: 0 12px 24px rgba(15,118,110,.2); }
+.is-rejected .pending-decision-actions button:last-child { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 12px 24px rgba(220,38,38,.18); }
+.pending-decision-actions button:disabled { cursor: not-allowed; opacity: .55; }
+
+@media (max-width: 560px) {
+  .pending-decision-modal { border-radius: 22px; padding: 25px 20px; }
+  .pending-decision-actions { flex-direction: column-reverse; }
+  .pending-decision-actions button { width: 100%; }
+}
+
 @media (max-width: 1180px) {
   .pending-approval-hero {
     grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);

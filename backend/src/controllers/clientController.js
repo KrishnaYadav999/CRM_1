@@ -1214,6 +1214,12 @@ exports.updateClientApproval = async (req, res) => {
   }
   const approvalRecordId = String(req.body.approvalRecordId || '').trim();
   const remarks = String(req.body.remarks || '').trim();
+  if (!remarks) {
+    return res.status(400).json({ error: `${status === 'APPROVED' ? 'Approval note' : 'Rejection reason'} is required` });
+  }
+  if (remarks.length > 250) {
+    return res.status(400).json({ error: 'Decision note cannot exceed 250 characters' });
+  }
   const approvalRecord = mongoose.Types.ObjectId.isValid(approvalRecordId)
     ? await PendingApproval.findById(approvalRecordId)
     : null;
@@ -1279,9 +1285,12 @@ exports.updateClientApproval = async (req, res) => {
       );
     }
 
-    await notifyClientApprovalDecision({ record: approvalRecord || req.body, client: createdClient, status, remarks, reviewer: req.user })
-      .catch((error) => console.error('Client approval decision email failed', error));
-    return res.json({ ok: true, client: createdClient });
+    const notification = await notifyClientApprovalDecision({ record: approvalRecord || req.body, client: createdClient, status, remarks, reviewer: req.user })
+      .catch((error) => {
+        console.error('Client approval decision email failed', error);
+        return { sent: false, reason: error.message || 'email_failed' };
+      });
+    return res.json({ ok: true, client: createdClient, notification });
   }
 
   client.adminControls = approvalFields
@@ -1329,9 +1338,12 @@ exports.updateClientApproval = async (req, res) => {
     );
   }
 
-  await notifyClientApprovalDecision({ record: approvalRecord || req.body, client, status, remarks, reviewer: req.user })
-    .catch((error) => console.error('Client approval decision email failed', error));
-  res.json({ ok: true, client });
+  const notification = await notifyClientApprovalDecision({ record: approvalRecord || req.body, client, status, remarks, reviewer: req.user })
+    .catch((error) => {
+      console.error('Client approval decision email failed', error);
+      return { sent: false, reason: error.message || 'email_failed' };
+    });
+  res.json({ ok: true, client, notification });
 };
 
 exports.approveAllPendingClients = async (req, res) => {

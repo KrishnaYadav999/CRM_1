@@ -142,6 +142,7 @@ export default function PendingApproval() {
   const [serviceApprovals, setServiceApprovals] = useState([]);
   const [serviceApprovalDetail, setServiceApprovalDetail] = useState(null);
   const [serviceRejection, setServiceRejection] = useState(null);
+  const [clientDecision, setClientDecision] = useState(null);
   const [royaltyApprovals, setRoyaltyApprovals] = useState([]);
   const [approvalInputs, setApprovalInputs] = useState({});
   const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
@@ -360,15 +361,22 @@ export default function PendingApproval() {
     }
   }
 
-  async function updateApproval(row, status) {
+  function requestClientDecision(row, status) {
     if (!canApproveClients) return;
+    setClientDecision({ row, status, note: '' });
+  }
+
+  async function updateApproval(row, status, remarks) {
+    if (!canApproveClients) return;
+    const decisionNote = String(remarks || '').trim();
+    if (!decisionNote || decisionNote.length > 250) return;
     const id = row?.id;
     setSavingId(`${id}-${status}`);
     setError('');
     setNotice('');
 
     try {
-      await api.patch(API_ENDPOINTS.clients.approval(id), {
+      const response = await api.patch(API_ENDPOINTS.clients.approval(id), {
         status,
         approvalRecordId: row?.approvalRecordId,
         source: row?.source,
@@ -377,15 +385,27 @@ export default function PendingApproval() {
         piboCategory: row?.piboCategory,
         eprCategory: row?.eprCategory,
         createdBy: row?.createdBy,
+        remarks: decisionNote,
         payload: row?.payload
       });
-      setNotice(`Approval ${status.toLowerCase()} successfully.`);
+      setClientDecision(null);
+      const emailMessage = response.data?.notification?.sent
+        ? ' Decision email sent to the creator.'
+        : ' Decision saved, but the creator email could not be sent; verify the creator email address.';
+      setNotice(`${row?.clientName || 'Client Master'} ${status.toLowerCase()} successfully.${emailMessage}`);
       await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to update approval.'));
     } finally {
       setSavingId('');
     }
+  }
+
+  async function submitClientDecision(event) {
+    event.preventDefault();
+    const note = String(clientDecision?.note || '').trim();
+    if (!clientDecision?.row || !note || note.length > 250) return;
+    await updateApproval(clientDecision.row, clientDecision.status, note);
   }
 
   async function updateQuotationApproval(row, status) {
@@ -740,7 +760,7 @@ export default function PendingApproval() {
                     <Cell>{client.eprCategory}</Cell>
                     <Cell>{client.createdBy}</Cell>
                     <Cell>{[formatApprovalValue(client.requestDate), formatApprovalValue(client.requestTime)].filter((item) => item !== '-').join(' ')}</Cell>
-                    <ActionCell row={client} savingId={savingId} onUpdate={updateApproval} canApprove={canApproveClients} />
+                    <ActionCell row={client} savingId={savingId} onUpdate={requestClientDecision} canApprove={canApproveClients} />
                   </tr>
                 ))}
               </ApprovalTable>
@@ -895,6 +915,41 @@ export default function PendingApproval() {
               ))}</div> : <div className="p-10 text-center font-bold text-slate-500">No service contribution details are available.</div>}
             </div>
           </div>
+        </div>
+      )}
+
+      {clientDecision && (
+        <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setClientDecision(null); }}>
+          <form onSubmit={submitClientDecision} className={`pending-decision-modal ${clientDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}>
+            <div className="pending-decision-icon">
+              {clientDecision.status === 'APPROVED' ? <CheckCircle2 className="h-7 w-7" /> : <XCircle className="h-7 w-7" />}
+            </div>
+            <button type="button" disabled={Boolean(savingId)} onClick={() => setClientDecision(null)} className="pending-decision-close" aria-label="Close decision dialog"><X className="h-5 w-5" /></button>
+            <p className="pending-decision-kicker">Client Master decision</p>
+            <h2>{clientDecision.status === 'APPROVED' ? 'Approve client' : 'Reject client'}</h2>
+            <strong className="pending-decision-client">{clientDecision.row.clientName}</strong>
+            <p className="pending-decision-help">Your note and decision will be saved in the audit trail and emailed to <strong>{clientDecision.row.createdBy || 'the Client Master creator'}</strong>.</p>
+            <label className="pending-decision-field">
+              <span>{clientDecision.status === 'APPROVED' ? 'Approval note' : 'Rejection reason'} <b>*</b></span>
+              <textarea
+                autoFocus
+                required
+                maxLength={250}
+                rows={5}
+                value={clientDecision.note}
+                onChange={(event) => setClientDecision((current) => ({ ...current, note: event.target.value }))}
+                placeholder={clientDecision.status === 'APPROVED' ? 'Write a clear approval note...' : 'Explain what needs to be corrected...'}
+              />
+              <small><span>{clientDecision.note.length}/250</span> characters</small>
+            </label>
+            <div className="pending-decision-actions">
+              <button type="button" disabled={Boolean(savingId)} onClick={() => setClientDecision(null)}>Cancel</button>
+              <button type="submit" disabled={Boolean(savingId) || !clientDecision.note.trim()}>
+                {savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : clientDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                Submit {clientDecision.status === 'APPROVED' ? 'Approval' : 'Rejection'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

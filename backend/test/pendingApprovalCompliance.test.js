@@ -39,6 +39,19 @@ test('pending client company navigation preselects its lead in Client Master', (
   assert.match(clientMaster, /handleLeadSelect\(leadValue\)/);
 });
 
+test('client decisions require a 250-character note modal and backend validation', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
+  const model = fs.readFileSync(path.resolve(__dirname, '../src/models/PendingApproval.js'), 'utf8');
+  assert.match(page, /maxLength=\{250\}/);
+  assert.match(page, /submitClientDecision/);
+  assert.match(page, /remarks: decisionNote/);
+  assert.match(controller, /Approval note.*Rejection reason.*is required/);
+  assert.match(controller, /remarks\.length > 250/);
+  assert.match(controller, /notifyClientApprovalDecision/);
+  assert.match(model, /remarks:.*maxlength: 250/);
+});
+
 test('Client Master service choices show applicant and sub applicant types separately', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
   assert.match(page, /piboCategory: row\.subApplicantType \|\| row\.piboCategory/);

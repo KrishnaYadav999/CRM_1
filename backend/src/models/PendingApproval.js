@@ -20,7 +20,7 @@ const PendingApprovalSchema = new mongoose.Schema({
   notifiedAdminEmails: [{ type: String, lowercase: true, trim: true }],
   actionBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   actionAt: { type: Date },
-  remarks: { type: String, trim: true }
+  remarks: { type: String, trim: true, maxlength: 250 }
 }, { timestamps: true });
 
 PendingApprovalSchema.index(
