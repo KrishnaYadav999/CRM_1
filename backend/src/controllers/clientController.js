@@ -314,6 +314,10 @@ function normalizeClientRequestPayload(body = {}) {
   return { data, adminControls };
 }
 
+function readClientAssignedServiceId(body = {}, data = {}) {
+  return String(body.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
+}
+
 function mergeAssignedServiceCpcbData(existingData = {}, incomingData = {}) {
   return {
     ...incomingData,
@@ -861,18 +865,36 @@ exports.createClient = async (req, res) => {
   const workflowStatus = req.body.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(req.body);
   const selectedLead = readSelectedLeadId(req.body.selectedLead);
+  const assignedServiceId = readClientAssignedServiceId(req.body, data);
+
+  if (!assignedServiceId) {
+    return res.status(400).json({ error: 'Assigned service is required to save Client Master data' });
+  }
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });
   }
 
-  const client = await Client.create({
-    selectedLead,
-    adminControls,
-    data,
-    workflowStatus,
-    createdBy: req.user?._id
-  });
+  const existingClient = selectedLead && req.user?._id
+    ? await Client.findOne({
+        selectedLead,
+        createdBy: req.user._id,
+        $or: [
+          { assignedServiceId },
+          { 'data.assignedServiceId': assignedServiceId },
+          { 'data.selectedLeadSnapshot.assignedServiceId': assignedServiceId }
+        ]
+      })
+    : null;
+  const client = existingClient || new Client();
+  client.selectedLead = selectedLead;
+  client.assignedServiceId = assignedServiceId;
+  client.adminControls = adminControls;
+  client.data = existingClient ? mergeAssignedServiceCpcbData(existingClient.data, data) : data;
+  client.workflowStatus = workflowStatus;
+  client.createdBy = existingClient?.createdBy || req.user?._id;
+  client.markModified('data');
+  await client.save();
 
   await queueCreatedClientApproval(client, req.user);
 
@@ -981,6 +1003,11 @@ exports.updateClient = async (req, res) => {
   const workflowStatus = req.body.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(req.body);
   const selectedLead = readSelectedLeadId(req.body.selectedLead);
+  const assignedServiceId = readClientAssignedServiceId(req.body, data);
+
+  if (!assignedServiceId) {
+    return res.status(400).json({ error: 'Assigned service is required to save Client Master data' });
+  }
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });
@@ -990,6 +1017,7 @@ exports.updateClient = async (req, res) => {
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
   client.selectedLead = selectedLead;
+  client.assignedServiceId = assignedServiceId;
   client.adminControls = adminControls;
   const existingData = isPlainObject(client.data) ? client.data : {};
   client.data = mergeAssignedServiceCpcbData(existingData, data);

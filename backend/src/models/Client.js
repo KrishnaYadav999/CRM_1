@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const ClientSchema = new mongoose.Schema({
   selectedLead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' },
+  assignedServiceId: { type: String, trim: true, index: true },
   companyIdentity: { type: String, trim: true, index: true },
   adminControls: {
     approvalStatus: { type: String, default: 'PENDING' },
@@ -20,5 +21,6 @@ const ClientSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 ClientSchema.index({ companyIdentity: 1, workflowStatus: 1 });
+ClientSchema.index({ selectedLead: 1, assignedServiceId: 1, createdBy: 1 });
 
 module.exports = mongoose.model('Client', ClientSchema);

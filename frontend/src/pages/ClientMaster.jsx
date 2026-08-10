@@ -466,15 +466,17 @@ function getClientMasterRows(crmClients = [], ccpClients = []) {
 
   const strongKeys = (item) => {
     const data = readClientData(item);
+    const assignedServiceId = String(item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim().toLowerCase();
+    const serviceSuffix = assignedServiceId ? `:service:${assignedServiceId}` : '';
     const quotationNumbers = [
       data.quotation?.quotationNumber,
       ...(Array.isArray(data.quotations) ? data.quotations.map((row) => row?.quotationNumber) : [])
     ];
     return [...new Set([
-      data.importMeta?.uniqueId && `uid:${String(data.importMeta.uniqueId).trim().toLowerCase()}`,
-      data.importMeta?.leadNumber && `lead:${String(data.importMeta.leadNumber).trim().toLowerCase()}`,
-      (typeof item.selectedLead === 'string' || typeof item.selectedLead === 'number') && `lead-id:${String(item.selectedLead).trim().toLowerCase()}`,
-      ...quotationNumbers.filter(Boolean).map((value) => `quote:${String(value).trim().toLowerCase()}`)
+      data.importMeta?.uniqueId && `uid:${String(data.importMeta.uniqueId).trim().toLowerCase()}${serviceSuffix}`,
+      data.importMeta?.leadNumber && `lead:${String(data.importMeta.leadNumber).trim().toLowerCase()}${serviceSuffix}`,
+      (typeof item.selectedLead === 'string' || typeof item.selectedLead === 'number') && `lead-id:${String(item.selectedLead).trim().toLowerCase()}${serviceSuffix}`,
+      ...quotationNumbers.filter(Boolean).map((value) => `quote:${String(value).trim().toLowerCase()}${serviceSuffix}`)
     ].filter(Boolean))];
   };
 
@@ -603,7 +605,8 @@ function normalizeDraftKey(value = '') {
 
 function getClientDraftKeys(data = {}, selectedLead = '') {
   const lead = typeof selectedLead === 'object' ? selectedLead : {};
-  return [...new Set([
+  const assignedServiceId = normalizeDraftKey(data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId);
+  const leadKeys = [...new Set([
     selectedLead,
     lead?._id,
     lead?.id,
@@ -616,6 +619,7 @@ function getClientDraftKeys(data = {}, selectedLead = '') {
     data.basic?.tradeName,
     data.companyOverview?.companyName
   ].map(normalizeDraftKey).filter(Boolean))];
+  return assignedServiceId ? leadKeys.map((key) => `${key}::service:${assignedServiceId}`) : leadKeys;
 }
 
 function readClientDraftCache() {
@@ -631,9 +635,13 @@ function writeClientDraftCache(cache) {
   localStorage.setItem(clientDraftStorageKey, JSON.stringify(cache));
 }
 
-function findCachedClientDraft(keys = []) {
+function findCachedClientDraft(keys = [], assignedServiceId = '') {
   const cache = readClientDraftCache();
-  return keys.map((key) => cache[normalizeDraftKey(key)]).find(Boolean) || null;
+  const serviceKey = normalizeDraftKey(assignedServiceId);
+  const scopedKeys = serviceKey
+    ? keys.map((key) => `${normalizeDraftKey(key)}::service:${serviceKey}`)
+    : keys.map(normalizeDraftKey);
+  return scopedKeys.map((key) => cache[key]).find(Boolean) || null;
 }
 
 function rememberClientDraft(savedClient = {}, fallbackClient = {}) {
@@ -956,6 +964,7 @@ export default function ClientMaster() {
   }
 
   function findClientDraftForLead(selectedLead, leadValue) {
+    const assignedServiceId = readAssignedServiceId(selectedLead);
     const strongLeadKeys = [
       leadValue,
       selectedLead?._id,
@@ -967,6 +976,8 @@ export default function ClientMaster() {
     ].map(normalizeDraftKey).filter(Boolean);
     const matchedClient = clients.find((item) => {
       const data = readClientData(item);
+      const itemAssignedServiceId = String(item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
+      if (assignedServiceId && itemAssignedServiceId !== assignedServiceId) return false;
       const itemKeys = [
         item.selectedLead,
         typeof item.selectedLead === 'object' ? item.selectedLead?._id : '',
@@ -989,9 +1000,7 @@ export default function ClientMaster() {
         data: { ...emptyClient, ...readClientData(matchedClient), selectedLead: leadValue || matchedClient.selectedLead || '' }
       };
     }
-    return Array.isArray(selectedLead?.serviceSelections) && selectedLead.serviceSelections.length > 1
-      ? null
-      : findCachedClientDraft(strongLeadKeys);
+    return findCachedClientDraft(strongLeadKeys, assignedServiceId);
   }
 
   function handleLeadSelect(value, selectedService = null) {
@@ -1398,13 +1407,17 @@ export default function ClientMaster() {
           updatedAt: new Date().toISOString()
         }
       };
-      const invalidScreenshot = (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file);
+      const invalidScreenshot = workflowStatus === 'submitted'
+        ? (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file)
+        : null;
       if (invalidScreenshot) {
         setError('Every CPCB screenshot/document must have a name and an uploaded file.');
         setActiveTab('cpcbScreenshots');
         return;
       }
-      const invalidProcessDiagram = (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file);
+      const invalidProcessDiagram = workflowStatus === 'submitted'
+        ? (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file)
+        : null;
       if (invalidProcessDiagram) {
         setError('Every PFD and Machinery Diagram PDF must have a name and an uploaded PDF.');
         setActiveTab('cpcbScreenshots');
