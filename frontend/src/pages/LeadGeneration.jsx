@@ -3602,6 +3602,22 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   useEffect(() => {
     setDetailLead(lead);
   }, [lead]);
+  const detailLeadIdentity = String(lead?._id || lead?.id || lead?.sourceLeadId || '').trim();
+  useEffect(() => {
+    if (!detailLeadIdentity) return undefined;
+    let mounted = true;
+    api.get(API_ENDPOINTS.leads.list)
+      .then((response) => {
+        if (!mounted) return;
+        const freshLead = (response.data?.leads || []).find((item) => [item?._id, item?.id, item?.sourceLeadId, item?.externalLeadId]
+          .filter(Boolean).some((value) => String(value) === detailLeadIdentity));
+        if (!freshLead) return;
+        setDetailLead(freshLead);
+        onLeadUpdated?.(freshLead);
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [detailLeadIdentity]);
   const activeLead = detailLead || lead;
   const leadIsClosed = Boolean(
     activeLead.closedBy
@@ -3904,7 +3920,13 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         status: 'open',
         assignedTo: currentUser?._id || currentUser?.id || '',
         assignedToName: currentUser?.name || currentUser?.email || '',
-        metadata: { serviceIndex, serviceName: selectedService.servicesOffered || selectedService.applicableService || '' }
+        leadNumber: activeLead.leadCode || '',
+        leadCompanyName: activeLead.company || '',
+        metadata: {
+          serviceIndex,
+          assignedServiceId: selectedService.assignedServiceId || '',
+          serviceName: selectedService.servicesOffered || selectedService.applicableService || ''
+        }
       }).catch(() => null);
       setDetailLead(updatedLead);
       onLeadUpdated?.(updatedLead);

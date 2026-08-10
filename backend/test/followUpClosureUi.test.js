@@ -32,3 +32,10 @@ test('follow-up edit can explicitly close the reminder workflow', () => {
   assert.match(controller, /followUpClosedAt:\s*String\(row\?\.followUpClosedAt/);
   assert.match(reminders, /!service\.followUpClosedAt/);
 });
+
+test('Lead detail refreshes server state and calendar records keep stable service identity', () => {
+  const page = fs.readFileSync(path.join(frontendRoot, 'pages/LeadGeneration.jsx'), 'utf8');
+  assert.match(page, /api\.get\(API_ENDPOINTS\.leads\.list\)/);
+  assert.match(page, /assignedServiceId: selectedService\.assignedServiceId \|\| ''/);
+  assert.match(page, /leadCompanyName: activeLead\.company \|\| ''/);
+});

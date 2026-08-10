@@ -61,3 +61,21 @@ test('calendar completion can find a service by schedule when old items have no 
   ];
   assert.equal(__test.resolveServiceIndex(services, { scheduledDate: '2026-08-12', scheduledTime: '11:00' }), 1);
 });
+
+test('calendar completion ignores a stale numeric index and finds the current follow-up schedule', () => {
+  const services = [
+    { assignedServiceId: 'service-brand', nextFollowUpDate: '2026-08-20', nextFollowUpTime: '15:00' },
+    { assignedServiceId: 'service-importer', nextFollowUpDate: '2026-08-14', nextFollowUpTime: '03:00' }
+  ];
+  const item = { scheduledDate: '2026-08-14', scheduledTime: '03:00', metadata: { serviceIndex: 0 } };
+  assert.equal(__test.resolveServiceIndex(services, item), 1);
+});
+
+test('stable assigned service id wins when service rows are reordered', () => {
+  const services = [
+    { assignedServiceId: 'service-brand', nextFollowUpDate: '2026-08-14' },
+    { assignedServiceId: 'service-importer', nextFollowUpDate: '2026-08-14' }
+  ];
+  const item = { scheduledDate: '2026-08-14', metadata: { serviceIndex: 0, assignedServiceId: 'service-importer' } };
+  assert.equal(__test.resolveServiceIndex(services, item), 1);
+});

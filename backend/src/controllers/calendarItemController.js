@@ -74,10 +74,15 @@ function sameFollowUpSchedule(service = {}, item = {}) {
 }
 
 function resolveServiceIndex(services = [], item = {}) {
+  const assignedServiceId = String(item.metadata?.assignedServiceId || item.assignedServiceId || '').trim();
+  if (assignedServiceId) {
+    const assignedIndex = services.findIndex((service) => String(service?.assignedServiceId || '').trim() === assignedServiceId);
+    if (assignedIndex >= 0) return assignedIndex;
+  }
   const requestedIndex = Number(item.metadata?.serviceIndex);
-  if (Number.isInteger(requestedIndex) && requestedIndex >= 0 && services[requestedIndex]) return requestedIndex;
   const scheduledIndex = services.findIndex((service) => sameFollowUpSchedule(service, item));
   if (scheduledIndex >= 0) return scheduledIndex;
+  if (Number.isInteger(requestedIndex) && requestedIndex >= 0 && services[requestedIndex] && !item.scheduledDate) return requestedIndex;
   return services.length === 1 ? 0 : -1;
 }
 
@@ -128,7 +133,8 @@ async function closeLinkedLeadFollowUp(item, user) {
     lookups.push({ sourceLeadId: leadId }, { externalLeadId: leadId });
   }
   if (raw.leadNumber) lookups.push({ leadCode: String(raw.leadNumber).trim() });
-  if (raw.leadCompanyName) lookups.push({ company: String(raw.leadCompanyName).trim() });
+  const companyName = String(raw.leadCompanyName || raw.clientName || '').trim();
+  if (companyName) lookups.push({ company: companyName });
   const lead = lookups.length ? await Lead.findOne({ $or: lookups }) : null;
   if (!lead || !Array.isArray(lead.serviceSelections)) return;
   if (!applyCalendarFollowUpClosure(lead, raw, user)) return lead;
