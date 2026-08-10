@@ -219,6 +219,14 @@ test('quotation mapping view and print hide the EPR service period column', () =
   assert.doesNotMatch(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
 });
 
+test('quotation download uses the client name and preserves each designed page boundary', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /details\.companyName \|\| quotation\.quotationNumber/);
+  assert.match(page, /const sections = \[\.\.\.documentRef\.current\.children\]/);
+  assert.match(page, /const pages = sections\.length \? sections : \[documentRef\.current\]/);
+  assert.doesNotMatch(page, /const pagePixelHeight/);
+});
+
 test('quotation selects safely normalize object and string options before filtering', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /option && typeof option === 'object'/);

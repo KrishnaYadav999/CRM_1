@@ -21,6 +21,7 @@ const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowR
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
 const { startLeadServiceApprovalReminderScheduler, runLeadServiceApprovalReminders } = require('./services/leadServiceApprovalReminders');
 const { startProvisionalLeadClosureScheduler } = require('./services/provisionalLeadClosureWorkflow');
+const { applyKnownDataCorrections } = require('./services/knownDataCorrections');
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception', err);
@@ -48,7 +49,8 @@ let schedulerStarted = false;
 let dbReady;
 
 function connectAndStartServices() {
-  dbReady = connectDB().then(() => {
+  dbReady = connectDB().then(async () => {
+    await applyKnownDataCorrections().catch((error) => console.error('Known CRM data correction failed', error));
     if (!schedulerStarted) {
       startPendingApprovalReminderScheduler();
       startClientOnboardingReminderScheduler();

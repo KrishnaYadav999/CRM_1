@@ -2527,12 +2527,12 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
     return () => { cancelled = true; };
   }, []);
 
-  async function paintLogoOnCanvas(canvas) {
-    const logoElement = documentRef.current?.querySelector('[data-pdf-logo]');
-    if (!logoElement) return;
-    const documentRect = documentRef.current.getBoundingClientRect();
+  async function paintLogoOnCanvas(canvas, captureElement = documentRef.current) {
+    const logoElement = captureElement?.querySelector('[data-pdf-logo]');
+    if (!logoElement || !captureElement) return;
+    const documentRect = captureElement.getBoundingClientRect();
     const logoRect = logoElement.getBoundingClientRect();
-    const scaleX = canvas.width / documentRef.current.offsetWidth;
+    const scaleX = canvas.width / captureElement.offsetWidth;
     const scaleY = scaleX;
     const x = (logoRect.left - documentRect.left) * scaleX;
     const y = (logoRect.top - documentRect.top) * scaleY;
@@ -2574,57 +2574,49 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
           image.addEventListener('error', finish, { once: true });
           window.setTimeout(finish, 5000);
         })));
-      const previousStyles = {
-        boxShadow: documentRef.current.style.boxShadow,
-        border: documentRef.current.style.border,
-        minHeight: documentRef.current.style.minHeight
-      };
-      documentRef.current.style.boxShadow = 'none';
-      documentRef.current.style.border = 'none';
-      documentRef.current.style.minHeight = '0';
-      let canvas;
-      try {
-        canvas = await html2canvas(documentRef.current, {
-          scale: 1.5,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-          // Keep desktop breakpoints active in the cloned canvas document. Using the
-          // element width here stacked the two-column header and made the PDF too tall/narrow.
-          windowWidth: Math.max(window.innerWidth, 1200),
-          windowHeight: documentRef.current.scrollHeight,
-          onclone: sanitizePdfClone
-        });
-      } finally {
-        documentRef.current.style.boxShadow = previousStyles.boxShadow;
-        documentRef.current.style.border = previousStyles.border;
-        documentRef.current.style.minHeight = previousStyles.minHeight;
-      }
-      await paintLogoOnCanvas(canvas);
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       const pageWidth = 210;
       const pageHeight = 297;
       const margin = 5;
       const printableWidth = pageWidth - (margin * 2);
       const printableHeight = pageHeight - (margin * 2);
-      const pagePixelHeight = Math.floor((canvas.width * printableHeight) / printableWidth);
-      const pageCount = Math.max(1, Math.ceil(canvas.height / pagePixelHeight));
-      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      const sections = [...documentRef.current.children].filter((element) => element.tagName === 'SECTION');
+      const pages = sections.length ? sections : [documentRef.current];
+      for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
         if (pageIndex > 0) pdf.addPage();
-        const sourceY = pageIndex * pagePixelHeight;
-        const sourceHeight = Math.min(pagePixelHeight, canvas.height - sourceY);
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sourceHeight;
-        const pageContext = pageCanvas.getContext('2d');
-        if (!pageContext) throw new Error('Unable to create PDF page canvas.');
-        pageContext.fillStyle = '#ffffff';
-        pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-        pageContext.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
-        const pageImageHeight = (sourceHeight / canvas.width) * printableWidth;
-        pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', margin, margin, printableWidth, pageImageHeight, undefined, 'FAST');
+        const pageElement = pages[pageIndex];
+        const previousStyles = { boxShadow: pageElement.style.boxShadow, minHeight: pageElement.style.minHeight };
+        pageElement.style.boxShadow = 'none';
+        pageElement.style.minHeight = '0';
+        let canvas;
+        try {
+          canvas = await html2canvas(pageElement, {
+            scale: 1.5,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            windowWidth: Math.max(window.innerWidth, 1200),
+            windowHeight: pageElement.scrollHeight,
+            onclone: sanitizePdfClone
+          });
+        } finally {
+          pageElement.style.boxShadow = previousStyles.boxShadow;
+          pageElement.style.minHeight = previousStyles.minHeight;
+        }
+        await paintLogoOnCanvas(canvas, pageElement);
+        const naturalHeight = (canvas.height / canvas.width) * printableWidth;
+        const renderedHeight = Math.min(printableHeight, naturalHeight);
+        const renderedWidth = naturalHeight > printableHeight
+          ? (canvas.width / canvas.height) * printableHeight
+          : printableWidth;
+        const offsetX = (pageWidth - renderedWidth) / 2;
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', offsetX, margin, renderedWidth, renderedHeight, undefined, 'FAST');
       }
-      const filename = `${String(quotation.quotationNumber || 'quotation').replace(/[^a-z0-9_-]+/gi, '-')}.pdf`;
+      const clientFileName = String(details.companyName || quotation.quotationNumber || 'quotation')
+        .trim()
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-+|-+$/g, '') || 'quotation';
+      const filename = `${clientFileName}.pdf`;
       pdf.save(filename);
     } catch (error) {
       console.error('Quotation PDF download failed', error);
