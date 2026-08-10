@@ -474,7 +474,16 @@ function getClientMasterRows(crmClients = [], ccpClients = []) {
   const strongKeys = (item) => {
     const data = readClientData(item);
     const assignedServiceId = String(item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim().toLowerCase();
-    const serviceSuffix = assignedServiceId ? `:service:${assignedServiceId}` : '';
+    const legacyServiceFingerprint = [
+      data.basic?.piboCategory,
+      data.basic?.eprCategory,
+      data.basic?.servicesOffered,
+      data.selectedLeadSnapshot?.subApplicantType,
+      data.selectedLeadSnapshot?.servicesOffered
+    ].map((value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean).join(':');
+    const serviceSuffix = assignedServiceId
+      ? `:service:${assignedServiceId}`
+      : (legacyServiceFingerprint ? `:legacy-service:${legacyServiceFingerprint}` : '');
     const quotationNumbers = [
       data.quotation?.quotationNumber,
       ...(Array.isArray(data.quotations) ? data.quotations.map((row) => row?.quotationNumber) : [])
@@ -537,7 +546,54 @@ function getRelatedClientServices(clients = [], selectedClient = null) {
   if (!selectedClient) return [];
   const selectedTokens = new Set(getClientServiceIdentityTokens(selectedClient));
   const related = clients.filter((item) => getClientServiceIdentityTokens(item).some((token) => selectedTokens.has(token)));
-  return related.length ? related : [selectedClient];
+  const clientRows = related.length ? related : [selectedClient];
+  const populatedLead = clientRows.map((item) => item?.selectedLead).find((lead) => lead && typeof lead === 'object' && Array.isArray(lead.serviceSelections));
+  const services = populatedLead?.serviceSelections || [];
+  if (services.length < 2) return clientRows;
+
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const serviceFingerprint = (service = {}) => [
+    service.subApplicantType || service.piboCategory,
+    service.eprCategory,
+    service.servicesOffered
+  ].map(normalize).filter(Boolean).join(':');
+  const clientFingerprint = (item = {}) => {
+    const data = readClientData(item);
+    return [data.basic?.piboCategory, data.basic?.eprCategory, data.basic?.servicesOffered].map(normalize).filter(Boolean).join(':');
+  };
+
+  return services.map((service, index) => {
+    const assignedServiceId = readAssignedServiceId(service);
+    const matched = clientRows.find((item) => {
+      const data = readClientData(item);
+      const itemServiceId = String(item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
+      return (assignedServiceId && itemServiceId === assignedServiceId) || clientFingerprint(item) === serviceFingerprint(service);
+    });
+    const source = matched || selectedClient;
+    const sourceData = readClientData(source);
+    const activeData = activateAssignedService(sourceData, service, services.length);
+    return {
+      ...source,
+      _serviceViewKey: assignedServiceId || `legacy-service-${index}-${serviceFingerprint(service) || index}`,
+      assignedServiceId,
+      selectedLead: populatedLead,
+      data: {
+        ...activeData,
+        selectedLeadSnapshot: { ...(activeData.selectedLeadSnapshot || {}), ...service, assignedServiceId },
+        basic: {
+          ...(activeData.basic || {}),
+          piboCategory: service.subApplicantType || service.piboCategory || activeData.basic?.piboCategory || '',
+          eprCategory: service.eprCategory || activeData.basic?.eprCategory || '',
+          servicesOffered: service.servicesOffered || activeData.basic?.servicesOffered || ''
+        }
+      }
+    };
+  });
+}
+
+function getClientServiceViewKey(item = {}) {
+  const data = readClientData(item);
+  return String(item._serviceViewKey || item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || item._id || item.id || getClientUniqueId(item));
 }
 
 function getClientServiceOptionLabel(item = {}, index = 0) {
@@ -1906,7 +1962,9 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
   const data = readClientData(client);
   const msmeRows = getMsmeRows(data);
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Client Details';
-  const selectedServiceKey = String(client?._id || client?.id || client?.assignedServiceId || getClientUniqueId(client));
+  const selectedServiceClient = serviceClients.find((item) => getClientServiceOptionLabel(item) === getClientServiceOptionLabel(client))
+    || serviceClients.find((item) => String(item?._id || item?.id || '') === String(client?._id || client?.id || ''));
+  const selectedServiceKey = getClientServiceViewKey(selectedServiceClient || client);
   const cityPin = `${data.registeredAddress?.city || ''} ${data.registeredAddress?.pincode || ''}`.trim();
   const assignedName = getAssignedName(client);
   const visibility = getVisibilityStatus(client);
@@ -2156,14 +2214,14 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                         <select
                           value={selectedServiceKey}
                           onChange={(event) => {
-                            const selected = serviceClients.find((item) => String(item?._id || item?.id || item?.assignedServiceId || getClientUniqueId(item)) === event.target.value);
+                            const selected = serviceClients.find((item) => getClientServiceViewKey(item) === event.target.value);
                             if (selected) onServiceChange?.(selected);
                           }}
                           className="h-11 w-full rounded-lg border border-teal-200 bg-white px-3 text-sm font-black text-slate-800 outline-none shadow-sm focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
                           aria-label="View assigned service"
                         >
                           {serviceClients.map((item, index) => {
-                            const key = String(item?._id || item?.id || item?.assignedServiceId || getClientUniqueId(item));
+                            const key = getClientServiceViewKey(item);
                             return <option key={key} value={key}>{getClientServiceOptionLabel(item, index)}</option>;
                           })}
                         </select>

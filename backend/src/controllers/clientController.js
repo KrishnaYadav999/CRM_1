@@ -756,7 +756,7 @@ exports.listClients = async (req, res) => {
       'data.importMeta.assignedTo'
     ])
   })
-    .populate('selectedLead', 'leadCode company status emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation')
+    .populate('selectedLead', 'leadCode company status emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
     .populate('adminControls.assignedTo', 'name email role avatarUrl')
     .sort({ createdAt: -1 });
   res.json({ ok: true, clients });
