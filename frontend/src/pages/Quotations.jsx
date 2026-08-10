@@ -858,7 +858,14 @@ export default function Quotations() {
   ])].sort((left, right) => left.localeCompare(right));
   const allIndustryTypeOptions = optionsFor('industryType', industryTypeOptions);
   const allEprCategoryOptions = optionsFor('eprCategory', eprCategoryOptions);
-  const allBusinessCategoryOptions = optionsFor('businessCategory', businessCategoryOptions);
+  const leadBusinessCategories = leads.flatMap((lead) => [
+    lead.businessCategory,
+    ...(Array.isArray(lead.serviceSelections) ? lead.serviceSelections.map((service) => service?.businessCategory) : [])
+  ]).filter(Boolean);
+  const allBusinessCategoryOptions = [...new Set([
+    ...optionsFor('businessCategory', businessCategoryOptions),
+    ...leadBusinessCategories
+  ])].sort((left, right) => left.localeCompare(right));
   const showUomColumn = (quotation.items || []).some((item, index) => isEprCreditItem({
     ...item,
     businessCategory: readItemDraftValue(index, 'businessCategory', item.businessCategory || '')

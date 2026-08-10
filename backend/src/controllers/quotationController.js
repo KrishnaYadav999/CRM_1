@@ -4,6 +4,7 @@ const PendingApproval = require('../models/PendingApproval');
 const QuotationServiceCategory = require('../models/QuotationServiceCategory');
 const QuotationPiboCategory = require('../models/QuotationPiboCategory');
 const QuotationDropdownOption = require('../models/QuotationDropdownOption');
+const LeadDropdownOption = require('../models/LeadDropdownOption');
 const { resolveCrmRelationships } = require('../services/crmRelationships');
 const Lead = require('../models/Lead');
 const Notification = require('../models/Notification');
@@ -891,8 +892,18 @@ exports._test = {
 };
 
 exports.listDropdownOptions = async (req, res) => {
-  const options = await QuotationDropdownOption.find().sort({ field: 1, name: 1 }).lean();
-  return res.json({ options: options.map((option) => ({ field: option.field, name: option.name })) });
+  const [quotationOptions, leadBusinessCategories] = await Promise.all([
+    QuotationDropdownOption.find().sort({ field: 1, name: 1 }).lean(),
+    LeadDropdownOption.find({ field: 'businessCategory' }).sort({ name: 1 }).lean()
+  ]);
+  const unique = new Map();
+  [...quotationOptions, ...leadBusinessCategories].forEach((option) => {
+    const field = String(option.field || '').trim();
+    const name = String(option.name || '').trim();
+    const key = `${field}:${name.toLowerCase()}`;
+    if (field && name && !unique.has(key)) unique.set(key, { field, name });
+  });
+  return res.json({ options: [...unique.values()] });
 };
 
 exports.createDropdownOption = async (req, res) => {

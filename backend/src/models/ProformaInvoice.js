@@ -14,7 +14,7 @@ const ProformaItemSchema = new mongoose.Schema({
   serviceStartDate: { type: String, trim: true },
   serviceEndDate: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
-  businessCategory: { type: String, trim: true, enum: ['EPR Consultancy', 'EPR Credit'] },
+  businessCategory: { type: String, trim: true, maxlength: 100 },
   piboParent: { type: String, trim: true },
   piboCategory: { type: String, trim: true },
   unit: { type: String, trim: true },

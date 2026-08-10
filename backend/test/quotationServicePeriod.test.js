@@ -95,6 +95,13 @@ test('quotation updates preserve business category and assigned service identity
   assert.equal(body.items[0].assignedServiceId, 'service_assignment_002');
 });
 
+test('quotation accepts a custom business category from Lead Generation', () => {
+  const body = quotationController._test.cleanBody({
+    items: [{ businessCategory: 'Other Consultancy', serviceCategory: 'Solid Waste Management', servicePeriod: 1, periodUnit: 'annual' }]
+  });
+  assert.equal(body.items[0].businessCategory, 'Other Consultancy');
+});
+
 test('EPR Credit years are required, validated, persisted, and cleared for consultancy items', () => {
   assert.throws(
     () => quotationController._test.cleanBody({ items: [{ businessCategory: 'EPR Credit', unitLabel: 'MT', serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual', serviceStartDate: '2026-08-07' }] }),

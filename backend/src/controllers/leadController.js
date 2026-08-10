@@ -181,7 +181,7 @@ function cleanBody(body) {
           assignedServiceId: String(row?.assignedServiceId || row?.serviceAssignmentId || `service_assignment_${randomUUID()}`).trim(),
           industryType: String(row?.industryType || '').trim(),
           eprCategory: String(row?.eprCategory || '').trim(),
-          businessCategory: ['EPR Consultancy', 'EPR Credit'].includes(String(row?.businessCategory || '').trim()) ? String(row.businessCategory).trim() : '',
+          businessCategory: String(row?.businessCategory || '').trim().replace(/\s+/g, ' ').slice(0, 100),
           applicantType: String(row?.applicantType || '').trim(),
           subApplicantType: String(row?.subApplicantType || row?.piboCategory || '').trim(),
           servicesOffered: String(row?.servicesOffered || '').trim(),
@@ -469,7 +469,7 @@ function bulkServiceRow(source = {}, user = {}) {
   return {
     industryType: String(source.industryType || '').trim(),
     eprCategory: String(source.eprCategory || '').trim(),
-    businessCategory: ['EPR Consultancy', 'EPR Credit'].includes(String(source.businessCategory || '').trim()) ? String(source.businessCategory).trim() : '',
+    businessCategory: String(source.businessCategory || '').trim().replace(/\s+/g, ' ').slice(0, 100),
     applicantType: String(source.applicantType || source.piboParent || '').trim(),
     subApplicantType: String(source.subApplicantType || source.piboCategory || '').trim(),
     servicesOffered: String(source.servicesOffered || '').trim(),

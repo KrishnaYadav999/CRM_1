@@ -82,6 +82,16 @@ test('lead persistence normalizes legacy PIBO category keys to sub applicant typ
   assert.equal(Object.hasOwn(cleaned.serviceSelections[0], 'piboCategory'), false);
 });
 
+test('lead persistence keeps a custom business category added from the dropdown catalog', () => {
+  const cleaned = _test.cleanBody({
+    serviceSelections: [{ ...firstService, businessCategory: 'Other Consultancy' }]
+  });
+  assert.equal(cleaned.serviceSelections[0].businessCategory, 'Other Consultancy');
+
+  const bulk = _test.bulkServiceRow({ ...firstService, businessCategory: 'Another Business Category' }, {});
+  assert.equal(bulk.businessCategory, 'Another Business Category');
+});
+
 test('incomplete draft rows still reserve aligned service and assignment rows', () => {
   const created = _test.buildBulkCreateData({ company: 'Draft Company' }, { _id: 'admin-1', name: 'Admin' });
   assert.equal(created.serviceSelections.length, 1);
