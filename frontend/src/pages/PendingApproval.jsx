@@ -5,7 +5,7 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import BrandLoader from '../components/BrandLoader';
 import ToastMessage from '../components/ToastMessage';
-import { adminRoles } from '../constants/dashboard';
+import { adminRoles, isComplianceRole } from '../constants/dashboard';
 import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 
@@ -161,7 +161,7 @@ export default function PendingApproval() {
   const location = useLocation();
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const canApprove = adminRoles.includes(normalizedRole);
-  const isComplianceApprovalView = normalizedRole === 'compliance';
+  const isComplianceApprovalView = canApprove || isComplianceRole(currentUser?.role);
   const canApproveClients = isComplianceApprovalView;
 
   const allApprovalRows = useMemo(() => isComplianceApprovalView

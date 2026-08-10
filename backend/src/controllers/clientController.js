@@ -842,14 +842,13 @@ exports.listPendingApprovals = async (req, res) => {
 
   backgroundSyncPendingApprovals(pendingClientRows, pendingQuotations);
 
-  const requesterRole = String(req.user?.role || '').trim().toLowerCase();
-  const isComplianceReviewer = requesterRole === 'compliance';
-  const isAdministrativeReviewer = ['admin', 'superadmin'].includes(requesterRole);
+  const requesterRole = normalizeRoleName(req.user?.role);
+  const isClientReviewer = ['admin', 'superadmin'].includes(requesterRole) || requesterRole.includes('compliance');
 
   res.json({
     ok: true,
-    pendingClients: isComplianceReviewer ? responseClients : [],
-    pendingQuotations: isAdministrativeReviewer ? responseQuotations : [],
+    pendingClients: isClientReviewer ? responseClients : [],
+    pendingQuotations: [],
     debug: {
       source: pendingClientRows.length || pendingQuotations.length ? 'live' : 'stored-fallback',
       ms: Date.now() - startedAt,

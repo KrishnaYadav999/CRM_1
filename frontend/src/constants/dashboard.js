@@ -15,6 +15,7 @@ import {
 
 export const roles = ['operation', 'admin', 'superadmin', 'manager', 'compliance', 'sales', 'accounts']
 export const adminRoles = ['admin', 'superadmin']
+export const isComplianceRole = (role = '') => String(role).trim().toLowerCase().replace(/[\s_-]+/g, '').includes('compliance')
 export const defaultTeams = ['No team assigned', 'Operations', 'Compliance', 'Sales', 'Accounts', 'Client Success', 'Management']
 
 export const roleLabels = {
@@ -51,7 +52,7 @@ export const navSections = [
         children: [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard', roles: adminRoles },
           { label: 'Super Admin Dashboard', icon: Gauge, path: '/superadmin-dashboard', roles: adminRoles },
-          { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: [...adminRoles, 'compliance'] },
+          { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: [...adminRoles, 'compliance'], complianceFamily: true },
           {
             label: 'Pending Leads',
             icon: ClipboardList,

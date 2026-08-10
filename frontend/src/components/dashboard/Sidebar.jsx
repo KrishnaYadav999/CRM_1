@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BriefcaseBusiness, ChevronDown, ChevronsLeft, Gauge, X } from 'lucide-react'
-import { adminRoles, navSections } from '../../constants/dashboard'
+import { adminRoles, isComplianceRole, navSections } from '../../constants/dashboard'
 
 export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onClose, dashboardMode = 'operations', onDashboardModeChange }) {
   const location = useLocation()
@@ -37,7 +37,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   }
 
   function canShowItem(item) {
-    if (Array.isArray(item.roles) && !item.roles.includes(String(currentUser?.role || '').toLowerCase())) return false
+    if (Array.isArray(item.roles) && !item.roles.includes(String(currentUser?.role || '').toLowerCase()) && !(item.complianceFamily && isComplianceRole(currentUser?.role))) return false
     if (item.label !== 'User Management') return true
     return adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase())
   }
