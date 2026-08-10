@@ -1645,16 +1645,23 @@ export default function LeadGeneration() {
       ...leadWithoutLegacyStaff
     } = lead;
     const primaryService = serviceRows[0] || {};
+    const generatedForOwner = [...staff, ...(currentUser ? [currentUser] : [])].find((user) => [user?._id, user?.id, user?.crmUserId, user?.userId]
+      .filter(Boolean).some((value) => String(value) === String(generatedForUserId || currentUser?._id || currentUser?.id || '')));
+    const generatedForOwnerId = generatedForOwner?._id || generatedForOwner?.id || generatedForOwner?.crmUserId || generatedForOwner?.userId || generatedForUserId || currentUser?._id || currentUser?.id || '';
+    const generatedForOwnerName = generatedForOwner?.name || generatedForOwner?.email || currentUser?.name || currentUser?.email || '';
+    const generatedForOwnerEmail = generatedForOwner?.email || currentUser?.email || '';
     const submittedAt = workflowStatus === 'submitted' ? new Date().toISOString() : lead.submittedAt;
     const formStartedAt = lead.formStartedAt || formStartedAtRef.current || new Date().toISOString();
     return {
       ...leadWithoutLegacyStaff,
-      generatedForUserId: generatedForUserId || currentUser?._id || currentUser?.id || '',
-      serviceSelections: serviceRows.map((row) => ({
+      generatedForUser: generatedForOwnerId,
+      generatedForName: generatedForOwnerName,
+      generatedForEmail: generatedForOwnerEmail,
+      serviceSelections: serviceRows.map((row, index) => ({
         ...row,
-        createdByCrmUserId: row.createdByCrmUserId || currentUser?._id || currentUser?.id || '',
-        createdByName: row.createdByName || currentUser?.name || currentUser?.email || '',
-        createdByEmail: row.createdByEmail || currentUser?.email || ''
+        createdByCrmUserId: index < frozenServiceRowCount ? (row.createdByCrmUserId || '') : String(generatedForOwnerId),
+        createdByName: index < frozenServiceRowCount ? (row.createdByName || '') : generatedForOwnerName,
+        createdByEmail: index < frozenServiceRowCount ? (row.createdByEmail || '') : generatedForOwnerEmail
       })),
       addresses: addressRows,
       contacts: contactRows,

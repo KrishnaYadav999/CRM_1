@@ -146,6 +146,9 @@ function cleanBody(body) {
     'createdByCrmUserId',
     'createdByName',
     'createdByEmail',
+    'generatedForUser',
+    'generatedForName',
+    'generatedForEmail',
     'updatedBy',
     'closedBy',
     'closedByText',
@@ -171,7 +174,7 @@ function cleanBody(body) {
   ].forEach((key) => {
     if (body[key] !== undefined) {
       const value = typeof body[key] === 'string' ? body[key].trim() : body[key];
-      if (['assignedTo', 'assignedStaff', 'closedBy'].includes(key) && !value) return;
+      if (['assignedTo', 'assignedStaff', 'closedBy', 'generatedForUser'].includes(key) && !value) return;
       if (key === 'complianceHealthReport') {
         if (value && typeof value === 'object' && !Array.isArray(value)) data[key] = value;
         return;
