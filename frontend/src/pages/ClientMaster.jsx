@@ -522,6 +522,32 @@ function getClientMasterRows(crmClients = [], ccpClients = []) {
   return merged;
 }
 
+function getClientServiceIdentityTokens(item = {}) {
+  const data = readClientData(item);
+  const selectedLead = typeof item.selectedLead === 'object' ? item.selectedLead : {};
+  return [...new Set([
+    item.companyIdentity && `company:${String(item.companyIdentity).trim().toLowerCase()}`,
+    (selectedLead?._id || (typeof item.selectedLead === 'string' ? item.selectedLead : '')) && `lead-id:${String(selectedLead?._id || item.selectedLead).trim().toLowerCase()}`,
+    (selectedLead?.leadCode || data.importMeta?.leadNumber) && `lead-code:${String(selectedLead?.leadCode || data.importMeta?.leadNumber).trim().toLowerCase()}`,
+    (data.basic?.clientLegalName || data.basic?.tradeName || selectedLead?.company) && `company-name:${String(data.basic?.clientLegalName || data.basic?.tradeName || selectedLead?.company).trim().toLowerCase().replace(/[^a-z0-9]/g, '')}`
+  ].filter(Boolean))];
+}
+
+function getRelatedClientServices(clients = [], selectedClient = null) {
+  if (!selectedClient) return [];
+  const selectedTokens = new Set(getClientServiceIdentityTokens(selectedClient));
+  const related = clients.filter((item) => getClientServiceIdentityTokens(item).some((token) => selectedTokens.has(token)));
+  return related.length ? related : [selectedClient];
+}
+
+function getClientServiceOptionLabel(item = {}, index = 0) {
+  const data = readClientData(item);
+  const serviceCategory = data.basic?.eprCategory || 'Service category not set';
+  const applicant = data.basic?.piboCategory || 'Applicant type not set';
+  const serviceName = data.basic?.servicesOffered;
+  return [applicant, serviceCategory, serviceName].filter(Boolean).join(' · ') || `Service ${index + 1}`;
+}
+
 const emptyClient = {
   selectedLead: '',
   assignedServiceId: '',
@@ -1504,6 +1530,8 @@ export default function ClientMaster() {
         {viewClient ? (
           <ClientViewModal
             client={viewClient}
+            serviceClients={getRelatedClientServices(clients, viewClient)}
+            onServiceChange={setViewClient}
             quotations={quotations}
             proformaInvoices={proformaInvoices}
             staff={staff}
@@ -1873,11 +1901,12 @@ function BasicTab({ client, setValue }) {
   );
 }
 
-function ClientViewModal({ client, quotations = [], proformaInvoices = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
+function ClientViewModal({ client, serviceClients = [], onServiceChange, quotations = [], proformaInvoices = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
   const msmeRows = getMsmeRows(data);
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || 'Client Details';
+  const selectedServiceKey = String(client?._id || client?.id || client?.assignedServiceId || getClientUniqueId(client));
   const cityPin = `${data.registeredAddress?.city || ''} ${data.registeredAddress?.pincode || ''}`.trim();
   const assignedName = getAssignedName(client);
   const visibility = getVisibilityStatus(client);
@@ -2121,6 +2150,25 @@ function ClientViewModal({ client, quotations = [], proformaInvoices = [], staff
                     </div>
                     <h1 className="mt-2 text-2xl font-black leading-tight text-slate-950 sm:text-3xl">{clientName}</h1>
                     <p className="mt-1 max-w-4xl text-sm font-bold text-slate-500">{data.registeredAddress?.state || 'State not set'}{cityPin ? `, ${cityPin}` : ''}</p>
+                    {serviceClients.length > 1 && (
+                      <label className="mt-3 block max-w-xl">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-[0.14em] text-[#30737B]">View Assigned Service</span>
+                        <select
+                          value={selectedServiceKey}
+                          onChange={(event) => {
+                            const selected = serviceClients.find((item) => String(item?._id || item?.id || item?.assignedServiceId || getClientUniqueId(item)) === event.target.value);
+                            if (selected) onServiceChange?.(selected);
+                          }}
+                          className="h-11 w-full rounded-lg border border-teal-200 bg-white px-3 text-sm font-black text-slate-800 outline-none shadow-sm focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+                          aria-label="View assigned service"
+                        >
+                          {serviceClients.map((item, index) => {
+                            const key = String(item?._id || item?.id || item?.assignedServiceId || getClientUniqueId(item));
+                            return <option key={key} value={key}>{getClientServiceOptionLabel(item, index)}</option>;
+                          })}
+                        </select>
+                      </label>
+                    )}
                   </div>
                 </div>
                 <div className="rounded-xl border border-white/80 bg-white/80 p-3 shadow-sm shadow-teal-900/5 backdrop-blur xl:min-w-[640px]">
