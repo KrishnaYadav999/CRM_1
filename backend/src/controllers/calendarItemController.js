@@ -58,37 +58,83 @@ async function findItem(id) {
   return CalendarItem.findOne({ externalId: value });
 }
 
-async function closeLinkedLeadFollowUp(item, user) {
-  const raw = typeof item.toObject === 'function' ? item.toObject() : item;
-  if (raw.status !== 'completed' || (raw.type !== 'followup' && raw.type !== 'follow-up' && raw.category !== 'Follow-Up') || !raw.leadId) return;
-  const lead = mongoose.Types.ObjectId.isValid(String(raw.leadId))
-    ? await Lead.findById(raw.leadId)
-    : await Lead.findOne({ sourceLeadId: String(raw.leadId).trim() });
-  if (!lead || !Array.isArray(lead.serviceSelections)) return;
-  const serviceIndex = Number(raw.metadata?.serviceIndex);
-  if (!Number.isInteger(serviceIndex) || !lead.serviceSelections[serviceIndex]) return;
-  const closedAt = String(raw.completedAt || new Date().toISOString());
-  const closedBy = user?.name || user?.email || raw.assignedToName || 'CRM User';
-  const service = lead.serviceSelections[serviceIndex] || {};
+function isFollowUpItem(item = {}) {
+  const type = String(item.type || '').trim().toLowerCase();
+  const category = String(item.category || '').trim().toLowerCase();
+  return type === 'followup' || type === 'follow-up' || category === 'follow-up';
+}
+
+function sameFollowUpSchedule(service = {}, item = {}) {
+  const serviceDate = String(service.nextFollowUpDate || '').trim();
+  const itemDate = String(item.scheduledDate || '').trim();
+  if (!serviceDate || !itemDate || serviceDate !== itemDate) return false;
+  const serviceTime = String(service.nextFollowUpTime || '').trim();
+  const itemTime = String(item.scheduledTime || '').trim();
+  return !serviceTime || !itemTime || serviceTime === itemTime;
+}
+
+function resolveServiceIndex(services = [], item = {}) {
+  const requestedIndex = Number(item.metadata?.serviceIndex);
+  if (Number.isInteger(requestedIndex) && requestedIndex >= 0 && services[requestedIndex]) return requestedIndex;
+  const scheduledIndex = services.findIndex((service) => sameFollowUpSchedule(service, item));
+  if (scheduledIndex >= 0) return scheduledIndex;
+  return services.length === 1 ? 0 : -1;
+}
+
+function applyCalendarFollowUpClosure(lead, item, user) {
+  const services = Array.isArray(lead?.serviceSelections) ? lead.serviceSelections : [];
+  const serviceIndex = resolveServiceIndex(services, item);
+  if (serviceIndex < 0) return false;
+
+  const calendarItemId = String(item._id || item.externalId || '').trim();
+  const service = services[serviceIndex] || {};
+  const history = Array.isArray(service.followUpHistory) ? service.followUpHistory : [];
+  if (calendarItemId && history.some((entry) => String(entry.calendarItemId || '') === calendarItemId)) return false;
+
+  const closedAt = String(item.completedAt || new Date().toISOString());
+  const closedBy = user?.name || user?.email || item.assignedToName || 'CRM User';
+  const clearsCurrent = sameFollowUpSchedule(service, item);
   const closedEntry = {
-    id: `calendar-follow-up-closed-${Date.now()}`,
-    scheduledDate: service.nextFollowUpDate || raw.scheduledDate || '',
-    scheduledTime: service.nextFollowUpTime || raw.scheduledTime || '',
-    remarks: raw.completionRemarks || 'Follow-up closed from Calendar',
-    previousRemarks: service.followUpRemarks || '',
-    reason: raw.completionRemarks || 'Closed from Calendar',
+    id: `calendar-follow-up-closed-${calendarItemId || Date.now()}`,
+    calendarItemId,
+    scheduledDate: item.scheduledDate || service.nextFollowUpDate || '',
+    scheduledTime: item.scheduledTime || service.nextFollowUpTime || '',
+    remarks: item.completionRemarks || 'Follow-up closed from Calendar',
+    previousRemarks: clearsCurrent ? (service.followUpRemarks || '') : '',
+    reason: item.completionRemarks || 'Closed from Calendar',
+    priority: item.priority || service.followUpPriority || 'Medium',
     status: 'closed', closedAt, closedBy, createdAt: closedAt, updatedAt: closedAt
   };
-  lead.serviceSelections = lead.serviceSelections.map((row, index) => index === serviceIndex ? {
+  lead.serviceSelections = services.map((row, index) => index === serviceIndex ? {
     ...row,
-    nextFollowUpDate: '', nextFollowUpTime: '', followUpRemarks: '', followUpFlag: 'GREEN',
-    followUpClosedAt: closedAt, followUpClosedBy: closedBy, followUpCloseReason: closedEntry.reason,
-    followUpUpdatedAt: closedAt,
-    followUpHistory: [closedEntry, ...(Array.isArray(row.followUpHistory) ? row.followUpHistory : [])]
+    ...(clearsCurrent ? {
+      nextFollowUpDate: '', nextFollowUpTime: '', followUpRemarks: '', followUpFlag: 'GREEN',
+      followUpClosedAt: closedAt, followUpClosedBy: closedBy, followUpCloseReason: closedEntry.reason,
+      followUpUpdatedAt: closedAt
+    } : {}),
+    followUpHistory: [closedEntry, ...history]
   } : row);
-  lead.followUpFlag = 'GREEN';
+  if (clearsCurrent) lead.followUpFlag = 'GREEN';
+  return true;
+}
+
+async function closeLinkedLeadFollowUp(item, user) {
+  const raw = typeof item.toObject === 'function' ? item.toObject() : item;
+  if (String(raw.status || '').toLowerCase() !== 'completed' || !isFollowUpItem(raw)) return null;
+  const leadId = String(raw.leadId || '').trim();
+  const lookups = [];
+  if (leadId) {
+    if (mongoose.Types.ObjectId.isValid(leadId)) lookups.push({ _id: leadId });
+    lookups.push({ sourceLeadId: leadId }, { externalLeadId: leadId });
+  }
+  if (raw.leadNumber) lookups.push({ leadCode: String(raw.leadNumber).trim() });
+  if (raw.leadCompanyName) lookups.push({ company: String(raw.leadCompanyName).trim() });
+  const lead = lookups.length ? await Lead.findOne({ $or: lookups }) : null;
+  if (!lead || !Array.isArray(lead.serviceSelections)) return;
+  if (!applyCalendarFollowUpClosure(lead, raw, user)) return lead;
   lead.markModified('serviceSelections');
   await lead.save();
+  return lead;
 }
 
 exports.listCalendarItems = async (req, res) => {
@@ -122,8 +168,8 @@ exports.updateCalendarItem = async (req, res) => {
   if (!data.title) return res.status(400).json({ error: 'Title is required' });
   Object.assign(item, data);
   await item.save();
-  await closeLinkedLeadFollowUp(item, req.user);
-  res.json({ ok: true, item: mapItem(item) });
+  const syncedLead = await closeLinkedLeadFollowUp(item, req.user);
+  res.json({ ok: true, item: mapItem(item), lead: syncedLead || undefined });
 };
 
 exports.deleteCalendarItem = async (req, res) => {
@@ -133,4 +179,4 @@ exports.deleteCalendarItem = async (req, res) => {
   res.json({ ok: true });
 };
 
-module.exports.__test = { buildItemData, mapItem, closeLinkedLeadFollowUp };
+module.exports.__test = { buildItemData, mapItem, isFollowUpItem, sameFollowUpSchedule, resolveServiceIndex, applyCalendarFollowUpClosure, closeLinkedLeadFollowUp };
