@@ -72,6 +72,13 @@ test('lead introduction attaches both email-safe PDFs', () => {
 
 test('lead controller atomically claims introduction delivery before sending', () => {
   const controller = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/controllers/leadController.js'), 'utf8');
-  assert.match(controller, /findOneAndUpdate\(\{[\s\S]*introductionEmailVersion:[\s\S]*\$lt: INTRODUCTION_EMAIL_VERSION/);
+  assert.match(controller, /findOneAndUpdate\(\{[\s\S]*introductionEmailVersion:[\s\S]*\$lte: 0/);
+  assert.match(controller, /introductionEmailSentAt: \{ \$exists: false \}/);
   assert.match(controller, /already-claimed/);
+});
+
+test('lead updates send introduction only on the first draft-to-submitted transition', () => {
+  const controller = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/controllers/leadController.js'), 'utf8');
+  assert.match(controller, /beforeLead\.workflowStatus !== 'submitted' && lead\.workflowStatus === 'submitted'/);
+  assert.equal((controller.match(/await sendIntroductionOnce\(lead, req\.user\)/g) || []).length, 2);
 });

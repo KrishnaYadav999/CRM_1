@@ -30,7 +30,7 @@ const { ADMIN_ROLES } = require('../constants/roles');
 
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
-const INTRODUCTION_EMAIL_VERSION = 3;
+const INTRODUCTION_EMAIL_CLAIM_VERSION = 1;
 
 async function sendIntroductionOnce(lead, creator) {
   if (lead.workflowStatus !== 'submitted') return { skipped: true, reason: 'not-submitted' };
@@ -38,12 +38,15 @@ async function sendIntroductionOnce(lead, creator) {
   // simultaneous saves or later edits from sending the introduction twice.
   const claimed = await Lead.findOneAndUpdate({
     _id: lead._id,
-    $or: [
-      { introductionEmailVersion: { $lt: INTRODUCTION_EMAIL_VERSION } },
-      { introductionEmailVersion: { $exists: false } }
+    $and: [
+      { $or: [{ introductionEmailSentAt: { $exists: false } }, { introductionEmailSentAt: null }] },
+      { $or: [
+        { introductionEmailVersion: { $lte: 0 } },
+        { introductionEmailVersion: { $exists: false } }
+      ] }
     ]
   }, {
-    $set: { introductionEmailVersion: INTRODUCTION_EMAIL_VERSION }
+    $set: { introductionEmailVersion: INTRODUCTION_EMAIL_CLAIM_VERSION }
   }, { new: true });
   if (!claimed) return { skipped: true, reason: 'already-claimed' };
 
@@ -842,7 +845,9 @@ exports.updateLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    await sendIntroductionOnce(lead, req.user);
+    if (beforeLead.workflowStatus !== 'submitted' && lead.workflowStatus === 'submitted') {
+      await sendIntroductionOnce(lead, req.user);
+    }
     if (req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead: lead.toObject(), submittedPayload: req.body, actor: req.user }).catch((error) => console.error('Financial year notification failed', error));
       await notifyAdditionalLeadServices({
