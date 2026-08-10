@@ -161,12 +161,12 @@ export default function PendingApproval() {
   const location = useLocation();
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const canApprove = adminRoles.includes(normalizedRole);
-  const isComplianceApprovalView = canApprove || isComplianceRole(currentUser?.role);
-  const canApproveClients = isComplianceApprovalView;
+  const isComplianceApprovalView = isComplianceRole(currentUser?.role) && !canApprove;
+  const canApproveClients = canApprove || isComplianceApprovalView;
 
   const allApprovalRows = useMemo(() => isComplianceApprovalView
     ? pendingClients
-    : [...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals], [isComplianceApprovalView, pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals]);
+    : [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals], [isComplianceApprovalView, pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals]);
   const piboOptions = useMemo(() => {
     const values = allApprovalRows
       .map((row) => formatApprovalValue(row?.piboCategory))
@@ -216,7 +216,7 @@ export default function PendingApproval() {
       setTypeFilter('clients');
       return;
     }
-    if (tab === 'quotations' || tab === 'duplicates' || tab === 'royalty' || tab === 'services') setActiveTab(tab);
+    if (tab === 'clients' || tab === 'quotations' || tab === 'duplicates' || tab === 'royalty' || tab === 'services') setActiveTab(tab);
     else setActiveTab('quotations');
   }, [isComplianceApprovalView, location.search, normalizedRole]);
 
@@ -614,7 +614,7 @@ export default function PendingApproval() {
           {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
 
           <div className="pending-metrics">
-            {isComplianceApprovalView && <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />}
+            {canApproveClients && <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />}
             {!isComplianceApprovalView && <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" />}
             {!isComplianceApprovalView && <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" />}
             {!isComplianceApprovalView && <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" />}
@@ -669,7 +669,7 @@ export default function PendingApproval() {
             </div>
             <div className="pending-tabs-wrap">
               <div className="pending-tabs">
-                {isComplianceApprovalView && <ApprovalTab
+                {canApproveClients && <ApprovalTab
                   active={activeTab === 'clients'}
                   icon={Clock3}
                   label="Pending Clients"
@@ -707,7 +707,7 @@ export default function PendingApproval() {
               </div>
             </div>
 
-            {isComplianceApprovalView ? (
+            {activeTab === 'clients' ? (
               <ApprovalTable
                 title="Pending Clients"
                 columns={['Client Name', 'Approval Status', 'Applicant Type', 'Service Category', 'Created By', 'Request Date', 'Actions']}

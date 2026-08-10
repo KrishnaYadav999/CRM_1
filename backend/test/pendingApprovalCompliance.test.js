@@ -14,13 +14,13 @@ test('client approval actions belong to admins and the compliance role family', 
 test('pending approval shows only client review to compliance-family and administrative reviewers', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
   const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
-  assert.match(page, /isComplianceApprovalView = canApprove \|\| isComplianceRole\(currentUser\?\.role\)/);
-  assert.match(page, /canApproveClients = isComplianceApprovalView/);
-  assert.match(page, /isComplianceApprovalView && <Metric[^\n]+Pending Clients/);
+  assert.match(page, /isComplianceApprovalView = isComplianceRole\(currentUser\?\.role\) && !canApprove/);
+  assert.match(page, /canApproveClients = canApprove \|\| isComplianceApprovalView/);
+  assert.match(page, /canApproveClients && <Metric[^\n]+Pending Clients/);
   assert.match(page, /!isComplianceApprovalView && <ApprovalTab/);
   assert.match(controller, /requesterRole\.includes\('compliance'\)/);
   assert.match(controller, /pendingClients: isClientReviewer \? responseClients : \[\]/);
-  assert.match(controller, /pendingQuotations: \[\]/);
+  assert.match(controller, /pendingQuotations: isAdministrativeReviewer \? responseQuotations : \[\]/);
 });
 
 test('custom compliance roles pass compliance-family authorization and sidebar visibility', () => {
