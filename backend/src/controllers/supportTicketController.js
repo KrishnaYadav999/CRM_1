@@ -1,4 +1,6 @@
 const SupportTicket = require('../models/SupportTicket');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
 const { notifyTicketRaised, notifyTicketResolved } = require('../services/supportTicketEmails');
 
 const ADMIN_ROLES = ['admin', 'superadmin'];
@@ -78,6 +80,22 @@ exports.updateTicket = async (req, res) => {
   if (!message && !req.body.status) return res.status(400).json({ error: 'Add a reply or status update' });
   await ticket.save();
   const savedTicket = await SupportTicket.findById(ticket._id).lean();
+  if (message) {
+    const audience = isAdmin(req.user)
+      ? [ticket.createdBy]
+      : (await User.find({ role: { $in: ADMIN_ROLES }, isActive: { $ne: false } }).select('_id').lean()).map((user) => user._id);
+    if (audience.length) {
+      const notification = await Notification.create({
+        title: `${ticket.ticketNumber}: New support ticket reply`,
+        description: `${req.user.name || req.user.email}: ${message}`,
+        tag: 'Support Ticket', kind: 'support_ticket_reply', status: 'Active',
+        createdBy: req.user._id, createdByName: req.user.name || req.user.email,
+        audience, metadata: { ticketId: ticket._id, ticketNumber: ticket.ticketNumber }
+      });
+      notification.crmNotificationId = String(notification._id);
+      await notification.save();
+    }
+  }
   const completedStatusChanged = previousStatus !== ticket.status && ['Resolved', 'Closed'].includes(ticket.status);
   if (completedStatusChanged) {
     await notifyTicketResolved(savedTicket, req.user, message, messageAttachments).catch((error) => console.error(`Support ticket ${ticket.ticketNumber} resolution email failed`, error.message));

@@ -3,6 +3,7 @@ import { Archive, Bell, Download, Edit3, Eye, FileText, Filter, LayoutGrid, List
 import gsap from 'gsap';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
+import ToastMessage from '../components/ToastMessage';
 import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { uploadMedia } from '../services/mediaUpload';
@@ -157,6 +158,8 @@ export default function Notifications({ mode = 'notifications' }) {
   const [draft, setDraft] = useState(() => emptyDraft());
   const [selected, setSelected] = useState(null);
   const [serverLoading, setServerLoading] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [savingAnnouncement, setSavingAnnouncement] = useState(false);
   const tagOptions = useMemo(() => {
     const customTags = notifications
       .map((item) => String(item.tag || '').trim())
@@ -281,7 +284,10 @@ export default function Notifications({ mode = 'notifications' }) {
 
   async function saveNotification() {
     const finalTag = draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag;
-    if (!draft.title.trim() || !draft.description.trim() || !finalTag) return;
+    if (!draft.title.trim() || !draft.description.trim() || !finalTag) return setFormError('Title, description and tag are required.');
+    if (modalMode === 'create' && (!draft.attachmentName || !draft.attachmentUrl || !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(draft.attachmentName))) return setFormError('Announcement image is required. Please upload a valid image.');
+    setSavingAnnouncement(true);
+    setFormError('');
     const author = currentUser?.name || currentUser?.email || 'Current User';
     if (modalMode === 'edit') {
       const updatedItem = {
@@ -302,8 +308,10 @@ export default function Notifications({ mode = 'notifications' }) {
         const response = await api.put(API_ENDPOINTS.notifications.detail(draft._id || draft.id), updatedItem);
         const saved = response.data?.notification || updatedItem;
         persist(notifications.map((item) => item.id === draft.id ? saved : item));
-      } catch {
-        persist(notifications.map((item) => item.id === draft.id ? updatedItem : item));
+      } catch (error) {
+        setFormError(error?.response?.data?.error || 'Unable to update announcement.');
+        setSavingAnnouncement(false);
+        return;
       }
       /* legacy local merge retained by the fallback above */
       /*
@@ -336,10 +344,13 @@ export default function Notifications({ mode = 'notifications' }) {
       try {
         const response = await api.post(API_ENDPOINTS.notifications.create, localItem);
         persist([response.data?.notification || localItem, ...notifications]);
-      } catch {
-        persist([localItem, ...notifications]);
+      } catch (error) {
+        setFormError(error?.response?.data?.error || 'Unable to create and email announcement.');
+        setSavingAnnouncement(false);
+        return;
       }
     }
+    setSavingAnnouncement(false);
     setModalMode('');
     setSelectedIds([]);
   }
@@ -419,7 +430,7 @@ export default function Notifications({ mode = 'notifications' }) {
             {!isAnnouncements && <p className="mt-2 font-bold text-slate-500">Workflow updates organized by business section.</p>}
           </div>
           {isAnnouncements && <div className="notifications-hero-actions">
-            <button type="button" onClick={openCreate}><Plus className="h-4 w-4" /> Add Notification</button>
+            <button type="button" onClick={openCreate}><Plus className="h-4 w-4" /> Add Announcement</button>
             <button type="button" onClick={() => setStatusFilter((value) => value === 'Inactive' ? 'Active' : 'Inactive')}><Archive className="h-4 w-4" /> {statusFilter === 'Inactive' ? 'Show Active' : 'Show Inactive'}</button>
           </div>}
         </section>
@@ -527,6 +538,7 @@ export default function Notifications({ mode = 'notifications' }) {
               </div>
 
               <div className="notifications-form">
+                {formError && <ToastMessage type="error">{formError}</ToastMessage>}
                 <div className="notifications-template-row">
                   <span>Smart templates</span>
                   <div>
@@ -536,10 +548,10 @@ export default function Notifications({ mode = 'notifications' }) {
                   </div>
                 </div>
                 <Field label="Title" required>
-                  <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Enter notification title" />
+                  <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Enter announcement title" />
                 </Field>
                 <Field label="Description" required>
-                  <textarea maxLength={2000} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Write notification description" />
+                  <textarea maxLength={2000} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Write announcement description" />
                   <small>{draft.description.length} / 2000</small>
                 </Field>
                 <div className="notifications-form-grid">
@@ -567,11 +579,11 @@ export default function Notifications({ mode = 'notifications' }) {
                   <input type="checkbox" checked={Boolean(draft.pinned)} onChange={(event) => setDraft((current) => ({ ...current, pinned: event.target.checked }))} />
                   <span><Pin className="h-4 w-4" /> Pin this notification on top</span>
                 </label>
-                <Field label="Attachment">
+                <Field label="Announcement Image" required={modalMode === 'create'}>
                   <label className="notifications-upload">
                     <Upload className="h-4 w-4" />
-                    <span>Choose File</span>
-                    <input type="file" onChange={handleAttachment} />
+                    <span>Choose Image</span>
+                    <input type="file" accept="image/*" onChange={handleAttachment} />
                   </label>
                   {draft.attachmentName && (
                     <div className="notifications-file-chip">
@@ -580,13 +592,13 @@ export default function Notifications({ mode = 'notifications' }) {
                       <button type="button" onClick={() => setDraft((current) => ({ ...current, attachmentName: '', attachmentUrl: '' }))}><Trash2 className="h-4 w-4" /></button>
                     </div>
                   )}
-                  <small>Upload image, PDF, or document up to 10MB.</small>
+                  <small>Upload a required announcement image up to 10MB.</small>
                 </Field>
               </div>
 
               <div className="notifications-modal-actions">
                 <button type="button" onClick={() => setModalMode('')}>Cancel</button>
-                <button type="button" disabled={!draft.title.trim() || !draft.description.trim() || !(draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag)} onClick={saveNotification}>Save Notification</button>
+                <button type="button" disabled={savingAnnouncement || !draft.title.trim() || !draft.description.trim() || !(draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag) || (modalMode === 'create' && !draft.attachmentUrl)} onClick={saveNotification}>{savingAnnouncement ? 'Sending...' : 'Submit Announcement'}</button>
               </div>
             </section>
           </div>

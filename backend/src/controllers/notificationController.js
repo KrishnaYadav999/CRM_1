@@ -1,4 +1,6 @@
 const Notification = require('../models/Notification');
+const User = require('../models/User');
+const { sendMail } = require('../utils/mailer');
 
 const adminRoles = ['admin', 'superadmin'];
 
@@ -29,6 +31,22 @@ function mapNotification(item) {
     attachmentUrl: item.attachmentUrl,
     pinned: item.pinned,
     metadata: item.metadata || {}
+  };
+}
+
+function escapeHtml(value = '') {
+  return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+}
+
+async function emailAnnouncementToAllUsers(item) {
+  const users = await User.find({ isActive: { $ne: false }, email: { $ne: '' } }).select('email name').lean();
+  const imageUrl = String(item.attachmentUrl || '').trim();
+  const html = `<h1 style="font-size:24px;margin:0 0 16px">${escapeHtml(item.title)}</h1><p style="font-size:15px;line-height:1.7;white-space:pre-wrap">${escapeHtml(item.description)}</p>${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.attachmentName || item.title)}" style="display:block;max-width:100%;height:auto;margin:22px auto 0;border-radius:14px" />` : ''}`;
+  const results = await Promise.allSettled(users.map((user) => sendMail(user.email, `CRM Announcement: ${item.title}`, html)));
+  return {
+    recipientCount: users.length,
+    emailSent: results.filter((result) => result.status === 'fulfilled').length,
+    emailFailed: results.filter((result) => result.status === 'rejected').length
   };
 }
 
@@ -69,6 +87,11 @@ exports.createNotification = async (req, res) => {
   const description = String(req.body.description || '').trim();
   const tag = String(req.body.tag || 'General').trim();
   if (!title || !description) return res.status(400).json({ error: 'Title and description are required' });
+  const attachmentName = String(req.body.attachmentName || '').trim();
+  const attachmentUrl = String(req.body.attachmentUrl || '').trim();
+  if (!attachmentName || !attachmentUrl || !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(attachmentName)) {
+    return res.status(400).json({ error: 'Announcement image is required' });
+  }
 
   const item = await Notification.create({
     title,
@@ -79,14 +102,24 @@ exports.createNotification = async (req, res) => {
     createdBy: req.user._id,
     createdByName: req.user.name || req.user.email || 'CRM User',
     visibleToRoles: ['operation', 'manager', 'compliance', 'sales', 'accounts', 'admin', 'superadmin'],
-    attachmentName: String(req.body.attachmentName || '').trim(),
-    attachmentUrl: String(req.body.attachmentUrl || '').trim(),
+    attachmentName,
+    attachmentUrl,
     pinned: Boolean(req.body.pinned)
   });
   await ensureCrmNotificationId(item);
 
+  try {
+    item.metadata = { ...(item.metadata || {}), ...(await emailAnnouncementToAllUsers(item)), emailedAt: new Date() };
+  } catch (error) {
+    item.metadata = { ...(item.metadata || {}), emailFailed: true, emailError: error.message };
+  }
+  item.markModified('metadata');
+  await item.save();
+
   res.status(201).json({ ok: true, notification: mapNotification(item) });
 };
+
+exports.__test = { emailAnnouncementToAllUsers };
 
 exports.updateNotification = async (req, res) => {
   const title = String(req.body.title || '').trim();

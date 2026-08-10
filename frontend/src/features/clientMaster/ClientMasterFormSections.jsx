@@ -32,18 +32,20 @@ function AddressPanel({ title, section, data, setValue, onCopy, selectOptions })
   );
 }
 
-function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complianceRows }) {
+function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complianceRows, applicableComplianceRows = complianceRows }) {
+  const applicableKeys = new Set(applicableComplianceRows.map(([key]) => key));
   return (
     <>
       <Card title="Compliance Certificate Upload">
         <div className="grid gap-4">
-          {complianceRows.map(([key, numberLabel, dateLabel, fileLabel]) => (
-            <div key={key} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 lg:grid-cols-[1fr_1fr_180px]">
-              <Field label={numberLabel}><input className="form-input" value={client.compliance[`${key}Number`] || ''} onChange={(event) => setValue('compliance', `${key}Number`, event.target.value)} /></Field>
-      <Field label={dateLabel}><PremiumDatePicker value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
-              <Field label={fileLabel}><UploadButton value={client.compliance[`${key}File`]} onChange={(value) => setValue('compliance', `${key}File`, value)} /></Field>
+          {complianceRows.map(([key, numberLabel, dateLabel, fileLabel]) => {
+            const applicable = applicableKeys.has(key);
+            return <div key={key} className={`grid gap-3 rounded-xl border p-3 lg:grid-cols-[1fr_1fr_180px] ${applicable ? 'border-slate-100 bg-slate-50' : 'border-slate-200 bg-slate-100 opacity-60'}`}>
+              <Field label={`${numberLabel}${applicable ? '' : ' (Not Applicable)'}`}><input disabled={!applicable} className="form-input" value={client.compliance[`${key}Number`] || ''} onChange={(event) => setValue('compliance', `${key}Number`, event.target.value)} /></Field>
+      <Field label={dateLabel}><PremiumDatePicker disabled={!applicable} value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
+              <Field label={fileLabel}>{applicable ? <UploadButton value={client.compliance[`${key}File`]} onChange={(value) => setValue('compliance', `${key}File`, value)} /> : <span className="inline-flex min-h-10 items-center rounded-lg bg-slate-200 px-3 text-xs font-black text-slate-500">Not required</span>}</Field>
             </div>
-          ))}
+          })}
         </div>
       </Card>
 

@@ -90,6 +90,13 @@ const complianceRows = [
   ['dicDcssi', 'DIC/DCSSI Certificate No', 'DIC/DCSSI Certificate Date', 'DIC/DCSSI Certificate File']
 ];
 
+function getApplicableComplianceRows(client = {}) {
+  const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
+  if (category.includes('producer')) return complianceRows.filter(([key]) => key !== 'iec');
+  if (category.includes('importer')) return complianceRows.filter(([key]) => !['factoryLicense', 'dicDcssi'].includes(key));
+  return complianceRows;
+}
+
 const tabProgressFields = {
   companyOverview: [
     ['companyOverview', 'companyName'],
@@ -194,7 +201,7 @@ function addProgressParts(...parts) {
 }
 
 function buildClientTabProgress(client = {}) {
-  const complianceDocumentFields = complianceRows.flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`]);
+  const complianceDocumentFields = getApplicableComplianceRows(client).flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`]);
   const ctePlants = Array.isArray(client.cte?.plantWiseDetails) ? client.cte.plantWiseDetails : [];
   const progressByTab = {
     basic: countFields(client, tabProgressFields.basic),
@@ -1687,7 +1694,7 @@ export default function ClientMaster() {
             {activeTab === 'companyOverview' && <CompanyOverviewTab client={client} setValue={setValue} />}
             {activeTab === 'basic' && <BasicTab client={client} setValue={setValue} />}
             {activeTab === 'address' && <AddressTab client={client} setValue={setValue} copyRegisteredAddress={copyRegisteredAddress} selectOptions={selectOptions} />}
-            {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} />}
+            {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} applicableComplianceRows={getApplicableComplianceRows(client)} />}
             {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setRoot={setRoot} onValidationError={setError} />}

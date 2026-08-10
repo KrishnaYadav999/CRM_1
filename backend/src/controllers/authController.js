@@ -595,12 +595,14 @@ exports.listUsers = async (req, res) => {
 
 exports.logout = async (req, res) => {
   const now = new Date();
+  const inactivityLogout = String(req.body?.reason || '').trim().toLowerCase() === 'inactivity';
   if (req.authSessionId) {
     await UserSession.updateOne({ sessionId: req.authSessionId, userId: req.user._id, logoutAt: null }, { $set: { logoutAt: now, lastActivityAt: now } });
   }
   await AuditLog.create({
     userId: req.user._id, sessionId: req.authSessionId, action: 'LOGOUT', module: 'Authentication',
-    method: 'POST', path: '/api/auth/logout', statusCode: 200, description: 'Logged out of CRM', ipAddress: clientIp(req)
+    method: 'POST', path: '/api/auth/logout', statusCode: 200,
+    description: inactivityLogout ? 'Automatically logged out after 30 minutes of inactivity' : 'Logged out of CRM', ipAddress: clientIp(req)
   });
   res.json({ ok: true });
 };
