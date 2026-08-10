@@ -59,6 +59,67 @@ function cleanString(value) {
   return String(value || '').trim();
 }
 
+function isQuotationAdmin(user) {
+  return ['admin', 'superadmin'].includes(cleanString(user?.role).toLowerCase());
+}
+
+async function quotationAccessFilter(user) {
+  if (isQuotationAdmin(user)) return {};
+  const userId = user?._id;
+  if (!userId) return { _id: { $exists: false } };
+  const identityValues = [String(userId), cleanString(user.email), cleanString(user.name)].filter(Boolean);
+  const identityConditions = identityValues.flatMap((value) => {
+    const exact = new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    return [
+      { createdByCrmUserId: exact },
+      { createdByEmail: exact },
+      { createdByName: exact },
+      { importedCreatedBy: exact },
+      { assignedToText: exact },
+      { assignedStaffText: exact },
+      { assignedStaffEmail: exact },
+      { 'assignments.assignedToText': exact },
+      { 'assignments.assignedToEmail': exact },
+      { 'assignments.assignedStaffText': exact },
+      { 'assignments.assignedStaffEmail': exact },
+      { 'serviceSelections.createdByCrmUserId': exact },
+      { 'serviceSelections.createdByEmail': exact },
+      { 'serviceSelections.createdByName': exact }
+    ];
+  });
+  const leads = await Lead.find({
+    $or: [
+      { createdBy: userId },
+      { assignedTo: userId },
+      { assignedStaff: userId },
+      { 'assignments.assignedTo': userId },
+      { 'assignments.assignedStaff': userId },
+      ...identityConditions
+    ]
+  }).select('_id leadCode sourceLeadId externalLeadId').lean();
+  const leadObjectIds = leads.map((lead) => lead._id);
+  const leadIdentifiers = [...new Set(leads.flatMap((lead) => [
+    String(lead._id), lead.leadCode, lead.sourceLeadId, lead.externalLeadId
+  ]).map(cleanString).filter(Boolean))];
+
+  return {
+    $or: [
+      { createdBy: userId },
+      ...(leadObjectIds.length ? [{ leadRef: { $in: leadObjectIds } }] : []),
+      ...(leadIdentifiers.length ? [
+        { leadId: { $in: leadIdentifiers } },
+        { leadCode: { $in: leadIdentifiers } },
+        { businessLeadCode: { $in: leadIdentifiers } }
+      ] : [])
+    ]
+  };
+}
+
+function combineFilters(...filters) {
+  const active = filters.filter((filter) => filter && Object.keys(filter).length);
+  return active.length > 1 ? { $and: active } : active[0] || {};
+}
+
 async function ensureBuiltInServiceCategories() {
   if (!BUILT_IN_SERVICE_CATEGORIES.length) return;
   await QuotationServiceCategory.bulkWrite(
@@ -567,11 +628,13 @@ exports.listQuotations = async (req, res) => {
   await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = req.query.limit ? Math.min(100, Math.max(1, Number(req.query.limit) || 20)) : 0;
-  const query = Quotation.find(filter)
+  const accessFilter = await quotationAccessFilter(req.user);
+  const scopedFilter = combineFilters(filter, accessFilter);
+  const query = Quotation.find(scopedFilter)
     .populate('createdBy', 'name email')
     .sort({ quotationDate: -1, createdAt: -1 });
   if (limit) query.skip((page - 1) * limit).limit(limit);
-  const [quotations, total] = await Promise.all([query.lean(), Quotation.countDocuments(filter)]);
+  const [quotations, total] = await Promise.all([query.lean(), Quotation.countDocuments(scopedFilter)]);
   res.json({ ok: true, quotations, pagination: { page, limit: limit || total, total, pages: limit ? Math.ceil(total / limit) : 1 } });
 };
 
@@ -579,7 +642,8 @@ exports.getQuotation = async (req, res) => {
   const now = new Date();
   const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
   await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
-  const quotation = await Quotation.findById(req.params.id).populate('createdBy', 'name email').lean();
+  const quotation = await Quotation.findOne(combineFilters({ _id: req.params.id }, await quotationAccessFilter(req.user)))
+    .populate('createdBy', 'name email').lean();
   if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
   return res.json({ ok: true, quotation });
 };
@@ -589,7 +653,8 @@ exports.listLeadQuotations = async (req, res) => {
   const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
   await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const leadId = cleanString(req.params.leadId);
-  const quotations = await Quotation.find({ leadId }).populate('createdBy', 'name email').sort({ quotationDate: -1, createdAt: -1 }).lean();
+  const quotations = await Quotation.find(combineFilters({ leadId }, await quotationAccessFilter(req.user)))
+    .populate('createdBy', 'name email').sort({ quotationDate: -1, createdAt: -1 }).lean();
   return res.json({ ok: true, quotations });
 };
 
@@ -623,7 +688,7 @@ exports.createQuotation = async (req, res) => {
 exports.updateQuotation = async (req, res) => {
   const gstError = validateGstNumber(req.body.leadDetails?.gstNumber);
   if (gstError) return res.status(400).json({ error: gstError });
-  const quotation = await Quotation.findById(req.params.id);
+  const quotation = await Quotation.findOne(combineFilters({ _id: req.params.id }, await quotationAccessFilter(req.user)));
   if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
 
   // Every revision, including a one-field edit, starts a completely new approval cycle.
@@ -887,8 +952,11 @@ exports.createPiboCategory = async (req, res) => {
 exports._test = {
   cleanBody,
   cleanItems,
+  combineFilters,
+  isQuotationAdmin,
   normalizeCompanyName,
-  preserveTerminalApprovalStatus
+  preserveTerminalApprovalStatus,
+  quotationAccessFilter
 };
 
 exports.listDropdownOptions = async (req, res) => {

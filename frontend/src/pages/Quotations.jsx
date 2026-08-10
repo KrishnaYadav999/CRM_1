@@ -297,21 +297,6 @@ function ownerIdentityTokens(...values) {
   }))];
 }
 
-const sharedQuotationCompanyAccess = {
-  'prachi chavan': new Set([
-    'sayaji industries limited',
-    'sd international',
-    'shree matangi woven sack private limited',
-    'daily care consumer'
-  ])
-};
-
-function hasSharedQuotationCompanyAccess(currentUser = null, lead = {}) {
-  const userNames = ownerIdentityTokens(currentUser?.name);
-  const company = normalizeOwnerIdentity(lead.company || lead.companyName);
-  return userNames.some((name) => sharedQuotationCompanyAccess[name]?.has(company));
-}
-
 function quotationApplicantSelection(row = {}) {
   const subApplicantType = String(row.subApplicantType || row.piboCategory || '').trim();
   if (isPlasticWasteService(row) && subApplicantType) {
@@ -377,7 +362,6 @@ function findLeadForQuotation(quotation = {}, leads = []) {
 
 function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
   if (adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase())) return true;
-  if (hasSharedQuotationCompanyAccess(currentUser, lead)) return true;
   const userTokens = ownerIdentityTokens(
     currentUser?._id,
     currentUser?.id,

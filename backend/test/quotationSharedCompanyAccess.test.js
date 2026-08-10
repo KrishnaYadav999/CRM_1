@@ -1,20 +1,34 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+const controller = require('../src/controllers/quotationController');
+const Lead = require('../src/models/Lead');
 
-const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
-
-test('Prachi Chavan can price the four explicitly shared Tushar client quotations', () => {
-  assert.match(page, /'prachi chavan': new Set/);
-  assert.match(page, /sayaji industries limited/);
-  assert.match(page, /sd international/);
-  assert.match(page, /shree matangi woven sack private limited/);
-  assert.match(page, /daily care consumer/);
-  assert.match(page, /if \(hasSharedQuotationCompanyAccess\(currentUser, lead\)\) return true/);
+test('admin and superadmin can see every quotation', async () => {
+  assert.deepEqual(await controller._test.quotationAccessFilter({ role: 'admin', _id: 'admin-id' }), {});
+  assert.deepEqual(await controller._test.quotationAccessFilter({ role: 'superadmin', _id: 'admin-id' }), {});
 });
 
-test('shared quotation pricing access remains scoped by both user and company', () => {
-  assert.match(page, /sharedQuotationCompanyAccess\[name\]\?\.has\(company\)/);
-  assert.doesNotMatch(page, /currentUser\?\.name.*prachi.*return true/is);
+test('normal user access includes own quotations and quotations linked to owned or assigned leads', async (t) => {
+  const originalFind = Lead.find;
+  t.after(() => { Lead.find = originalFind; });
+  Lead.find = (query) => ({
+    select() {
+      return { lean: async () => [{ _id: 'lead-object-id', leadCode: 'ATPL-LEAD-0327', sourceLeadId: '327' }] };
+    }
+  });
+  const userId = '64b8f1c2a1e2f3d4c5b6a7e8';
+  const filter = await controller._test.quotationAccessFilter({
+    _id: userId,
+    name: 'GAURAV CHANDRA',
+    email: 'gaurav@example.com',
+    role: 'sales'
+  });
+
+  assert.deepEqual(filter.$or[0], { createdBy: userId });
+  assert.ok(filter.$or.some((row) => row.leadId?.$in?.includes('ATPL-LEAD-0327')));
+  assert.ok(filter.$or.some((row) => row.leadCode?.$in?.includes('327')));
+});
+
+test('unauthenticated scope cannot see quotations', async () => {
+  assert.deepEqual(await controller._test.quotationAccessFilter(null), { _id: { $exists: false } });
 });
