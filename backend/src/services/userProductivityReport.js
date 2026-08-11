@@ -3,6 +3,8 @@ const UserSession = require('../models/UserSession');
 const AuditLog = require('../models/AuditLog');
 const Lead = require('../models/Lead');
 const SupportTicket = require('../models/SupportTicket');
+const Client = require('../models/Client');
+const { completeness } = require('./clientOnboardingReminders');
 
 const ONLINE_WINDOW_MS = 15 * 60 * 1000;
 
@@ -158,4 +160,48 @@ async function getUserProductivityReport({ from, to }) {
   return buildUserProductivityReport({ users, sessions, activities, leads, ticketStats, period });
 }
 
-module.exports = { getUserProductivityReport, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange };
+function clientSectionAnalysis(data = {}) {
+  const ignored = /password|otp|token|secret/i;
+  const meaningful = (value) => value !== undefined && value !== null && (typeof value !== 'string' || value.trim() !== '');
+  const sections = Object.entries(data || {}).filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value)).map(([name, value]) => {
+    const fields = Object.entries(value).filter(([key]) => !ignored.test(key));
+    const filled = fields.filter(([, item]) => meaningful(item)).length;
+    return { name: name.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()), filled, missing: Math.max(0, fields.length - filled), total: fields.length, percentage: fields.length ? Math.round((filled / fields.length) * 100) : 0 };
+  });
+  return sections.sort((a, b) => b.total - a.total).slice(0, 12);
+}
+
+function companyNameFor({ lead, client }) {
+  return client?.data?.basic?.clientLegalName || client?.data?.basic?.tradeName || lead?.company || 'Unnamed Company';
+}
+
+async function getUserWorkReport({ userId, from, to }) {
+  const period = reportDateRange(from, to);
+  const user = await User.findById(userId).select('name email role team isActive').lean();
+  if (!user) { const error = new Error('User not found'); error.statusCode = 404; throw error; }
+  const createdAt = { $gte: period.start, $lte: period.end };
+  const [leads, clients] = await Promise.all([
+    Lead.find({ createdBy: userId, createdAt }).select('leadCode company companyIdentity status workflowStatus serviceSelections servicesOffered eprCategory createdAt updatedAt').sort({ createdAt: -1 }).lean(),
+    Client.find({ createdBy: userId, createdAt }).select('selectedLead companyIdentity data workflowStatus adminControls createdAt updatedAt').sort({ createdAt: -1 }).lean()
+  ]);
+  const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
+  const clientRows = clients.map((client) => {
+    const lead = leadById.get(String(client.selectedLead || ''));
+    const required = completeness(client.data || {});
+    const sections = clientSectionAnalysis(client.data || {});
+    const filled = required.filledCount;
+    const total = required.totalCount;
+    return { id: client._id, leadId: client.selectedLead, leadCode: lead?.leadCode || '', company: companyNameFor({ lead, client }), status: client.workflowStatus,
+      approvalStatus: client.adminControls?.approvalStatus || '', createdAt: client.createdAt, updatedAt: client.updatedAt,
+      analysis: { filled, missing: Math.max(0, total - filled), total, percentage: total ? Math.round((filled / total) * 100) : 0, filledFields: required.filledFields, missingFields: required.missingFields, sections } };
+  });
+  const clientLeadIds = new Set(clientRows.map((row) => String(row.leadId || '')).filter(Boolean));
+  const leadRows = leads.map((lead) => ({ id: lead._id, leadCode: lead.leadCode, company: lead.company || 'Unnamed Company', status: lead.status || lead.workflowStatus,
+    services: (lead.serviceSelections || []).map((service) => service.servicesOffered || service.service || service.eprCategory).filter(Boolean), createdAt: lead.createdAt, hasClientMaster: clientLeadIds.has(String(lead._id)) }));
+  const averageCompletion = clientRows.length ? Math.round(clientRows.reduce((sum, row) => sum + row.analysis.percentage, 0) / clientRows.length) : 0;
+  return { period: { from: period.from, to: period.to }, user, summary: { leads: leadRows.length, submittedLeads: leads.filter((lead) => lead.workflowStatus === 'submitted').length,
+    clientMasters: clientRows.length, submittedClients: clients.filter((client) => client.workflowStatus === 'submitted').length, averageCompletion,
+    completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows };
+}
+
+module.exports = { getUserProductivityReport, getUserWorkReport, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange };

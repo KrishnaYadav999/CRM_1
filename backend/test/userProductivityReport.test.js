@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUserProductivityReport, productivityScore } = require('../src/services/userProductivityReport');
+const { buildUserProductivityReport, clientSectionAnalysis, productivityScore } = require('../src/services/userProductivityReport');
 
 function user(id, name) {
   return { _id: id, name, email: `${name.toLowerCase()}@example.com`, role: 'operation', isActive: true, lastLogin: new Date('2026-08-08T04:30:00.000Z') };
@@ -40,4 +40,25 @@ test('report service uses grouped ticket aggregation instead of per-user queries
   assert.match(source, /\$group:\s*\{/);
   assert.match(source, /_id: '\$createdBy'/);
   assert.match(source, /createdAt: \{ \$gte: period\.start, \$lte: period\.end \}/);
+});
+
+test('company drill-down calculates section completion without exposing sensitive fields', () => {
+  const sections = clientSectionAnalysis({ basic: { clientLegalName: 'ABC Ltd', tradeName: '' }, cpcb: { loginId: 'abc', loginPassword: 'secret' } });
+  const basic = sections.find((section) => section.name === 'Basic');
+  const cpcb = sections.find((section) => section.name === 'Cpcb');
+  assert.deepEqual({ filled: basic.filled, missing: basic.missing, percentage: basic.percentage }, { filled: 1, missing: 1, percentage: 50 });
+  assert.deepEqual({ filled: cpcb.filled, missing: cpcb.missing, total: cpcb.total }, { filled: 1, missing: 0, total: 1 });
+});
+
+test('super admin user and company drill-down is wired to API, charts and report download', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/components/dashboard/UserWorkDrilldown.jsx'), 'utf8');
+  const routes = fs.readFileSync(path.resolve(__dirname, '../src/routes/auth.js'), 'utf8');
+  assert.match(routes, /superadmin\/users\/:id\/work-report/);
+  assert.match(page, /Client Master Companies/);
+  assert.match(page, /Company data analysis/);
+  assert.match(page, /Filled vs Missing Data/);
+  assert.match(page, /Section-wise Completion/);
+  assert.match(page, /Download Report/);
 });

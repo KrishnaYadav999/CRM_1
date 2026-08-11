@@ -9,7 +9,7 @@ const AuditLog = require('../models/AuditLog');
 const UserSession = require('../models/UserSession');
 const Lead = require('../models/Lead');
 const { clientIp } = require('../middleware/activityAudit');
-const { getUserProductivityReport } = require('../services/userProductivityReport');
+const { getUserProductivityReport, getUserWorkReport } = require('../services/userProductivityReport');
  
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -651,6 +651,15 @@ exports.userProductivityReport = async (req, res) => {
     res.json({ ok: true, ...report });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Unable to generate the user activity report' });
+  }
+};
+
+exports.userWorkReport = async (req, res) => {
+  try {
+    const report = await getUserWorkReport({ userId: req.params.id, from: req.query.from, to: req.query.to });
+    res.json({ ok: true, ...report });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Unable to generate the user work report' });
   }
 };
 

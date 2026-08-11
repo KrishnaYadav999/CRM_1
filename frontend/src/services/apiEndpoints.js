@@ -16,6 +16,7 @@ const API_ENDPOINTS = {
     auditLogs: '/auth/admin/logs',
     superAdminOverview: '/auth/superadmin/overview',
     userProductivityReport: '/auth/superadmin/productivity-report',
+    userWorkReport: (id) => `/auth/superadmin/users/${encodePathValue(id)}/work-report`,
     users: '/auth/users',
     roles: '/auth/roles',
     adminUsers: '/auth/admin/users',
