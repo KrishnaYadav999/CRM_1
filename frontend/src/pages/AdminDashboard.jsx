@@ -5547,6 +5547,7 @@ export default function AdminDashboard() {
                               onToggle={() => setActiveActionUser((value) => (String(value || '') === String(id) ? null : id))}
                               onView={() => openDetails(user)}
                               onEdit={() => openEdit(user)}
+                              onActivity={() => navigate(`/dashboard/activity-logs?userId=${encodeURIComponent(id)}`)}
                               label={`Actions for ${user.name || user.email || 'user'}`}
                             />
                           </div>

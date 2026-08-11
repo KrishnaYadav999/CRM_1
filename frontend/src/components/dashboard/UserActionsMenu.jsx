@@ -1,7 +1,7 @@
 import React from 'react'
-import { Edit3, Eye, MoreVertical } from 'lucide-react'
+import { Activity, Edit3, Eye, MoreVertical } from 'lucide-react'
 
-export default function UserActionsMenu({ open, onToggle, onView, onEdit, label }) {
+export default function UserActionsMenu({ open, onToggle, onView, onEdit, onActivity, label }) {
   return (
     <div className="relative inline-flex justify-center">
       <button
@@ -25,6 +25,7 @@ export default function UserActionsMenu({ open, onToggle, onView, onEdit, label 
           >
             <Eye className="h-4 w-4" />
           </button>
+          {onActivity && <button type="button" onClick={onActivity} className="btn-lift inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-700 transition hover:bg-violet-50 hover:text-violet-700" aria-label="View activity" title="View activity"><Activity className="h-4 w-4" /></button>}
           <button
             type="button"
             onClick={onEdit}

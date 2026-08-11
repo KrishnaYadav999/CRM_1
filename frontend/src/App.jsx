@@ -21,6 +21,7 @@ import PendingLeads from './pages/PendingLeads'
 import HelpYourself from './pages/HelpYourself'
 import SupportTickets from './pages/SupportTickets'
 import SuperAdminDashboard from './pages/SuperAdminDashboard'
+import ActivityLogs from './pages/ActivityLogs'
 import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
 
 function ActiveCrmTracker() {
@@ -81,6 +82,7 @@ function App(){
         <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/dashboard/users" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminDashboard/></ProtectedRoute>} />
         <Route path="/superadmin-dashboard" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><SuperAdminDashboard/></ProtectedRoute>} />
+        <Route path="/dashboard/activity-logs" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><ActivityLogs/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingApproval/></ProtectedRoute>} />
         <Route path="/pending-leads" element={<Navigate to="/pending-leads/open" replace />} />
         <Route path="/pending-leads/open" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingLeads mode="open"/></ProtectedRoute>} />

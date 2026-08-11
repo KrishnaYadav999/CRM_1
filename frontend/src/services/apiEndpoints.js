@@ -88,7 +88,8 @@ const API_ENDPOINTS = {
     list: '/teams',
     create: '/teams',
     detail: (id) => `/teams/${encodePathValue(id)}`
-  }
+  },
+  activityLogs: { list: '/activity-logs', stats: '/activity-logs/stats', filters: '/activity-logs/filters', detail: (id) => `/activity-logs/${encodePathValue(id)}` }
 };
 
 export { API_ENDPOINTS };
