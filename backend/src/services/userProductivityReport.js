@@ -210,7 +210,7 @@ async function getUserWorkReport({ userId, from, to }) {
   if (!user) { const error = new Error('User not found'); error.statusCode = 404; throw error; }
   const createdAt = { $gte: period.start, $lte: period.end };
   const [leads, clients] = await Promise.all([
-    Lead.find({ createdBy: userId, createdAt }).select('leadCode company companyIdentity status workflowStatus serviceSelections servicesOffered eprCategory createdAt updatedAt').sort({ createdAt: -1 }).lean(),
+    Lead.find({ createdBy: userId, createdAt }).select('leadCode company companyIdentity status workflowStatus serviceSelections servicesOffered eprCategory applicantType assignments nextFollowUpDate nextFollowUpTime followUpRemarks followUpPriority followUpFlag followUpHistory closedBy closedByText closedAt createdByName createdAt updatedAt').sort({ createdAt: -1 }).lean(),
     Client.find({ createdBy: userId, createdAt }).select('selectedLead companyIdentity data workflowStatus adminControls createdAt updatedAt').sort({ createdAt: -1 }).lean()
   ]);
   const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
@@ -225,10 +225,35 @@ async function getUserWorkReport({ userId, from, to }) {
       analysis: { filled, missing: Math.max(0, total - filled), total, percentage: total ? Math.round((filled / total) * 100) : 0, filledFields: required.filledFields, missingFields: required.missingFields, sections } };
   });
   const clientLeadIds = new Set(clientRows.map((row) => String(row.leadId || '')).filter(Boolean));
-  const leadRows = leads.map((lead) => ({ id: lead._id, leadCode: lead.leadCode, company: lead.company || 'Unnamed Company', status: lead.status || lead.workflowStatus,
-    services: (lead.serviceSelections || []).map((service) => service.servicesOffered || service.service || service.eprCategory).filter(Boolean), createdAt: lead.createdAt, hasClientMaster: clientLeadIds.has(String(lead._id)) }));
+  const today = new Date().toISOString().slice(0, 10);
+  const leadRows = leads.map((lead) => {
+    const services = (lead.serviceSelections?.length ? lead.serviceSelections : [lead]).map((service, index) => ({
+      id: `${lead._id}-${index}`, name: service.servicesOffered || service.service || lead.servicesOffered || 'General service',
+      category: service.serviceCategory || service.eprCategory || lead.eprCategory || '', applicantType: service.applicantType || lead.applicantType || '',
+      status: service.closedBy || service.closedByText || service.closedAt || service.followUpClosedAt ? 'Closed' : 'Open'
+    }));
+    const timeline = [];
+    const addFollowUp = (item, serviceName, fallbackDate) => {
+      if (!item || (!item.scheduledDate && !item.nextFollowUpDate && !item.remarks && !item.followUpRemarks)) return;
+      const scheduledDate = item.scheduledDate || item.nextFollowUpDate || '';
+      const closed = Boolean(item.closedAt || item.followUpClosedAt || item.closedBy || item.closedByText || /closed|completed/i.test(String(item.status || item.action || '')));
+      timeline.push({ scheduledDate, scheduledTime: item.scheduledTime || item.nextFollowUpTime || '', remarks: item.remarks || item.followUpRemarks || 'Follow-up scheduled', reason: item.reason || item.followUpCloseReason || '', priority: item.priority || item.followUpPriority || 'Medium', service: serviceName, owner: item.updatedBy || item.createdByName || lead.createdByName || user.name, closed, createdAt: item.createdAt || item.updatedAt || fallbackDate || null });
+    };
+    (lead.followUpHistory || []).forEach((item) => addFollowUp(item, 'General', lead.updatedAt));
+    addFollowUp(lead, 'General', lead.updatedAt);
+    (lead.serviceSelections || []).forEach((service) => { const serviceName = service.servicesOffered || service.service || service.eprCategory || 'General service'; (service.followUpHistory || []).forEach((item) => addFollowUp(item, serviceName, service.followUpUpdatedAt || lead.updatedAt)); addFollowUp(service, serviceName, service.followUpUpdatedAt || lead.updatedAt); });
+    timeline.sort((a, b) => `${b.scheduledDate || ''} ${b.scheduledTime || ''}`.localeCompare(`${a.scheduledDate || ''} ${a.scheduledTime || ''}`));
+    const closed = Boolean(lead.closedBy || lead.closedByText || lead.closedAt || /closed/i.test(String(lead.status || '')) || (services.length && services.every((service) => service.status === 'Closed')));
+    const missedFollowUps = timeline.filter((item) => !item.closed && item.scheduledDate && item.scheduledDate < today);
+    const redFlags = [];
+    if (/RED/i.test(String(lead.followUpFlag || ''))) redFlags.push(lead.followUpFlag === 'PERMANENT_RED' ? 'Permanent follow-up red flag' : 'Follow-up overdue red flag');
+    if (missedFollowUps.length) redFlags.push(`${missedFollowUps.length} missed follow-up${missedFollowUps.length === 1 ? '' : 's'}`);
+    return { id: lead._id, leadCode: lead.leadCode, company: lead.company || 'Unnamed Company', status: closed ? 'Closed' : 'Open', rawStatus: lead.status || lead.workflowStatus,
+      services, followUps: timeline, missedFollowUps, redFlags, lastActivityAt: timeline[0]?.createdAt || lead.updatedAt || lead.createdAt,
+      createdAt: lead.createdAt, updatedAt: lead.updatedAt, hasClientMaster: clientLeadIds.has(String(lead._id)) };
+  });
   const averageCompletion = clientRows.length ? Math.round(clientRows.reduce((sum, row) => sum + row.analysis.percentage, 0) / clientRows.length) : 0;
-  return { period: { from: period.from, to: period.to }, user, summary: { leads: leadRows.length, submittedLeads: leads.filter((lead) => lead.workflowStatus === 'submitted').length,
+  return { period: { from: period.from, to: period.to }, user, summary: { leads: leadRows.length, openLeads: leadRows.filter((lead) => lead.status === 'Open').length, closedLeads: leadRows.filter((lead) => lead.status === 'Closed').length, submittedLeads: leads.filter((lead) => lead.workflowStatus === 'submitted').length,
     clientMasters: clientRows.length, submittedClients: clients.filter((client) => client.workflowStatus === 'submitted').length, averageCompletion,
     completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows };
 }

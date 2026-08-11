@@ -50,16 +50,18 @@ test('company drill-down calculates section completion without exposing sensitiv
   assert.deepEqual({ filled: cpcb.filled, missing: cpcb.missing, total: cpcb.total }, { filled: 1, missing: 0, total: 1 });
 });
 
-test('super admin user and company drill-down is wired to API, charts and report download', () => {
+test('super admin sales drill-down is wired to API, status filters, risks and report download', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/components/dashboard/UserWorkDrilldown.jsx'), 'utf8');
   const routes = fs.readFileSync(path.resolve(__dirname, '../src/routes/auth.js'), 'utf8');
   assert.match(routes, /superadmin\/users\/:id\/work-report/);
-  assert.match(page, /Client Master Companies/);
-  assert.match(page, /Company data analysis/);
-  assert.match(page, /Filled vs Missing Data/);
-  assert.match(page, /Section-wise Completion/);
+  assert.match(page, /Sales Company Portfolio/);
+  assert.match(page, /Lead Open/);
+  assert.match(page, /Complete Follow-up Timeline/);
+  assert.match(page, /Missed Follow-ups/);
+  assert.match(page, /Red Flags/);
+  assert.match(page, /\['Open','Closed'\]/);
   assert.match(page, /Download Report/);
 });
 
