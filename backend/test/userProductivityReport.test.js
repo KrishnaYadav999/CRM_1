@@ -69,6 +69,10 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   assert.match(page, /pageSize/);
   assert.match(page, /Next Action/);
   assert.match(page, /Owner/);
+  assert.match(page, /Client Master Analysis/);
+  assert.match(page, /Filled vs Missing Data/);
+  assert.match(page, /Section-wise Completion/);
+  assert.match(page, /Manager Team/);
 });
 
 test('full company analysis covers every Client Master section and respects applicability', () => {

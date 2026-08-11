@@ -209,10 +209,23 @@ async function getUserWorkReport({ userId, from, to }) {
   const user = await User.findById(userId).select('name email role team isActive').lean();
   if (!user) { const error = new Error('User not found'); error.statusCode = 404; throw error; }
   const createdAt = { $gte: period.start, $lte: period.end };
+  const teamUsers = /manager/i.test(String(user.role || '')) ? await User.find({ managerId: userId, isActive: { $ne: false } }).select('name email role team').sort({ name: 1 }).lean() : [];
+  const teamIds = teamUsers.map((member) => member._id);
   const [leads, clients] = await Promise.all([
     Lead.find({ createdBy: userId, createdAt }).select('leadCode company companyIdentity status workflowStatus serviceSelections servicesOffered eprCategory applicantType assignments nextFollowUpDate nextFollowUpTime followUpRemarks followUpPriority followUpFlag followUpHistory closedBy closedByText closedAt createdByName createdAt updatedAt').sort({ createdAt: -1 }).lean(),
     Client.find({ createdBy: userId, createdAt }).select('selectedLead companyIdentity data workflowStatus adminControls createdAt updatedAt').sort({ createdAt: -1 }).lean()
   ]);
+  const [teamLeads, teamClients] = teamIds.length ? await Promise.all([
+    Lead.find({ createdBy: { $in: teamIds }, createdAt }).select('createdBy closedBy closedByText closedAt status').lean(),
+    Client.find({ createdBy: { $in: teamIds }, createdAt }).select('createdBy workflowStatus data').lean()
+  ]) : [[], []];
+  const teamMembers = teamUsers.map((member) => {
+    const memberLeads = teamLeads.filter((lead) => String(lead.createdBy) === String(member._id));
+    const memberClients = teamClients.filter((client) => String(client.createdBy) === String(member._id));
+    const closedLeads = memberLeads.filter((lead) => lead.closedBy || lead.closedByText || lead.closedAt || /closed/i.test(String(lead.status || ''))).length;
+    const completion = memberClients.map((client) => { const result = analyzeClientMasterData(client.data || {}); return result.totalCount ? Math.round(result.filledCount / result.totalCount * 100) : 0; });
+    return { id: member._id, name: member.name || member.email, email: member.email, role: member.role, team: member.team, totalLeads: memberLeads.length, openLeads: memberLeads.length - closedLeads, closedLeads, clientMasters: memberClients.length, submittedClients: memberClients.filter((client) => client.workflowStatus === 'submitted').length, averageCompletion: completion.length ? Math.round(completion.reduce((sum, value) => sum + value, 0) / completion.length) : 0 };
+  });
   const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
   const clientRows = clients.map((client) => {
     const lead = leadById.get(String(client.selectedLead || ''));
@@ -255,7 +268,7 @@ async function getUserWorkReport({ userId, from, to }) {
   const averageCompletion = clientRows.length ? Math.round(clientRows.reduce((sum, row) => sum + row.analysis.percentage, 0) / clientRows.length) : 0;
   return { period: { from: period.from, to: period.to }, user, summary: { leads: leadRows.length, openLeads: leadRows.filter((lead) => lead.status === 'Open').length, closedLeads: leadRows.filter((lead) => lead.status === 'Closed').length, submittedLeads: leads.filter((lead) => lead.workflowStatus === 'submitted').length,
     clientMasters: clientRows.length, submittedClients: clients.filter((client) => client.workflowStatus === 'submitted').length, averageCompletion,
-    completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows };
+    completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows, teamMembers };
 }
 
 module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange };

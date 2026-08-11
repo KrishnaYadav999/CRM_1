@@ -237,6 +237,10 @@ test('quotation download uses the client name and preserves each designed page b
   assert.match(page, /const sections = \[\.\.\.documentRef\.current\.children\]/);
   assert.match(page, /const pages = sections\.length \? sections : \[documentRef\.current\]/);
   assert.doesNotMatch(page, /const pagePixelHeight/);
+  assert.match(page, /class="scope-row"/);
+  assert.match(page, /grid-template-columns: 22px minmax\(0, 1fr\)/);
+  assert.match(page, /page-break-inside: avoid/);
+  assert.doesNotMatch(page, /\.scope-page \.footer \{ margin-top: auto;/);
 });
 
 test('quotation selects safely normalize object and string options before filtering', () => {

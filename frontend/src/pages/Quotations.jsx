@@ -2752,9 +2752,9 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
               <div className="mt-6 text-[11px] font-bold leading-6 text-slate-950">
                 <p className="font-black">Scope of Work:</p>
                 {scopeItems.length ? (
-                  <ol className="mt-3 list-decimal space-y-2 pl-5">
-                    {scopeItems.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
-                  </ol>
+                  <div className="mt-3 space-y-2">
+                    {scopeItems.map((item, index) => <div key={`${item}-${index}`} className="grid break-inside-avoid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-1"><span className="text-right font-black">{index + 1}.</span><span className="min-w-0 break-words">{item}</span></div>)}
+                  </div>
                 ) : (
                   <p className="mt-3">No scope of work added.</p>
                 )}
@@ -2824,7 +2824,7 @@ function buildQuotationPrintHtml(quotation) {
     ? quotation.terms.map((term, index) => `<p>${index + 1}. ${escapeHtml(term)}</p>`).join('')
     : '<p>No terms added.</p>';
   const scopeOfWork = (quotation.scopeOfWork || []).length
-    ? `<ol>${quotation.scopeOfWork.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ol>`
+    ? `<div class="scope-list">${quotation.scopeOfWork.map((item, index) => `<div class="scope-row"><span class="scope-number">${index + 1}.</span><span class="scope-text">${escapeHtml(item)}</span></div>`).join('')}</div>`
     : '<p>No scope of work added.</p>';
   const combinedPackageHeader = combined ? '<div class="package-header">Bulk Product Package Service</div>' : '';
 
@@ -2860,14 +2860,19 @@ function buildQuotationPrintHtml(quotation) {
       .package-header + table { margin-top: 0; }
       .terms { margin-top: 16px; line-height: 1.45; }
       .terms p { margin: 2px 0; font-weight: 400; }
-      .terms li, .scope-page li { margin: 0 0 6px; font-weight: 400; }
+      .terms li { margin: 0 0 6px; font-weight: 400; }
       .important { margin-top: 14px; line-height: 1.55; }
       .important-title { color: #ef0000; font-weight: 900; }
       .footer { margin-top: 16px; border-top: 1px solid #020617; padding-top: 14px; text-align: center; font-weight: 900; }
       .signature { margin-top: 16px; }
-      .scope-page { padding-top: 18px; display: flex; flex-direction: column; }
-      .scope-page .footer { margin-top: auto; }
+      .scope-page { padding-top: 18px; padding-bottom: 10mm; display: block; }
+      .scope-page .terms { margin-top: 0; }
+      .scope-page .footer { margin-top: 24px; break-inside: avoid; page-break-inside: avoid; }
       .scope-page-title { color: #f97316; font-size: 18px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; border-bottom: 1px solid #020617; padding-bottom: 10px; margin-bottom: 18px; }
+      .scope-list { margin-top: 12px; display: grid; gap: 9px; }
+      .scope-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: start; column-gap: 4px; break-inside: avoid; page-break-inside: avoid; font-weight: 400; line-height: 1.5; }
+      .scope-number { text-align: right; font-weight: 800; line-height: 1.5; }
+      .scope-text { min-width: 0; overflow-wrap: anywhere; }
       @media print {
         html, body { width: 210mm; min-height: 297mm; }
       }
