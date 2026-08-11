@@ -323,7 +323,7 @@ function validateSubmittedLead(data) {
   const contacts = Array.isArray(data.contacts) && data.contacts.length ? data.contacts : [data];
   const assignments = Array.isArray(data.assignments) ? data.assignments : [];
   const distinctPlantUnits = [...new Set(serviceRows.map((row) => String(row?.plantUnit || '').trim()).filter(Boolean))];
-  if (usesPlantUnits && (addresses.length !== distinctPlantUnits.length || contacts.length !== distinctPlantUnits.length || assignments.length !== serviceRows.length)) return 'Every Plant Unit must have one matching Address and Contact row, and every service must have one Assignment row';
+  if (usesPlantUnits && (addresses.length < distinctPlantUnits.length || contacts.length < distinctPlantUnits.length || assignments.length !== serviceRows.length)) return 'Every selected Plant Unit must have at least one matching Address and Contact row, and every service must have one Assignment row';
   if (usesPlantUnits && distinctPlantUnits.some((unit) => !addresses.some((row) => row?.plantUnit === unit) || !contacts.some((row) => row?.plantUnit === unit))) return 'Address and Contact rows must match their Plant Unit';
   if (usesPlantUnits && serviceRows.some((service, index) => assignments[index]?.assignedServiceId !== service.assignedServiceId)) return 'Assignment rows must match their assignedServiceId';
   if (contacts.some((row) => !row.salutation || !row.contactPerson || !row.designation || !row.emails || !row.mobileNo1 || !row.referredBy || !row.source)) return 'All contact fields except Mobile No. 2 and Business Card are required';

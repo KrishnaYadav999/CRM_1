@@ -1619,7 +1619,9 @@ export default function LeadGeneration() {
     if (workflowStatus === 'submitted') {
       const incompleteRow = serviceRows.findIndex((row) => !row.industryType || !row.businessCategory || !row.eprCategory || !row.applicantType || !row.servicesOffered || !row.plantUnit || !row.firstAnnualReturnYearApplicable || (!directApplicantOptions(row.eprCategory) && !row.piboCategory));
       if (incompleteRow >= 0) return `Complete Industry Type, Business Category, Service Category, Applicant Type, ${directApplicantOptions(serviceRows[incompleteRow].eprCategory) ? '' : 'Sub Applicant Type, '}Services Offered, Plant Unit, and Financial Year in service row ${incompleteRow + 1}.`;
-      if (addressRows.length !== unitServices.length || contactRows.length !== unitServices.length || assignmentRows.length !== serviceRows.length) return 'Every Plant Unit must have one matching Address and Contact row, and every service must have one Assignment row.';
+      const missingAddressUnit = unitServices.find((service) => !addressRows.some((row) => row.plantUnit === service.plantUnit));
+      const missingContactUnit = unitServices.find((service) => !contactRows.some((row) => row.plantUnit === service.plantUnit));
+      if (missingAddressUnit || missingContactUnit || assignmentRows.length !== serviceRows.length) return 'Every selected Plant Unit must have at least one matching Address and Contact row, and every service must have one Assignment row.';
       const seenServices = new Map();
       for (let index = 0; index < serviceRows.length; index += 1) {
         const identity = serviceSelectionIdentity(serviceRows[index]);

@@ -63,6 +63,19 @@ test('frontend groups shared lead data by Plant Unit and Client Master fetches b
   assert.match(clientMaster, /item\?\.plantUnit === row\.plantUnit/);
 });
 
+test('additional Address and Contact rows are valid and retained for database storage', () => {
+  const data = payload(['Unit 1']);
+  data.addresses.push({ ...address('', 'Unit 2'), addressLine1: 'Additional Office' });
+  data.contacts.push({ ...contact('', 'Unit 2'), contactPerson: 'Additional Contact', emails: 'additional@example.com' });
+
+  assert.equal(leadController._test.validateSubmittedLead(data), '');
+  const cleaned = leadController._test.cleanBody(data);
+  assert.equal(cleaned.addresses.length, 2);
+  assert.equal(cleaned.addresses[1].addressLine1, 'Additional Office');
+  assert.equal(cleaned.contacts.length, 2);
+  assert.equal(cleaned.contacts[1].contactPerson, 'Additional Contact');
+});
+
 test('Add Address and Add Contact require confirmation and assign the next unit', () => {
   const leadPage = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
   assert.match(leadPage, /function nextPlantUnit\(\.\.\.rowGroups\)/);
