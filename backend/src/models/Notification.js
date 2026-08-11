@@ -15,6 +15,7 @@ const NotificationSchema = new mongoose.Schema({
   pinned: { type: Boolean, default: false },
   metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  hiddenBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }],
   crmNotificationId: { type: String, unique: true, sparse: true, trim: true },
   source: { type: String, trim: true, default: 'crm' }
 }, { timestamps: true });

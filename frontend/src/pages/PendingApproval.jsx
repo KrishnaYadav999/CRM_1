@@ -765,7 +765,7 @@ export default function PendingApproval() {
                 {visibleClients.map((client) => (
                   <tr key={client.id}>
                     <Cell strong><button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></Cell>
-                    <Cell>{statusBadge(client.approvalStatus)}</Cell>
+                    <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{client.reminderFlag === 'RED' && <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">48H RED FLAG</span>}</div></Cell>
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>
                     <Cell>{client.createdBy}</Cell>

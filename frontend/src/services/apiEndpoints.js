@@ -73,7 +73,8 @@ const API_ENDPOINTS = {
   notifications: {
     list: '/notifications',
     create: '/notifications',
-    detail: (id) => `/notifications/${encodePathValue(id)}`
+    detail: (id) => `/notifications/${encodePathValue(id)}`,
+    clear: (id) => `/notifications/${encodePathValue(id)}`
   },
   calendarItems: {
     list: '/calendar-items',

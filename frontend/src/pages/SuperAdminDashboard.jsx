@@ -11,7 +11,7 @@ import UserWorkDrilldown from '../components/dashboard/UserWorkDrilldown'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import {
-  downloadProductivityPdf, downloadSuperAdminGuidePdf, exportProductivityExcel, formatDateTime, formatDuration, formatReportDate, REPORT_TITLE
+  downloadProductivityPdf, exportProductivityExcel, formatDateTime, formatDuration, formatReportDate, REPORT_TITLE
 } from '../utils/productivityReportExports'
 
 const roleLabels = { superadmin: 'Super Admin', admin: 'Admin', manager: 'Manager', operation: 'Operation', sales: 'Sales', compliance: 'Compliance', accounts: 'Accounts' }
@@ -74,7 +74,6 @@ export default function SuperAdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const [exportingExcel, setExportingExcel] = useState(false)
-  const [generatingGuide, setGeneratingGuide] = useState(false)
   const [error, setError] = useState('')
   const [exportError, setExportError] = useState('')
   const [selected, setSelected] = useState(null)
@@ -154,15 +153,6 @@ export default function SuperAdminDashboard() {
     finally { setExportingExcel(false) }
   }
 
-  async function downloadGuide() {
-    if (generatingGuide) return
-    setGeneratingGuide(true)
-    setExportError('')
-    try { await downloadSuperAdminGuidePdf() }
-    catch (guideError) { console.error('Unable to generate dashboard guide', guideError); setExportError('Unable to generate the dashboard guide. Please try again.') }
-    finally { setGeneratingGuide(false) }
-  }
-
   const cards = [
     ['Total Users', summary.totalUsers, `${summary.activeUsers} active accounts`, Users, 'bg-indigo-50 text-indigo-700'],
     ['Online Now', summary.onlineNow, 'Latest heartbeat status', UserCheck, 'bg-emerald-50 text-emerald-700'],
@@ -179,7 +169,7 @@ export default function SuperAdminDashboard() {
       <div className="w-full">
         <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div><p className="text-[10px] font-black uppercase tracking-[.24em] text-orange-500">Super admin control center</p><h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{REPORT_TITLE}</h1><p className="mt-2 text-sm font-semibold text-slate-500">Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)} · user presence, CRM activity, leads, tickets and risk.</p></div>
-          <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={downloadGuide} disabled={generatingGuide} className="inline-flex h-11 items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 text-sm font-black text-orange-700 disabled:opacity-50">{generatingGuide ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}{generatingGuide ? 'Generating Guide...' : 'Dashboard Guide PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></div>
+          <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></div>
         </header>
 
         <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

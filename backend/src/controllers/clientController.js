@@ -594,7 +594,7 @@ async function upsertPendingApproval(row, type = 'client') {
   const setOnInsert = { type, source };
   if (sourceClientId) setOnInsert.sourceClientId = sourceClientId;
   if (uniqueId) setOnInsert.uniqueId = uniqueId;
-  if (status === 'PENDING') setOnInsert.nextReminderAt = new Date();
+  if (status === 'PENDING') setOnInsert.nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const existing = await PendingApproval.findOne(filter);
   const existingStatus = normalizeApprovalStatus(existing?.approvalStatus);
 
@@ -685,7 +685,10 @@ function mapPendingApprovalRecord(record) {
     eprCategory: record.eprCategory || payload.eprCategory || payload.category || '-',
     createdBy: record.createdByName || payload.createdBy || payload.userName || '-',
     requestDate: record.requestDate || payload.requestDate || '-',
-    requestTime: record.requestTime || payload.requestTime || '-'
+    requestTime: record.requestTime || payload.requestTime || '-',
+    reminderFlag: record.reminderFlag || '',
+    redFlagAt: record.redFlagAt || null,
+    greenFlagDeadline: record.greenFlagDeadline || null
   };
 }
 
@@ -1263,6 +1266,10 @@ exports.updateClientApproval = async (req, res) => {
       await PendingApproval.findByIdAndUpdate(approvalRecord._id, {
         approvalStatus: status,
         nextReminderAt: null,
+        reminderFlag: 'GREEN',
+        greenFlagAt: new Date(),
+        redFlagAt: null,
+        greenFlagDeadline: null,
         actionBy: req.user?._id,
         actionAt: new Date(),
         remarks
@@ -1278,6 +1285,10 @@ exports.updateClientApproval = async (req, res) => {
         {
           approvalStatus: status,
           nextReminderAt: null,
+          reminderFlag: 'GREEN',
+          greenFlagAt: new Date(),
+          redFlagAt: null,
+          greenFlagDeadline: null,
           actionBy: req.user?._id,
           actionAt: new Date(),
           remarks
@@ -1316,6 +1327,10 @@ exports.updateClientApproval = async (req, res) => {
     await PendingApproval.findByIdAndUpdate(approvalRecord._id, {
       approvalStatus: status,
       nextReminderAt: null,
+      reminderFlag: 'GREEN',
+      greenFlagAt: new Date(),
+      redFlagAt: null,
+      greenFlagDeadline: null,
       actionBy: req.user?._id,
       actionAt: new Date(),
       remarks
@@ -1331,6 +1346,10 @@ exports.updateClientApproval = async (req, res) => {
       {
         approvalStatus: status,
         nextReminderAt: null,
+        reminderFlag: 'GREEN',
+        greenFlagAt: new Date(),
+        redFlagAt: null,
+        greenFlagDeadline: null,
         actionBy: req.user?._id,
         actionAt: new Date(),
         remarks
@@ -1357,6 +1376,10 @@ exports.approveAllPendingClients = async (req, res) => {
       const approvedClient = await applyClientApprovalStatus(record, 'APPROVED', req.user?._id, remarks);
       record.approvalStatus = 'APPROVED';
       record.nextReminderAt = null;
+      record.reminderFlag = 'GREEN';
+      record.greenFlagAt = new Date();
+      record.redFlagAt = null;
+      record.greenFlagDeadline = null;
       record.actionBy = req.user?._id;
       record.actionAt = new Date();
       record.remarks = remarks;

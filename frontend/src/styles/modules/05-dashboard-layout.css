@@ -466,6 +466,33 @@ html header.crm-topbar * {
   color: #2563eb;
 }
 
+.topbar-reminder-notice-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.topbar-reminder-notice-row > button {
+  margin-top: 0;
+}
+
+.topbar-reminder-notice-row .topbar-reminder-notice-clear {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  grid-template-columns: 1fr;
+  place-items: center;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  padding: 0;
+}
+
+.topbar-reminder-notice-row .topbar-reminder-notice-clear svg {
+  color: #e11d48;
+}
+
 .topbar-reminder-actions {
   display: flex;
   justify-content: flex-end;

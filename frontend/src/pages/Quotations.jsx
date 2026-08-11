@@ -2731,7 +2731,6 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                   <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td>{hasReturnYearItems && <td className="border-r border-t border-slate-950 px-2 py-3">{quotationAnnualReturnOrCreditYears(item).join(', ') || '-'}</td>}<td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
                 </table>
               </div>
-              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-[10px] font-bold leading-5 text-slate-700"><p className="font-black uppercase tracking-wider text-emerald-700">Service Period Validity Note</p>{items.map((item, index) => <p key={index} className="mt-1 text-[11px] font-black text-slate-950">{index + 1}. {servicePeriodValidityNote(item, quotation.validUntil)}</p>)}</div>
               <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
                 <p className="font-black">Terms & Conditions:</p>
                 {(quotation.terms || []).length ? quotation.terms.map((term, index) => <p key={index}>{index + 1}. {term}</p>) : <p>No terms added.</p>}

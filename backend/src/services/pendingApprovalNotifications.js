@@ -3,12 +3,12 @@ const User = require('../models/User');
 const { ADMIN_ROLES } = require('../constants/roles');
 const { sendMail } = require('../utils/mailer');
 
-const TEN_MINUTES = 10 * 60 * 1000;
+const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 const ONE_MINUTE = 60 * 1000;
-const REMINDER_INTERVAL_MS = Number(process.env.PENDING_APPROVAL_REMINDER_INTERVAL_MS) || TEN_MINUTES;
+const REMINDER_INTERVAL_MS = Number(process.env.PENDING_APPROVAL_REMINDER_INTERVAL_MS) || TWENTY_FOUR_HOURS;
 const SCAN_INTERVAL_MS = Number(process.env.PENDING_APPROVAL_REMINDER_SCAN_MS) || ONE_MINUTE;
 const DIGEST_RECORD_LIMIT = Number(process.env.PENDING_APPROVAL_DIGEST_LIMIT) || 20;
-const MAX_REMINDERS_PER_APPROVAL = Math.max(1, Number(process.env.PENDING_APPROVAL_MAX_REMINDERS) || 1);
+const MAX_REMINDERS_PER_APPROVAL = Math.max(2, Number(process.env.PENDING_APPROVAL_MAX_REMINDERS) || 2);
 const EMAIL_START_AT = readEmailStartAt();
 
 function readEmailStartAt() {
@@ -106,7 +106,7 @@ function buildPendingClientEmail(record) {
       </head>
       <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
         <span style="display:none!important;visibility:hidden;opacity:0;height:0;width:0;overflow:hidden;">
-          ${clientName} is waiting for admin approval in CRM.
+          ${clientName} is waiting for compliance approval in CRM.
         </span>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f1f5f9;">
           <tr>
@@ -161,7 +161,9 @@ function buildPendingClientEmail(record) {
                 <tr>
                   <td style="padding:8px 30px 28px;">
                     <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;color:#92400e;font-size:13px;line-height:1.6;font-weight:700;">
-                      This reminder will repeat every 10 minutes until the client is approved or rejected.
+                      ${reminderCount >= 2
+                        ? 'This is the second 24-hour reminder. The approval is now red-flagged and should be resolved within 48 hours.'
+                        : 'If no action is taken within 24 hours, a second reminder will be sent and the approval will be red-flagged.'}
                     </div>
                     <div style="margin-top:14px;color:#64748b;font-size:12px;line-height:1.5;text-align:center;">
                       Button not working? Open this link:<br>
@@ -227,8 +229,8 @@ function getDigestMeta(records, totalPendingCount, counts = {}) {
       title: totalPendingCount === 1 ? 'Pending Client Approval' : 'Pending Client Approvals',
       subject: `${totalPendingCount} pending client approval${totalPendingCount === 1 ? '' : 's'} in CRM`,
       preheader: `${totalPendingCount} client${totalPendingCount === 1 ? '' : 's'} pending approval in CRM.`,
-      description: 'Clients are waiting for admin review. Please approve or reject them from Pending Approval.',
-      repeatNote: 'This digest repeats every 10 minutes until pending clients are approved or rejected.',
+      description: 'Clients are waiting for compliance review. Please approve or reject them from Pending Approval.',
+      repeatNote: 'A second reminder is sent after another 24 hours; unresolved clients are then red-flagged with a 48-hour action window.',
       hiddenNote: 'more pending client approvals are available in CRM',
       defaultTabRecord: { type: 'client' }
     };
@@ -238,8 +240,8 @@ function getDigestMeta(records, totalPendingCount, counts = {}) {
     title: 'Pending Approval Digest',
     subject: `${totalPendingCount} pending approval${totalPendingCount === 1 ? '' : 's'} in CRM`,
     preheader: `${totalPendingCount} approvals are pending in CRM.`,
-    description: 'Clients and quotations are waiting for admin review. One clean digest is sent every 10 minutes to avoid mailbox spam.',
-    repeatNote: 'This digest repeats every 10 minutes until pending clients and quotations are approved or rejected.',
+    description: 'Clients are waiting for compliance review and quotations are waiting for admin review.',
+    repeatNote: 'Pending items are reminded on the configured approval schedule until approved or rejected.',
     hiddenNote: 'more pending approvals are available in CRM',
     defaultTabRecord: null
   };
@@ -330,24 +332,24 @@ function buildPendingClientDigestEmail(records, totalPendingCount, counts = {}) 
   `;
 }
 
-async function getAdminEmails() {
-  const admins = await User.find({
-    role: { $in: ADMIN_ROLES },
+async function getReviewerEmails(records = []) {
+  const types = new Set(records.map((record) => record?.type).filter(Boolean));
+  const roles = types.size === 1 && types.has('client') ? ['compliance'] : [...ADMIN_ROLES, 'compliance'];
+  const reviewers = await User.find({
+    role: { $in: roles },
     isActive: true,
     email: { $exists: true, $ne: '' }
   }).select('email').lean();
 
   return [
     ...new Set([
-      ...admins.map((admin) => String(admin.email || '').trim().toLowerCase()).filter(Boolean),
-      ...splitEmails(process.env.ADMIN_EMAIL),
-      ...splitEmails(process.env.ADMIN_EMAILS),
-      ...splitEmails(process.env.PENDING_APPROVAL_EMAILS)
+      ...reviewers.map((reviewer) => String(reviewer.email || '').trim().toLowerCase()).filter(Boolean),
+      ...(types.has('quotation') ? splitEmails(process.env.PENDING_APPROVAL_EMAILS) : [])
     ])
   ];
 }
 
-async function queuePendingClientReminder(recordOrId, when = new Date()) {
+async function queuePendingClientReminder(recordOrId, when = new Date(Date.now() + TWENTY_FOUR_HOURS)) {
   const id = recordOrId?._id || recordOrId;
   if (!id) return null;
 
@@ -366,7 +368,7 @@ async function queuePendingClientReminder(recordOrId, when = new Date()) {
 }
 
 async function sendPendingClientReminder(record) {
-  const adminEmails = await getAdminEmails();
+  const adminEmails = await getReviewerEmails([record]);
   const now = new Date();
   const nextReminderAt = new Date(now.getTime() + REMINDER_INTERVAL_MS);
 
@@ -400,7 +402,7 @@ async function sendPendingClientReminder(record) {
 }
 
 async function sendPendingClientReminderDigest(records, totalPendingCount, counts = {}) {
-  const adminEmails = await getAdminEmails();
+  const adminEmails = await getReviewerEmails(records);
   const now = new Date();
   const nextReminderAt = new Date(now.getTime() + REMINDER_INTERVAL_MS);
   if (!records.length) return;
@@ -408,6 +410,7 @@ async function sendPendingClientReminderDigest(records, totalPendingCount, count
   const pendingFilter = { approvalStatus: 'PENDING' };
   const eligibleFilter = {
     ...pendingFilter,
+    _id: { $in: records.map((record) => record._id) },
     reminderCount: { $lt: MAX_REMINDERS_PER_APPROVAL },
     ...(EMAIL_START_AT ? { createdAt: { $gte: EMAIL_START_AT } } : {})
   };
@@ -456,6 +459,12 @@ async function sendPendingClientReminderDigest(records, totalPendingCount, count
         $inc: { reminderCount: 1 }
       }
     );
+    const secondReminderIds = records.filter((record) => record.type === 'client' && Number(record.reminderCount || 0) >= 1).map((record) => record._id);
+    if (secondReminderIds.length) {
+      await PendingApproval.updateMany({ _id: { $in: secondReminderIds }, approvalStatus: 'PENDING' }, {
+        $set: { reminderFlag: 'RED', redFlagAt: now, greenFlagDeadline: new Date(now.getTime() + 48 * 60 * 60 * 1000) }
+      });
+    }
   } catch (err) {
     console.error('Pending approval digest mail error', err);
     await PendingApproval.updateMany(
@@ -500,7 +509,12 @@ async function sendDuePendingClientReminders() {
     if (!dueCount) return;
 
     const records = await PendingApproval.find({
-      ...pendingFilter
+      ...pendingFilter,
+      $or: [
+        { nextReminderAt: { $exists: false } },
+        { nextReminderAt: null },
+        { nextReminderAt: { $lte: now } }
+      ]
     }).sort({ nextReminderAt: 1, createdAt: 1 }).limit(DIGEST_RECORD_LIMIT);
 
     await sendPendingClientReminderDigest(records, totalPendingCount, {

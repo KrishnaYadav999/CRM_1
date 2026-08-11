@@ -6,6 +6,7 @@ const adminRoles = ['admin', 'superadmin'];
 
 function canSeeNotification(user, item) {
   if (!user) return false;
+  if ((item.hiddenBy || []).some((id) => String(id) === String(user._id))) return false;
   if (adminRoles.includes(user.role)) return true;
   const userId = String(user._id || '');
   const audience = (item.audience || []).map((id) => String(id));
@@ -141,4 +142,11 @@ exports.updateNotification = async (req, res) => {
   await item.save();
 
   return res.json({ ok: true, notification: mapNotification(item) });
+};
+
+exports.clearNotification = async (req, res) => {
+  const item = await Notification.findById(req.params.id);
+  if (!item || !canSeeNotification(req.user, item)) return res.status(404).json({ error: 'Notification not found' });
+  await Notification.findByIdAndUpdate(item._id, { $addToSet: { hiddenBy: req.user._id } });
+  return res.json({ ok: true, id: item._id });
 };

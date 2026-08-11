@@ -41,3 +41,15 @@ test('support ticket replies create bell notifications for the other participant
   assert.match(controller, /kind: 'support_ticket_reply'/);
   assert.match(controller, /audience, metadata: \{ ticketId:/);
 });
+
+test('clearing a bell notification hides it only for the current user', () => {
+  const controller = read('../src/controllers/notificationController.js');
+  const model = read('../src/models/Notification.js');
+  const routes = read('../src/routes/notifications.js');
+  const topbar = read('../../frontend/src/components/dashboard/Topbar.jsx');
+  assert.match(model, /hiddenBy: \[\{ type: mongoose\.Schema\.Types\.ObjectId/);
+  assert.match(controller, /item\.hiddenBy.*String\(user\._id\)/);
+  assert.match(controller, /\$addToSet: \{ hiddenBy: req\.user\._id \}/);
+  assert.match(routes, /router\.delete\('\/:id', requireAuth, notificationCtrl\.clearNotification\)/);
+  assert.match(topbar, /Clear only for me/);
+});

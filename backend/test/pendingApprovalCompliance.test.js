@@ -58,3 +58,17 @@ test('Client Master service choices show applicant and sub applicant types separ
   assert.match(page, /Applicant Type: \{applicantType\}/);
   assert.match(page, /Sub Applicant Type: \{subApplicantType\}/);
 });
+
+test('pending client approvals use the 24h, 24h, red flag and 48h compliance workflow', () => {
+  const service = fs.readFileSync(path.resolve(__dirname, '../src/services/pendingApprovalNotifications.js'), 'utf8');
+  const model = fs.readFileSync(path.resolve(__dirname, '../src/models/PendingApproval.js'), 'utf8');
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
+  assert.match(service, /TWENTY_FOUR_HOURS = 24 \* 60 \* 60 \* 1000/);
+  assert.match(service, /Math\.max\(2, Number\(process\.env\.PENDING_APPROVAL_MAX_REMINDERS\)/);
+  assert.match(service, /reminderFlag: 'RED'/);
+  assert.match(service, /greenFlagDeadline: new Date\(now\.getTime\(\) \+ 48 \* 60 \* 60 \* 1000\)/);
+  assert.match(service, /types\.has\('client'\) \? \['compliance'\]/);
+  assert.match(model, /reminderFlag:.*GREEN.*RED/);
+  assert.match(controller, /reminderFlag: 'GREEN'/);
+  assert.match(controller, /greenFlagAt: new Date\(\)/);
+});

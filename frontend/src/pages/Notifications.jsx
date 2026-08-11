@@ -355,10 +355,12 @@ export default function Notifications({ mode = 'notifications' }) {
     setSelectedIds([]);
   }
 
-  function deleteNotification(id) {
-    persist(notifications.filter((item) => item.id !== id));
-    if (selected?.id === id) setSelected(null);
-    setSelectedIds((ids) => ids.filter((itemId) => itemId !== id));
+  async function deleteNotification(id) {
+    const matchesId = (value) => String(value || '') === String(id || '');
+    persist(notifications.filter((item) => !matchesId(item._id || item.id)));
+    if (matchesId(selected?._id || selected?.id)) setSelected(null);
+    setSelectedIds((ids) => ids.filter((itemId) => !matchesId(itemId)));
+    await api.delete(API_ENDPOINTS.notifications.clear(id)).catch(() => null);
   }
 
   function togglePin(id) {
@@ -511,7 +513,7 @@ export default function Notifications({ mode = 'notifications' }) {
                   <button type="button" onClick={() => setSelected(item)}><Eye className="h-4 w-4" /> View</button>
                   <button type="button" disabled={!item.attachmentName} onClick={() => downloadAttachment(item)}><Download className="h-4 w-4" /> Download</button>
                   {isAnnouncements && <button type="button" onClick={() => openEdit(item)}><Edit3 className="h-4 w-4" /> Edit</button>}
-                  {isAnnouncements && <button type="button" onClick={() => deleteNotification(item.id)}><Trash2 className="h-4 w-4" /> Delete</button>}
+                  <button type="button" onClick={() => deleteNotification(item._id || item.id)}><Trash2 className="h-4 w-4" /> {isAnnouncements ? 'Delete for me' : 'Clear'}</button>
                 </div>
               </article>
             )) : (

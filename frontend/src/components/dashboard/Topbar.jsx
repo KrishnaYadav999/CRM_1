@@ -217,6 +217,15 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
     setReminderOpen((value) => !value)
   }
 
+  async function clearNotification(item) {
+    const id = item?._id || item?.id;
+    setBellData((current) => {
+      const announcements = current.announcements.filter((notice) => String(notice.id || notice._id) !== String(id));
+      return { ...current, announcements, count: current.reminders.length + announcements.length };
+    });
+    if (id) await api.delete(API_ENDPOINTS.notifications.clear(id)).catch(() => null);
+  }
+
   return (
     <>
     <header className="crm-topbar fixed left-0 right-0 top-0 z-[60] border-b border-slate-200 bg-white/90 backdrop-blur-xl">
@@ -293,10 +302,13 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
                     <div className="topbar-reminder-notices">
                       <span>Notifications</span>
                       {bellData.announcements.map((item) => (
-                        <button type="button" key={item.id} onClick={() => { setReminderOpen(false); navigate('/notifications') }}>
-                          <FileText className="h-4 w-4" />
-                          <strong>{item.title}</strong>
-                        </button>
+                        <div className="topbar-reminder-notice-row" key={item.id}>
+                          <button type="button" onClick={() => { setReminderOpen(false); navigate('/notifications') }}>
+                            <FileText className="h-4 w-4" />
+                            <strong>{item.title}</strong>
+                          </button>
+                          <button type="button" className="topbar-reminder-notice-clear" onClick={() => clearNotification(item)} aria-label={`Clear ${item.title}`} title="Clear only for me"><X className="h-3.5 w-3.5" /></button>
+                        </div>
                       ))}
                     </div>
                   )}

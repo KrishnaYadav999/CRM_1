@@ -6,5 +6,6 @@ const router = express.Router();
 router.get('/', requireAuth, notificationCtrl.listNotifications);
 router.post('/', requireAuth, requireRoles(['admin', 'superadmin', 'manager']), notificationCtrl.createNotification);
 router.put('/:id', requireAuth, requireRoles(['admin', 'superadmin', 'manager']), notificationCtrl.updateNotification);
+router.delete('/:id', requireAuth, notificationCtrl.clearNotification);
 
 module.exports = router;
