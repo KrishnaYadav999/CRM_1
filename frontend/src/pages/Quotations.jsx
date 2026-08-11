@@ -207,11 +207,15 @@ function quotationYearMappingHeader(items = []) {
   const consultancyItems = items.filter((item) => normalize(item.businessCategory) === 'eprconsultancy');
   const hasAnnualReturnService = consultancyItems.some((item) => {
     const service = normalize(item.servicesOffered);
-    return service.includes('annualreturnfil') || service === 'annualfiling' || service === 'annualfilling';
+    return service.includes('annualreturn') || service === 'annualfiling' || service === 'annualfilling';
   });
-  if (hasAnnualReturnService) return 'Annual Return & Registration Year';
-  const hasRegistrationOnly = consultancyItems.some((item) => ['registration', 'newregistration'].includes(normalize(item.servicesOffered)));
-  if (hasRegistrationOnly) return 'Registration Year';
+  const hasRegistrationService = consultancyItems.some((item) => {
+    const service = normalize(item.servicesOffered);
+    return service === 'registration' || service.includes('newregistration');
+  });
+  if (hasAnnualReturnService && hasRegistrationService) return 'Annual Return & Registration Year';
+  if (hasAnnualReturnService) return 'Annual Return Year';
+  if (hasRegistrationService) return 'Registration Year';
   return 'Annual Return EPR Year / Credit Year';
 }
 

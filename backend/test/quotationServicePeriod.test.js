@@ -214,10 +214,11 @@ test('quotation PDF places applicant beside the date range and combines annual a
 test('EPR Consultancy quotation mapping uses service-specific year headers', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function quotationYearMappingHeader\(items = \[\]\)/);
-  assert.match(page, /hasAnnualReturnService.*Annual Return & Registration Year/s);
-  assert.match(page, /hasRegistrationOnly.*Registration Year/s);
+  assert.match(page, /hasAnnualReturnService && hasRegistrationService.*Annual Return & Registration Year/s);
+  assert.match(page, /hasAnnualReturnService\) return 'Annual Return Year'/);
+  assert.match(page, /hasRegistrationService\) return 'Registration Year'/);
   assert.match(page, /normalize\(item\.businessCategory\) === 'eprconsultancy'/);
-  assert.match(page, /service\.includes\('annualreturnfil'\)/);
+  assert.match(page, /service\.includes\('annualreturn'\)/);
   assert.match(page, /\{quotationYearMappingHeader\(items\)\}/);
   assert.match(page, /escapeHtml\(yearMappingHeader\)/);
 });
