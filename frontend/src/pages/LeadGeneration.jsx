@@ -1768,7 +1768,7 @@ export default function LeadGeneration() {
     finally { setHealthReportSaving(false); }
   }
 
-  function buildHealthReportPayload(reviewConfirmed = false) {
+  function buildHealthReportPayload(reviewConfirmed = false, allocation = false) {
     const toList = (value) => String(value || '').split('\n').map((item) => item.trim()).filter(Boolean);
     const sharedUploads = Array.isArray(healthReport.sharedFolderUploads)
       ? healthReport.sharedFolderUploads.map((item) => ({
@@ -1818,15 +1818,27 @@ export default function LeadGeneration() {
         : [],
       conclusionNotes: Array.isArray(healthReport.conclusionNotes) ? healthReport.conclusionNotes : [],
       reviewedConfirmation: Boolean(reviewConfirmed || healthReport.reviewedConfirmation),
+      reportName: allocation ? 'COMPLIANCE HEALTH REPORT ALLOCATION' : 'COMPLIANCE HEALTH REPORT',
+      allocationSubmittedAt: allocation ? new Date().toISOString() : String(healthReport.allocationSubmittedAt || ''),
       schemaVersion: 2,
       submittedAt: new Date().toISOString()
     };
   }
 
-  async function submitHealthReport({ confirmed = false } = {}) {
+  async function submitHealthReport({ confirmed = false, allocation = false } = {}) {
     const leadId = healthReportLead?._id || healthReportLead?.id;
     if (!leadId || healthReportSaving) return;
-    if (!confirmed && !healthReport.reviewedConfirmation) {
+    if (allocation) {
+      if (!/^\d{10}$/.test(String(healthReport.otpMobile || '').replace(/\D/g, ''))) {
+        setHealthReportError('Mobile Number for OTP must contain exactly 10 digits.');
+        return;
+      }
+      const requiredCredentials = ['cpcbLoginId', 'cpcbPassword', 'ssoCpcbLoginId', 'ssoCpcbPassword'];
+      if (requiredCredentials.some((field) => !String(healthReport[field] || '').trim())) {
+        setHealthReportError('Please complete all CPCB and SSO CPCB credentials.');
+        return;
+      }
+    } else if (!confirmed && !healthReport.reviewedConfirmation) {
       setHealthReportError('Review confirmation is required before saving the report.');
       return;
     }
@@ -1835,7 +1847,7 @@ export default function LeadGeneration() {
     try {
       const response = await api.put(API_ENDPOINTS.leads.detail(leadId), {
         workflowStatus: 'submitted',
-        complianceHealthReport: buildHealthReportPayload(confirmed)
+        complianceHealthReport: buildHealthReportPayload(confirmed, allocation)
       });
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('CRM did not return the saved lead.');
@@ -2616,7 +2628,7 @@ export default function LeadGeneration() {
       {healthAssignmentOpen && (
         <div className="fixed inset-0 z-[130] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="health-manager-title">
           <section className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-            <p className="text-xs font-black uppercase tracking-[.2em] text-orange-500">Compliance Health Report</p><h2 id="health-manager-title" className="mt-2 text-2xl font-black">Please select Manager</h2>
+            <p className="text-xs font-black uppercase tracking-[.2em] text-orange-500">Compliance Health Report Allocation</p><h2 id="health-manager-title" className="mt-2 text-2xl font-black">Please select Manager</h2>
             <p className="mt-2 text-sm font-semibold text-slate-500">The selected Manager will receive an email and must assign a CRM user before work begins.</p>
             <div className="mt-5"><SearchableSelect value={healthManagerId} onChange={setHealthManagerId} options={staff.filter((user) => String(user.role || '').toLowerCase() === 'manager' && user.isActive !== false).map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (Manager)` }))} placeholder="Please select Manager" /></div>
             {healthReportError && <p className="mt-3 text-sm font-bold text-red-600">{healthReportError}</p>}
@@ -2625,7 +2637,7 @@ export default function LeadGeneration() {
         </div>
       )}
       {healthReportLead && !healthAssignmentOpen && (
-        <ComplianceHealthReportModal
+        <ComplianceHealthAllocationModal
           lead={healthReportLead}
           report={healthReport}
           saving={healthReportSaving}
@@ -2636,6 +2648,46 @@ export default function LeadGeneration() {
       )}
       {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
     </DashboardShell>
+  );
+}
+
+function ComplianceHealthAllocationModal({ lead, report, saving, error, onChange, onSubmit }) {
+  const fields = [
+    ['otpMobile', 'Mobile Number for OTP'],
+    ['cpcbLoginId', 'CPCB Login ID'],
+    ['cpcbPassword', 'CPCB Password'],
+    ['ssoCpcbLoginId', 'SSO CPCB Login ID'],
+    ['ssoCpcbPassword', 'SSO CPCB Password']
+  ];
+  return (
+    <div className="fixed inset-0 z-[95] overflow-y-auto bg-slate-950/50 px-4 py-8 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="health-allocation-title">
+      <section className="mx-auto w-full max-w-2xl rounded-3xl border border-emerald-100 bg-white p-6 shadow-2xl shadow-slate-950/20 sm:p-8">
+        <header className="border-b border-slate-100 pb-5">
+          <p className="text-xs font-black uppercase tracking-[.2em] text-orange-600">New Allocation</p>
+          <h2 id="health-allocation-title" className="mt-2 text-2xl font-black text-slate-950">COMPLIANCE HEALTH REPORT ALLOCATION</h2>
+          <p className="mt-2 text-sm font-semibold text-slate-500">Enter the portal credentials below. The company is automatically fetched from the submitted lead.</p>
+        </header>
+        {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
+        <div className="mt-6 grid gap-5 sm:grid-cols-2">
+          <Field label="Company Name"><input className="form-input bg-slate-50 font-bold text-slate-700" value={lead.company || ''} readOnly /></Field>
+          {fields.map(([field, label]) => (
+            <Field key={field} label={label}>
+              <input
+                className="form-input"
+                type={field.toLowerCase().includes('password') ? 'password' : 'text'}
+                inputMode={field === 'otpMobile' ? 'numeric' : undefined}
+                maxLength={field === 'otpMobile' ? 10 : undefined}
+                value={report[field] || ''}
+                onChange={(event) => onChange(field, field === 'otpMobile' ? event.target.value.replace(/\D/g, '').slice(0, 10) : event.target.value)}
+              />
+            </Field>
+          ))}
+        </div>
+        <footer className="mt-7 flex justify-end border-t border-slate-100 pt-5">
+          <button type="button" disabled={saving} onClick={() => onSubmit({ allocation: true })} className="min-h-11 rounded-xl bg-emerald-700 px-7 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-60">{saving ? 'Saving Allocation...' : 'Submit Allocation'}</button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -2655,8 +2707,8 @@ function ComplianceHealthPrompt({ saving, onCancel, onSubmitLeadOnly, onContinue
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-600">Final Submit</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">COMPLIANCE HEALTH REPORT</h2>
-            <p className="mt-3 text-sm font-bold leading-6 text-slate-600">Do you want to process for COMPLIANCE HEALTH REPORT?</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">COMPLIANCE HEALTH REPORT ALLOCATION</h2>
+            <p className="mt-3 text-sm font-bold leading-6 text-slate-600">Do you want to create a COMPLIANCE HEALTH REPORT ALLOCATION?</p>
           </div>
           <button type="button" onClick={onCancel} disabled={saving} className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Cancel">
             <X className="h-5 w-5" />

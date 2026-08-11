@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const leadController = require('../src/controllers/leadController');
 
 const read = (file) => fs.readFileSync(path.resolve(__dirname, file), 'utf8');
 
@@ -36,4 +37,34 @@ test('Lead submit opens the Health Report form before asking for a Manager', () 
   assert.match(page, /healthReportLead && !healthAssignmentOpen/);
   assert.match(page, /Mobile Number for OTP/);
   assert.match(page, /SSO CPCB Password/);
+});
+
+test('initial allocation popup only captures company and portal credentials before Manager selection', () => {
+  const page = read('../../frontend/src/pages/LeadGeneration.jsx');
+  assert.match(page, /function ComplianceHealthAllocationModal/);
+  assert.match(page, /COMPLIANCE HEALTH REPORT ALLOCATION/);
+  assert.match(page, /Company Name/);
+  assert.match(page, /Mobile Number for OTP/);
+  assert.match(page, /CPCB Login ID/);
+  assert.match(page, /CPCB Password/);
+  assert.match(page, /SSO CPCB Login ID/);
+  assert.match(page, /SSO CPCB Password/);
+  assert.match(page, /value=\{lead\.company \|\| ''\} readOnly/);
+  assert.match(page, /onSubmit\(\{ allocation: true \}\)/);
+  assert.match(page, /reportName: allocation \? 'COMPLIANCE HEALTH REPORT ALLOCATION'/);
+  assert.match(page, /allocationSubmittedAt: allocation \? new Date\(\)\.toISOString\(\)/);
+});
+
+test('allocation credentials and allocation metadata are preserved for the Lead database record', () => {
+  const allocation = {
+    reportName: 'COMPLIANCE HEALTH REPORT ALLOCATION',
+    otpMobile: '9876543210',
+    cpcbLoginId: 'cpcb-user',
+    cpcbPassword: 'cpcb-password',
+    ssoCpcbLoginId: 'sso-user',
+    ssoCpcbPassword: 'sso-password',
+    allocationSubmittedAt: new Date().toISOString()
+  };
+  const cleaned = leadController._test.cleanBody({ complianceHealthReport: allocation });
+  assert.deepEqual(cleaned.complianceHealthReport, allocation);
 });
