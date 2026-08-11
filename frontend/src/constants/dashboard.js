@@ -81,6 +81,7 @@ export const navSections = [
         children: [
           { label: 'Lead Generation', icon: ClipboardList, path: '/sales/lead-generation' },
           { label: 'Client Master', icon: UserRound, path: '/sales/client-master' },
+          { label: 'Health Report Check', icon: ClipboardList, path: '/sales/health-report-check' },
           { label: 'Add Quotation', icon: FileText, path: '/sales/quotations?mode=add' },
           { label: 'Proforma Invoice', icon: FileText, path: '/sales/proforma-invoices' }
         ]

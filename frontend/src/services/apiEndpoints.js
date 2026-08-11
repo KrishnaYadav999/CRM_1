@@ -91,6 +91,11 @@ const API_ENDPOINTS = {
     create: '/teams',
     detail: (id) => `/teams/${encodePathValue(id)}`
   },
+  healthReports: {
+    list: '/health-report-assignments',
+    create: '/health-report-assignments',
+    assign: (id) => `/health-report-assignments/${encodePathValue(id)}/assign`
+  },
   activityLogs: { list: '/activity-logs', stats: '/activity-logs/stats', filters: '/activity-logs/filters', detail: (id) => `/activity-logs/${encodePathValue(id)}` }
 };
 

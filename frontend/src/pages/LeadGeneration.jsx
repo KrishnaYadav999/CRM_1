@@ -77,6 +77,11 @@ const emptyLead = {
 };
 
 const emptyComplianceHealthReport = {
+  otpMobile: '',
+  cpcbLoginId: '',
+  cpcbPassword: '',
+  ssoCpcbLoginId: '',
+  ssoCpcbPassword: '',
   yearOfCommencement: '',
   establishmentDate: '',
   organizationType: '',
@@ -502,6 +507,8 @@ export default function LeadGeneration() {
   const [healthReport, setHealthReport] = useState(emptyComplianceHealthReport);
   const [healthReportSaving, setHealthReportSaving] = useState(false);
   const [healthReportError, setHealthReportError] = useState('');
+  const [healthAssignmentOpen, setHealthAssignmentOpen] = useState(false);
+  const [healthManagerId, setHealthManagerId] = useState('');
   const [companySearch, setCompanySearch] = useState('');
   const [companySearchTouched, setCompanySearchTouched] = useState(false);
   const [companySearchLoading, setCompanySearchLoading] = useState(false);
@@ -1707,9 +1714,9 @@ export default function LeadGeneration() {
         setHealthReportLead(savedLead);
         setHealthReport(reportToDraft(savedLead.complianceHealthReport));
         setHealthReportError('');
-        setNotice('Lead submitted. Complete the Compliance Health Report.');
-        showToast('Lead submitted. Complete the Compliance Health Report.', 'success');
-        navigate(`/sales/compliance-health-report/${encodeURIComponent(savedLead._id || savedLead.id)}`);
+        setHealthAssignmentOpen(true);
+        setNotice('Lead submitted. Select a Manager for the Compliance Health Report check.');
+        showToast('Lead submitted. Please select a Manager.', 'success');
         return savedLead;
       }
       setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
@@ -1731,6 +1738,20 @@ export default function LeadGeneration() {
 
   function updateHealthReport(field, value) {
     setHealthReport((current) => ({ ...current, [field]: value }));
+  }
+
+  async function assignHealthReportManager() {
+    const leadId = healthReportLead?._id || healthReportLead?.id;
+    if (!leadId || !healthManagerId || healthReportSaving) return;
+    setHealthReportSaving(true); setHealthReportError('');
+    try {
+      await api.post(API_ENDPOINTS.healthReports.create, { leadId, managerId: healthManagerId });
+      setHealthAssignmentOpen(false); setHealthManagerId(''); setHealthReportLead(null); setHealthReport(emptyComplianceHealthReport);
+      setLead(emptyLead); setEditingLeadId(''); setActiveTab('basic'); setViewMode('list');
+      setNotice('Compliance Health Report sent to the selected Manager for user assignment.');
+      await loadPage();
+    } catch (err) { setHealthReportError(err?.response?.data?.error || 'Unable to assign the Health Report Manager.'); }
+    finally { setHealthReportSaving(false); }
   }
 
   function buildHealthReportPayload(reviewConfirmed = false) {
@@ -1759,6 +1780,11 @@ export default function LeadGeneration() {
       recommendations: String(healthReport.recommendations || '').trim(),
       finalNotes: toList(healthReport.finalNotes),
       screenshotReferences: toList(healthReport.screenshotReferences),
+      otpMobile: String(healthReport.otpMobile || '').trim(),
+      cpcbLoginId: String(healthReport.cpcbLoginId || '').trim(),
+      cpcbPassword: String(healthReport.cpcbPassword || ''),
+      ssoCpcbLoginId: String(healthReport.ssoCpcbLoginId || '').trim(),
+      ssoCpcbPassword: String(healthReport.ssoCpcbPassword || ''),
       sharedFolderUploads: sharedUploads,
       keyObservationDetails: Array.isArray(healthReport.keyObservationDetails)
         ? healthReport.keyObservationDetails.map((item, index) => ({
@@ -2553,7 +2579,18 @@ export default function LeadGeneration() {
           onContinue={() => saveLead('submitted', { openHealthReport: true })}
         />
       )}
-      {healthReportLead && (
+      {healthAssignmentOpen && (
+        <div className="fixed inset-0 z-[130] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="health-manager-title">
+          <section className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+            <p className="text-xs font-black uppercase tracking-[.2em] text-orange-500">Compliance Health Report</p><h2 id="health-manager-title" className="mt-2 text-2xl font-black">Please select Manager</h2>
+            <p className="mt-2 text-sm font-semibold text-slate-500">The selected Manager will receive an email and must assign a CRM user before work begins.</p>
+            <div className="mt-5"><SearchableSelect value={healthManagerId} onChange={setHealthManagerId} options={staff.filter((user) => String(user.role || '').toLowerCase() === 'manager' && user.isActive !== false).map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (Manager)` }))} placeholder="Please select Manager" /></div>
+            {healthReportError && <p className="mt-3 text-sm font-bold text-red-600">{healthReportError}</p>}
+            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setHealthAssignmentOpen(false)} className="h-11 rounded-xl border px-5 font-black">Cancel</button><button type="button" disabled={!healthManagerId || healthReportSaving} onClick={assignHealthReportManager} className="h-11 rounded-xl bg-emerald-700 px-6 font-black text-white disabled:opacity-50">{healthReportSaving ? 'Assigning...' : 'Submit to Manager'}</button></div>
+          </section>
+        </div>
+      )}
+      {healthReportLead && !healthAssignmentOpen && (
         <ComplianceHealthReportModal
           lead={healthReportLead}
           report={healthReport}
@@ -2608,6 +2645,11 @@ function ComplianceHealthReportModal({ lead, report, saving, error, onChange, on
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitConfirmed, setSubmitConfirmed] = useState(false);
   const overviewFields = [
+    ['otpMobile', 'Mobile Number for OTP'],
+    ['cpcbLoginId', 'CPCB Login ID'],
+    ['cpcbPassword', 'CPCB Password'],
+    ['ssoCpcbLoginId', 'SSO CPCB Login ID'],
+    ['ssoCpcbPassword', 'SSO CPCB Password'],
     ['yearOfCommencement', 'Year Of Commencement'],
     ['establishmentDate', 'Establishment Date'],
     ['organizationType', 'Organization Type'],
@@ -2867,7 +2909,7 @@ function ComplianceHealthReportModal({ lead, report, saving, error, onChange, on
                     </div>
                   ) : (
                     <input
-                      type={field === 'establishmentDate' ? 'date' : (field === 'yearOfCommencement' ? 'number' : 'text')}
+                      type={field === 'establishmentDate' ? 'date' : (field === 'yearOfCommencement' ? 'number' : (field.toLowerCase().includes('password') ? 'password' : 'text'))}
                       min={field === 'yearOfCommencement' ? '1800' : undefined}
                       max={field === 'yearOfCommencement' ? String(new Date().getFullYear()) : undefined}
                       className="form-input"
