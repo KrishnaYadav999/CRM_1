@@ -15,6 +15,7 @@ const priorities = ['Low', 'Medium', 'High', 'Urgent'];
 const categories = ['General', 'Sales', 'Support', 'Development', 'Manager', 'Follow-Up'];
 const DAY_PANEL_PAGE_SIZE = 3;
 const BUCKET_PAGE_SIZE = 4;
+const TODO_TABLE_PAGE_SIZE = 10;
 const springSoft = { type: 'spring', stiffness: 420, damping: 32, mass: 0.85 };
 const fadeUp = {
   hidden: { opacity: 0, y: 18, scale: 0.985 },
@@ -230,6 +231,7 @@ export default function CalendarTodo() {
   const [followUpPage, setFollowUpPage] = useState(1);
   const [todoPage, setTodoPage] = useState(1);
   const [timelinePage, setTimelinePage] = useState(1);
+  const [todoTablePage, setTodoTablePage] = useState(1);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -369,6 +371,8 @@ export default function CalendarTodo() {
       return itemDate.getFullYear() === year && itemDate.getMonth() === month;
     });
   }, [calendarView, filteredItems, month, selectedKey, selectedWeekEnd, selectedWeekStart, year]);
+  const todoTableTotalPages = Math.max(1, Math.ceil(viewFilteredItems.length / TODO_TABLE_PAGE_SIZE));
+  const visibleTodoTableItems = viewFilteredItems.slice((todoTablePage - 1) * TODO_TABLE_PAGE_SIZE, todoTablePage * TODO_TABLE_PAGE_SIZE);
 
   const itemCountByDate = useMemo(() => {
     return items.reduce((map, item) => {
@@ -474,6 +478,21 @@ export default function CalendarTodo() {
   useEffect(() => {
     setBucketPage((page) => Math.min(page, bucketTotalPages));
   }, [bucketTotalPages]);
+
+  useEffect(() => {
+    setTodoTablePage(1);
+  }, [calendarView, categoryFilter, month, priorityFilter, query, selectedKey, statusFilter, year]);
+
+  useEffect(() => {
+    setTodoTablePage((page) => Math.min(page, todoTableTotalPages));
+  }, [todoTableTotalPages]);
+
+  function scheduledByName(item) {
+    if (item.assignedToName) return item.assignedToName;
+    const identity = String(item.assignedTo || item.createdBy || '').trim();
+    const user = userLookup.get(identity.toLowerCase());
+    return user?.name || user?.email || identity || '-';
+  }
 
   function persist(nextItems, changedItem = null, action = 'update') {
     setItems(nextItems);
@@ -906,13 +925,13 @@ export default function CalendarTodo() {
             <table>
               <thead><tr><th>Done</th><th>Title</th><th>Status</th><th>Priority</th><th>Scheduled By</th><th>Scheduled Date</th><th>Scheduled Time</th><th>Actions</th></tr></thead>
               <tbody>
-                {viewFilteredItems.length ? viewFilteredItems.map((item) => (
+                {visibleTodoTableItems.length ? visibleTodoTableItems.map((item) => (
                   <motion.tr key={item.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className={item.status === 'completed' ? 'calendar-row-locked' : ''}>
                     <td><button type="button" disabled={item.status === 'completed'} onClick={() => requestCompletion(item)} className={`calendar-check ${item.status === 'completed' ? 'calendar-check-done' : ''}`} title={item.status === 'completed' ? 'Completed tasks are locked' : 'Mark complete'} /></td>
                     <td><strong>{item.title}</strong><span>{[item.clientName, item.leadNumber].filter(Boolean).join(' - ') || item.category || item.type}</span></td>
                     <td><em className={`calendar-status calendar-status-${getItemTone(item, todayKey)}`}>{getItemStatusLabel(item, todayKey)}</em></td>
                     <td><em className={`calendar-priority calendar-priority-${String(item.priority || 'Medium').toLowerCase()}`}>{item.priority || 'Medium'}</em></td>
-                    <td>{item.assignedTo || item.createdBy || '-'}</td>
+                    <td>{scheduledByName(item)}</td>
                     <td>{formatHumanDate(item.scheduledDate)}</td>
                     <td>{item.scheduledTime || '-'}</td>
                     <td>
@@ -928,6 +947,7 @@ export default function CalendarTodo() {
               </tbody>
             </table>
           </div>
+          {viewFilteredItems.length > TODO_TABLE_PAGE_SIZE && <div className="border-t border-slate-100 px-4 py-3"><MiniPager page={todoTablePage} totalPages={todoTableTotalPages} onPageChange={setTodoTablePage} /></div>}
         </motion.section>
 
         {bucketPopup && (

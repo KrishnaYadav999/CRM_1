@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertCircle, ArrowRight, CheckCircle2, Clock3, Eye, FileQuestion, FileText, ImagePlus, LifeBuoy, Loader2, MessageSquareText, Plus, RefreshCw, Search, Send, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertCircle, ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Eye, FileQuestion, FileText, ImagePlus, LifeBuoy, Loader2, MessageSquareText, Plus, RefreshCw, Search, Send, Sparkles, Trash2, X } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
@@ -16,6 +16,7 @@ const statuses = ['All', 'Open', 'In Progress', 'Resolved', 'Closed']
 const priorityStyles = { Low: 'bg-slate-100 text-slate-600', Medium: 'bg-blue-50 text-blue-700', High: 'bg-amber-50 text-amber-700', Urgent: 'bg-rose-50 text-rose-700' }
 const statusStyles = { Open: 'bg-blue-50 text-blue-700 ring-blue-100', 'In Progress': 'bg-amber-50 text-amber-700 ring-amber-100', Resolved: 'bg-emerald-50 text-emerald-700 ring-emerald-100', Closed: 'bg-slate-100 text-slate-600 ring-slate-200' }
 const emptyForm = { category: 'Lead', subject: '', description: '', referenceNumber: '', priority: 'Medium', attachments: [] }
+const TICKETS_PER_PAGE = 10
 
 function dateLabel(value) {
   if (!value) return '-'
@@ -59,6 +60,7 @@ export default function SupportTickets() {
   const [uploadingStatusImages, setUploadingStatusImages] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [page, setPage] = useState(1)
 
   async function loadTickets() {
     setLoading(true); setError('')
@@ -78,6 +80,11 @@ export default function SupportTickets() {
       && (categoryFilter === 'All' || ticket.category === categoryFilter)
       && (!term || [ticket.ticketNumber, ticket.subject, ticket.referenceNumber, ticket.createdByName].some((value) => String(value || '').toLowerCase().includes(term)))
   }), [tickets, statusFilter, categoryFilter, search])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / TICKETS_PER_PAGE))
+  const visibleTickets = filtered.slice((page - 1) * TICKETS_PER_PAGE, page * TICKETS_PER_PAGE)
+
+  useEffect(() => { setPage(1) }, [categoryFilter, search, statusFilter])
+  useEffect(() => { setPage((current) => Math.min(current, totalPages)) }, [totalPages])
 
   const counts = useMemo(() => ({
     total: tickets.length,
@@ -153,7 +160,7 @@ export default function SupportTickets() {
   return (
     <DashboardShell currentUser={currentUser}>
       <div className="min-h-[calc(100vh-4rem)] bg-[#f4f8f7] px-3 py-5 sm:px-5 lg:px-7">
-        <div className="mx-auto max-w-[1500px] space-y-5">
+        <div className="w-full space-y-5">
           <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#083f32] via-[#0f684e] to-[#13805f] p-6 text-white shadow-xl shadow-emerald-950/10 sm:p-8">
             <div className="absolute -right-12 -top-16 h-60 w-60 rounded-full bg-white/10 blur-2xl" />
             <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
@@ -188,8 +195,9 @@ export default function SupportTickets() {
           <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between"><div><h2 className="text-xl font-black text-slate-900">{isAdmin ? 'All support tickets' : 'My support tickets'}</h2><p className="mt-1 text-xs text-slate-500">{filtered.length} ticket{filtered.length === 1 ? '' : 's'} shown</p></div><div className="flex flex-wrap gap-2">{statuses.map((status) => <button key={status} onClick={() => setStatusFilter(status)} className={`rounded-xl px-3 py-2 text-xs font-black transition ${statusFilter === status ? 'bg-[#0f5d46] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{status}</button>)}<button onClick={loadTickets} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button></div></div>
             <div className="divide-y divide-slate-100">
-              {loading ? <div className="flex min-h-56 items-center justify-center gap-3 text-sm font-bold text-slate-500"><Loader2 className="h-5 w-5 animate-spin text-emerald-600" />Loading tickets...</div> : filtered.length ? filtered.map((ticket) => { const resolved = ['Resolved', 'Closed'].includes(ticket.status); return <button type="button" key={ticket._id} onClick={() => setSelected(ticket)} className={`group grid w-full gap-4 p-5 text-left transition lg:grid-cols-[140px_minmax(0,1fr)_150px_130px_32px] lg:items-center ${resolved ? 'bg-emerald-50/80 hover:bg-emerald-100/70' : 'hover:bg-emerald-50/40'}`}><div><p className="text-xs font-black text-emerald-700">{ticket.ticketNumber}</p><p className={`mt-1 text-[11px] ${resolved ? 'text-emerald-600' : 'text-slate-400'}`}>{dateLabel(ticket.createdAt)}</p></div><div className="min-w-0"><p className={`truncate font-black ${resolved ? 'text-emerald-950' : 'text-slate-900'}`}>{resolved && <CheckCircle2 className="mr-2 inline h-4 w-4 text-emerald-600" />}{ticket.subject}</p><p className={`mt-1 truncate text-xs ${resolved ? 'text-emerald-700' : 'text-slate-500'}`}>{ticket.category}{ticket.referenceNumber ? ` • Ref: ${ticket.referenceNumber}` : ''}{isAdmin && ticket.createdByName ? ` • ${ticket.createdByName}` : ''}</p></div><span className={`w-fit rounded-full px-3 py-1 text-[11px] font-black ${priorityStyles[ticket.priority]}`}>{ticket.priority}</span><span className={`w-fit rounded-full px-3 py-1 text-[11px] font-black ring-1 ${statusStyles[ticket.status]}`}>{ticket.status}</span><ArrowRight className={`h-4 w-4 transition group-hover:translate-x-1 ${resolved ? 'text-emerald-600' : 'text-slate-300 group-hover:text-emerald-600'}`} /></button> }) : <div className="flex min-h-64 flex-col items-center justify-center p-8 text-center"><span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-700"><LifeBuoy className="h-8 w-8" /></span><h3 className="mt-4 text-lg font-black text-slate-900">No tickets found</h3><p className="mt-2 max-w-sm text-sm text-slate-500">No matching tickets were found. Raise a new ticket whenever you need help.</p></div>}
+              {loading ? <div className="flex min-h-56 items-center justify-center gap-3 text-sm font-bold text-slate-500"><Loader2 className="h-5 w-5 animate-spin text-emerald-600" />Loading tickets...</div> : visibleTickets.length ? visibleTickets.map((ticket) => { const resolved = ['Resolved', 'Closed'].includes(ticket.status); return <button type="button" key={ticket._id} onClick={() => setSelected(ticket)} className={`group grid w-full gap-4 p-5 text-left transition lg:grid-cols-[140px_minmax(0,1fr)_150px_130px_32px] lg:items-center ${resolved ? 'bg-emerald-50/80 hover:bg-emerald-100/70' : 'hover:bg-emerald-50/40'}`}><div><p className="text-xs font-black text-emerald-700">{ticket.ticketNumber}</p><p className={`mt-1 text-[11px] ${resolved ? 'text-emerald-600' : 'text-slate-400'}`}>{dateLabel(ticket.createdAt)}</p></div><div className="min-w-0"><p className={`truncate font-black ${resolved ? 'text-emerald-950' : 'text-slate-900'}`}>{resolved && <CheckCircle2 className="mr-2 inline h-4 w-4 text-emerald-600" />}{ticket.subject}</p><p className={`mt-1 truncate text-xs ${resolved ? 'text-emerald-700' : 'text-slate-500'}`}>{ticket.category}{ticket.referenceNumber ? ` • Ref: ${ticket.referenceNumber}` : ''}{isAdmin && ticket.createdByName ? ` • ${ticket.createdByName}` : ''}</p></div><span className={`w-fit rounded-full px-3 py-1 text-[11px] font-black ${priorityStyles[ticket.priority]}`}>{ticket.priority}</span><span className={`w-fit rounded-full px-3 py-1 text-[11px] font-black ring-1 ${statusStyles[ticket.status]}`}>{ticket.status}</span><ArrowRight className={`h-4 w-4 transition group-hover:translate-x-1 ${resolved ? 'text-emerald-600' : 'text-slate-300 group-hover:text-emerald-600'}`} /></button> }) : <div className="flex min-h-64 flex-col items-center justify-center p-8 text-center"><span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-700"><LifeBuoy className="h-8 w-8" /></span><h3 className="mt-4 text-lg font-black text-slate-900">No tickets found</h3><p className="mt-2 max-w-sm text-sm text-slate-500">No matching tickets were found. Raise a new ticket whenever you need help.</p></div>}
             </div>
+            {filtered.length > TICKETS_PER_PAGE && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4"><p className="text-xs font-bold text-slate-500">Showing {(page - 1) * TICKETS_PER_PAGE + 1}-{Math.min(page * TICKETS_PER_PAGE, filtered.length)} of {filtered.length}</p><div className="flex items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-600 disabled:opacity-40"><ChevronLeft className="h-4 w-4" />Previous</button><span className="text-xs font-black text-slate-700">Page {page} of {totalPages}</span><button type="button" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-600 disabled:opacity-40">Next<ChevronRight className="h-4 w-4" /></button></div></div>}
           </section>
         </div>
       </div>

@@ -29,6 +29,18 @@ test('month-end lead email contains separate open and closed counts', () => {
   assert.match(source, /Closed Leads/);
 });
 
+test('follow-up reminder email is sent only to the lead or service owner without admin CC', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
+  const recipientsBlock = source.match(/async function followUpRecipients[\s\S]*?async function resolveManager/)?.[0] || '';
+  const reminderBlock = source.match(/async function remindFollowUps[\s\S]*?function followUpEscalationStage/)?.[0] || '';
+  assert.doesNotMatch(recipientsBlock, /admins\(\['admin', 'superadmin'\]\)/);
+  assert.doesNotMatch(recipientsBlock, /hierarchyIds/);
+  assert.doesNotMatch(reminderBlock, /\bcc\b/);
+  assert.match(reminderBlock, /sendMail\(primary\.email/);
+});
+
 test('getCcpLeads returns an empty list when the CCP endpoint is unreachable', async () => {
   const originalFetch = global.fetch;
   global.fetch = async () => {

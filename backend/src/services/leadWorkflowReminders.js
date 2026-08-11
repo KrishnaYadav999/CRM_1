@@ -127,19 +127,12 @@ async function usersForIdentities(rows = []) {
 
 async function followUpRecipients(lead, openServiceRows = null) {
   const serviceRows = openServiceRows || (Array.isArray(lead.serviceSelections) ? lead.serviceSelections : []);
-  // A contributor's service reminder must not leak to the original lead
-  // creator. Resolve ownership only from the currently open service rows.
+  // Follow-up emails are private work reminders. Send them only to the user
+  // who owns the open service/lead, never to managers, admins or superadmins.
   const contributors = await usersForIdentities(serviceRows);
-  const hierarchyIds = contributors.flatMap((user) => [user.managerId, user.operationHeadId]).filter(Boolean);
-  const [leaders, administrators] = await Promise.all([
-    hierarchyIds.length ? User.find({ _id: { $in: hierarchyIds }, isActive: { $ne: false } }).select('_id name email role').lean() : [],
-    admins(['admin', 'superadmin'])
-  ]);
   const hasServiceOwnership = serviceRows.some((row = {}) => row.createdByCrmUserId || row.createdByEmail || row.createdByName);
-  // Never fall back to Krishna/original creator when Jack-style service
-  // ownership exists, even if that contributor account cannot be resolved.
   const fallback = contributors.length || hasServiceOwnership ? null : await resolveLeadUser(lead);
-  const byId = new Map([...contributors, ...leaders, ...administrators, ...(fallback ? [fallback] : [])].map((user) => [String(user._id), user]));
+  const byId = new Map([...contributors, ...(fallback ? [fallback] : [])].map((user) => [String(user._id), user]));
   return [...byId.values()];
 }
 
@@ -231,8 +224,7 @@ async function remindFollowUps(leads, now) {
         priority,
         isRedFlag,
       });
-      const cc = recipients.map((user) => user.email).filter((email) => email && email !== primary.email);
-      await sendMail(primary.email, `${isPermanentRed ? 'PERMANENT RED FLAG' : isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false, cc }).catch(() => null);
+      await sendMail(primary.email, `${isPermanentRed ? 'PERMANENT RED FLAG' : isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false }).catch(() => null);
     }
     if (isRedFlag) await updateCcpLead(leadId(lead), { followUpFlag: isPermanentRed ? 'PERMANENT_RED' : 'RED' }).catch(() => false);
     }
