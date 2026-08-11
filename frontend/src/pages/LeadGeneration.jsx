@@ -1728,9 +1728,9 @@ export default function LeadGeneration() {
         setHealthReportLead(savedLead);
         setHealthReport(reportToDraft(savedLead.complianceHealthReport));
         setHealthReportError('');
-        setHealthAssignmentOpen(true);
-        setNotice('Lead submitted. Select a Manager for the Compliance Health Report check.');
-        showToast('Lead submitted. Please select a Manager.', 'success');
+        setHealthAssignmentOpen(false);
+        setNotice('Lead submitted. Complete the Compliance Health Report details before selecting a Manager.');
+        showToast('Lead submitted. Please complete the Compliance Health Report.', 'success');
         return savedLead;
       }
       setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
@@ -1839,16 +1839,20 @@ export default function LeadGeneration() {
       });
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('CRM did not return the saved lead.');
-      setHealthReportLead(null);
-      setHealthReport(emptyComplianceHealthReport);
-      setLead(emptyLead);
-      setEditingLeadId('');
-      setActiveTab('basic');
-      setNotice('Compliance Health Report saved successfully.');
-      showToast('Compliance Health Report saved successfully.', 'success');
-      await loadPage();
-      navigate('/sales/lead-generation');
-      setViewMode('list');
+      if (complianceRouteLeadId) {
+        setHealthReportLead(null);
+        setHealthReport(emptyComplianceHealthReport);
+        setNotice('Compliance Health Report saved successfully.');
+        showToast('Compliance Health Report saved successfully.', 'success');
+        await loadPage();
+        navigate('/sales/lead-generation');
+        return;
+      }
+      setHealthReportLead(savedLead);
+      setHealthReport(reportToDraft(savedLead.complianceHealthReport));
+      setHealthAssignmentOpen(true);
+      setNotice('Compliance Health Report saved. Please select a Manager for review.');
+      showToast('Report saved. Please select a Manager.', 'success');
     } catch (err) {
       const message = err?.response?.data?.error || err.message || 'Unable to save Compliance Health Report.';
       setHealthReportError(message);

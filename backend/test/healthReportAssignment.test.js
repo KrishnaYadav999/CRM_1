@@ -25,8 +25,12 @@ test('Health Report has a separate routed workspace and assigned-user list', () 
   assert.match(page, /Please select user/);
 });
 
-test('Lead submit asks for a Manager without opening the Health Report form', () => {
+test('Lead submit opens the Health Report form before asking for a Manager', () => {
   const page = read('../../frontend/src/pages/LeadGeneration.jsx');
+  assert.match(page, /Please complete the Compliance Health Report/);
+  assert.match(page, /setHealthReportLead\(savedLead\)[\s\S]*setHealthAssignmentOpen\(false\)/);
+  assert.match(page, /Compliance Health Report saved\. Please select a Manager for review/);
+  assert.match(page, /setHealthReportLead\(savedLead\)[\s\S]*setHealthAssignmentOpen\(true\)/);
   assert.match(page, /setHealthAssignmentOpen\(true\)/);
   assert.match(page, /Please select Manager/);
   assert.match(page, /healthReportLead && !healthAssignmentOpen/);
