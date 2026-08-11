@@ -75,3 +75,24 @@ test('Add Address and Add Contact require confirmation and assign the next unit'
   assert.match(leadPage, /createContactRow\(\{ plantUnit \}\)/);
   assert.match(leadPage, /return \[\.\.\.alignedRows, \.\.\.additionalRows\]/);
 });
+
+test('backend keeps every newly added Address and Contact row for database storage', () => {
+  const cleaned = leadController._test.cleanBody({
+    addresses: [
+      address('service-1', 'Unit 1'),
+      { ...address('', 'Unit 2'), addressLine1: 'Branch Office', pinCode: '400001' }
+    ],
+    contacts: [
+      contact('service-1', 'Unit 1'),
+      { ...contact('', 'Unit 2'), contactPerson: 'Second Contact', emails: 'second@example.com' }
+    ]
+  });
+
+  assert.equal(cleaned.addresses.length, 2);
+  assert.equal(cleaned.addresses[1].plantUnit, 'Unit 2');
+  assert.equal(cleaned.addresses[1].addressLine1, 'Branch Office');
+  assert.equal(cleaned.contacts.length, 2);
+  assert.equal(cleaned.contacts[1].plantUnit, 'Unit 2');
+  assert.equal(cleaned.contacts[1].contactPerson, 'Second Contact');
+  assert.equal(cleaned.contacts[1].emails, 'second@example.com');
+});
