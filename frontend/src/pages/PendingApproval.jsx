@@ -233,6 +233,16 @@ export default function PendingApproval() {
     setPiboFilter('all');
   }
 
+  function openMetric(type, status = 'PENDING') {
+    const preferredTab = type || (canApproveClients ? 'clients' : 'quotations');
+    setActiveTab(preferredTab);
+    setTypeFilter(preferredTab);
+    setStatusFilter(status);
+    setSearchTerm('');
+    setPiboFilter('all');
+    document.querySelector('.pending-approval-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function loadPage(options = {}) {
     const cached = !options.force ? readPendingApprovalCache() : null;
     const authRequestConfig = { timeout: PENDING_APPROVAL_AUTH_TIMEOUT_MS };
@@ -634,12 +644,12 @@ export default function PendingApproval() {
           {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
 
           <div className="pending-metrics">
-            {canApproveClients && <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" />}
-            {!isComplianceApprovalView && <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" />}
-            {!isComplianceApprovalView && <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" />}
-            {!isComplianceApprovalView && <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" />}
-            <Metric icon={CheckCircle2} label="Approved Today" value={approvedTodayCount} hint="Since midnight" tone="teal" />
-            <Metric icon={XCircle} label="Rejected" value={rejectedCount} hint="Since midnight" tone="rose" />
+            {canApproveClients && <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" onClick={() => openMetric('clients')} />}
+            {!isComplianceApprovalView && <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" onClick={() => openMetric('quotations')} />}
+            {!isComplianceApprovalView && <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" onClick={() => openMetric('duplicates')} />}
+            {!isComplianceApprovalView && <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" onClick={() => openMetric('royalty')} />}
+            <Metric icon={CheckCircle2} label="Approved Today" value={approvedTodayCount} hint="Since midnight" tone="teal" onClick={() => openMetric(null, 'APPROVED')} />
+            <Metric icon={XCircle} label="Rejected" value={rejectedCount} hint="Since midnight" tone="rose" onClick={() => openMetric(null, 'REJECTED')} />
           </div>
 
           <section className="pending-approval-panel">
@@ -978,10 +988,10 @@ export default function PendingApproval() {
   );
 }
 
-function Metric({ icon: Icon, label, value, hint = '', tone = 'mint' }) {
+function Metric({ icon: Icon, label, value, hint = '', tone = 'mint', onClick }) {
   const animatedValue = useCountUp(value);
   return (
-    <div className={`pending-metric-card pending-metric-${tone}`}>
+    <button type="button" onClick={onClick} className={`pending-metric-card pending-metric-${tone}`} aria-label={`Open ${label}`}>
       <span>
         <Icon className="h-5 w-5" />
       </span>
@@ -990,7 +1000,7 @@ function Metric({ icon: Icon, label, value, hint = '', tone = 'mint' }) {
         <strong className="count-up-number">{animatedValue}</strong>
         {hint && <small>{hint}</small>}
       </div>
-    </div>
+    </button>
   );
 }
 

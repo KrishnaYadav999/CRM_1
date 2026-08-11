@@ -1897,6 +1897,19 @@ body:has(.annual-review-backdrop) .client-detail-card {
   background: #ffffff !important;
   padding: 16px 18px !important;
   box-shadow: 0 9px 22px rgba(15, 23, 42, 0.045) !important;
+  width: 100% !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  font: inherit !important;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.pending-metric-card:hover,
+.pending-metric-card:focus-visible {
+  transform: translateY(-2px) !important;
+  border-color: #6ee7d2 !important;
+  box-shadow: 0 14px 28px rgba(15, 118, 110, 0.13) !important;
+  outline: none !important;
 }
 
 .pending-metric-card > span {

@@ -195,4 +195,61 @@ export async function exportProductivityExcel({ rows, summary, period }) {
   XLSX.writeFile(workbook, `User_Activity_Productivity_Report_${period.to}.xlsx`)
 }
 
+export async function downloadSuperAdminGuidePdf() {
+  const [{ jsPDF }, autoTableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+  const autoTable = autoTableModule.default || autoTableModule.autoTable
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+  const teal = [7, 88, 72]
+  const orange = [249, 115, 22]
+  let logo = null
+  try { logo = await logoDataUrl() } catch (error) { console.warn('PDF logo unavailable', error) }
+  const header = (title, subtitle) => {
+    pdf.setFillColor(243, 248, 246); pdf.rect(0, 0, 210, 30, 'F')
+    if (logo) pdf.addImage(logo, 'PNG', 10, 7, 38, 14, undefined, 'FAST')
+    pdf.setTextColor(...teal); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.text(title, 55, 13)
+    pdf.setTextColor(71, 85, 105); pdf.setFontSize(8); pdf.text(subtitle, 55, 19)
+    pdf.setDrawColor(...orange); pdf.setLineWidth(0.8); pdf.line(10, 28, 200, 28)
+  }
+  const table = (title, rows, startY) => {
+    pdf.setTextColor(...teal); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text(title, 10, startY)
+    autoTable(pdf, { startY: startY + 3, margin: { left: 10, right: 10 }, head: [['Dashboard Item', 'Meaning / Calculation']], body: rows,
+      theme: 'grid', headStyles: { fillColor: teal, fontSize: 8 }, bodyStyles: { fontSize: 8, textColor: [51, 65, 85], cellPadding: 2.5, overflow: 'linebreak' },
+      columnStyles: { 0: { cellWidth: 48, fontStyle: 'bold' }, 1: { cellWidth: 132 } } })
+    return pdf.lastAutoTable.finalY
+  }
+  header('Super Admin Dashboard Guide', 'AnantTattva CRM - metrics, charts, filters and user drill-down')
+  let y = table('Top Summary Cards', [
+    ['Total Users', 'Applied filters ke baad report me included CRM users. Note me active account count show hota hai.'],
+    ['Online Now', 'Open session aur pichhle 15 minutes ke andar latest heartbeat wale users.'],
+    ['Active CRM Time', 'Selected date range me CRM tab active/focused rehne ka total tracked time.'],
+    ['Away Time', 'Session open duration minus Active CRM Time; idle window, inactive tab ya away state ka time.'],
+    ['CRM Actions', 'Audit Log me recorded business actions, jaise lead, client, quotation, follow-up, approval aur support create/update. Har mouse click count nahi hota.'],
+    ['Closed Leads', 'Selected period me user ke created leads me Closed status, closedBy ya closedAt wale leads.'],
+    ['Support Tickets Raised', 'Selected period me user dwara create tickets; user row me Open aur Resolved breakup milta hai.'],
+    ['Total Sessions', 'Selected period me recorded CRM login sessions ka total.']
+  ], 38)
+  pdf.setTextColor(100, 116, 139); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7); pdf.text('Report selected From/To date aur applied filters par recalculate hota hai.', 10, y + 8)
+  pdf.addPage(); header('Scores, Status & Risk', 'How productivity and attention signals are calculated')
+  table('Productivity & Presence', [
+    ['Productivity Score', 'Maximum 100: Focus up to 50 points (Active/Open ratio), CRM Actions up to 25 points (log scale), Closed Leads up to 25 points (3 per closed lead).'],
+    ['Active', 'User online hai aur latest session presence active hai.'], ['Away', 'User online session me hai, lekin latest presence heartbeat away hai.'],
+    ['Offline', 'Login recorded hai, par 15-minute online window me active heartbeat nahi hai.'], ['Never Logged In', 'Successful CRM login record available nahi hai.'],
+    ['Low Risk', 'Account active, login recent aur high-away condition detect nahi hui.'], ['Medium Risk', 'Last login ko 7 ya usse zyada din ho gaye.'],
+    ['High Risk - Away', 'Open time 30 minutes se zyada aur Away ratio 70% ya usse zyada.'], ['Inactive Account', 'User account disabled/inactive; admin review required.']
+  ], 38)
+  pdf.addPage(); header('Charts, Filters & Drill-down', 'How to analyse and export the report')
+  table('Page Controls and Reports', [
+    ['Date / Role / User', 'From-To period, role ya individual user select karke Apply Filters karein.'], ['Risk / Online Status', 'Risk signal ya current presence se report narrow karta hai.'],
+    ['Search', 'Name, email ya role se search; Enter ya Apply Filters se update.'], ['Insight Cards', 'Most Active, Highest Actions, Highest Score, Most Leads aur Most Tickets.'],
+    ['Active vs Away Chart', 'Top users ke focused CRM minutes aur away minutes ka comparison.'], ['Actions & Tickets Chart', 'User-wise CRM Actions aur Support Tickets comparison.'],
+    ['Admin Attention', 'Never logged in, stale, high-away aur inactive counts; click se filter apply.'],
+    ['User Name Click', 'Detailed Work Report: leads, client masters, completion analysis, company data aur sections.'],
+    ['Eye Details', 'Daily timeline, recent actions, latest IP/device aur exact risk reason.'], ['Download PDF', 'Current filtered productivity report. Guide PDF button ye explanation download karta hai.'],
+    ['Export Excel', 'Summary aur filtered user table separate Excel sheets me.'], ['Refresh', 'Latest sessions, actions, leads aur tickets backend se reload.']
+  ], 38)
+  const pages = pdf.internal.getNumberOfPages()
+  for (let page = 1; page <= pages; page += 1) { pdf.setPage(page); pdf.setFontSize(7); pdf.setTextColor(100, 116, 139); pdf.text('AnantTattva CRM - Super Admin Dashboard Guide', 10, 289); pdf.text(`Page ${page} of ${pages}`, 200, 289, { align: 'right' }) }
+  pdf.save('AnantTattva_Super_Admin_Dashboard_Guide.pdf')
+}
+
 export { REPORT_TITLE }

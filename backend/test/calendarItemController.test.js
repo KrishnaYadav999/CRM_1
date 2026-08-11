@@ -31,13 +31,16 @@ test('calendar item payload preserves client, assignment, and history fields', (
   assert.deepEqual(result.history, [{ fromDate: '2026-07-09', toDate: '2026-07-10' }]);
 });
 
-test('calendar completion clears the matching service follow-up and records it once', () => {
-  const lead = { serviceSelections: [{ nextFollowUpDate: '2026-08-12', nextFollowUpTime: '11:00', followUpRemarks: 'Call client', followUpHistory: [] }] };
+test('calendar completion clears matching service and legacy lead follow-up fields and records it once', () => {
+  const lead = { nextFollowUpDate: '2026-08-12', nextFollowUpTime: '11:00', followUpRemarks: 'Legacy call client', serviceSelections: [{ nextFollowUpDate: '2026-08-12', nextFollowUpTime: '11:00', followUpRemarks: 'Call client', followUpHistory: [] }] };
   const item = { _id: 'calendar-1', type: 'followup', status: 'completed', scheduledDate: '2026-08-12', scheduledTime: '11:00', completionRemarks: 'Spoke to client', completedAt: '2026-08-10T10:00:00.000Z', metadata: { serviceIndex: 0 } };
 
   assert.equal(__test.applyCalendarFollowUpClosure(lead, item, { name: 'Admin' }), true);
   assert.equal(lead.serviceSelections[0].nextFollowUpDate, '');
   assert.equal(lead.serviceSelections[0].followUpRemarks, '');
+  assert.equal(lead.nextFollowUpDate, '');
+  assert.equal(lead.nextFollowUpTime, '');
+  assert.equal(lead.followUpRemarks, '');
   assert.equal(lead.serviceSelections[0].followUpHistory[0].calendarItemId, 'calendar-1');
   assert.equal(lead.serviceSelections[0].followUpHistory[0].status, 'closed');
   assert.equal(__test.applyCalendarFollowUpClosure(lead, item, { name: 'Admin' }), false);
