@@ -56,7 +56,7 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/components/dashboard/UserWorkDrilldown.jsx'), 'utf8');
   const routes = fs.readFileSync(path.resolve(__dirname, '../src/routes/auth.js'), 'utf8');
   assert.match(routes, /superadmin\/users\/:id\/work-report/);
-  assert.match(page, /Sales Company Portfolio/);
+  assert.match(page, /Search company/);
   assert.match(page, /Open Leads/);
   assert.match(page, /Follow-up Timeline/);
   assert.match(page, /Missed Follow-ups/);
@@ -65,6 +65,10 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   assert.match(page, /Download Report/);
   assert.match(page, /fixed inset-0 z-\[130\] flex flex-col/);
   assert.match(page, /CompanyInsight/);
+  assert.match(page, /Rows per page/);
+  assert.match(page, /pageSize/);
+  assert.match(page, /Next Action/);
+  assert.match(page, /Owner/);
 });
 
 test('full company analysis covers every Client Master section and respects applicability', () => {
