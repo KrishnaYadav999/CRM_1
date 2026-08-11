@@ -202,6 +202,19 @@ function quotationAnnualReturnOrCreditYears(item = {}) {
   return [...new Set(years.map(String).filter(Boolean))];
 }
 
+function quotationYearMappingHeader(items = []) {
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const consultancyItems = items.filter((item) => normalize(item.businessCategory) === 'eprconsultancy');
+  const hasAnnualReturnService = consultancyItems.some((item) => {
+    const service = normalize(item.servicesOffered);
+    return service.includes('annualreturnfil') || service === 'annualfiling' || service === 'annualfilling';
+  });
+  if (hasAnnualReturnService) return 'Annual Return & Registration Year';
+  const hasRegistrationOnly = consultancyItems.some((item) => ['registration', 'newregistration'].includes(normalize(item.servicesOffered)));
+  if (hasRegistrationOnly) return 'Registration Year';
+  return 'Annual Return EPR Year / Credit Year';
+}
+
 function isMeaningfulQuotationItem(item = {}) {
   return [
     item.industryType,
@@ -2710,7 +2723,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
                 <div className="bg-white px-3 py-2.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-950">EPR / Service Period Mapping</div>
                 <table className="w-full table-fixed text-[10px] font-bold leading-4 text-slate-950">
                   {hasReturnYearItems ? <colgroup><col className="w-[10%]" /><col className="w-[30%]" /><col className="w-[30%]" /><col className="w-[30%]" /></colgroup> : <colgroup><col className="w-[12%]" /><col className="w-[44%]" /><col className="w-[44%]" /></colgroup>}
-                  <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th>{hasReturnYearItems && <th className="border-r border-t border-slate-950 px-2 py-3">Annual Return EPR Year / Credit Year</th>}<th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
+                  <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th>{hasReturnYearItems && <th className="border-r border-t border-slate-950 px-2 py-3">{quotationYearMappingHeader(items)}</th>}<th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
                   <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td>{hasReturnYearItems && <td className="border-r border-t border-slate-950 px-2 py-3">{quotationAnnualReturnOrCreditYears(item).join(', ') || '-'}</td>}<td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
                 </table>
               </div>
@@ -2791,6 +2804,7 @@ function buildQuotationPrintHtml(quotation) {
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
   const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0);
+  const yearMappingHeader = quotationYearMappingHeader(items);
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const rows = items.map((item, index) => `
     <tr>
@@ -2898,7 +2912,7 @@ function buildQuotationPrintHtml(quotation) {
       </table>
       <div class="package-header">EPR / Service Period Mapping</div>
       <table>
-        <thead><tr><th>Sr.No</th><th>Service Category</th>${hasReturnYearItems ? '<th>Annual Return EPR Year / Credit Year</th>' : ''}<th>Services Offered</th></tr></thead>
+        <thead><tr><th>Sr.No</th><th>Service Category</th>${hasReturnYearItems ? `<th>${escapeHtml(yearMappingHeader)}</th>` : ''}<th>Services Offered</th></tr></thead>
         <tbody>${items.map((item, index) => `<tr><td class="center">${index + 1}</td><td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>${hasReturnYearItems ? `<td>${escapeHtml(quotationAnnualReturnOrCreditYears(item).join(', ') || '-')}</td>` : ''}<td>${escapeHtml(item.servicesOffered || '-')}</td></tr>`).join('') || `<tr><td colspan="${hasReturnYearItems ? 4 : 3}" class="center">No quotation items added.</td></tr>`}</tbody>
       </table>
       <section class="terms">

@@ -211,6 +211,17 @@ test('quotation PDF places applicant beside the date range and combines annual a
   assert.match(page, /const ANANT_TATTVA_GST_NUMBER = '27AAZCA6657R1ZB'/);
 });
 
+test('EPR Consultancy quotation mapping uses service-specific year headers', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /function quotationYearMappingHeader\(items = \[\]\)/);
+  assert.match(page, /hasAnnualReturnService.*Annual Return & Registration Year/s);
+  assert.match(page, /hasRegistrationOnly.*Registration Year/s);
+  assert.match(page, /normalize\(item\.businessCategory\) === 'eprconsultancy'/);
+  assert.match(page, /service\.includes\('annualreturnfil'\)/);
+  assert.match(page, /\{quotationYearMappingHeader\(items\)\}/);
+  assert.match(page, /escapeHtml\(yearMappingHeader\)/);
+});
+
 test('quotation mapping view and print hide the EPR service period column', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.doesNotMatch(page, /<th className="border-r border-t border-slate-950 px-2 py-3">EPR \/ Service Period<\/th>/);
