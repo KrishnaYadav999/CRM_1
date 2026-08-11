@@ -17,6 +17,7 @@ const priorityStyles = { Low: 'bg-slate-100 text-slate-600', Medium: 'bg-blue-50
 const statusStyles = { Open: 'bg-blue-50 text-blue-700 ring-blue-100', 'In Progress': 'bg-amber-50 text-amber-700 ring-amber-100', Resolved: 'bg-emerald-50 text-emerald-700 ring-emerald-100', Closed: 'bg-slate-100 text-slate-600 ring-slate-200' }
 const emptyForm = { category: 'Lead', subject: '', description: '', referenceNumber: '', priority: 'Medium', attachments: [] }
 const TICKETS_PER_PAGE = 10
+const DEFAULT_STATUS_NOTE = 'Hi,\n\n\nRegards,\nIT Team'
 
 function dateLabel(value) {
   if (!value) return '-'
@@ -143,7 +144,7 @@ export default function SupportTickets() {
     if (!selected) return
     if (['Resolved', 'Closed'].includes(payload.status) && !String(payload.message || '').trim()) {
       setPendingStatus(payload.status)
-      setStatusNote('')
+      setStatusNote(DEFAULT_STATUS_NOTE)
       setStatusAttachments([])
       return
     }

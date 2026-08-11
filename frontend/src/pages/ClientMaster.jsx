@@ -92,7 +92,8 @@ const complianceRows = [
 
 function getApplicableComplianceRows(client = {}) {
   const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
-  if (category.includes('producer')) return complianceRows.filter(([key]) => key !== 'iec');
+  if (category.includes('producer')) return complianceRows.filter(([key]) => !['iec', 'dicDcssi'].includes(key));
+  if (category.includes('brand owner')) return complianceRows.filter(([key]) => !['factoryLicense', 'dicDcssi'].includes(key));
   if (category.includes('importer')) return complianceRows.filter(([key]) => !['factoryLicense', 'dicDcssi'].includes(key));
   return complianceRows;
 }
@@ -789,7 +790,9 @@ export default function ClientMaster() {
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
 
-  const canSeeAdminControls = adminRoles.includes(currentUser?.role);
+  const normalizedCurrentRole = String(currentUser?.role || '').trim().toLowerCase();
+  const canApproveClient = ['admin', 'superadmin', 'compliance'].includes(normalizedCurrentRole);
+  const canSeeAdminControls = adminRoles.includes(normalizedCurrentRole) || normalizedCurrentRole === 'compliance';
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const tabProgress = useMemo(() => buildClientTabProgress(client), [client]);
   const overallProgress = useMemo(() => {
@@ -1725,9 +1728,9 @@ export default function ClientMaster() {
           {canSeeAdminControls && (
             <Card title="Admin Controls" className="mt-6">
               <div className="grid gap-5 md:grid-cols-3">
-                <SelectLike label="Approval Status" value={client.adminControls.approvalStatus} options={selectOptions.approvalStatus} onChange={(value) => setAdmin('approvalStatus', value)} />
-                <SelectLike label="Client Visibility Status" value={client.adminControls.visibilityStatus} options={selectOptions.visibilityStatus} onChange={(value) => setAdmin('visibilityStatus', value)} />
-                <SelectLike label="Assigned To" value={client.adminControls.assignedTo} options={staffOptions} placeholder="Search and select admin to assign" onChange={(value) => setAdmin('assignedTo', value)} />
+                {canApproveClient && <SelectLike label="Approval Status" value={client.adminControls.approvalStatus} options={selectOptions.approvalStatus} onChange={(value) => setAdmin('approvalStatus', value)} />}
+                {normalizedCurrentRole !== 'compliance' && <SelectLike label="Client Visibility Status" value={client.adminControls.visibilityStatus} options={selectOptions.visibilityStatus} onChange={(value) => setAdmin('visibilityStatus', value)} />}
+                {normalizedCurrentRole !== 'compliance' && <SelectLike label="Assigned To" value={client.adminControls.assignedTo} options={staffOptions} placeholder="Search and select admin to assign" onChange={(value) => setAdmin('assignedTo', value)} />}
               </div>
             </Card>
           )}

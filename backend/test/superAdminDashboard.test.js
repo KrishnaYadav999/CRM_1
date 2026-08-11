@@ -19,7 +19,10 @@ test('super admin dashboard exposes productivity, risk, reporting, and user-mana
   assert.match(page, /Support Tickets Raised/);
   assert.match(page, /Generating PDF\.\.\./);
   assert.match(page, /Export Excel/);
-  assert.match(page, /Apply Filters/);
+  assert.doesNotMatch(page, /Apply Filters/);
+  assert.match(page, /setAppliedFilters\(\{ \.\.\.draftFilters \}\)/);
+  assert.doesNotMatch(page, /Highest CRM Actions/);
+  assert.doesNotMatch(page, /CRM Actions & Support Tickets/);
   assert.match(page, /Open User Management/);
   assert.match(page, /navigate\('\/dashboard\/users'\)/);
   assert.match(page, /Daily timeline/);

@@ -9,6 +9,7 @@ const { queuePendingClientReminder } = require('../services/pendingApprovalNotif
 const { notifyClientApprovalDecision } = require('../services/clientApprovalDecisionNotifications');
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const { CLIENT_APPROVAL_ROLES } = require('../constants/roles');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -1019,6 +1020,11 @@ exports.updateClient = async (req, res) => {
   const client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
+  const canApproveClient = CLIENT_APPROVAL_ROLES.includes(String(req.user?.role || '').trim().toLowerCase());
+  const existingApprovalStatus = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
+  const requestedApprovalStatus = normalizeApprovalStatus(adminControls.approvalStatus) || existingApprovalStatus;
+  adminControls.approvalStatus = canApproveClient ? requestedApprovalStatus : existingApprovalStatus;
+
   client.selectedLead = selectedLead;
   client.assignedServiceId = assignedServiceId;
   client.adminControls = adminControls;
@@ -1027,6 +1033,24 @@ exports.updateClient = async (req, res) => {
   client.workflowStatus = workflowStatus;
   client.markModified('data');
   await client.save();
+
+  if (canApproveClient && requestedApprovalStatus !== 'PENDING' && requestedApprovalStatus !== existingApprovalStatus) {
+    const actionAt = new Date();
+    await PendingApproval.findOneAndUpdate(
+      { type: 'client', sourceClientId: String(client._id), approvalStatus: 'PENDING' },
+      {
+        approvalStatus: requestedApprovalStatus,
+        nextReminderAt: null,
+        reminderFlag: 'GREEN',
+        greenFlagAt: actionAt,
+        redFlagAt: null,
+        greenFlagDeadline: null,
+        actionBy: req.user?._id,
+        actionAt,
+        remarks: 'Status updated from Client Master'
+      }
+    );
+  }
 
   res.json({ ok: true, client });
 };

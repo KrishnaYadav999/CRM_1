@@ -6620,7 +6620,10 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
   scroll-snap-type:x proximity;
   scrollbar-width:none;
 }
-.client-progress-tab-rail::-webkit-scrollbar{display:none}
+.client-progress-tab-rail{scrollbar-width:thin;scrollbar-color:#5d948a #e8f3f1}
+.client-progress-tab-rail::-webkit-scrollbar{display:block;height:9px}
+.client-progress-tab-rail::-webkit-scrollbar-track{border-radius:999px;background:#e8f3f1}
+.client-progress-tab-rail::-webkit-scrollbar-thumb{border:2px solid #e8f3f1;border-radius:999px;background:#5d948a}
 .client-progress-tab{
   --tab-progress:0%;
   position:relative;

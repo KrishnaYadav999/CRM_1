@@ -2,6 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+
+test('resolved and closed ticket notes start with the IT Team greeting and signature', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/SupportTickets.jsx'), 'utf8');
+  assert.match(page, /DEFAULT_STATUS_NOTE = 'Hi,\\n\\n\\nRegards,\\nIT Team'/);
+  assert.match(page, /setStatusNote\(DEFAULT_STATUS_NOTE\)/);
+});
 const SupportTicket = require('../src/models/SupportTicket');
 const { isAdmin, cleanAttachments } = require('../src/controllers/supportTicketController').__test;
 const { SUPPORT_RECIPIENTS, buildRaisedEmail, buildResolvedEmail } = require('../src/services/supportTicketEmails');
