@@ -42,6 +42,21 @@ test('report service uses grouped ticket aggregation instead of per-user queries
   assert.match(source, /createdAt: \{ \$gte: period\.start, \$lte: period\.end \}/);
 });
 
+test('productivity rows include manager hierarchy and Client Master completion totals', () => {
+  const report = buildUserProductivityReport({
+    users: [{ ...user('manager-1', 'Tushar Manager'), role: 'manager' }, { ...user('user-1', 'Prachi User'), managerId: 'manager-1' }],
+    sessions: [], activities: [], leads: [], ticketStats: [],
+    clients: [{ createdBy: 'user-1', data: { companyOverview: { companyName: 'Example Pvt Ltd' } } }],
+    period: { from: '2026-08-07', to: '2026-08-08' }, now: new Date('2026-08-08T06:00:00.000Z')
+  });
+  const member = report.users.find((row) => row.name === 'Prachi User');
+  assert.equal(String(member.managerId), 'manager-1');
+  assert.equal(member.clientMasters, 1);
+  assert.ok(member.clientFieldsFilled > 0);
+  assert.ok(member.clientFieldsMissing > 0);
+  assert.ok(member.clientCompletionPercentage > 0 && member.clientCompletionPercentage < 100);
+});
+
 test('company drill-down calculates section completion without exposing sensitive fields', () => {
   const sections = clientSectionAnalysis({ basic: { clientLegalName: 'ABC Ltd', tradeName: '' }, cpcb: { loginId: 'abc', loginPassword: 'secret' } });
   const basic = sections.find((section) => section.name === 'Basic');

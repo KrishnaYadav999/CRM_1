@@ -166,6 +166,40 @@ export async function downloadProductivityPdf({ rows, summary, period, insights 
   pdf.save(`User_Activity_Productivity_Report_${period.to}.pdf`)
 }
 
+async function createMisPdf(title, subtitle, period) {
+  const [{ jsPDF }, autoTableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+  const autoTable = autoTableModule.default || autoTableModule.autoTable
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
+  let logo = null
+  try { logo = await logoDataUrl() } catch (error) { console.warn('PDF logo unavailable', error) }
+  pdf.setFillColor(243, 248, 246); pdf.rect(0, 0, 297, 32, 'F')
+  if (logo) pdf.addImage(logo, 'PNG', 10, 7, 38, 14, undefined, 'FAST')
+  pdf.setTextColor(7, 88, 72); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.text(title, 58, 14)
+  pdf.setTextColor(71, 85, 105); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5)
+  pdf.text(`${subtitle}  |  ${formatReportDate(period.from)} - ${formatReportDate(period.to)}`, 58, 20)
+  pdf.text(`Generated: ${formatDateTime(new Date())}`, 58, 25)
+  pdf.setDrawColor(249, 115, 22); pdf.setLineWidth(1); pdf.line(9, 31, 288, 31)
+  return { pdf, autoTable }
+}
+
+export async function downloadSalesMisPdf({ rows, period }) {
+  const { pdf, autoTable } = await createMisPdf('Sales MIS Report', 'Sales lead performance', period)
+  const totals = rows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
+  drawKpiCards(pdf, [{ label: 'Sales Users', value: rows.length }, { label: 'Total Leads', value: totals.total }, { label: 'Lead Open', value: totals.open }, { label: 'Lead Close', value: totals.closed }], 36)
+  autoTable(pdf, { startY: 55, margin: { left: 9, right: 9 }, head: [['#', 'User Name', 'Email', 'Total Leads', 'Lead Open', 'Lead Close', 'Close Rate']], body: rows.map((row, index) => [index + 1, row.name, row.email, row.totalLeads, row.openLeads, row.closedLeads, `${row.totalLeads ? Math.round(row.closedLeads / row.totalLeads * 100) : 0}%`]), theme: 'grid', headStyles: { fillColor: [7, 88, 72], fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { fontSize: 8, cellPadding: 2.5, lineColor: [203, 213, 225], lineWidth: 0.15 }, columnStyles: { 0: { halign: 'center' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } } })
+  pdf.save(`Sales_MIS_Report_${period.to}.pdf`)
+}
+
+export async function downloadOperationMisPdf({ groups, period }) {
+  const { pdf, autoTable } = await createMisPdf('Operation MIS Report', 'Team and Client Master completion', period)
+  const body = groups.flatMap((group) => {
+    const people = [...(group.manager ? [group.manager] : []), ...group.members]
+    return [[group.name, 'TEAM TOTAL', group.manager?.name || '-', group.clientMasters, group.filled, group.missing, `${group.percentage}%`], ...people.map((row) => ['', row === group.manager ? 'Manager' : 'User', row.name, row.clientMasters || 0, row.clientFieldsFilled || 0, row.clientFieldsMissing || 0, `${row.clientCompletionPercentage || 0}%`])]
+  })
+  autoTable(pdf, { startY: 38, margin: { left: 9, right: 9 }, head: [['Team', 'Level', 'User Name', 'Client Masters', 'Data Filled', 'Data Missing', 'Completion']], body, theme: 'grid', headStyles: { fillColor: [8, 145, 178], fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { fontSize: 8, cellPadding: 2.5, lineColor: [203, 213, 225], lineWidth: 0.15 }, columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } }, didParseCell: (data) => { if (data.section === 'body' && data.row.raw?.[1] === 'TEAM TOTAL') { data.cell.styles.fillColor = [236, 254, 255]; data.cell.styles.fontStyle = 'bold' } } })
+  pdf.save(`Operation_MIS_Report_${period.to}.pdf`)
+}
+
 export async function exportProductivityExcel({ rows, summary, period }) {
   const XLSX = await import('xlsx')
   const workbook = XLSX.utils.book_new()

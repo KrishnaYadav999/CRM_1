@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
-  Activity, ArrowUpDown, CalendarDays, CheckCircle2, Clock3, Download, Eye, FileSpreadsheet,
+  Activity, ArrowUpDown, Building2, CalendarDays, CheckCircle2, Clock3, Download, Eye, FileSpreadsheet,
   Lightbulb, Loader2, Monitor, RefreshCw, RotateCcw, Search, ShieldAlert,
   TicketCheck, Timer, UserCheck, Users, X
 } from 'lucide-react'
@@ -11,7 +11,8 @@ import UserWorkDrilldown from '../components/dashboard/UserWorkDrilldown'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import {
-  downloadProductivityPdf, exportProductivityExcel, formatDateTime, formatDuration, formatReportDate, REPORT_TITLE
+  downloadOperationMisPdf, downloadProductivityPdf, downloadSalesMisPdf, exportProductivityExcel,
+  formatDateTime, formatDuration, formatReportDate, REPORT_TITLE
 } from '../utils/productivityReportExports'
 
 const roleLabels = { superadmin: 'Super Admin', admin: 'Admin', manager: 'Manager', operation: 'Operation', sales: 'Sales', compliance: 'Compliance', accounts: 'Accounts' }
@@ -53,6 +54,32 @@ function topRow(rows, selector) {
   return rows.length ? [...rows].sort((a, b) => selector(b) - selector(a))[0] : null
 }
 
+function buildOperationGroups(rows) {
+  const managers = rows.filter((row) => String(row.role).toLowerCase() === 'manager')
+  const operationUsers = rows.filter((row) => String(row.role).toLowerCase() === 'operation')
+  const groups = managers.map((manager, index) => {
+    const members = operationUsers.filter((row) => String(row.managerId || '') === String(manager.id))
+    const people = [manager, ...members]
+    const filled = people.reduce((sum, row) => sum + Number(row.clientFieldsFilled || 0), 0)
+    const missing = people.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
+    return {
+      id: String(manager.id), name: manager.team || `Team ${String.fromCharCode(65 + index)}`,
+      manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0),
+      filled, missing, percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0
+    }
+  })
+  const assigned = new Set(groups.flatMap((group) => group.members.map((row) => String(row.id))))
+  const unassigned = operationUsers.filter((row) => !assigned.has(String(row.id)))
+  if (unassigned.length) {
+    const filled = unassigned.reduce((sum, row) => sum + Number(row.clientFieldsFilled || 0), 0)
+    const missing = unassigned.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
+    groups.push({ id: 'unassigned', name: 'Unassigned Operations', manager: null, members: unassigned,
+      clientMasters: unassigned.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing,
+      percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 })
+  }
+  return groups
+}
+
 function MetricCard({ label, value, note, icon: Icon, tone, loading }) {
   return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-950/5">
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[.14em] text-slate-500">{label}</p>{loading ? <div className="mt-3 h-7 w-24 animate-pulse rounded-lg bg-slate-100" /> : <p className="mt-2 truncate text-2xl font-black text-slate-950">{value}</p>}</div><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${tone}`}><Icon className="h-5 w-5" /></span></div>
@@ -74,6 +101,7 @@ export default function SuperAdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const [exportingExcel, setExportingExcel] = useState(false)
+  const [generatingMisPdf, setGeneratingMisPdf] = useState('')
   const [error, setError] = useState('')
   const [exportError, setExportError] = useState('')
   const [selected, setSelected] = useState(null)
@@ -103,6 +131,8 @@ export default function SuperAdminDashboard() {
   }, [draftFilters])
 
   const rows = useMemo(() => (report.users || []).map((row) => ({ ...row, roleLabel: roleLabels[row.role] || row.role || '-' })), [report.users])
+  const salesMisRows = useMemo(() => rows.filter((row) => String(row.role).toLowerCase() === 'sales'), [rows])
+  const operationGroups = useMemo(() => buildOperationGroups(rows), [rows])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
     const search = appliedFilters.search.trim().toLowerCase()
@@ -156,6 +186,19 @@ export default function SuperAdminDashboard() {
     finally { setExportingExcel(false) }
   }
 
+  async function downloadMisPdf(type) {
+    if (generatingMisPdf) return
+    setGeneratingMisPdf(type)
+    setExportError('')
+    try {
+      if (type === 'sales') await downloadSalesMisPdf({ rows: salesMisRows, period: report.period })
+      else await downloadOperationMisPdf({ groups: operationGroups, period: report.period })
+    } catch (pdfError) {
+      console.error(`Unable to generate ${type} MIS PDF`, pdfError)
+      setExportError(`Unable to generate the ${type === 'sales' ? 'Sales' : 'Operation'} MIS report. Please try again.`)
+    } finally { setGeneratingMisPdf('') }
+  }
+
   const cards = [
     ['Total Users', summary.totalUsers, `${summary.activeUsers} active accounts`, Users, 'bg-indigo-50 text-indigo-700'],
     ['Online Now', summary.onlineNow, 'Latest heartbeat status', UserCheck, 'bg-emerald-50 text-emerald-700'],
@@ -193,6 +236,33 @@ export default function SuperAdminDashboard() {
         <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_310px]">
           <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="font-black text-slate-950">Active vs Away Time</h2><p className="text-xs font-semibold text-slate-500">Top users in selected period · minutes</p></div><Activity className="h-5 w-5 text-emerald-600" /></div><div className="mt-3 h-60">{chart.length ? <ResponsiveContainer><BarChart data={chart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" fontSize={10} /><YAxis fontSize={10} /><Tooltip /><Legend /><Bar dataKey="Active" fill="#059669" radius={[5, 5, 0, 0]} /><Bar dataKey="Away" fill="#f97316" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer> : <div className="grid h-full place-items-center text-sm font-bold text-slate-400">No chart data for selected period.</div>}</div></article>
           <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-orange-500" /><div><h2 className="font-black text-slate-950">Admin Attention</h2><p className="text-xs font-semibold text-slate-500">Accounts to review</p></div></div><div className="mt-3 space-y-2">{attention.map((item) => <button key={item.key} onClick={() => { const next = { ...draftFilters, risk: item.key }; setDraftFilters(next); setAppliedFilters(next) }} className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-left hover:border-emerald-200"><span className="text-xs font-black text-slate-700">{item.label}</span><strong className="text-lg text-slate-950">{item.count}</strong></button>)}</div></aside>
+        </section>
+
+        <section className="mt-4 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-5 py-4">
+            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Department MIS</p><h2 className="text-xl font-black text-slate-950">Sales MIS</h2><p className="text-xs font-semibold text-slate-500">Only Sales users · live lead status for the selected report period</p></div></div>
+            <button type="button" onClick={() => downloadMisPdf('sales')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'sales' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'sales' ? 'Generating...' : 'Download Sales PDF'}</button>
+          </header>
+          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Sr. No.</th><th className="px-5 py-3">User Name</th><th className="px-5 py-3 text-right">Total Leads</th><th className="px-5 py-3 text-right">Lead Open</th><th className="px-5 py-3 text-right">Lead Close</th><th className="px-5 py-3">Close Rate</th></tr></thead><tbody>
+            {loading ? <tr><td colSpan="6" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr> : salesMisRows.map((row, index) => { const rate = row.totalLeads ? Math.round((row.closedLeads / row.totalLeads) * 100) : 0; return <tr key={String(row.id)} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-emerald-50/50"><td className="px-5 py-4 font-black text-slate-400">{index + 1}</td><td className="px-5 py-4"><button type="button" onClick={() => setWorkReportUser(row)} className="text-left"><strong className="block text-slate-950 hover:text-emerald-700">{row.name}</strong><small className="text-slate-500">{row.email}</small></button></td><td className="px-5 py-4 text-right text-lg font-black text-slate-950">{row.totalLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-orange-600">{row.openLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{row.closedLeads}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-28 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${rate}%` }} /></div><strong className="text-emerald-800">{rate}%</strong></div></td></tr> })}
+            {!loading && !salesMisRows.length && <tr><td colSpan="6" className="p-10 text-center font-bold text-slate-400">No Sales users found.</td></tr>}
+          </tbody></table></div>
+        </section>
+
+        <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-white px-5 py-4">
+            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-100 text-cyan-700"><Building2 className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-700">Team hierarchy MIS</p><h2 className="text-xl font-black text-slate-950">Operation MIS</h2><p className="text-xs font-semibold text-slate-500">Team → Manager → Users · Client Master data completion analysis</p></div></div>
+            <button type="button" onClick={() => downloadMisPdf('operation')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'operation' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'operation' ? 'Generating...' : 'Download Operation PDF'}</button>
+          </header>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Team / User</th><th className="px-5 py-3">Level</th><th className="px-5 py-3">Reports To</th><th className="px-5 py-3 text-right">Client Masters</th><th className="px-5 py-3 text-right">Data Filled</th><th className="px-5 py-3 text-right">Data Missing</th><th className="px-5 py-3">Completion</th></tr></thead><tbody>
+            {operationGroups.flatMap((group) => {
+              const people = [...(group.manager ? [group.manager] : []), ...group.members]
+              const teamRow = <tr key={`team-${group.id}`} className="border-t-2 border-cyan-100 bg-cyan-50/70 font-black text-slate-900"><td className="px-5 py-4"><span className="inline-flex items-center gap-2"><Building2 className="h-4 w-4 text-cyan-700" />{group.name}</span></td><td className="px-5 py-4"><span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] uppercase text-cyan-800">Team Total</span></td><td className="px-5 py-4">{group.manager?.name || '-'}</td><td className="px-5 py-4 text-right text-lg">{group.clientMasters}</td><td className="px-5 py-4 text-right text-emerald-700">{group.filled}</td><td className="px-5 py-4 text-right text-orange-700">{group.missing}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-32 overflow-hidden rounded-full bg-white ring-1 ring-cyan-100"><div className="h-full rounded-full bg-cyan-600" style={{ width: `${group.percentage}%` }} /></div><strong>{group.percentage}%</strong></div></td></tr>
+              const peopleRows = people.map((row) => <tr key={`${group.id}-${row.id}`} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-slate-50"><td className="py-3 pl-10 pr-5"><strong className="block text-slate-950">{row.name}</strong><small className="text-slate-500">{row.email}</small></td><td className="px-5 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${row === group.manager ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}`}>{row === group.manager ? 'Manager' : 'User'}</span></td><td className="px-5 py-3">{row === group.manager ? '—' : group.manager?.name || 'Not assigned'}</td><td className="px-5 py-3 text-right font-black">{row.clientMasters || 0}</td><td className="px-5 py-3 text-right font-black text-emerald-700">{row.clientFieldsFilled || 0}</td><td className="px-5 py-3 text-right font-black text-orange-700">{row.clientFieldsMissing || 0}</td><td className="px-5 py-3"><div className="flex items-center gap-3"><div className="h-2 w-32 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${row.clientCompletionPercentage || 0}%` }} /></div><strong>{row.clientCompletionPercentage || 0}%</strong></div></td></tr>)
+              return [teamRow, ...peopleRows]
+            })}
+            {!loading && !operationGroups.length && <tr><td colSpan="7" className="p-10 text-center font-bold text-slate-400">No Operation teams found.</td></tr>}
+          </tbody></table></div>
         </section>
 
         <section onClickCapture={(event) => { const cell = event.target.closest('td'); if (!cell || cell.cellIndex !== 1) return; const tableRow = cell.closest('tr'); const index = tableRow ? tableRow.sectionRowIndex : -1; if (index >= 0 && visible[index]) setWorkReportUser(visible[index]) }} className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

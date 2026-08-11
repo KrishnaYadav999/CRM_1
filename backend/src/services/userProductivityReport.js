@@ -73,7 +73,7 @@ function buildDailyTimeline(sessions, activities) {
   return [...groups.values()].map((row) => ({ ...row, modules: [...row.modules].sort() })).sort((a, b) => b.date.localeCompare(a.date));
 }
 
-function buildUserProductivityReport({ users, sessions, activities, leads, ticketStats, period, now = new Date() }) {
+function buildUserProductivityReport({ users, sessions, activities, leads, clients = [], ticketStats, period, now = new Date() }) {
   const byUser = (items, field) => items.reduce((map, item) => {
     const key = String(item[field] || '');
     if (!map.has(key)) map.set(key, []);
@@ -83,6 +83,7 @@ function buildUserProductivityReport({ users, sessions, activities, leads, ticke
   const sessionsByUser = byUser(sessions, 'userId');
   const activitiesByUser = byUser(activities, 'userId');
   const leadsByUser = byUser(leads, 'createdBy');
+  const clientsByUser = byUser(clients, 'createdBy');
   const ticketByUser = new Map(ticketStats.map((item) => [String(item._id || ''), {
     total: Number(item.total) || 0, open: Number(item.open) || 0, resolved: Number(item.resolved) || 0
   }]));
@@ -92,6 +93,10 @@ function buildUserProductivityReport({ users, sessions, activities, leads, ticke
     const ownSessions = sessionsByUser.get(id) || [];
     const ownActivities = activitiesByUser.get(id) || [];
     const ownLeads = leadsByUser.get(id) || [];
+    const ownClients = clientsByUser.get(id) || [];
+    const clientAnalysis = ownClients.map((client) => analyzeClientMasterData(client.data || {}));
+    const clientFieldsFilled = clientAnalysis.reduce((sum, item) => sum + item.filledCount, 0);
+    const clientFieldsTotal = clientAnalysis.reduce((sum, item) => sum + item.totalCount, 0);
     const sortedSessions = [...ownSessions].sort((a, b) => new Date(b.loginAt || 0) - new Date(a.loginAt || 0));
     const latestSession = sortedSessions[0] || null;
     const activeSeconds = ownSessions.reduce((sum, item) => sum + Math.max(0, Number(item.activeSeconds) || 0), 0);
@@ -107,8 +112,12 @@ function buildUserProductivityReport({ users, sessions, activities, leads, ticke
     const closedLeads = ownLeads.filter((lead) => lead.closedBy || lead.closedAt || /closed/i.test(String(lead.status || ''))).length;
     const row = {
       id: user._id, name: user.name || user.email || 'Unnamed user', email: user.email || '', role: user.role || '', team: user.team || '',
+      managerId: user.managerId || null,
       active: user.isActive !== false, lastLogin: user.lastLogin || null, lastActivity,
       totalLeads: ownLeads.length, closedLeads, openLeads: Math.max(0, ownLeads.length - closedLeads),
+      clientMasters: ownClients.length, clientFieldsFilled,
+      clientFieldsMissing: Math.max(0, clientFieldsTotal - clientFieldsFilled),
+      clientCompletionPercentage: clientFieldsTotal ? Math.round((clientFieldsFilled / clientFieldsTotal) * 100) : 0,
       activeSeconds, openSeconds, awaySeconds, activityCount, sessions: ownSessions.length,
       awayRatio: openSeconds ? awaySeconds / openSeconds : 0, online,
       presence: !user.lastLogin ? 'Never Logged In' : online ? (latestSession.presenceState === 'away' ? 'Away' : 'Active') : 'Offline',
@@ -142,11 +151,12 @@ function buildUserProductivityReport({ users, sessions, activities, leads, ticke
 
 async function getUserProductivityReport({ from, to }) {
   const period = reportDateRange(from, to);
-  const [users, sessions, activities, leads, ticketStats] = await Promise.all([
-    User.find().select('name email role team isActive lastLogin').lean(),
+  const [users, sessions, activities, leads, clients, ticketStats] = await Promise.all([
+    User.find().select('name email role team managerId isActive lastLogin').lean(),
     UserSession.find({ loginAt: { $gte: period.start, $lte: period.end } }).sort({ loginAt: -1 }).limit(10000).lean(),
     AuditLog.find({ occurredAt: { $gte: period.start, $lte: period.end } }).sort({ occurredAt: -1 }).limit(25000).lean(),
     Lead.find({ createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy status closedBy closedAt createdAt').lean(),
+    Client.find({ createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data createdAt').lean(),
     SupportTicket.aggregate([
       { $match: { createdAt: { $gte: period.start, $lte: period.end } } },
       { $group: {
@@ -156,7 +166,7 @@ async function getUserProductivityReport({ from, to }) {
       } }
     ])
   ]);
-  return buildUserProductivityReport({ users, sessions, activities, leads, ticketStats, period });
+  return buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period });
 }
 
 function clientSectionAnalysis(data = {}) {
