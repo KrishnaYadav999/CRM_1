@@ -57,12 +57,14 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   const routes = fs.readFileSync(path.resolve(__dirname, '../src/routes/auth.js'), 'utf8');
   assert.match(routes, /superadmin\/users\/:id\/work-report/);
   assert.match(page, /Sales Company Portfolio/);
-  assert.match(page, /Lead Open/);
-  assert.match(page, /Complete Follow-up Timeline/);
+  assert.match(page, /Open Leads/);
+  assert.match(page, /Follow-up Timeline/);
   assert.match(page, /Missed Follow-ups/);
   assert.match(page, /Red Flags/);
   assert.match(page, /\['Open','Closed'\]/);
   assert.match(page, /Download Report/);
+  assert.match(page, /fixed inset-0 z-\[130\] flex flex-col/);
+  assert.match(page, /CompanyInsight/);
 });
 
 test('full company analysis covers every Client Master section and respects applicability', () => {
