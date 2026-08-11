@@ -430,7 +430,7 @@ function alignRowsToPlantUnits(services = [], savedRows = [], factory) {
   const groups = plantUnitGroups(services);
   const activeUnits = new Set(groups.map((service) => String(service?.plantUnit || '').trim().toLowerCase()).filter(Boolean));
   const usedRows = new Set();
-  return groups.map((service) => {
+  const alignedRows = groups.map((service) => {
     const unit = String(service?.plantUnit || '').trim();
     let matchIndex = rows.findIndex((row, index) => !usedRows.has(index) && unit && String(row?.plantUnit || '').trim().toLowerCase() === unit.toLowerCase());
     if (matchIndex < 0) {
@@ -445,6 +445,15 @@ function alignRowsToPlantUnits(services = [], savedRows = [], factory) {
     const match = matchIndex >= 0 ? rows[matchIndex] : factory(service);
     return { ...match, assignedServiceId: service.assignedServiceId, plantUnit: unit };
   });
+  const additionalRows = rows.filter((_, index) => !usedRows.has(index));
+  return [...alignedRows, ...additionalRows];
+}
+
+function nextPlantUnit(...rowGroups) {
+  const usedUnits = new Set(rowGroups.flat().map((row) => String(row?.plantUnit || '').trim().toLowerCase()).filter(Boolean));
+  let unitNumber = 1;
+  while (usedUnits.has(`unit ${unitNumber}`)) unitNumber += 1;
+  return `Unit ${unitNumber}`;
 }
 
 function createAssignmentRow(source = {}) {
@@ -550,6 +559,7 @@ export default function LeadGeneration() {
   const [dropdownValue, setDropdownValue] = useState('');
   const [dropdownSaving, setDropdownSaving] = useState(false);
   const [serviceRemoveIndex, setServiceRemoveIndex] = useState(null);
+  const [addRowConfirmation, setAddRowConfirmation] = useState(null);
   const navigate = useNavigate();
   const { leadId: complianceRouteLeadId } = useParams();
 
@@ -952,7 +962,9 @@ export default function LeadGeneration() {
   }
 
   function addAddressRow() {
-    setLead((current) => ({ ...current, addresses: [...addressRows, createAddressRow()] }));
+    const plantUnit = nextPlantUnit(serviceRows, addressRows);
+    setLead((current) => ({ ...current, addresses: [...addressRows, createAddressRow({ plantUnit })] }));
+    setAddRowConfirmation(null);
   }
 
   function removeAddressRow(index) {
@@ -968,7 +980,9 @@ export default function LeadGeneration() {
   }
 
   function addContactRow() {
-    setLead((current) => ({ ...current, contacts: [...contactRows, createContactRow()] }));
+    const plantUnit = nextPlantUnit(serviceRows, contactRows);
+    setLead((current) => ({ ...current, contacts: [...contactRows, createContactRow({ plantUnit })] }));
+    setAddRowConfirmation(null);
   }
 
   function removeContactRow(index) {
@@ -2304,7 +2318,7 @@ export default function LeadGeneration() {
 
             {activeTab === 'address' && (
               <section className="min-w-0 max-w-full overflow-hidden">
-                <div className="lead-address-title"><div><h2>Address Information</h2><p>Add one or more office, registered, factory, or correspondence addresses.</p></div><button type="button" onClick={addAddressRow}><Plus className="h-4 w-4" />Add Address</button></div>
+                <div className="lead-address-title"><div><h2>Address Information</h2><p>Add one or more office, registered, factory, or correspondence addresses.</p></div><button type="button" onClick={() => setAddRowConfirmation('address')}><Plus className="h-4 w-4" />Add Address</button></div>
                 {serviceOnlyMode && <div className="lead-service-only-banner mt-4"><CheckCircle2 className="h-5 w-5" /><div><strong>Existing addresses are frozen</strong><p>Use Add Address to create an editable new row.</p></div></div>}
                 {locationError && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800" role="status">{locationError}</div>}
                 <fieldset className="mt-5 min-w-0 max-w-full">
@@ -2334,7 +2348,7 @@ export default function LeadGeneration() {
 
             {activeTab === 'contact' && (
               <fieldset className="min-w-0 max-w-full">
-                <div className="lead-address-title"><div><h2>Contact Information</h2><p>Add company contacts, including optional WhatsApp and LinkedIn information.</p></div><button type="button" onClick={addContactRow}><Plus className="h-4 w-4" />Add Contact</button></div>
+                <div className="lead-address-title"><div><h2>Contact Information</h2><p>Add company contacts, including optional WhatsApp and LinkedIn information.</p></div><button type="button" onClick={() => setAddRowConfirmation('contact')}><Plus className="h-4 w-4" />Add Contact</button></div>
                 <div className="lead-contact-matrix mt-5">
                   <div className="lead-contact-head"><span>#</span><span>Salutation *</span><span>Contact Person *</span><span>Designation *</span><span>Email *</span><span>Mobile No. 1 *</span><span>Mobile No. 2</span><span>WhatsApp No.</span><span>LinkedIn</span><span>Referred By *</span><span>Source *</span><span>Business Card</span><span>Action</span></div>
                   {contactRows.map((row, index) => {
@@ -2356,6 +2370,22 @@ export default function LeadGeneration() {
                   </div>})}
                 </div>
               </fieldset>
+            )}
+
+            {addRowConfirmation && (
+              <div className="fixed inset-0 z-[10020] grid place-items-center bg-slate-950/55 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="add-row-confirmation-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setAddRowConfirmation(null); }}>
+                <section className="w-full max-w-md overflow-hidden rounded-3xl border border-teal-100 bg-white shadow-2xl">
+                  <div className="p-6 sm:p-7">
+                    <span className="grid h-14 w-14 place-items-center rounded-2xl bg-teal-50 text-teal-700 ring-1 ring-teal-100"><CircleAlert className="h-7 w-7" /></span>
+                    <h2 id="add-row-confirmation-title" className="mt-5 text-2xl font-black text-slate-950">Add another {addRowConfirmation}?</h2>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">Are you sure you want to add a new {addRowConfirmation} row? It will be assigned the next available unit number.</p>
+                  </div>
+                  <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:justify-end">
+                    <button type="button" onClick={() => setAddRowConfirmation(null)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 hover:bg-slate-100">No, Cancel</button>
+                    <button type="button" onClick={addRowConfirmation === 'address' ? addAddressRow : addContactRow} className="min-h-11 rounded-xl bg-teal-700 px-5 text-sm font-black text-white shadow-lg shadow-teal-200 hover:bg-teal-800">Yes, Add {addRowConfirmation === 'address' ? 'Address' : 'Contact'}</button>
+                  </div>
+                </section>
+              </div>
             )}
 
             {activeTab === 'assign' && (

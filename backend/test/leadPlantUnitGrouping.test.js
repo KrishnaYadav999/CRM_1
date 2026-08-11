@@ -62,3 +62,16 @@ test('frontend groups shared lead data by Plant Unit and Client Master fetches b
   assert.match(leadPage, /const usedRows = new Set\(\)/);
   assert.match(clientMaster, /item\?\.plantUnit === row\.plantUnit/);
 });
+
+test('Add Address and Add Contact require confirmation and assign the next unit', () => {
+  const leadPage = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  assert.match(leadPage, /function nextPlantUnit\(\.\.\.rowGroups\)/);
+  assert.match(leadPage, /setAddRowConfirmation\('address'\)/);
+  assert.match(leadPage, /setAddRowConfirmation\('contact'\)/);
+  assert.match(leadPage, /Are you sure you want to add a new \{addRowConfirmation\} row\?/);
+  assert.match(leadPage, /No, Cancel/);
+  assert.match(leadPage, /Yes, Add \{addRowConfirmation === 'address' \? 'Address' : 'Contact'\}/);
+  assert.match(leadPage, /createAddressRow\(\{ plantUnit \}\)/);
+  assert.match(leadPage, /createContactRow\(\{ plantUnit \}\)/);
+  assert.match(leadPage, /return \[\.\.\.alignedRows, \.\.\.additionalRows\]/);
+});
