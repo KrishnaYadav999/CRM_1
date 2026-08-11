@@ -4,7 +4,6 @@ const AuditLog = require('../models/AuditLog');
 const Lead = require('../models/Lead');
 const SupportTicket = require('../models/SupportTicket');
 const Client = require('../models/Client');
-const { completeness } = require('./clientOnboardingReminders');
 
 const ONLINE_WINDOW_MS = 15 * 60 * 1000;
 
@@ -175,6 +174,36 @@ function companyNameFor({ lead, client }) {
   return client?.data?.basic?.clientLegalName || client?.data?.basic?.tradeName || lead?.company || 'Unnamed Company';
 }
 
+function analyzeClientMasterData(data = {}) {
+  const entries = [];
+  const filled = (value) => Array.isArray(value) ? value.length > 0 : value && typeof value === 'object' ? Boolean(value.url || value.secureUrl || value.dataUrl || value.path || value.publicId || value.name || value.fileName) : value !== undefined && value !== null && String(value).trim() !== '';
+  const add = (section, label, value) => entries.push({ section, label, filled: filled(value) });
+  const addFields = (section, source, fields) => fields.forEach(([key, label]) => add(section, label, source?.[key]));
+  addFields('Company Overview', data.companyOverview, [['companyName','Company Name'],['companySummary','Company Summary'],['productName','Product Name'],['productManufacturer','Product Manufacturer'],['productImage','Product Image'],['category','Product Category'],['numberOfEmployees','Number of Employees']]);
+  addFields('Client Basic Info', data.basic, [['clientLegalName','Client Legal Name'],['tradeName','Trade Name'],['piboCategory','PIBO Category'],['eprCategory','Service Category'],['onboardingYear','Onboarding Year'],['firstAnnualReturnYear','First Annual Return Year']]);
+  [['Registered Address', data.registeredAddress], ['Communication Address', data.communicationAddress]].forEach(([section, source]) => addFields(section, source, [['address1','Address 1'],['address2','Address 2'],['address3','Address 3'],['state','State'],['city','City'],['pincode','PIN Code']]));
+  const category = String(data.basic?.piboCategory || data.selectedLeadSnapshot?.piboCategory || '').toLowerCase();
+  const documentKeys = ['gst','cin','pan','factoryLicense','eprCertificate','iec','dicDcssi'].filter((key) => !(category.includes('producer') && key === 'iec') && !(category.includes('importer') && ['factoryLicense','dicDcssi'].includes(key)));
+  documentKeys.forEach((key) => { const name = key.replace(/([A-Z])/g, ' $1').toUpperCase(); add('Documents', `${name} Number`, data.compliance?.[`${key}Number`]); add('Documents', `${name} Date`, data.compliance?.[`${key}Date`]); add('Documents', `${name} File`, data.compliance?.[`${key}File`]); });
+  add('Documents', 'MSME Applicability', data.compliance?.msmeApplicable);
+  if (data.compliance?.msmeApplicable === 'Yes') (data.msmeRows?.length ? data.msmeRows : [{}]).forEach((row, index) => addFields('MSME Details', row, [['classificationYear',`MSME ${index + 1} Classification Year`],['status',`MSME ${index + 1} Status`],['majorActivity',`MSME ${index + 1} Major Activity`],['udyamNumber',`MSME ${index + 1} Udyam Number`],['turnover',`MSME ${index + 1} Turnover`],['file',`MSME ${index + 1} Certificate`]]));
+  add('CTE & CTO / CCA', 'Number of Plant Locations', data.cte?.numberOfPlantsLocations);
+  (data.cte?.plantWiseDetails?.length ? data.cte.plantWiseDetails : [{}]).forEach((plant, index) => addFields('CTE & CTO / CCA', plant, [['plantName',`Plant ${index + 1} Name`],['cteConsentNo',`Plant ${index + 1} CTE Consent No`],['cteCategory',`Plant ${index + 1} CTE Category`],['cteIssuedDate',`Plant ${index + 1} CTE Issue Date`],['cteValidDate',`Plant ${index + 1} CTE Validity`],['plantLocation',`Plant ${index + 1} Location`],['cteDocument',`Plant ${index + 1} CTE Document`],['ctoOrderNo',`Plant ${index + 1} CTO/CCA Order No`],['ctoIssueDate',`Plant ${index + 1} CTO/CCA Issue Date`],['ctoValidDate',`Plant ${index + 1} CTO/CCA Validity`],['ctoDocument',`Plant ${index + 1} CTO/CCA Document`]]));
+  add('CPCB Credentials', 'Linked to Common Portal', data.cpcb?.linkedToCommonPortal);
+  if (data.cpcb?.linkedToCommonPortal === 'Yes') addFields('CPCB Credentials', data.cpcb, [['status','CPCB Status'],['remark','CPCB Remark'],['homePageFile','CPCB Home Page'],['registrationNumber','CPCB Registration Number'],['applicationDate','Application Date'],['approvalDate','Approval Date'],['applicationNumber','Application Number'],['ceprUserId','CEPR User ID'],['ceprPassword','CEPR Password'],['loginId','CPCB Login ID'],['loginPassword','CPCB Login Password'],['unitId','Unit ID']]);
+  (data.cpcbScreenshots?.length ? data.cpcbScreenshots : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Screenshot ${index + 1} Name`, row.name); add('CPCB Screenshots', `Screenshot ${index + 1} File`, row.file); });
+  (data.processDiagrams?.length ? data.processDiagrams : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Process Diagram ${index + 1} Name`, row.name); add('CPCB Screenshots', `Process Diagram ${index + 1} File`, row.file); });
+  addFields('Authorized Person Details', data.otp, [['mobile','OTP Mobile'],['personName','OTP Person'],['designation','OTP Person Designation']]);
+  const personFields = [['name','Name'],['designation','Designation'],['department','Department'],['reporting','Reporting Person'],['mobile','Mobile'],['email','Email'],['pan','PAN'],['panDocument','PAN Document']];
+  addFields('Authorized Person Details', data.authorised, personFields.map(([key,label]) => [key,`Authorized Person ${label}`]));
+  (data.authorisedPersons || []).forEach((person, index) => addFields('Authorized Person Details', person, personFields.map(([key,label]) => [key,`Authorized Person ${index + 2} ${label}`])));
+  addFields('Authorized Person Details', data.coordinating, personFields.slice(0, 6).map(([key,label]) => [key,`Coordinating Person ${label}`]));
+  const grouped = new Map(); entries.forEach((entry) => { const row = grouped.get(entry.section) || { name: entry.section, filled: 0, total: 0 }; row.total += 1; row.filled += entry.filled ? 1 : 0; grouped.set(entry.section, row); });
+  const sections = [...grouped.values()].map((row) => ({ ...row, missing: row.total - row.filled, percentage: row.total ? Math.round((row.filled / row.total) * 100) : 0 }));
+  const filledFields = entries.filter((entry) => entry.filled).map((entry) => entry.label); const missingFields = entries.filter((entry) => !entry.filled).map((entry) => entry.label);
+  return { filledCount: filledFields.length, totalCount: entries.length, filledFields, missingFields, completed: missingFields.length === 0, sections };
+}
+
 async function getUserWorkReport({ userId, from, to }) {
   const period = reportDateRange(from, to);
   const user = await User.findById(userId).select('name email role team isActive').lean();
@@ -187,8 +216,8 @@ async function getUserWorkReport({ userId, from, to }) {
   const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
   const clientRows = clients.map((client) => {
     const lead = leadById.get(String(client.selectedLead || ''));
-    const required = completeness(client.data || {});
-    const sections = clientSectionAnalysis(client.data || {});
+    const required = analyzeClientMasterData(client.data || {});
+    const sections = required.sections;
     const filled = required.filledCount;
     const total = required.totalCount;
     return { id: client._id, leadId: client.selectedLead, leadCode: lead?.leadCode || '', company: companyNameFor({ lead, client }), status: client.workflowStatus,
@@ -204,4 +233,4 @@ async function getUserWorkReport({ userId, from, to }) {
     completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows };
 }
 
-module.exports = { getUserProductivityReport, getUserWorkReport, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange };
+module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange };

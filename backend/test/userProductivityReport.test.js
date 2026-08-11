@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUserProductivityReport, clientSectionAnalysis, productivityScore } = require('../src/services/userProductivityReport');
+const { analyzeClientMasterData, buildUserProductivityReport, clientSectionAnalysis, productivityScore } = require('../src/services/userProductivityReport');
 
 function user(id, name) {
   return { _id: id, name, email: `${name.toLowerCase()}@example.com`, role: 'operation', isActive: true, lastLogin: new Date('2026-08-08T04:30:00.000Z') };
@@ -61,4 +61,15 @@ test('super admin user and company drill-down is wired to API, charts and report
   assert.match(page, /Filled vs Missing Data/);
   assert.match(page, /Section-wise Completion/);
   assert.match(page, /Download Report/);
+});
+
+test('full company analysis covers every Client Master section and respects applicability', () => {
+  const notApplicable = analyzeClientMasterData({ compliance: { msmeApplicable: 'No' }, cpcb: { linkedToCommonPortal: 'No' } });
+  assert.ok(notApplicable.totalCount > 50);
+  assert.ok(!notApplicable.missingFields.some((label) => label.includes('MSME 1')));
+  assert.ok(!notApplicable.missingFields.includes('CEPR Password'));
+  const applicable = analyzeClientMasterData({ compliance: { msmeApplicable: 'Yes' }, cpcb: { linkedToCommonPortal: 'Yes' } });
+  assert.ok(applicable.missingFields.includes('MSME 1 Udyam Number'));
+  assert.ok(applicable.missingFields.includes('CEPR Password'));
+  assert.ok(applicable.sections.some((section) => section.name === 'Authorized Person Details'));
 });

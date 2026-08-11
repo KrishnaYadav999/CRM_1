@@ -209,7 +209,10 @@ function buildClientTabProgress(client = {}) {
     address: countFields(client, tabProgressFields.address),
     compliance: addProgressParts(
       countRows([client.compliance || {}], complianceDocumentFields),
-      countRows(client.msmeRows, ['classificationYear', 'status', 'majorActivity', 'udyamNumber', 'turnover', 'file'])
+      countFields(client, [['compliance', 'msmeApplicable']]),
+      client.compliance?.msmeApplicable === 'Yes'
+        ? countRows(client.msmeRows, ['classificationYear', 'status', 'majorActivity', 'udyamNumber', 'turnover', 'file'])
+        : { filled: 0, total: 0 }
     ),
     cte: addProgressParts(
       countFields(client, [['cte', 'numberOfPlantsLocations']]),
@@ -224,7 +227,10 @@ function buildClientTabProgress(client = {}) {
       countRows(client.cpcbScreenshots, ['name', 'file']),
       countRows(client.processDiagrams, ['name', 'file'])
     ),
-    contacts: countFields(client, tabProgressFields.contacts)
+    contacts: addProgressParts(
+      countFields(client, tabProgressFields.contacts),
+      countRows(client.authorisedPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email', 'pan', 'panDocument'])
+    )
   };
 
   return tabs.map((tab) => {
@@ -632,6 +638,7 @@ const emptyClient = {
   processDiagrams: [],
   otp: {},
   authorised: {},
+  authorisedPersons: [],
   coordinating: {}
 };
 
@@ -662,6 +669,7 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
     }),
     otp: scopedDetails?.otp || (allowLegacy ? data.otp : { mobile: contact.mobileNo1 || '', personName: contact.contactPerson || '', designation: contact.designation || '' }),
     authorised: scopedDetails?.authorised || (allowLegacy ? data.authorised : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
+    authorisedPersons: scopedDetails?.authorisedPersons || (allowLegacy && Array.isArray(data.authorisedPersons) ? data.authorisedPersons : []),
     coordinating: scopedDetails?.coordinating || (allowLegacy ? data.coordinating : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
     cpcb: scoped
       ? { linkedToCommonPortal: '', ...(scoped.cpcb || scoped.details || {}) }
@@ -1121,7 +1129,7 @@ export default function ClientMaster() {
           }
         : {};
       const localServiceDetails = sameLeadIsOpen && currentAssignmentId
-        ? { [currentAssignmentId]: { registeredAddress: client.registeredAddress, communicationAddress: client.communicationAddress, otp: client.otp, authorised: client.authorised, coordinating: client.coordinating } }
+        ? { [currentAssignmentId]: { registeredAddress: client.registeredAddress, communicationAddress: client.communicationAddress, otp: client.otp, authorised: client.authorised, authorisedPersons: client.authorisedPersons, coordinating: client.coordinating } }
         : {};
       const scopedData = activateAssignedService({
         ...existingDraft.data,
@@ -1493,6 +1501,7 @@ export default function ClientMaster() {
           communicationAddress: { ...(normalizedClient.communicationAddress || {}) },
           otp: { ...(normalizedClient.otp || {}) },
           authorised: { ...(normalizedClient.authorised || {}) },
+          authorisedPersons: Array.isArray(normalizedClient.authorisedPersons) ? normalizedClient.authorisedPersons : [],
           coordinating: { ...(normalizedClient.coordinating || {}) },
           updatedAt: new Date().toISOString()
         }
@@ -1513,10 +1522,19 @@ export default function ClientMaster() {
         setActiveTab('cpcbScreenshots');
         return;
       }
+      if (workflowStatus === 'submitted' && normalizedClient.compliance?.msmeApplicable === 'Yes') {
+        const invalidMsme = !(normalizedClient.msmeRows || []).length || normalizedClient.msmeRows.some((row) => ['classificationYear', 'status', 'majorActivity', 'udyamNumber', 'turnover', 'file'].some((field) => !isProgressValueFilled(row?.[field])));
+        if (invalidMsme) {
+          setError('MSME is Applicable. Add at least one row and complete every MSME detail before submit.');
+          setActiveTab('compliance');
+          return;
+        }
+      }
       const submittedRequired = [
         ['Choose Existing Lead', normalizedClient.selectedLead], ['Client Legal Name', normalizedClient.basic?.clientLegalName],
         ['Registered Address', normalizedClient.registeredAddress?.address1], ['Registered State', normalizedClient.registeredAddress?.state], ['Registered City', normalizedClient.registeredAddress?.city], ['Registered Pincode', normalizedClient.registeredAddress?.pincode],
         ['Communication Address', normalizedClient.communicationAddress?.address1], ['Communication State', normalizedClient.communicationAddress?.state], ['Communication City', normalizedClient.communicationAddress?.city], ['Communication Pincode', normalizedClient.communicationAddress?.pincode],
+        ['MSME Applicability', normalizedClient.compliance?.msmeApplicable],
         ['CPCB Common Portal Link', normalizedClient.cpcb?.linkedToCommonPortal],
         ...(normalizedClient.cpcb?.linkedToCommonPortal === 'Yes' ? [['CPCB Status', normalizedClient.cpcb?.status]] : []),
         ['OTP Mobile', normalizedClient.otp?.mobile], ['Authorised Mobile', normalizedClient.authorised?.mobile], ['Authorised Email', normalizedClient.authorised?.email], ['Coordinating Mobile', normalizedClient.coordinating?.mobile], ['Coordinating Email', normalizedClient.coordinating?.email]
@@ -1783,7 +1801,7 @@ export default function ClientMaster() {
             {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setRoot={setRoot} onValidationError={setError} />}
-            {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} />}
+            {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} setRoot={setRoot} />}
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">

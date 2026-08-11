@@ -34,6 +34,7 @@ function AddressPanel({ title, section, data, setValue, onCopy, selectOptions })
 
 function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complianceRows, applicableComplianceRows = complianceRows }) {
   const applicableKeys = new Set(applicableComplianceRows.map(([key]) => key));
+  const msmeApplicable = client.compliance?.msmeApplicable || '';
   return (
     <>
       <Card title="Compliance Certificate Upload">
@@ -50,7 +51,13 @@ function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complia
       </Card>
 
       <Card title="MSME Details">
-        <DynamicTable
+        <div className="rounded-2xl border border-teal-100 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
+          <p className="text-sm font-black text-slate-900">Is MSME applicable for this client?</p>
+          <div className="mt-3 flex flex-wrap gap-3">{[['Yes', 'Applicable'], ['No', 'Not Applicable']].map(([value, label]) => <button key={value} type="button" onClick={() => setValue('compliance', 'msmeApplicable', value)} className={`rounded-xl border px-5 py-3 text-sm font-black ${msmeApplicable === value ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{label}</button>)}</div>
+          {!msmeApplicable && <p className="mt-3 text-xs font-bold text-orange-700">Select applicability to complete the Document tab.</p>}
+          {msmeApplicable === 'No' && <p className="mt-3 text-xs font-bold text-emerald-700">MSME details are not required and will not affect validation or completion percentage.</p>}
+        </div>
+        {msmeApplicable === 'Yes' && <DynamicTable
           rows={client.msmeRows}
           columns={[
             ['classificationYear', 'MSME Classification Year *'],
@@ -63,7 +70,7 @@ function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complia
           onAdd={() => addRow('msmeRows', { classificationYear: '', status: '', majorActivity: '', udyamNumber: '', turnover: '', file: '' })}
           onUpdate={(index, field, value) => updateRow('msmeRows', index, field, value)}
           onRemove={(index) => removeRow('msmeRows', index)}
-        />
+        />}
       </Card>
     </>
   );
@@ -355,6 +362,8 @@ function CteTab({ client, setValue, selectOptions }) {
 
 function CpcbTab({ client, setValue, selectOptions }) {
   const linked = client.cpcb.linkedToCommonPortal || '';
+  const [showCeprPassword, setShowCeprPassword] = useState(false);
+  const [showCpcbPassword, setShowCpcbPassword] = useState(false);
   return (
     <Card title="CPCB Login Credential">
       <div className="mb-6 rounded-2xl border border-teal-100 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
@@ -385,9 +394,9 @@ function CpcbTab({ client, setValue, selectOptions }) {
           <Field label="Date of Application Approval"><PremiumDatePicker value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
         <Field label="Application Number"><input className="form-input" value={client.cpcb.applicationNumber || ''} onChange={(event) => setValue('cpcb', 'applicationNumber', event.target.value)} /></Field>
         <Field label="CEPR User ID"><input className="form-input" value={client.cpcb.ceprUserId || ''} onChange={(event) => setValue('cpcb', 'ceprUserId', event.target.value)} /></Field>
-        <Field label="CEPR Password"><input type="password" className="form-input" value={client.cpcb.ceprPassword || ''} onChange={(event) => setValue('cpcb', 'ceprPassword', event.target.value)} /></Field>
+        <PasswordField label="CEPR Password" value={client.cpcb.ceprPassword || ''} visible={showCeprPassword} onToggle={() => setShowCeprPassword((value) => !value)} onChange={(value) => setValue('cpcb', 'ceprPassword', value)} />
         <Field label="CPCB Login ID"><input className="form-input" value={client.cpcb.loginId || ''} onChange={(event) => setValue('cpcb', 'loginId', event.target.value)} /></Field>
-        <Field label="CPCB Login Password"><input type="password" className="form-input" value={client.cpcb.loginPassword || ''} onChange={(event) => setValue('cpcb', 'loginPassword', event.target.value)} /></Field>
+        <PasswordField label="CPCB Login Password" value={client.cpcb.loginPassword || ''} visible={showCpcbPassword} onToggle={() => setShowCpcbPassword((value) => !value)} onChange={(value) => setValue('cpcb', 'loginPassword', value)} />
         <Field label="Unit ID"><input className="form-input" value={client.cpcb.unitId || ''} onChange={(event) => setValue('cpcb', 'unitId', event.target.value)} placeholder="Enter Unit ID" /></Field>
       </div>}
       {linked === 'No' && (
@@ -398,6 +407,10 @@ function CpcbTab({ client, setValue, selectOptions }) {
       )}
     </Card>
   );
+}
+
+function PasswordField({ label, value, visible, onToggle, onChange }) {
+  return <Field label={label}><div className="relative"><input type={visible ? 'text' : 'password'} className="form-input pr-12" value={value} onChange={(event) => onChange(event.target.value)} /><button type="button" onClick={onToggle} className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-lg text-slate-500 hover:bg-teal-50 hover:text-teal-700" aria-label={visible ? `Hide ${label}` : `View ${label}`} title={visible ? 'Hide password' : 'View password'}><Eye className="h-4 w-4" /></button></div></Field>;
 }
 
 function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
@@ -518,7 +531,9 @@ function DocumentUploadSection({
   );
 }
 
-function ContactsTab({ client, setValue }) {
+function ContactsTab({ client, setValue, setRoot }) {
+  const additionalPeople = Array.isArray(client.authorisedPersons) ? client.authorisedPersons : [];
+  function updateAdditional(index, field, value) { setRoot('authorisedPersons', additionalPeople.map((person, personIndex) => personIndex === index ? { ...person, [field]: value } : person)); }
   return (
     <>
       <Card title="OTP Contact">
@@ -529,24 +544,28 @@ function ContactsTab({ client, setValue }) {
         </div>
       </Card>
       <PersonCard title="Authorised Person" section="authorised" client={client} setValue={setValue} includePan />
+      <div className="flex justify-end"><button type="button" onClick={() => setRoot('authorisedPersons', [...additionalPeople, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '', pan: '', panDocument: null }])} className="btn-lift inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-5 font-black text-white shadow-lg"><Plus className="h-4 w-4" /> Add Authorized Person</button></div>
+      {additionalPeople.map((person, index) => <PersonCard key={person.id || index} title={`Authorised Person ${index + 2}`} data={person} onChange={(field, value) => updateAdditional(index, field, value)} includePan onRemove={() => setRoot('authorisedPersons', additionalPeople.filter((_, personIndex) => personIndex !== index))} />)}
       <PersonCard title="Coordinating Person" section="coordinating" client={client} setValue={setValue} />
     </>
   );
 }
 
-function PersonCard({ title, section, client, setValue, includePan }) {
-  const data = client[section];
+function PersonCard({ title, section, client, setValue, data: suppliedData, onChange, includePan, onRemove }) {
+  const data = suppliedData || client[section];
+  const update = (field, value) => onChange ? onChange(field, value) : setValue(section, field, value);
   return (
     <Card title={title}>
+      {onRemove && <div className="mb-4 flex justify-end"><button type="button" onClick={onRemove} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600"><Trash2 className="h-4 w-4" /> Remove Person</button></div>}
       <div className="grid gap-5 md:grid-cols-2">
-        <Field label={`${title} Name`}><input className="form-input" value={data.name || ''} onChange={(event) => setValue(section, 'name', event.target.value)} /></Field>
-        <Field label={`${title} Designation`}><input className="form-input" value={data.designation || ''} onChange={(event) => setValue(section, 'designation', event.target.value)} /></Field>
-        <Field label={`Department of ${title.toLowerCase()}`}><input className="form-input" value={data.department || ''} onChange={(event) => setValue(section, 'department', event.target.value)} /></Field>
-        <Field label="Reporting Person Details"><input className="form-input" value={data.reporting || ''} onChange={(event) => setValue(section, 'reporting', event.target.value)} /></Field>
-        <Field required label={`${title} Mobile`}><input className="form-input" value={data.mobile || ''} onChange={(event) => setValue(section, 'mobile', event.target.value)} /></Field>
-        <Field required label={`${title} Email`}><input className="form-input" value={data.email || ''} onChange={(event) => setValue(section, 'email', event.target.value)} /></Field>
-        {includePan && <Field label={`${title} PAN Number`}><input className="form-input" value={data.pan || ''} onChange={(event) => setValue(section, 'pan', event.target.value)} /></Field>}
-        {includePan && <Field label={`${title} PAN Document`}><UploadButton value={data.panDocument} onChange={(value) => setValue(section, 'panDocument', value)} /></Field>}
+        <Field label={`${title} Name`}><input className="form-input" value={data.name || ''} onChange={(event) => update('name', event.target.value)} /></Field>
+        <Field label={`${title} Designation`}><input className="form-input" value={data.designation || ''} onChange={(event) => update('designation', event.target.value)} /></Field>
+        <Field label={`Department of ${title.toLowerCase()}`}><input className="form-input" value={data.department || ''} onChange={(event) => update('department', event.target.value)} /></Field>
+        <Field label="Reporting Person Details"><input className="form-input" value={data.reporting || ''} onChange={(event) => update('reporting', event.target.value)} /></Field>
+        <Field required label={`${title} Mobile`}><input className="form-input" value={data.mobile || ''} onChange={(event) => update('mobile', event.target.value)} /></Field>
+        <Field required label={`${title} Email`}><input className="form-input" value={data.email || ''} onChange={(event) => update('email', event.target.value)} /></Field>
+        {includePan && <Field label={`${title} PAN Number`}><input className="form-input" value={data.pan || ''} onChange={(event) => update('pan', event.target.value)} /></Field>}
+        {includePan && <Field label={`${title} PAN Document`}><UploadButton value={data.panDocument} onChange={(value) => update('panDocument', value)} /></Field>}
       </div>
     </Card>
   );
