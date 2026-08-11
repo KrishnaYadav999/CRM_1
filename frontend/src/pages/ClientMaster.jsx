@@ -204,6 +204,7 @@ function buildClientTabProgress(client = {}) {
   const complianceDocumentFields = getApplicableComplianceRows(client).flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`]);
   const ctePlants = Array.isArray(client.cte?.plantWiseDetails) ? client.cte.plantWiseDetails : [];
   const progressByTab = {
+    companyOverview: countFields(client, tabProgressFields.companyOverview),
     basic: countFields(client, tabProgressFields.basic),
     address: countFields(client, tabProgressFields.address),
     compliance: addProgressParts(
