@@ -805,6 +805,7 @@ export default function Quotations() {
   const [validityFilter, setValidityFilter] = useState('');
   const [expandedId, setExpandedId] = useState('');
   const [expandedCompany, setExpandedCompany] = useState('');
+  const [listMode, setListMode] = useState('company');
   const [menuId, setMenuId] = useState('');
   const [previewQuotation, setPreviewQuotation] = useState(null);
   const [detailQuotation, setDetailQuotation] = useState(null);
@@ -924,12 +925,21 @@ export default function Quotations() {
       })
       .sort((left, right) => quotationTime(right.latestQuotation) - quotationTime(left.latestQuotation) || left.company.localeCompare(right.company));
   }, [filteredQuotations]);
-  const totalPages = Math.max(1, Math.ceil(companyGroups.length / rowsPerPage));
+  const allQuotations = useMemo(() => [...filteredQuotations].sort((left, right) => {
+    const time = (row) => {
+      const timestamp = new Date(row.quotationDate || row.createdAt || row.updatedAt || 0).getTime();
+      return Number.isNaN(timestamp) ? 0 : timestamp;
+    };
+    return time(right) - time(left);
+  }), [filteredQuotations]);
+  const listTotal = listMode === 'company' ? companyGroups.length : allQuotations.length;
+  const totalPages = Math.max(1, Math.ceil(listTotal / rowsPerPage));
   const scopeBasicAmount = quotation.pricingMode === 'combined'
     ? Number(quotation.combinedBasicAmount) || 0
     : quotationItemsTotal(quotation.items);
   const eligibleScopePresetKey = scopePresetKeyForAmount(scopeBasicAmount);
   const visibleCompanyGroups = companyGroups.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const visibleQuotations = allQuotations.slice((page - 1) * rowsPerPage, page * rowsPerPage);
 
   useEffect(() => {
     loadPage();
@@ -1001,7 +1011,7 @@ export default function Quotations() {
 
   useEffect(() => {
     setPage(1);
-  }, [adminApprovalFilter, query, quotationStatusFilter, rowsPerPage, userFilter, validityFilter]);
+  }, [adminApprovalFilter, listMode, query, quotationStatusFilter, rowsPerPage, userFilter, validityFilter]);
 
   useEffect(() => {
     if (!quotationContext || viewMode !== 'form' || editingId || quotation.pricingMode || !quotations.length) return;
@@ -1733,12 +1743,20 @@ export default function Quotations() {
             </div>
           )}
 
-          <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+          <div className="mt-5 flex items-center justify-between gap-4">
+            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="group" aria-label="Quotation list view">
+              <button type="button" onClick={() => { setListMode('company'); setExpandedCompany(''); }} aria-pressed={listMode === 'company'} className={`rounded-lg px-5 py-2.5 text-sm font-black transition ${listMode === 'company' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>Company Wise</button>
+              <button type="button" onClick={() => { setListMode('all'); setExpandedCompany(''); }} aria-pressed={listMode === 'all'} className={`rounded-lg px-5 py-2.5 text-sm font-black transition ${listMode === 'all' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}>All Quotations</button>
+            </div>
+            <p className="hidden text-xs font-bold text-slate-500 sm:block">{listMode === 'company' ? 'Grouped by company · latest company activity first' : 'Every quotation · latest quotation first'}</p>
+          </div>
+
+          <section className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
             <div className="hidden-scrollbar max-h-[610px] overflow-auto">
               <table className="w-full min-w-[1050px] table-fixed text-left text-sm">
                 <thead className="sticky top-0 z-20 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-600 shadow-sm">
                   <tr>
-                    {[
+                    {(listMode === 'company' ? [
                       ['Company', 'w-[260px]'],
                       ['Lead Code', 'w-[140px]'],
                       ['Contact Person', 'w-[170px]'],
@@ -1746,7 +1764,9 @@ export default function Quotations() {
                       ['Item Count', 'w-[110px]'],
                       ['Grand Total', 'w-[150px]'],
                       ['Lead Status', 'w-[130px]']
-                    ].map(([header, width]) => (
+                    ] : [
+                      ['Quotation', 'w-[170px]'], ['Company', 'w-[250px]'], ['Lead Code', 'w-[130px]'], ['Date', 'w-[125px]'], ['Valid Until', 'w-[125px]'], ['Amount', 'w-[140px]'], ['Status / Actions', 'w-[210px]']
+                    ]).map(([header, width]) => (
                       <th key={header} className={`border-r border-slate-100 px-4 py-5 last:border-r-0 ${width}`}>{header}</th>
                     ))}
                   </tr>
@@ -1754,9 +1774,19 @@ export default function Quotations() {
                 <tbody className="divide-y divide-slate-200">
                   {loading ? (
                     <tr><td colSpan={7} className="px-5 py-14 text-center font-black text-slate-400">Loading quotations...</td></tr>
-                  ) : visibleCompanyGroups.length === 0 ? (
+                  ) : listTotal === 0 ? (
                     <tr><td colSpan={7} className="px-5 py-14 text-center font-black text-slate-400">No quotations found.</td></tr>
-                  ) : visibleCompanyGroups.map((group) => {
+                  ) : listMode === 'all' ? visibleQuotations.map((row, index) => (
+                    <tr key={row._id || row.id} className={`transition hover:bg-emerald-50/40 ${index === 0 && page === 1 ? 'bg-emerald-50/60' : 'bg-white'}`}>
+                      <td className="px-4 py-5"><span className="inline-flex items-center gap-2 font-black text-orange-600">{row.quotationNumber || '-'}{index === 0 && page === 1 && <em className="not-italic rounded-full bg-emerald-600 px-2 py-1 text-[9px] font-black uppercase text-white">Latest</em>}</span></td>
+                      <td className="px-4 py-5"><strong className="block uppercase text-slate-800">{row.companyName || row.leadDetails?.companyName || 'Unnamed company'}</strong><small className="font-bold text-slate-500">{row.leadDetails?.contactPerson || '-'}</small></td>
+                      <td className="px-4 py-5 font-black text-slate-600">{displayLeadCode(row)}</td>
+                      <td className="px-4 py-5 font-bold text-slate-700">{formatDisplayDate(row.quotationDate || row.createdAt)}</td>
+                      <td className="px-4 py-5 font-bold text-slate-700">{formatDisplayDate(row.validUntil)}</td>
+                      <td className="px-4 py-5 font-black text-orange-600">{formatInr(Number(row.grandTotal) || 0)}</td>
+                      <td className="px-4 py-5"><div className="flex items-center gap-2"><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-600">{row.status || 'draft'}</span><button type="button" onClick={() => showQuotationDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-black text-emerald-700"><Eye className="h-3.5 w-3.5" /> View</button>{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 text-xs font-black text-orange-600">Edit</button>}</div></td>
+                    </tr>
+                  )) : visibleCompanyGroups.map((group) => {
                     const quotationCount = group.quotations.length;
                     const itemCount = group.quotations.reduce((sum, row) => sum + (row.items?.length || 0), 0);
                     const grandTotal = group.quotations.reduce((sum, row) => sum + (Number(row.grandTotal) || 0), 0);
@@ -1785,10 +1815,10 @@ export default function Quotations() {
               rowsPerPage={rowsPerPage}
               setPage={setPage}
               setRowsPerPage={setRowsPerPage}
-              total={companyGroups.length}
+              total={listTotal}
               totalPages={totalPages}
-              showing={visibleCompanyGroups.length}
-              label="companies"
+              showing={listMode === 'company' ? visibleCompanyGroups.length : visibleQuotations.length}
+              label={listMode === 'company' ? 'companies' : 'quotations'}
             />
           </section>
         </div>
