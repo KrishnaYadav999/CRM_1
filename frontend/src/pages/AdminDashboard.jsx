@@ -67,7 +67,7 @@ import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
 const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v3'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
-const DASHBOARD_REQUEST_TIMEOUT_MS = 4500
+const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
 function isUserActive(user = {}) {
   const value = user?.isActive
@@ -4794,13 +4794,14 @@ export default function AdminDashboard() {
       storeSessionUser(user)
       setLoading(false)
 
-      if (adminRoles.includes(user.role)) {
+      const authenticatedRole = normalizeKey(user.role)
+      if (adminRoles.includes(authenticatedRole)) {
         const rolesResponse = await api.get(API_ENDPOINTS.auth.roles, requestConfig)
         setAvailableRoles(rolesResponse.data.roles || [])
       }
 
       if (isUserManagementView) {
-        if (adminRoles.includes(user.role)) {
+        if (adminRoles.includes(authenticatedRole)) {
           const [usersResponse, teamsResponse] = await Promise.all([
             api.get(API_ENDPOINTS.auth.adminUsers, requestConfig),
             api.get(API_ENDPOINTS.teams.list, requestConfig)
@@ -4864,7 +4865,7 @@ export default function AdminDashboard() {
 
       let nextUsers = []
       let nextTeams = []
-      if (adminRoles.includes(user.role)) {
+      if (adminRoles.includes(authenticatedRole)) {
         const [usersResponse, teamsResponse] = await Promise.all([
           api.get(API_ENDPOINTS.auth.adminUsers, requestConfig),
           api.get(API_ENDPOINTS.teams.list, requestConfig)

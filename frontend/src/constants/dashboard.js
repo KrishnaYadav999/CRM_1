@@ -11,7 +11,8 @@ import {
   LifeBuoy,
   UserRound,
   Users,
-  Activity
+  Activity,
+  BarChart3
 } from 'lucide-react'
 
 export const roles = ['operation', 'admin', 'superadmin', 'manager', 'compliance', 'sales', 'accounts']
@@ -53,6 +54,7 @@ export const navSections = [
         children: [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard', roles: adminRoles },
           { label: 'Super Admin Dashboard', icon: Gauge, path: '/superadmin-dashboard', roles: adminRoles },
+          { label: 'MIS', icon: BarChart3, path: '/mis', roles: adminRoles },
           { label: 'Activity Logs', icon: Activity, path: '/dashboard/activity-logs', roles: adminRoles },
           { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: [...adminRoles, 'compliance'], complianceFamily: true },
           {

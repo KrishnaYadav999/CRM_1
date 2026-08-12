@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import {
   Activity, ArrowUpDown, Building2, CalendarDays, CheckCircle2, Clock3, Download, Eye, FileSpreadsheet,
   Lightbulb, Loader2, Monitor, RefreshCw, RotateCcw, Search, ShieldAlert,
-  TicketCheck, Timer, UserCheck, Users, X
+  TicketCheck, Timer, UserCheck, Users, X, FileText
 } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import UserWorkDrilldown from '../components/dashboard/UserWorkDrilldown'
@@ -91,7 +91,7 @@ function SortHeading({ label, value, sort, onSort, align = 'left' }) {
   return <th className={`sticky top-0 z-10 bg-slate-50 px-3 py-3 ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'}`}><button type="button" onClick={() => onSort(value)} className="inline-flex items-center gap-1 whitespace-nowrap text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-emerald-700">{label}<ArrowUpDown className={`h-3 w-3 ${sort.key === value ? 'text-emerald-600' : 'text-slate-300'}`} /></button></th>
 }
 
-export default function SuperAdminDashboard() {
+export default function SuperAdminDashboard({ misPage = false }) {
   const navigate = useNavigate()
   const [user] = useState(() => JSON.parse(localStorage.getItem('user') || 'null'))
   const [report, setReport] = useState({ period: { from: inputDate(-6), to: inputDate(0) }, summary: {}, users: [] })
@@ -106,13 +106,19 @@ export default function SuperAdminDashboard() {
   const [exportError, setExportError] = useState('')
   const [selected, setSelected] = useState(null)
   const [workReportUser, setWorkReportUser] = useState(null)
+  const [quotations, setQuotations] = useState([])
 
   async function load() {
     setLoading(true)
     setError('')
     try {
-      const response = await api.get(API_ENDPOINTS.auth.userProductivityReport, { params: { from: appliedFilters.from, to: appliedFilters.to }, timeout: 30000 })
-      setReport(response.data || response)
+      const [reportResult, quotationResult] = await Promise.allSettled([
+        api.get(API_ENDPOINTS.auth.userProductivityReport, { params: { from: appliedFilters.from, to: appliedFilters.to }, timeout: 30000 }),
+        misPage ? api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 }) : Promise.resolve({ data: { quotations: [] } })
+      ])
+      if (reportResult.status !== 'fulfilled') throw reportResult.reason
+      setReport(reportResult.value.data || reportResult.value)
+      if (quotationResult.status === 'fulfilled') setQuotations(quotationResult.value.data?.quotations || [])
     } catch (requestError) {
       setError(requestError?.response?.data?.error || 'Unable to load the user activity report. Please try again.')
     } finally { setLoading(false) }
@@ -133,6 +139,7 @@ export default function SuperAdminDashboard() {
   const rows = useMemo(() => (report.users || []).map((row) => ({ ...row, roleLabel: roleLabels[row.role] || row.role || '-' })), [report.users])
   const salesMisRows = useMemo(() => rows.filter((row) => String(row.role).toLowerCase() === 'sales'), [rows])
   const operationGroups = useMemo(() => buildOperationGroups(rows), [rows])
+  const quotationMisRows = useMemo(() => [...quotations].sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0)), [quotations])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
     const search = appliedFilters.search.trim().toLowerCase()
@@ -213,7 +220,7 @@ export default function SuperAdminDashboard() {
     <div className="min-h-screen bg-[#f3f8f6] p-4 lg:p-6">
       <div className="w-full">
         <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div><p className="text-[10px] font-black uppercase tracking-[.24em] text-orange-500">Super admin control center</p><h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{REPORT_TITLE}</h1><p className="mt-2 text-sm font-semibold text-slate-500">Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)} · user presence, CRM activity, leads, tickets and risk.</p></div>
+          <div><p className="text-[10px] font-black uppercase tracking-[.24em] text-orange-500">{misPage ? 'Management information system' : 'Super admin control center'}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{misPage ? 'Complete MIS' : REPORT_TITLE}</h1><p className="mt-2 text-sm font-semibold text-slate-500">Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)} · {misPage ? 'Sales, Operations and Quotation MIS in one place.' : 'user presence, CRM activity, leads, tickets and risk.'}</p></div>
           <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></div>
         </header>
 
@@ -264,6 +271,17 @@ export default function SuperAdminDashboard() {
             {!loading && !operationGroups.length && <tr><td colSpan="7" className="p-10 text-center font-bold text-slate-400">No Operation teams found.</td></tr>}
           </tbody></table></div>
         </section>
+
+        {misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
+            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-orange-700"><FileText className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-700">Commercial MIS</p><h2 className="text-xl font-black text-slate-950">Quotation MIS</h2><p className="text-xs font-semibold text-slate-500">All quotations · latest quotation first</p></div></div>
+            <button type="button" onClick={() => navigate('/sales/quotations')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-black text-white">Open Quotations</button>
+          </header>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Quotation</th><th className="px-5 py-3">Company</th><th className="px-5 py-3">Lead Code</th><th className="px-5 py-3">Prepared By</th><th className="px-5 py-3">Date</th><th className="px-5 py-3 text-right">Items</th><th className="px-5 py-3 text-right">Amount</th><th className="px-5 py-3">Status</th></tr></thead><tbody>
+            {quotationMisRows.map((row, index) => <tr key={row._id || row.id || index} className={`border-t border-slate-100 font-semibold text-slate-700 hover:bg-orange-50/50 ${index === 0 ? 'bg-orange-50/60' : ''}`}><td className="px-5 py-3"><strong className="text-orange-700">{row.quotationNumber || '-'}</strong>{index === 0 && <small className="ml-2 rounded-full bg-orange-500 px-2 py-1 text-[9px] font-black uppercase text-white">Latest</small>}</td><td className="px-5 py-3 font-black text-slate-950">{row.companyName || row.leadDetails?.companyName || '-'}</td><td className="px-5 py-3">{row.leadCode || row.leadDetails?.leadCode || '-'}</td><td className="px-5 py-3">{row.preparedBy || row.createdByName || row.createdBy || '-'}</td><td className="px-5 py-3">{formatReportDate(row.quotationDate || row.createdAt)}</td><td className="px-5 py-3 text-right font-black">{row.items?.length || 0}</td><td className="px-5 py-3 text-right font-black text-orange-700">₹{(Number(row.grandTotal) || 0).toLocaleString('en-IN')}</td><td className="px-5 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-700">{row.status || 'draft'}</span></td></tr>)}
+            {!loading && !quotationMisRows.length && <tr><td colSpan="8" className="p-10 text-center font-bold text-slate-400">No quotations found.</td></tr>}
+          </tbody></table></div>
+        </section>}
 
         <section onClickCapture={(event) => { const cell = event.target.closest('td'); if (!cell || cell.cellIndex !== 1) return; const tableRow = cell.closest('tr'); const index = tableRow ? tableRow.sectionRowIndex : -1; if (index >= 0 && visible[index]) setWorkReportUser(visible[index]) }} className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4"><div><h2 className="text-lg font-black text-slate-950">{REPORT_TITLE}</h2><p className="text-xs font-semibold text-slate-500">{visible.length} users · Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)}</p></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Live aggregated data</span></div>
