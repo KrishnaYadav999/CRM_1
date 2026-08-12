@@ -11,10 +11,18 @@ const { notifyClientApprovalDecision } = require('../services/clientApprovalDeci
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { CLIENT_APPROVAL_ROLES } = require('../constants/roles');
+const { analyzeClientMasterData } = require('../services/userProductivityReport');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
   return ['PENDING', 'APPROVED', 'REJECTED'].includes(status) ? status : '';
+}
+
+function validateClientSubmissionCompletion(data = {}, workflowStatus = 'draft') {
+  if (workflowStatus !== 'submitted') return '';
+  const analysis = analyzeClientMasterData(data);
+  const percentage = analysis.totalCount ? Math.round((analysis.filledCount / analysis.totalCount) * 100) : 0;
+  return percentage < 60 ? `To submit Client Master, please complete at least 60% of the data. Current completion is ${percentage}%.` : '';
 }
 
 function normalizeRoleName(value = '') {
@@ -879,6 +887,8 @@ exports.createClient = async (req, res) => {
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });
   }
+  const completionError = validateClientSubmissionCompletion(data, workflowStatus);
+  if (completionError) return res.status(400).json({ error: completionError });
 
   const existingClient = selectedLead && req.user?._id
     ? await Client.findOne({
@@ -916,6 +926,8 @@ async function createClientRecord(row, userId) {
     error.statusCode = 400;
     throw error;
   }
+  const completionError = validateClientSubmissionCompletion(data, workflowStatus);
+  if (completionError) { const error = new Error(completionError); error.statusCode = 400; throw error; }
 
   const client = await Client.create({
     selectedLead,
@@ -1017,6 +1029,8 @@ exports.updateClient = async (req, res) => {
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });
   }
+  const completionError = validateClientSubmissionCompletion(data, workflowStatus);
+  if (completionError) return res.status(400).json({ error: completionError });
 
   const client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
@@ -1274,7 +1288,7 @@ exports.updateClientApproval = async (req, res) => {
   if (client && status === 'APPROVED') {
     const complianceReview = await ClientComplianceReview.findOne({ client: client._id }).lean();
     const sections = Array.isArray(complianceReview?.sections) ? complianceReview.sections : [];
-    const reviewComplete = sections.length === 8
+    const reviewComplete = sections.length === 9
       && sections.every((section) => ['VERIFIED', 'NOT_APPLICABLE'].includes(section.status))
       && complianceReview?.status === 'APPROVED';
     if (!reviewComplete) return res.status(409).json({ error: 'Complete all Compliance Verification tabs before approving this Client Master' });

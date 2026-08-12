@@ -23,3 +23,16 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /noopener noreferrer/);
   assert.match(workspace, /password\|secret\|token/i);
 });
+
+test('Client Master submit requires 60 percent completion and review includes process diagrams', () => {
+  const clientPage = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  const clientController = fs.readFileSync(path.join(__dirname, '../src/controllers/clientController.js'), 'utf8');
+  const reviewController = fs.readFileSync(path.join(__dirname, '../src/controllers/clientComplianceReviewController.js'), 'utf8');
+  const reviewPage = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/ClientComplianceReview.jsx'), 'utf8');
+  assert.match(clientPage, /overallProgress\.percent < 60/);
+  assert.match(clientPage, /please complete at least 60% of the data/);
+  assert.match(clientController, /validateClientSubmissionCompletion/);
+  assert.match(clientController, /percentage < 60/);
+  assert.match(reviewController, /Process Flow & Machinery Diagrams/);
+  assert.match(reviewPage, /processFlowDiagrams: \['processDiagrams', 'processFlowFiles'\]/);
+});

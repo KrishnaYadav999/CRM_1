@@ -7,7 +7,8 @@ const { notifyClientApprovalDecision } = require('../services/clientApprovalDeci
 const REVIEW_SECTIONS = [
   ['companyOverview', 'Company Overview'], ['basic', 'Client Basic Info'], ['addressDetails', 'Address Details'],
   ['documents', 'Documents'], ['cteCtoCca', 'CTE & CTO / CCA'], ['cpcbCredentials', 'CPCB Login Credentials'],
-  ['cpcbScreenshots', 'CPCB Screenshots'], ['authorizedPersons', 'Authorized Person Details']
+  ['cpcbScreenshots', 'CPCB Screenshots'], ['processFlowDiagrams', 'Process Flow & Machinery Diagrams'],
+  ['authorizedPersons', 'Authorized Person Details']
 ];
 
 function defaultSections() { return REVIEW_SECTIONS.map(([key, label]) => ({ key, label, status: 'NOT_REVIEWED', remarks: '' })); }
@@ -22,6 +23,9 @@ async function readClient(id) {
 async function getOrCreateReview(clientId) {
   let review = await ClientComplianceReview.findOne({ client: clientId });
   if (!review) review = await ClientComplianceReview.create({ client: clientId, sections: defaultSections() });
+  const existingKeys = new Set(review.sections.map((section) => section.key));
+  const missingSections = defaultSections().filter((section) => !existingKeys.has(section.key));
+  if (missingSections.length) { review.sections.push(...missingSections); await review.save(); }
   return review;
 }
 

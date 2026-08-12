@@ -1509,6 +1509,10 @@ export default function ClientMaster() {
           updatedAt: new Date().toISOString()
         }
       };
+      if (workflowStatus === 'submitted' && overallProgress.percent < 60) {
+        setError(`To submit Client Master, please complete at least 60% of the data. Current completion is ${overallProgress.percent}%.`);
+        return;
+      }
       const invalidScreenshot = workflowStatus === 'submitted'
         ? (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file)
         : null;
