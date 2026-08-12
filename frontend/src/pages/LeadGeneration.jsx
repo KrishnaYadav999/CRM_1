@@ -4277,7 +4277,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   </div>
                   <table className="w-full min-w-[2150px] text-left text-sm">
                     <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                      <tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Temporary User', 'Temporary Status', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
+                      <tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Temporary User', 'Temporary Status', 'Staff Email', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
                     </thead>
                     <tbody>
                       {detailAssignments.map((row, index) => {
@@ -4305,13 +4305,13 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                               ? <SearchableSelect allowCustom={false} disabled={assignmentSavingIndex === index} value={row.assignedStaff?._id || row.assignedStaff || ''} options={selectedStaffOptions} placeholder="Select staff member" onChange={(value) => requestStaffAssignmentFromDetail(index, value)} />
                               : <span className="font-black">{row.assignedStaff?.name || row.assignedStaffText || '-'}</span>}
                           </td>
-                          <td className="px-4 py-3">{row.assignedStaff?.email || row.assignedStaffEmail || '-'}</td>
                           <td className="min-w-[280px] px-4 py-3">
                             {canAssignThisRow
                               ? <SearchableSelect allowCustom={false} disabled={assignmentSavingIndex === index || row.temporaryUser?.status === 'PENDING'} value={row.temporaryUser?.temporaryUserId || ''} options={detailStaffOptions} placeholder={row.temporaryUser?.status === 'ACTIVE' ? 'Select user to request extension' : 'Select temporary user'} onChange={(value) => requestTemporaryUser(index, value)} />
                               : <span className="font-black">{row.temporaryUser?.temporaryUserName || '-'}</span>}
                           </td>
                           <td className="px-4 py-3"><div className="flex flex-col gap-1"><span className={`w-fit rounded-full px-2 py-1 text-[10px] font-black ${row.temporaryUser?.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : row.temporaryUser?.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{row.temporaryUser?.status || 'NOT ASSIGNED'}</span>{row.temporaryUser?.expiresAt && <small className="font-bold text-slate-500">Until {new Date(row.temporaryUser.expiresAt).toLocaleString('en-IN')}</small>}{canAssignThisRow && row.temporaryUser?.status === 'ACTIVE' && <button type="button" onClick={() => requestTemporaryUser(index, row.temporaryUser.temporaryUserId)} className="mt-1 w-fit rounded-lg border border-teal-200 px-2 py-1 text-[10px] font-black text-teal-700">Request 7-day extension</button>}</div></td>
+                          <td className="px-4 py-3">{row.assignedStaff?.email || row.assignedStaffEmail || '-'}</td>
                           <td className="px-4 py-3">{row.assignedBy || activeLead.assignedBy || '-'}</td>
                         </tr>;
                       })}
