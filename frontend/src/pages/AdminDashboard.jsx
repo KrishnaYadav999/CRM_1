@@ -422,10 +422,19 @@ function getFollowUpDueAt(item = {}) {
 }
 
 function getRedFlagStage(item = {}, now = new Date()) {
-  if (normalizeKey(item.status) === 'completed') return null
   const dueAt = getFollowUpDueAt(item)
   if (!dueAt) return null
-  const delta = now.getTime() - dueAt.getTime()
+  const completed = normalizeKey(item.status) === 'completed'
+  const completedAt = completed ? new Date(item.completedAt || item.updatedAt || now) : null
+  const referenceTime = completedAt && !Number.isNaN(completedAt.getTime()) ? completedAt.getTime() : now.getTime()
+  const delta = referenceTime - dueAt.getTime()
+  if (completed) {
+    if (delta < 30 * 60 * 1000) return null
+    const previousStage = delta >= 48 * 60 * 60 * 1000 ? 'Permanent Red Flag'
+      : delta >= 24 * 60 * 60 * 1000 ? 'Red Flag'
+        : delta >= 60 * 60 * 1000 ? '60 min overdue' : '30 min overdue'
+    return { key: 'resolved-green', label: 'Resolved Green', detail: `Previously ${previousStage}; corrective action completed`, rank: delta >= 48 * 60 * 60 * 1000 ? 5 : delta >= 24 * 60 * 60 * 1000 ? 4 : delta >= 60 * 60 * 1000 ? 3 : 2, resolved: true }
+  }
   if (delta >= 48 * 60 * 60 * 1000) return { key: 'permanent-red', label: 'Permanent Red Flag', detail: 'No action for 48+ hours', rank: 5 }
   if (delta >= 24 * 60 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 24+ hours', rank: 4 }
   if (delta >= 60 * 60 * 1000) return { key: 'overdue-60', label: '60 min overdue', detail: 'Third overdue reminder reached', rank: 3 }
@@ -479,6 +488,7 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
             <b>{(counts['permanent-red'] || 0) + (counts['red-flag'] || 0)}<small>Red flags</small></b>
             <b>{(counts['overdue-60'] || 0) + (counts['overdue-30'] || 0)}<small>Missed</small></b>
             <b>{counts['due-30'] || 0}<small>Due soon</small></b>
+            <b className="is-resolved">{counts['resolved-green'] || 0}<small>Resolved green</small></b>
           </div>
         </header>
         <div className="red-flag-table-wrap">
@@ -493,7 +503,7 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
                     <td><strong>{item.title || getCalendarFollowUpCompany(item)}</strong><small>{getCalendarFollowUpCompany(item)}</small></td>
                     <td><span className="red-flag-user"><UserAvatar user={assignee} /><span>{assignee.name}<small>{assignee.email || 'CRM user'}</small></span></span></td>
                     <td><strong>{formatAuditDateTime(getFollowUpDueAt(item))}</strong></td>
-                    <td><span>{stage.detail}</span><small>Status remains {displayValue(item.status, 'open')}</small></td>
+                    <td><span>{stage.detail}</span><small>{stage.resolved ? `Completed ${formatAuditDateTime(item.completedAt || item.updatedAt)}` : `Status remains ${displayValue(item.status, 'open')}`}</small></td>
                     <td><button type="button" className="red-flag-eye" onClick={() => setSelected({ item, stage })} aria-label={`View complete history for ${item.title || 'follow-up'}`}><Eye className="h-4 w-4" /> View</button></td>
                   </tr>
                 )
@@ -522,9 +532,10 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
 function getCalendarFollowUpsForUser(user = {}, extraItems = []) {
   const safeUser = user || {}
   const seen = new Set()
-  return [...readCalendarTodoItems(), ...extraItems]
+  // Prefer the database copy over stale browser storage when both carry the
+  // same external id. The server copy contains completion/red-to-green history.
+  return [...extraItems, ...readCalendarTodoItems()]
     .filter(isCalendarFollowUp)
-    .filter((item) => normalizeKey(item.status) !== 'completed')
     .filter((item) => calendarItemBelongsToUser(item, safeUser))
     .filter((item, index) => {
       const key = String(item.id || item._id || `${item.title || ''}-${item.scheduledDate || ''}-${item.scheduledTime || ''}-${index}`)
@@ -3470,7 +3481,7 @@ function SalesMixAnalytics({ analytics, total }) {
   )
 }
 
-function SalesDashboard({ leads = [], quotations = [], clients = [], users = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
+function SalesDashboard({ leads = [], quotations = [], clients = [], users = [], calendarItems = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
   const navigate = useNavigate()
   const [reportModal, setReportModal] = useState(null)
   const [leadSourcePeriod, setLeadSourcePeriod] = useState(() => `months:m${new Date().getMonth()}`)
@@ -3544,8 +3555,9 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
     getQuotationStatusBucket,
     ['#0f9f83', '#2563eb', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
   ), [periodQuotations])
-  const calendarFollowUps = useMemo(() => getCalendarFollowUpsForUser(currentUser, buildLeadFollowUpItems(leads)), [currentUser, leads])
-  const followUps = calendarFollowUps.slice(0, 5)
+  const calendarFollowUps = useMemo(() => getCalendarFollowUpsForUser(currentUser, [...calendarItems, ...buildLeadFollowUpItems(leads)]), [calendarItems, currentUser, leads])
+  const openCalendarFollowUps = useMemo(() => calendarFollowUps.filter((item) => normalizeKey(item.status) !== 'completed'), [calendarFollowUps])
+  const followUps = openCalendarFollowUps.slice(0, 5)
   const metrics = [
     { label: 'Total Lead', value: scopedLeads.length, note: 'Assigned sales leads', icon: Users, tone: 'teal' },
     { label: 'Quotation Sent', value: quotationSent.length, note: 'Sent / opened / replied', icon: FileText, tone: 'blue' },
@@ -4445,6 +4457,7 @@ export default function AdminDashboard() {
   const [availableRoles, setAvailableRoles] = useState(() => defaultRoles.map((name) => ({ name, label: roleLabels[name] || name })))
   const [clients, setClients] = useState([])
   const [leads, setLeads] = useState([])
+  const [calendarItems, setCalendarItems] = useState([])
   const [quotations, setQuotations] = useState([])
   const [annualReturns, setAnnualReturns] = useState([])
   const [pendingClients, setPendingClients] = useState([])
@@ -4608,8 +4621,8 @@ export default function AdminDashboard() {
   )
   const leadFollowUpItems = useMemo(() => buildLeadFollowUpItems(leads), [leads])
   const operationsFollowUps = useMemo(
-    () => getCalendarFollowUpsForUser(currentUser, leadFollowUpItems),
-    [currentUser, leadFollowUpItems]
+    () => getCalendarFollowUpsForUser(currentUser, [...calendarItems, ...leadFollowUpItems]),
+    [calendarItems, currentUser, leadFollowUpItems]
   )
   const convertedOperationsLeadCount = useMemo(
     () => clients.length,
@@ -4755,6 +4768,7 @@ export default function AdminDashboard() {
     setTeams(snapshot.teams || [])
     setClients(asRecordList(snapshot.clients))
     setLeads(snapshot.leads || [])
+    setCalendarItems(snapshot.calendarItems || [])
     setQuotations(snapshot.quotations || [])
     setAnnualReturns(snapshot.annualReturns || [])
     setPendingClients(snapshot.pendingClients || [])
@@ -4823,12 +4837,13 @@ export default function AdminDashboard() {
         return
       }
 
-      const [clientsResult, leadsResult, quotationsResult, annualReturnsResult, approvalsResult] = await Promise.allSettled([
+      const [clientsResult, leadsResult, quotationsResult, annualReturnsResult, approvalsResult, calendarItemsResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.clients.list, requestConfig),
         api.get(API_ENDPOINTS.leads.list, requestConfig),
         api.get(API_ENDPOINTS.quotations.list, requestConfig),
         api.get(API_ENDPOINTS.annualReturns.list, requestConfig),
-        api.get(API_ENDPOINTS.clients.pendingApprovals, requestConfig)
+        api.get(API_ENDPOINTS.clients.pendingApprovals, requestConfig),
+        api.get(API_ENDPOINTS.calendarItems.list, requestConfig)
       ])
 
       const crmClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
@@ -4845,6 +4860,7 @@ export default function AdminDashboard() {
       const approvals = approvalsResult.status === 'fulfilled' ? approvalsResult.value.data : {}
       const nextPendingClients = approvals.pendingClients || []
       const nextPendingQuotations = approvals.pendingQuotations || []
+      const nextCalendarItems = calendarItemsResult.status === 'fulfilled' ? (calendarItemsResult.value.data.items || []) : (cached?.calendarItems || [])
 
       let nextUsers = []
       let nextTeams = []
@@ -4869,7 +4885,8 @@ export default function AdminDashboard() {
         quotations: nextQuotations,
         annualReturns: nextAnnualReturns,
         pendingClients: nextPendingClients,
-        pendingQuotations: nextPendingQuotations
+        pendingQuotations: nextPendingQuotations,
+        calendarItems: nextCalendarItems
       }
       applyDashboardData(snapshot)
       writeSessionCache(cacheKey, snapshot)
@@ -5127,6 +5144,7 @@ export default function AdminDashboard() {
                     quotations={quotations}
                     clients={clients}
                     users={users}
+                    calendarItems={calendarItems}
                     currentUser={currentUser}
                     onOpenTodayLeads={() => setTodayLeadsOpen(true)}
                     onOpenSalesValue={() => setSalesValueDrawerOpen(true)}
