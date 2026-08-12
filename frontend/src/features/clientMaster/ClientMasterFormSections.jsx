@@ -35,9 +35,20 @@ function AddressPanel({ title, section, data, setValue, onCopy, selectOptions })
 function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complianceRows, applicableComplianceRows = complianceRows }) {
   const applicableKeys = new Set(applicableComplianceRows.map(([key]) => key));
   const msmeApplicable = client.compliance?.msmeApplicable || '';
+  const applicantType = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
+  const isBrandOwner = applicantType.includes('brand owner');
+  const factoryLicenseApplicability = client.compliance?.factoryLicenseApplicability || 'Not Applicable';
   return (
     <>
       <Card title="Compliance Certificate Upload">
+        {isBrandOwner && <div className="mb-5 rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div><p className="text-sm font-black text-slate-900">Is Factory License applicable to this Brand Owner?</p><p className="mt-1 text-xs font-semibold text-slate-500">Default is Not Applicable. Select Applicable only when this Brand Owner also operates a manufacturing facility.</p></div>
+            <div className="flex flex-wrap gap-3">{['Applicable', 'Not Applicable'].map((value) => <button key={value} type="button" onClick={() => { setValue('compliance', 'factoryLicenseApplicability', value); if (value === 'Not Applicable') setValue('compliance', 'factoryLicenseApplicabilityReason', ''); }} className={`rounded-xl border px-5 py-3 text-sm font-black ${factoryLicenseApplicability === value ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{value}</button>)}</div>
+          </div>
+          {factoryLicenseApplicability === 'Applicable' && <Field required label="Applicability Reason"><textarea className="form-input min-h-24" value={client.compliance?.factoryLicenseApplicabilityReason || ''} onChange={(event) => setValue('compliance', 'factoryLicenseApplicabilityReason', event.target.value)} placeholder="Example: Brand Owner also operates its own manufacturing facility." /><p className="mt-2 text-xs font-bold text-orange-700">Factory License number, date, and document will now be required and included in the Document percentage.</p></Field>}
+          {factoryLicenseApplicability === 'Not Applicable' && <p className="mt-3 text-xs font-bold text-emerald-700">Factory License is frozen and does not affect validation or completion percentage.</p>}
+        </div>}
         <div className="grid gap-4">
           {complianceRows.map(([key, numberLabel, dateLabel, fileLabel]) => {
             const applicable = applicableKeys.has(key);
