@@ -94,7 +94,9 @@ function getApplicableComplianceRows(client = {}) {
   const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
   if (category.includes('producer')) return complianceRows.filter(([key]) => !['iec', 'dicDcssi'].includes(key));
   if (category.includes('brand owner')) {
-    const factoryApplicable = client.compliance?.factoryLicenseApplicability === 'Applicable';
+    const productionFacility = client.compliance?.brandOwnerProductionFacility
+      || (client.compliance?.factoryLicenseApplicability === 'Applicable' ? 'Yes' : 'No');
+    const factoryApplicable = productionFacility === 'Yes';
     return complianceRows.filter(([key]) => key !== 'dicDcssi' && (key !== 'factoryLicense' || factoryApplicable));
   }
   if (category.includes('importer')) return complianceRows.filter(([key]) => !['factoryLicense', 'dicDcssi'].includes(key));
@@ -1541,15 +1543,12 @@ export default function ClientMaster() {
         }
       }
       const isBrandOwner = String(normalizedClient.basic?.piboCategory || normalizedClient.selectedLeadSnapshot?.piboCategory || '').toLowerCase().includes('brand owner');
-      if (workflowStatus === 'submitted' && isBrandOwner && normalizedClient.compliance?.factoryLicenseApplicability === 'Applicable') {
+      const brandOwnerHasProductionFacility = normalizedClient.compliance?.brandOwnerProductionFacility === 'Yes'
+        || (!normalizedClient.compliance?.brandOwnerProductionFacility && normalizedClient.compliance?.factoryLicenseApplicability === 'Applicable');
+      if (workflowStatus === 'submitted' && isBrandOwner && brandOwnerHasProductionFacility) {
         const factoryFields = [normalizedClient.compliance?.factoryLicenseNumber, normalizedClient.compliance?.factoryLicenseDate, normalizedClient.compliance?.factoryLicenseFile];
         if (factoryFields.some((value) => !isProgressValueFilled(value))) {
-          setError('Factory License is marked Applicable. Complete the license number, document date, and upload before submit.');
-          setActiveTab('compliance');
-          return;
-        }
-        if (!String(normalizedClient.compliance?.factoryLicenseApplicabilityReason || '').trim()) {
-          setError('Please enter a reason for making Factory License applicable to this Brand Owner.');
+          setError('Brand Owner has a Production Facility. Complete the Factory License number, document date, and upload before submit.');
           setActiveTab('compliance');
           return;
         }
