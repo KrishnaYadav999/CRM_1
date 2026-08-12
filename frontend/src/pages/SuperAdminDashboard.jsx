@@ -108,12 +108,27 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [workReportUser, setWorkReportUser] = useState(null)
   const [quotations, setQuotations] = useState([])
 
+  async function loadProductivityReport() {
+    const request = () => api.get(API_ENDPOINTS.auth.userProductivityReport, {
+      params: { from: appliedFilters.from, to: appliedFilters.to },
+      timeout: 90000
+    })
+    try {
+      return await request()
+    } catch (requestError) {
+      const status = requestError?.response?.status
+      const retryable = requestError?.code === 'ECONNABORTED' || !requestError?.response || status >= 500
+      if (!retryable) throw requestError
+      return request()
+    }
+  }
+
   async function load() {
     setLoading(true)
     setError('')
     try {
       const [reportResult, quotationResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.auth.userProductivityReport, { params: { from: appliedFilters.from, to: appliedFilters.to }, timeout: 30000 }),
+        loadProductivityReport(),
         misPage ? api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 }) : Promise.resolve({ data: { quotations: [] } })
       ])
       if (reportResult.status !== 'fulfilled') throw reportResult.reason
