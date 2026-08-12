@@ -14,7 +14,7 @@ router.post('/logout', requireAuth, authCtrl.logout);
 router.post('/activity-heartbeat', requireAuth, authCtrl.activityHeartbeat);
 router.get('/admin/logs', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.listAuditLogs);
 router.get('/superadmin/overview', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.superAdminOverview);
-router.get('/superadmin/productivity-report', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.userProductivityReport);
+router.get('/superadmin/productivity-report', requireAuth, requireRoles([...ADMIN_ROLES, 'manager', 'operation head', 'operations head']), authCtrl.userProductivityReport);
 router.get('/superadmin/users/:id/work-report', requireAuth, requireRoles(ADMIN_ROLES), authCtrl.userWorkReport);
 router.get('/me', requireAuth, authCtrl.me);
 router.put('/me', requireAuth, authCtrl.updateMe);

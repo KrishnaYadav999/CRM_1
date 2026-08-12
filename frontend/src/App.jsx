@@ -84,7 +84,7 @@ function App(){
         <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard/></ProtectedRoute>} />
         <Route path="/dashboard/users" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminDashboard/></ProtectedRoute>} />
         <Route path="/superadmin-dashboard" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><SuperAdminDashboard/></ProtectedRoute>} />
-        <Route path="/mis" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><SuperAdminDashboard misPage /></ProtectedRoute>} />
+        <Route path="/mis" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'manager', 'operation head', 'operations head']}><SuperAdminDashboard misPage /></ProtectedRoute>} />
         <Route path="/dashboard/activity-logs" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><ActivityLogs/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'compliance']}><PendingApproval/></ProtectedRoute>} />
         <Route path="/pending-approval/clients/:clientId/review" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'compliance']}><ClientComplianceReview/></ProtectedRoute>} />

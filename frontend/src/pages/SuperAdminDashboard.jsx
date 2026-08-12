@@ -54,7 +54,16 @@ function topRow(rows, selector) {
   return rows.length ? [...rows].sort((a, b) => selector(b) - selector(a))[0] : null
 }
 
-function buildOperationGroups(rows) {
+function buildOperationGroups(rows, teams = []) {
+  if (teams.length) return teams.map((team) => {
+    const manager = rows.find((row) => String(row.id) === String(team.managerId)) || null
+    const memberIds = new Set((team.memberIds || []).map(String))
+    const members = rows.filter((row) => memberIds.has(String(row.id)) && String(row.id) !== String(team.managerId))
+    const people = [...(manager ? [manager] : []), ...members]
+    const filled = people.reduce((sum, row) => sum + Number(row.clientFieldsFilled || 0), 0)
+    const missing = people.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
+    return { id: String(team.id), name: team.name, manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing, percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 }
+  })
   const managers = rows.filter((row) => String(row.role).toLowerCase() === 'manager')
   const operationUsers = rows.filter((row) => String(row.role).toLowerCase() === 'operation')
   const groups = managers.map((manager, index) => {
@@ -94,6 +103,8 @@ function SortHeading({ label, value, sort, onSort, align = 'left' }) {
 export default function SuperAdminDashboard({ misPage = false }) {
   const navigate = useNavigate()
   const [user] = useState(() => JSON.parse(localStorage.getItem('user') || 'null'))
+  const currentRole = String(user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+  const currentUserIsAdmin = ['admin', 'superadmin'].includes(currentRole)
   const [report, setReport] = useState({ period: { from: inputDate(-6), to: inputDate(0) }, summary: {}, users: [] })
   const [draftFilters, setDraftFilters] = useState(defaultRange)
   const [appliedFilters, setAppliedFilters] = useState(defaultRange)
@@ -129,7 +140,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
     try {
       const [reportResult, quotationResult] = await Promise.allSettled([
         loadProductivityReport(),
-        misPage ? api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 }) : Promise.resolve({ data: { quotations: [] } })
+        misPage && currentUserIsAdmin ? api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 }) : Promise.resolve({ data: { quotations: [] } })
       ])
       if (reportResult.status !== 'fulfilled') throw reportResult.reason
       setReport(reportResult.value.data || reportResult.value)
@@ -153,7 +164,12 @@ export default function SuperAdminDashboard({ misPage = false }) {
 
   const rows = useMemo(() => (report.users || []).map((row) => ({ ...row, roleLabel: roleLabels[row.role] || row.role || '-' })), [report.users])
   const salesMisRows = useMemo(() => rows.filter((row) => String(row.role).toLowerCase() === 'sales'), [rows])
-  const operationGroups = useMemo(() => buildOperationGroups(rows), [rows])
+  const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
+  const operationsOnlyMis = misPage && !misAccess.isAdmin
+  const misTitle = operationsOnlyMis
+    ? (misAccess.scope === 'operation-head' ? 'Complete Operations MIS' : `${misAccess.operationTeams?.[0]?.name || 'Team'} Operations MIS`)
+    : 'Complete MIS'
+  const operationGroups = useMemo(() => buildOperationGroups(rows, misAccess.operationTeams), [rows, misAccess.operationTeams])
   const quotationMisRows = useMemo(() => [...quotations].sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0)), [quotations])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
@@ -235,12 +251,12 @@ export default function SuperAdminDashboard({ misPage = false }) {
     <div className="min-h-screen bg-[#f3f8f6] p-4 lg:p-6">
       <div className="w-full">
         <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div><p className="text-[10px] font-black uppercase tracking-[.24em] text-orange-500">{misPage ? 'Management information system' : 'Super admin control center'}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{misPage ? 'Complete MIS' : REPORT_TITLE}</h1><p className="mt-2 text-sm font-semibold text-slate-500">Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)} · {misPage ? 'Sales, Operations and Quotation MIS in one place.' : 'user presence, CRM activity, leads, tickets and risk.'}</p></div>
+          <div><p className="text-[10px] font-black uppercase tracking-[.24em] text-orange-500">{misPage ? 'Management information system' : 'Super admin control center'}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{misPage ? misTitle : REPORT_TITLE}</h1><p className="mt-2 text-sm font-semibold text-slate-500">Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)} · {misPage ? (operationsOnlyMis ? 'Operations and Client Master completion for your authorised team scope.' : 'Sales, Operations and Quotation MIS in one place.') : 'user presence, CRM activity, leads, tickets and risk.'}</p></div>
           <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>{!misPage && <><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></>}</div>
         </header>
 
         {misPage && <section className="mt-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
-          <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">MIS Report Period</p><p className="mt-1 text-sm font-semibold text-slate-500">Select the period used by all three MIS reports.</p></div>
+          <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">MIS Report Period</p><p className="mt-1 text-sm font-semibold text-slate-500">Select the period used by your authorised MIS reports.</p></div>
           <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-2">
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">From Date<input type="date" value={draftFilters.from} onChange={(event) => setDraftFilters((current) => ({ ...current, from: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold normal-case" /></label>
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">To Date<input type="date" value={draftFilters.to} onChange={(event) => setDraftFilters((current) => ({ ...current, to: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold normal-case" /></label>
@@ -268,7 +284,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
           <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-orange-500" /><div><h2 className="font-black text-slate-950">Admin Attention</h2><p className="text-xs font-semibold text-slate-500">Accounts to review</p></div></div><div className="mt-3 space-y-2">{attention.map((item) => <button key={item.key} onClick={() => { const next = { ...draftFilters, risk: item.key }; setDraftFilters(next); setAppliedFilters(next) }} className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-left hover:border-emerald-200"><span className="text-xs font-black text-slate-700">{item.label}</span><strong className="text-lg text-slate-950">{item.count}</strong></button>)}</div></aside>
         </section>
 
-        <section className="mt-4 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
+        {(!misPage || misAccess.showSales) && <section className="mt-4 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-5 py-4">
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Department MIS</p><h2 className="text-xl font-black text-slate-950">Sales MIS</h2><p className="text-xs font-semibold text-slate-500">Only Sales users · live lead status for the selected report period</p></div></div>
             <button type="button" onClick={() => downloadMisPdf('sales')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'sales' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'sales' ? 'Generating...' : 'Download Sales PDF'}</button>
@@ -277,7 +293,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
             {loading ? <tr><td colSpan="6" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr> : salesMisRows.map((row, index) => { const rate = row.totalLeads ? Math.round((row.closedLeads / row.totalLeads) * 100) : 0; return <tr key={String(row.id)} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-emerald-50/50"><td className="px-5 py-4 font-black text-slate-400">{index + 1}</td><td className="px-5 py-4"><button type="button" onClick={() => setWorkReportUser(row)} className="text-left"><strong className="block text-slate-950 hover:text-emerald-700">{row.name}</strong><small className="text-slate-500">{row.email}</small></button></td><td className="px-5 py-4 text-right text-lg font-black text-slate-950">{row.totalLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-orange-600">{row.openLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{row.closedLeads}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-28 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${rate}%` }} /></div><strong className="text-emerald-800">{rate}%</strong></div></td></tr> })}
             {!loading && !salesMisRows.length && <tr><td colSpan="6" className="p-10 text-center font-bold text-slate-400">No Sales users found.</td></tr>}
           </tbody></table></div>
-        </section>
+        </section>}
 
         <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-white px-5 py-4">
@@ -295,7 +311,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
           </tbody></table></div>
         </section>
 
-        {misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
+        {misPage && misAccess.showQuotations && <section className="mt-4 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-orange-700"><FileText className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-700">Commercial MIS</p><h2 className="text-xl font-black text-slate-950">Quotation MIS</h2><p className="text-xs font-semibold text-slate-500">All quotations · latest quotation first</p></div></div>
             <button type="button" onClick={() => navigate('/sales/quotations')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-black text-white">Open Quotations</button>

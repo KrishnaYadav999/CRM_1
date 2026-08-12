@@ -647,7 +647,7 @@ exports.superAdminOverview = async (_req, res) => {
 
 exports.userProductivityReport = async (req, res) => {
   try {
-    const report = await getUserProductivityReport({ from: req.query.from, to: req.query.to });
+    const report = await getUserProductivityReport({ from: req.query.from, to: req.query.to, requester: req.user });
     res.json({ ok: true, ...report });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Unable to generate the user activity report' });

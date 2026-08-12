@@ -4,6 +4,7 @@ const AuditLog = require('../models/AuditLog');
 const Lead = require('../models/Lead');
 const SupportTicket = require('../models/SupportTicket');
 const Client = require('../models/Client');
+const Team = require('../models/Team');
 
 const ONLINE_WINDOW_MS = 15 * 60 * 1000;
 
@@ -112,7 +113,7 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
     const closedLeads = ownLeads.filter((lead) => lead.closedBy || lead.closedAt || /closed/i.test(String(lead.status || ''))).length;
     const row = {
       id: user._id, name: user.name || user.email || 'Unnamed user', email: user.email || '', role: user.role || '', team: user.team || '',
-      managerId: user.managerId || null,
+      teamId: user.teamId || null, managerId: user.managerId || null,
       active: user.isActive !== false, lastLogin: user.lastLogin || null, lastActivity,
       totalLeads: ownLeads.length, closedLeads, openLeads: Math.max(0, ownLeads.length - closedLeads),
       clientMasters: ownClients.length, clientFieldsFilled,
@@ -149,16 +150,26 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
   return { period: { from: period.from, to: period.to }, summary, users: rows.sort((a, b) => b.risk.rank - a.risk.rank || b.score - a.score) };
 }
 
-async function getUserProductivityReport({ from, to }) {
+async function getUserProductivityReport({ from, to, requester }) {
   const period = reportDateRange(from, to);
+  const requesterRole = String(requester?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const isAdmin = ['admin', 'superadmin'].includes(requesterRole);
+  const requesterId = requester?._id || requester?.id;
+  const operationTeams = isAdmin
+    ? await Team.find().select('name manager operationHead members').sort({ name: 1 }).lean()
+    : await Team.find({ $or: [{ manager: requesterId }, { operationHead: requesterId }] }).select('name manager operationHead members').sort({ name: 1 }).lean();
+  const scopedUserIds = isAdmin ? null : operationTeams.flatMap((team) => [team.manager, ...(team.members || [])]).filter(Boolean);
+  const userFilter = isAdmin ? {} : { _id: { $in: scopedUserIds } };
+  const activityUserFilter = isAdmin ? {} : { userId: { $in: scopedUserIds } };
+  const ownerFilter = isAdmin ? {} : { createdBy: { $in: scopedUserIds } };
   const [users, sessions, activities, leads, clients, ticketStats] = await Promise.all([
-    User.find().select('name email role team managerId isActive lastLogin').lean(),
-    UserSession.find({ loginAt: { $gte: period.start, $lte: period.end } }).sort({ loginAt: -1 }).limit(10000).lean(),
-    AuditLog.find({ occurredAt: { $gte: period.start, $lte: period.end } }).sort({ occurredAt: -1 }).limit(25000).lean(),
-    Lead.find({ createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy status closedBy closedAt createdAt').lean(),
-    Client.find({ createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data createdAt').lean(),
+    User.find(userFilter).select('name email role team teamId managerId operationHeadId isActive lastLogin').lean(),
+    UserSession.find({ ...activityUserFilter, loginAt: { $gte: period.start, $lte: period.end } }).sort({ loginAt: -1 }).limit(10000).lean(),
+    AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } }).sort({ occurredAt: -1 }).limit(25000).lean(),
+    Lead.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy status closedBy closedAt createdAt').lean(),
+    Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data createdAt').lean(),
     SupportTicket.aggregate([
-      { $match: { createdAt: { $gte: period.start, $lte: period.end } } },
+      { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },
       { $group: {
         _id: '$createdBy', total: { $sum: 1 },
         open: { $sum: { $cond: [{ $in: ['$status', ['Open', 'In Progress']] }, 1, 0] } },
@@ -166,7 +177,16 @@ async function getUserProductivityReport({ from, to }) {
       } }
     ])
   ]);
-  return buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period });
+  return {
+    ...buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period }),
+    misAccess: {
+      isAdmin,
+      scope: isAdmin ? 'all' : (operationTeams.some((team) => String(team.operationHead || '') === String(requesterId)) ? 'operation-head' : 'manager'),
+      showSales: isAdmin,
+      showQuotations: isAdmin,
+      operationTeams: operationTeams.map((team) => ({ id: team._id, name: team.name, managerId: team.manager, operationHeadId: team.operationHead, memberIds: team.members || [] }))
+    }
+  };
 }
 
 function clientSectionAnalysis(data = {}) {
