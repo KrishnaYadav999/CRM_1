@@ -144,6 +144,7 @@ export default function PendingApproval() {
   const [serviceRejection, setServiceRejection] = useState(null);
   const [clientDecision, setClientDecision] = useState(null);
   const [royaltyApprovals, setRoyaltyApprovals] = useState([]);
+  const [temporaryApprovals, setTemporaryApprovals] = useState([]);
   const [approvalInputs, setApprovalInputs] = useState({});
   const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -162,6 +163,7 @@ export default function PendingApproval() {
   const location = useLocation();
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const canApprove = adminRoles.includes(normalizedRole);
+  const canApproveTemporary = normalizedRole === 'superadmin';
   const isComplianceApprovalView = isComplianceRole(currentUser?.role) && !canApprove;
   const canApproveClients = canApprove || isComplianceApprovalView;
 
@@ -171,7 +173,7 @@ export default function PendingApproval() {
 
   const allApprovalRows = useMemo(() => isComplianceApprovalView
     ? pendingClients
-    : [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals], [isComplianceApprovalView, pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals]);
+    : [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals, ...temporaryApprovals], [isComplianceApprovalView, pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals, temporaryApprovals]);
   const piboOptions = useMemo(() => {
     const values = allApprovalRows
       .map((row) => formatApprovalValue(row?.piboCategory))
@@ -192,6 +194,7 @@ export default function PendingApproval() {
   const filteredDuplicateLeads = useMemo(() => !['all', 'duplicates'].includes(typeFilter) ? [] : duplicateLeadApprovals.filter(filterRow), [duplicateLeadApprovals, searchTerm, statusFilter, typeFilter]);
   const filteredRoyalty = useMemo(() => !['all', 'royalty'].includes(typeFilter) ? [] : royaltyApprovals.filter(filterRow), [royaltyApprovals, searchTerm, statusFilter, typeFilter]);
   const filteredServices = useMemo(() => !['all', 'services'].includes(typeFilter) ? [] : serviceApprovals.filter(filterRow), [serviceApprovals, searchTerm, statusFilter, typeFilter]);
+  const filteredTemporary = useMemo(() => !['all', 'temporary'].includes(typeFilter) ? [] : temporaryApprovals.filter(filterRow), [temporaryApprovals, searchTerm, statusFilter, typeFilter]);
   const approvedTodayCount = useMemo(() => (
     allApprovalRows.filter((row) => getApprovalStatus(row) === 'APPROVED').length
   ), [allApprovalRows]);
@@ -335,9 +338,10 @@ export default function PendingApproval() {
           || '';
         return leadAssignedTo ? { ...approval, payload: { ...approval.payload, leadAssignedTo } } : approval;
       });
-      setDuplicateLeadApprovals(leadApprovals.filter((row) => !['lead_royalty', 'lead_service'].includes(row.type)));
+      setDuplicateLeadApprovals(leadApprovals.filter((row) => !['lead_royalty', 'lead_service', 'lead_temporary'].includes(row.type)));
       setServiceApprovals(leadApprovals.filter((row) => row.type === 'lead_service'));
       setRoyaltyApprovals(leadApprovals.filter((row) => row.type === 'lead_royalty'));
+      setTemporaryApprovals(leadApprovals.filter((row) => row.type === 'lead_temporary'));
       setDebugInfo(snapshot.debug);
       console.info('[PendingApproval:loaded]', {
         clients: snapshot.pendingClients.length,
@@ -668,6 +672,7 @@ export default function PendingApproval() {
                 <option value="duplicates">Special Approvals</option>
                 <option value="services">Service Pending</option>
                 <option value="royalty">Royalty Claims</option>
+                {canApproveTemporary && <option value="temporary">Temporary Assignments</option>}
               </select>}
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter approval status">
                 <option value="all">All Status</option>
@@ -704,6 +709,13 @@ export default function PendingApproval() {
                   count={filteredClients.length}
                   onClick={() => setActiveTab('clients')}
                 />}
+                {canApproveTemporary && <ApprovalTab
+                  active={activeTab === 'temporary'}
+                  icon={Users}
+                  label="Temporary Assignments"
+                  count={filteredTemporary.length}
+                  onClick={() => setActiveTab('temporary')}
+                />}
                 {!isComplianceApprovalView && <ApprovalTab
                   active={activeTab === 'quotations'}
                   icon={FileText}
@@ -735,7 +747,14 @@ export default function PendingApproval() {
               </div>
             </div>
 
-            {activeTab === 'clients' ? (
+            {activeTab === 'temporary' ? (
+              <ApprovalTable title="Temporary Assignment Requests" columns={['Company', 'Manager', 'Permanent User', 'Temporary User', 'Duration', 'Request Type', 'Status', 'Actions']} emptyText="No temporary assignment requests found." page={1} totalPages={1} showing={filteredTemporary.length} total={filteredTemporary.length} onPrev={() => {}} onNext={() => {}}>
+                {filteredTemporary.map((row) => <tr key={row._id || row.id}>
+                  <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.managerName || '-'}</Cell><Cell>{row.payload?.permanentUserName || '-'}</Cell><Cell>{row.payload?.temporaryUserName || '-'}</Cell><Cell>{row.payload?.requestedDays || 7} days</Cell><Cell>{row.payload?.requestType || 'INITIAL'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell>
+                  <Cell><div className="flex gap-2"><button type="button" disabled={savingId === (row._id || row.id) || row.approvalStatus !== 'PENDING'} onClick={async () => { const id = row._id || row.id; setSavingId(id); try { await api.patch(API_ENDPOINTS.leads.temporaryAssignmentDecision(id), { decision: 'APPROVED' }); setNotice('Temporary assignment approved for 7 days.'); await loadPage({ force: true, silent: true }); } catch (err) { setError(readError(err, 'Unable to approve temporary assignment.')); } finally { setSavingId(''); } }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Approve</button><button type="button" disabled={savingId === (row._id || row.id) || row.approvalStatus !== 'PENDING'} onClick={async () => { const reason = window.prompt('Please enter the rejection reason.'); if (reason === null) return; const id = row._id || row.id; setSavingId(id); try { await api.patch(API_ENDPOINTS.leads.temporaryAssignmentDecision(id), { decision: 'REJECTED', remarks: reason }); setNotice('Temporary assignment rejected.'); await loadPage({ force: true, silent: true }); } catch (err) { setError(readError(err, 'Unable to reject temporary assignment.')); } finally { setSavingId(''); } }} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-black text-rose-600 disabled:opacity-50">Reject</button></div></Cell>
+                </tr>)}
+              </ApprovalTable>
+            ) : activeTab === 'clients' ? (
               <ApprovalTable
                 title="Pending Clients"
                 columns={['Client Name', 'Approval Status', 'Applicant Type', 'Service Category', 'Created By', 'Request Date', 'Actions']}

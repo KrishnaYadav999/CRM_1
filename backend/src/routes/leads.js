@@ -4,6 +4,7 @@ const leadCtrl = require('../controllers/leadController');
 const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES } = require('../constants/roles');
 const quotationCtrl = require('../controllers/quotationController');
+const temporaryAssignmentCtrl = require('../controllers/temporaryLeadAssignmentController');
 
 router.get('/', requireAuth, leadCtrl.listLeads);
 router.get('/service-catalog', requireAuth, leadCtrl.listServiceCatalog);
@@ -20,6 +21,8 @@ router.post('/', requireAuth, leadCtrl.createLead);
 router.get('/:id/history', requireAuth, leadCtrl.getLeadHistory);
 router.post('/:id/history/email', requireAuth, leadCtrl.recordIntroductionEmail);
 router.post('/:id/royalty-claims', requireAuth, leadCtrl.claimLeadRoyalty);
+router.post('/:id/temporary-assignments', requireAuth, temporaryAssignmentCtrl.requestTemporaryAssignment);
+router.patch('/temporary-assignments/:approvalId', requireAuth, temporaryAssignmentCtrl.decideTemporaryAssignment);
 router.get('/:leadId/quotations', requireAuth, quotationCtrl.listLeadQuotations);
 router.put('/:id', requireAuth, leadCtrl.updateLead);
 

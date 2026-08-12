@@ -23,6 +23,7 @@ const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowR
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
 const { startLeadServiceApprovalReminderScheduler, runLeadServiceApprovalReminders } = require('./services/leadServiceApprovalReminders');
 const { startProvisionalLeadClosureScheduler } = require('./services/provisionalLeadClosureWorkflow');
+const { startTemporaryAssignmentReminderScheduler } = require('./services/temporaryLeadAssignmentReminders');
 const { applyKnownDataCorrections } = require('./services/knownDataCorrections');
 
 process.on('uncaughtException', (err) => {
@@ -60,6 +61,7 @@ function connectAndStartServices() {
       startStaffOnboardingWorkflowScheduler();
       startLeadServiceApprovalReminderScheduler();
       startProvisionalLeadClosureScheduler();
+      startTemporaryAssignmentReminderScheduler();
       schedulerStarted = true;
     }
   });

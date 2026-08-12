@@ -737,7 +737,7 @@ exports.createLead = async (req, res) => {
         }
       });
     }
-    const lead = await createLeadRecord(req.body, req.user?._id);
+    const lead = await createLeadRecord(req.body, req.user);
     await LeadActivity.create({ lead: lead._id, type: 'lead_created', title: 'Lead created', description: `Lead created for ${lead.company || lead.leadCode}`, actor: req.user?._id });
     const managerId = String(req.body?.assignedToCrmUserId || req.body?.assignedTo || lead.assignedTo || '').trim();
     if (managerId) {

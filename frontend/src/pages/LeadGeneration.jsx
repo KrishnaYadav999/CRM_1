@@ -3789,6 +3789,32 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       .map((id) => ({ value: String(id), label }));
   });
 
+  async function requestTemporaryUser(index, value) {
+    if (!value) return;
+    const selected = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId].filter(Boolean).some((id) => String(id) === String(value)));
+    const row = detailAssignments[index];
+    const currentTemporary = row?.temporaryUser;
+    const isExtension = currentTemporary?.status === 'ACTIVE';
+    const message = isExtension
+      ? `Request a 7-day extension for ${selected?.name || selected?.email || 'this temporary user'}? Permanent ownership will not change and Super Admin approval is required.`
+      : `Request 7-day temporary access for ${selected?.name || selected?.email || 'this user'}? Permanent ownership will not change and Super Admin approval is required.`;
+    if (!window.confirm(message)) return;
+    setAssignmentSavingIndex(index);
+    try {
+      const leadId = activeLead._id || activeLead.id || activeLead.sourceLeadId;
+      const response = await api.post(API_ENDPOINTS.leads.temporaryAssignment(leadId), { rowIndex: index, temporaryUserId: value, days: 7 });
+      const assignments = detailAssignments.map((item, rowIndex) => rowIndex === index ? { ...item, temporaryUser: response.data?.temporaryUser } : item);
+      const updatedLead = { ...activeLead, assignments };
+      setDetailLead(updatedLead);
+      onLeadUpdated?.(updatedLead);
+      window.alert('Temporary assignment request sent to Super Admin for approval.');
+    } catch (requestError) {
+      window.alert(requestError?.response?.data?.error || 'Unable to request temporary assignment.');
+    } finally {
+      setAssignmentSavingIndex(-1);
+    }
+  }
+
   async function assignStaffFromDetail(index, value, kickoffEmailConsent = '') {
     const row = detailAssignments[index];
     const managerOwnsRow = currentUserTokens.includes(String(row?.assignedTo?._id || row?.assignedTo || ''));
@@ -4249,9 +4275,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                     <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#30737B] shadow-sm"><UserCheck className="h-4 w-4" /></span>
                     <div><h3 className="font-black text-slate-900">Assign Lead</h3><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{detailAssignments.length} assignment row{detailAssignments.length === 1 ? '' : 's'}</p></div>
                   </div>
-                  <table className="w-full min-w-[1850px] text-left text-sm">
+                  <table className="w-full min-w-[2150px] text-left text-sm">
                     <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                      <tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
+                      <tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Lead Closed By', 'Assigned to Manager', 'Manager Email', 'Manager Assigned to Staff', 'Staff Email', 'Temporary User', 'Temporary Status', 'Assigned By'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr>
                     </thead>
                     <tbody>
                       {detailAssignments.map((row, index) => {
@@ -4280,6 +4306,12 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                               : <span className="font-black">{row.assignedStaff?.name || row.assignedStaffText || '-'}</span>}
                           </td>
                           <td className="px-4 py-3">{row.assignedStaff?.email || row.assignedStaffEmail || '-'}</td>
+                          <td className="min-w-[280px] px-4 py-3">
+                            {canAssignThisRow
+                              ? <SearchableSelect allowCustom={false} disabled={assignmentSavingIndex === index || row.temporaryUser?.status === 'PENDING'} value={row.temporaryUser?.temporaryUserId || ''} options={detailStaffOptions} placeholder={row.temporaryUser?.status === 'ACTIVE' ? 'Select user to request extension' : 'Select temporary user'} onChange={(value) => requestTemporaryUser(index, value)} />
+                              : <span className="font-black">{row.temporaryUser?.temporaryUserName || '-'}</span>}
+                          </td>
+                          <td className="px-4 py-3"><div className="flex flex-col gap-1"><span className={`w-fit rounded-full px-2 py-1 text-[10px] font-black ${row.temporaryUser?.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : row.temporaryUser?.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{row.temporaryUser?.status || 'NOT ASSIGNED'}</span>{row.temporaryUser?.expiresAt && <small className="font-bold text-slate-500">Until {new Date(row.temporaryUser.expiresAt).toLocaleString('en-IN')}</small>}{canAssignThisRow && row.temporaryUser?.status === 'ACTIVE' && <button type="button" onClick={() => requestTemporaryUser(index, row.temporaryUser.temporaryUserId)} className="mt-1 w-fit rounded-lg border border-teal-200 px-2 py-1 text-[10px] font-black text-teal-700">Request 7-day extension</button>}</div></td>
                           <td className="px-4 py-3">{row.assignedBy || activeLead.assignedBy || '-'}</td>
                         </tr>;
                       })}

@@ -38,6 +38,8 @@ const API_ENDPOINTS = {
     ,dropdownOptions: '/leads/dropdown-options'
     ,serviceCatalogCategories: '/leads/service-catalog/categories'
     ,serviceCatalogServices: (category) => `/leads/service-catalog/categories/${encodePathValue(category)}/services`
+    ,temporaryAssignment: (id) => `/leads/${encodePathValue(id)}/temporary-assignments`
+    ,temporaryAssignmentDecision: (approvalId) => `/leads/temporary-assignments/${encodePathValue(approvalId)}`
   },
   clients: {
     list: '/clients',
