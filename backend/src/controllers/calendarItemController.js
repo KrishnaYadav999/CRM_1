@@ -156,6 +156,38 @@ async function closeLinkedLeadFollowUp(item, user) {
   return lead;
 }
 
+async function scheduleLinkedLeadFollowUp(item, user) {
+  const raw = typeof item.toObject === 'function' ? item.toObject() : item;
+  if (!isFollowUpItem(raw) || String(raw.status || '').toLowerCase() === 'completed') return null;
+  const lookups = [];
+  const leadId = String(raw.leadId || '').trim();
+  if (leadId && mongoose.Types.ObjectId.isValid(leadId)) lookups.push({ _id: leadId });
+  if (raw.leadNumber) lookups.push({ leadCode: String(raw.leadNumber).trim() }, { sourceLeadId: String(raw.leadNumber).trim() });
+  const lead = lookups.length ? await Lead.findOne({ $or: lookups }) : null;
+  if (!lead || !Array.isArray(lead.serviceSelections) || !lead.serviceSelections.length) return null;
+  const serviceIndex = resolveServiceIndex(lead.serviceSelections, raw);
+  const index = serviceIndex >= 0 ? serviceIndex : 0;
+  const service = lead.serviceSelections[index] || {};
+  lead.serviceSelections = lead.serviceSelections.map((row, rowIndex) => rowIndex === index ? {
+    ...row,
+    nextFollowUpDate: raw.scheduledDate || '', nextFollowUpTime: raw.scheduledTime || '',
+    followUpRemarks: raw.updateReason || raw.description || raw.title || '',
+    followUpPriority: raw.priority || 'Medium', followUpFlag: 'GREEN',
+    followUpUpdatedAt: new Date().toISOString(), followUpUpdatedBy: user?.name || user?.email || raw.createdBy || '',
+    calendarItemId: String(raw._id || raw.externalId || '')
+  } : row);
+  if (index === 0) {
+    lead.nextFollowUpDate = raw.scheduledDate || '';
+    lead.nextFollowUpTime = raw.scheduledTime || '';
+    lead.followUpRemarks = raw.updateReason || raw.description || raw.title || '';
+    lead.followUpPriority = raw.priority || 'Medium';
+    lead.followUpFlag = 'GREEN';
+  }
+  lead.markModified('serviceSelections');
+  await lead.save();
+  return lead;
+}
+
 exports.listCalendarItems = async (req, res) => {
   const items = await CalendarItem.find()
     .sort({ scheduledDate: 1, scheduledTime: 1, createdAt: -1 })
@@ -182,7 +214,8 @@ exports.createCalendarItem = async (req, res) => {
 
   if (!data.externalId) data.externalId = `${data.type || 'todo'}-${Date.now()}`;
   item = await CalendarItem.create(data);
-  res.status(201).json({ ok: true, item: mapItem(item) });
+  const syncedLead = await scheduleLinkedLeadFollowUp(item, req.user);
+  res.status(201).json({ ok: true, item: mapItem(item), lead: syncedLead || undefined });
 };
 
 exports.updateCalendarItem = async (req, res) => {
@@ -193,7 +226,9 @@ exports.updateCalendarItem = async (req, res) => {
   if (!data.title) return res.status(400).json({ error: 'Title is required' });
   Object.assign(item, data);
   await item.save();
-  const syncedLead = await closeLinkedLeadFollowUp(item, req.user);
+  const syncedLead = String(item.status || '').toLowerCase() === 'completed'
+    ? await closeLinkedLeadFollowUp(item, req.user)
+    : await scheduleLinkedLeadFollowUp(item, req.user);
   res.json({ ok: true, item: mapItem(item), lead: syncedLead || undefined });
 };
 
@@ -204,4 +239,4 @@ exports.deleteCalendarItem = async (req, res) => {
   res.json({ ok: true });
 };
 
-module.exports.__test = { buildItemData, mapItem, isFollowUpItem, sameFollowUpSchedule, resolveServiceIndex, applyCalendarFollowUpClosure, closeLinkedLeadFollowUp };
+module.exports.__test = { buildItemData, mapItem, isFollowUpItem, sameFollowUpSchedule, resolveServiceIndex, applyCalendarFollowUpClosure, closeLinkedLeadFollowUp, scheduleLinkedLeadFollowUp };

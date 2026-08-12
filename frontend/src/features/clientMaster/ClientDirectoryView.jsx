@@ -238,7 +238,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRe
     <div className="px-4 py-6 sm:px-6 lg:px-8">
       <div className="space-y-7">
         <ClientStoryStats
-          stats={metricStats}
+          stats={metricStats.slice(0, 1)}
           activeFilter={metricFilter}
           onFilterChange={(filter) => setMetricFilter((current) => (current === filter ? '' : filter))}
         />

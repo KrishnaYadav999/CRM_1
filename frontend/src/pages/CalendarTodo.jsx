@@ -102,6 +102,10 @@ function emptyTodo(date = new Date()) {
   };
 }
 
+function isFollowUp(item = {}) {
+  return ['followup', 'follow-up'].includes(String(item.type || '').toLowerCase()) || item.category === 'Follow-Up';
+}
+
 function getClientData(client = {}) {
   return readClientData(client);
 }
@@ -518,6 +522,23 @@ export default function CalendarTodo() {
     setTodoDraft(emptyTodo(date));
   }
 
+  function openAddFollowUp(date = selectedDate, source = null) {
+    const scheduled = new Date(date);
+    if (source?.status === 'completed') scheduled.setDate(scheduled.getDate() + 1);
+    setEditingTodoId('');
+    setModalDate(scheduled);
+    setTodoDraft({
+      ...emptyTodo(scheduled),
+      title: source?.title || '',
+      description: source?.description || '',
+      clientNumber: source?.clientNumber || '', clientName: source?.clientName || '',
+      leadNumber: source?.leadNumber || '', leadId: source?.leadId || '',
+      priority: source?.priority || 'Medium', category: 'Follow-Up', type: 'follow-up',
+      assignedTo: source?.assignedTo || storedUser?.name || storedUser?.email || '',
+      metadata: source?.metadata || {}, previousFollowUpId: source?.id || source?._id || ''
+    });
+  }
+
   function openEditTodo(item) {
     if (item.status === 'completed') return;
     const scheduledDate = item.scheduledDate || dateKey(selectedDate);
@@ -546,6 +567,7 @@ export default function CalendarTodo() {
         updateReason: todoDraft.updateReason.trim(),
         clientName: selectedClient?.company || todoDraft.clientName,
         leadCompanyName: selectedLead?.company || '',
+        leadId: todoDraft.leadId || selectedLead?.id || '',
         assignedToName: assignedUser?.name || todoDraft.assignedTo,
         assignedToEmail: assignedUser?.email || '',
         assignedToId: assignedUser?._id || assignedUser?.id || assignedUser?.crmUserId || assignedUser?.userId || '',
@@ -690,6 +712,7 @@ export default function CalendarTodo() {
           </div>
           <div className="calendar-hero-actions calendar-pro-actions">
             <button type="button" onClick={() => window.history.back()}><ArrowLeft className="h-4 w-4" /> Back</button>
+            <button type="button" onClick={() => openAddFollowUp(selectedDate)}><Plus className="h-4 w-4" /> Add Follow-Up</button>
             <button type="button" onClick={() => openAddTodo(selectedDate)}><Plus className="h-4 w-4" /> Add Todo</button>
           </div>
         </motion.div>
@@ -837,7 +860,7 @@ export default function CalendarTodo() {
             </div>
 
             {(dayPanelTab === 'agenda' || dayPanelTab === 'follow-ups') && (
-              <PanelSection title="Follow-ups" action="Add Follow-Up" onAction={() => openAddTodo(selectedDate)} footer={selectedFollowUps.length > DAY_PANEL_PAGE_SIZE ? <MiniPager page={followUpPage} totalPages={followUpTotalPages} onPageChange={setFollowUpPage} /> : null}>
+              <PanelSection title="Follow-ups" action="Add Follow-Up" onAction={() => openAddFollowUp(selectedDate)} footer={selectedFollowUps.length > DAY_PANEL_PAGE_SIZE ? <MiniPager page={followUpPage} totalPages={followUpTotalPages} onPageChange={setFollowUpPage} /> : null}>
                 {selectedFollowUps.length ? visibleFollowUps.map((item) => <AgendaCard key={item.id} item={item} todayKey={todayKey} onOpen={() => setDetailItem(item)} />) : <EmptyMini label="No follow-ups for this day" />}
               </PanelSection>
             )}
@@ -978,7 +1001,7 @@ export default function CalendarTodo() {
                       </div>
                       <div className="calendar-bucket-actions">
                         <button type="button" onClick={() => { setDetailItem(item); setReviseDraft(item.scheduledDate || ''); }}><Eye className="h-4 w-4" /> View</button>
-                        <button type="button" disabled={item.status === 'completed'} onClick={() => requestCompletion(item)}><CheckCircle2 className="h-4 w-4" /> {item.status === 'completed' ? 'Locked' : (item.type === 'followup' || item.type === 'follow-up' || item.category === 'Follow-Up') ? 'Close Follow-Up' : 'Complete'}</button>
+                        {item.status === 'completed' && isFollowUp(item) ? <button type="button" onClick={() => { setBucketPopup(null); openAddFollowUp(new Date(item.scheduledDate || bucketPopup.date), item); }}><Plus className="h-4 w-4" /> Next Follow-Up</button> : <button type="button" disabled={item.status === 'completed'} onClick={() => requestCompletion(item)}><CheckCircle2 className="h-4 w-4" /> {item.status === 'completed' ? 'Locked' : isFollowUp(item) ? 'Close Follow-Up' : 'Complete'}</button>}
                       </div>
                     </motion.article>
                   );
@@ -992,7 +1015,7 @@ export default function CalendarTodo() {
               </div>
               <div className="calendar-bucket-footer">
                 {bucketPopupItems.length > BUCKET_PAGE_SIZE && <MiniPager page={bucketPage} totalPages={bucketTotalPages} onPageChange={setBucketPage} />}
-                <div className="calendar-bucket-footer-actions"><button type="button" onClick={() => setBucketPopup(null)}>Close</button><button type="button" onClick={() => openAddTodo(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Add Todo</button></div>
+                <div className="calendar-bucket-footer-actions"><button type="button" onClick={() => setBucketPopup(null)}>Close</button><button type="button" onClick={() => { setBucketPopup(null); openAddFollowUp(new Date(bucketPopup.date)); }}><Plus className="h-4 w-4" /> Add Follow-Up</button><button type="button" onClick={() => openAddTodo(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Add Todo</button></div>
               </div>
             </motion.section>
           </motion.div>
@@ -1095,7 +1118,7 @@ export default function CalendarTodo() {
               <div className="calendar-modal-head">
                 <div>
                   <span>Date: {new Intl.DateTimeFormat('en', { month: 'long', day: '2-digit', year: 'numeric' }).format(modalDate)}</span>
-                  <strong>{editingTodoId ? <Edit3 className="h-5 w-5" /> : <Plus className="h-5 w-5" />} {editingTodoId ? 'Update Todo' : 'Add New Todo'}</strong>
+                  <strong>{editingTodoId ? <Edit3 className="h-5 w-5" /> : <Plus className="h-5 w-5" />} {editingTodoId ? `Update ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}` : `Add New ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}`}</strong>
                 </div>
                 <button type="button" className="calendar-modal-close" onClick={() => { setModalDate(null); setEditingTodoId(''); }} aria-label="Close todo popup"><X className="h-5 w-5" /></button>
               </div>
@@ -1121,7 +1144,7 @@ export default function CalendarTodo() {
                     loading={optionsLoading}
                     error={optionsError}
                     onRetry={() => setOptionsReloadKey((value) => value + 1)}
-                    onChange={(value) => setTodoDraft((current) => ({ ...current, leadNumber: value }))}
+                    onChange={(value, selected) => setTodoDraft((current) => ({ ...current, leadNumber: value, leadId: selected?.id || '', leadCompanyName: selected?.company || '' }))}
                   />
                 </Field>
                 <Field label="Priority"><select value={todoDraft.priority} onChange={(event) => setTodoDraft((current) => ({ ...current, priority: event.target.value }))}>{priorities.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
@@ -1151,7 +1174,7 @@ export default function CalendarTodo() {
               </div>
               <div className="calendar-modal-actions">
                 <button type="button" onClick={() => { setModalDate(null); setEditingTodoId(''); }}>Cancel</button>
-                <button type="button" disabled={!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate} onClick={saveTodo}>{editingTodoId ? 'Update Todo' : 'Add Todo'}</button>
+                <button type="button" disabled={!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate || (isFollowUp(todoDraft) && !todoDraft.leadNumber)} onClick={saveTodo}>{editingTodoId ? `Update ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}` : `Add ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}`}</button>
               </div>
             </motion.div>
           </motion.div>
@@ -1167,7 +1190,7 @@ export default function CalendarTodo() {
                 </div>
                 <button type="button" onClick={() => { setDrawerDate(null); setDetailItem(null); }}><X className="h-5 w-5" /></button>
               </div>
-              <button type="button" className="calendar-drawer-add" onClick={() => openAddTodo(drawerDate)}><Plus className="h-4 w-4" /> Add Todo / Follow-Up</button>
+              <button type="button" className="calendar-drawer-add" onClick={() => openAddFollowUp(drawerDate)}><Plus className="h-4 w-4" /> Add Follow-Up</button>
               <div className="calendar-drawer-list">
                 {drawerItems.length ? drawerItems.map((item) => {
                   const tone = getItemTone(item, todayKey);
