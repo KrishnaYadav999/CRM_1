@@ -54,9 +54,13 @@ exports.requestTemporaryAssignment = async (req, res) => {
 };
 
 exports.decideTemporaryAssignment = async (req, res) => {
-  if (cleanRole(req.user) !== 'superadmin') return res.status(403).json({ error: 'Only a Super Admin can approve or reject temporary assignments.' });
+  if (!['admin', 'superadmin'].includes(cleanRole(req.user))) return res.status(403).json({ error: 'Only an Admin or Super Admin can approve or reject temporary assignments.' });
   const decision = String(req.body?.decision || '').toUpperCase();
   if (!['APPROVED', 'REJECTED'].includes(decision)) return res.status(400).json({ error: 'Decision must be APPROVED or REJECTED.' });
+  const remarks = String(req.body?.remarks || '').trim();
+  const remarkWords = remarks ? remarks.split(/\s+/).filter(Boolean).length : 0;
+  if (!remarks) return res.status(400).json({ error: 'Remarks are required for approval and rejection.' });
+  if (remarkWords > 250) return res.status(400).json({ error: 'Remarks cannot exceed 250 words.' });
   const approval = await PendingApproval.findOne({ _id: req.params.approvalId, type: 'lead_temporary', approvalStatus: 'PENDING' });
   if (!approval) return res.status(404).json({ error: 'Pending temporary assignment request not found.' });
   const lead = await Lead.findById(approval.payload?.leadId);
@@ -66,14 +70,14 @@ exports.decideTemporaryAssignment = async (req, res) => {
   if (!rows[rowIndex]) return res.status(409).json({ error: 'The assignment row no longer exists.' });
   const now = new Date();
   const expiresAt = new Date(now.getTime() + (Math.min(7, Math.max(1, Number(approval.payload?.requestedDays) || 7)) * DAY_MS));
-  rows[rowIndex].temporaryUser = { ...approval.payload, approvalId: String(approval._id), status: decision === 'APPROVED' ? 'ACTIVE' : 'REJECTED', approvedAt: decision === 'APPROVED' ? now : undefined, expiresAt: decision === 'APPROVED' ? expiresAt : undefined, decidedAt: now, decisionRemarks: String(req.body?.remarks || '').trim() };
+  rows[rowIndex].temporaryUser = { ...approval.payload, approvalId: String(approval._id), status: decision === 'APPROVED' ? 'ACTIVE' : 'REJECTED', approvedAt: decision === 'APPROVED' ? now : undefined, expiresAt: decision === 'APPROVED' ? expiresAt : undefined, decidedAt: now, decisionRemarks: remarks, decidedById: String(req.user._id), decidedByName: req.user.name || req.user.email };
   lead.assignments = rows;
   lead.markModified('assignments');
   await lead.save();
   approval.approvalStatus = decision;
   approval.actionBy = req.user._id;
   approval.actionAt = now;
-  approval.remarks = String(req.body?.remarks || '').trim();
+  approval.remarks = remarks;
   approval.nextReminderAt = null;
   await approval.save();
   const recipients = await User.find({ _id: { $in: [approval.payload?.managerId, approval.payload?.temporaryUserId].filter(Boolean) } }).select('_id name email');

@@ -145,6 +145,7 @@ export default function PendingApproval() {
   const [clientDecision, setClientDecision] = useState(null);
   const [royaltyApprovals, setRoyaltyApprovals] = useState([]);
   const [temporaryApprovals, setTemporaryApprovals] = useState([]);
+  const [temporaryDecision, setTemporaryDecision] = useState(null);
   const [approvalInputs, setApprovalInputs] = useState({});
   const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -163,7 +164,7 @@ export default function PendingApproval() {
   const location = useLocation();
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const canApprove = adminRoles.includes(normalizedRole);
-  const canApproveTemporary = normalizedRole === 'superadmin';
+  const canApproveTemporary = ['admin', 'superadmin'].includes(normalizedRole);
   const isComplianceApprovalView = isComplianceRole(currentUser?.role) && !canApprove;
   const canApproveClients = canApprove || isComplianceApprovalView;
 
@@ -424,6 +425,26 @@ export default function PendingApproval() {
     const note = String(clientDecision?.note || '').trim();
     if (!clientDecision?.row || !note || note.length > 250) return;
     await updateApproval(clientDecision.row, clientDecision.status, note);
+  }
+
+  async function submitTemporaryDecision(event) {
+    event.preventDefault();
+    const remarks = String(temporaryDecision?.remarks || '').trim();
+    const wordCount = remarks ? remarks.split(/\s+/).filter(Boolean).length : 0;
+    if (!temporaryDecision?.row || !remarks || wordCount > 250) return;
+    const id = temporaryDecision.row._id || temporaryDecision.row.id;
+    setSavingId(id);
+    setError('');
+    try {
+      await api.patch(API_ENDPOINTS.leads.temporaryAssignmentDecision(id), { decision: temporaryDecision.decision, remarks });
+      setNotice(`Temporary assignment ${temporaryDecision.decision === 'APPROVED' ? 'approved for 7 days' : 'rejected'}. Remarks saved in the database audit trail.`);
+      setTemporaryDecision(null);
+      await loadPage({ force: true, silent: true });
+    } catch (err) {
+      setError(readError(err, 'Unable to save the temporary assignment decision.'));
+    } finally {
+      setSavingId('');
+    }
   }
 
   async function updateQuotationApproval(row, status) {
@@ -748,10 +769,10 @@ export default function PendingApproval() {
             </div>
 
             {activeTab === 'temporary' ? (
-              <ApprovalTable title="Temporary Assignment Requests" columns={['Company', 'Manager', 'Permanent User', 'Temporary User', 'Duration', 'Request Type', 'Status', 'Actions']} emptyText="No temporary assignment requests found." page={1} totalPages={1} showing={filteredTemporary.length} total={filteredTemporary.length} onPrev={() => {}} onNext={() => {}}>
+              <ApprovalTable title="Temporary User Requests" columns={['Client Name', 'Previous User', 'Temporary User', 'Manager Name', 'Duration', 'Status', 'Decision Remarks', 'Actions']} emptyText="No temporary user requests found." page={1} totalPages={1} showing={filteredTemporary.length} total={filteredTemporary.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredTemporary.map((row) => <tr key={row._id || row.id}>
-                  <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.managerName || '-'}</Cell><Cell>{row.payload?.permanentUserName || '-'}</Cell><Cell>{row.payload?.temporaryUserName || '-'}</Cell><Cell>{row.payload?.requestedDays || 7} days</Cell><Cell>{row.payload?.requestType || 'INITIAL'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell>
-                  <Cell><div className="flex gap-2"><button type="button" disabled={savingId === (row._id || row.id) || row.approvalStatus !== 'PENDING'} onClick={async () => { const id = row._id || row.id; setSavingId(id); try { await api.patch(API_ENDPOINTS.leads.temporaryAssignmentDecision(id), { decision: 'APPROVED' }); setNotice('Temporary assignment approved for 7 days.'); await loadPage({ force: true, silent: true }); } catch (err) { setError(readError(err, 'Unable to approve temporary assignment.')); } finally { setSavingId(''); } }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Approve</button><button type="button" disabled={savingId === (row._id || row.id) || row.approvalStatus !== 'PENDING'} onClick={async () => { const reason = window.prompt('Please enter the rejection reason.'); if (reason === null) return; const id = row._id || row.id; setSavingId(id); try { await api.patch(API_ENDPOINTS.leads.temporaryAssignmentDecision(id), { decision: 'REJECTED', remarks: reason }); setNotice('Temporary assignment rejected.'); await loadPage({ force: true, silent: true }); } catch (err) { setError(readError(err, 'Unable to reject temporary assignment.')); } finally { setSavingId(''); } }} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-black text-rose-600 disabled:opacity-50">Reject</button></div></Cell>
+                  <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.permanentUserName || '-'}</Cell><Cell>{row.payload?.temporaryUserName || '-'}</Cell><Cell>{row.payload?.managerName || '-'}</Cell><Cell>{row.payload?.requestedDays || 7} days</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell>{row.remarks || '-'}</Cell>
+                  <Cell><div className="flex gap-2"><button type="button" disabled={savingId === (row._id || row.id) || row.approvalStatus !== 'PENDING'} onClick={() => setTemporaryDecision({ row, decision: 'APPROVED', remarks: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Approve</button><button type="button" disabled={savingId === (row._id || row.id) || row.approvalStatus !== 'PENDING'} onClick={() => setTemporaryDecision({ row, decision: 'REJECTED', remarks: '' })} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-black text-rose-600 disabled:opacity-50">Reject</button></div></Cell>
                 </tr>)}
               </ApprovalTable>
             ) : activeTab === 'clients' ? (
@@ -967,6 +988,20 @@ export default function PendingApproval() {
           </form>
         </div>
       )}
+      {temporaryDecision && (() => {
+        const wordCount = String(temporaryDecision.remarks || '').trim().split(/\s+/).filter(Boolean).length;
+        return <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setTemporaryDecision(null); }}>
+          <form onSubmit={submitTemporaryDecision} className={`pending-decision-modal ${temporaryDecision.decision === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}>
+            <div className="pending-decision-icon">{temporaryDecision.decision === 'APPROVED' ? <CheckCircle2 className="h-7 w-7" /> : <XCircle className="h-7 w-7" />}</div>
+            <button type="button" disabled={Boolean(savingId)} onClick={() => setTemporaryDecision(null)} className="pending-decision-close" aria-label="Close temporary user decision dialog"><X className="h-5 w-5" /></button>
+            <p className="pending-decision-eyebrow">Temporary User Approval</p><h2>{temporaryDecision.decision === 'APPROVED' ? 'Approve temporary user' : 'Reject temporary user'}</h2>
+            <strong className="pending-decision-client">{temporaryDecision.row.clientName}</strong>
+            <p className="pending-decision-help"><strong>Previous User:</strong> {temporaryDecision.row.payload?.permanentUserName || '-'} · <strong>Temporary User:</strong> {temporaryDecision.row.payload?.temporaryUserName || '-'} · <strong>Manager:</strong> {temporaryDecision.row.payload?.managerName || '-'}</p>
+            <label className="pending-decision-field"><span>Decision remarks <b>*</b></span><textarea autoFocus required rows={7} value={temporaryDecision.remarks} onChange={(event) => setTemporaryDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Enter clear approval or rejection remarks (maximum 250 words)..." /><small className={wordCount > 250 ? 'text-red-600' : ''}><span>{wordCount}/250</span> words</small></label>
+            <div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setTemporaryDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || !temporaryDecision.remarks.trim() || wordCount > 250}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : temporaryDecision.decision === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Submit {temporaryDecision.decision === 'APPROVED' ? 'Approval' : 'Rejection'}</button></div>
+          </form>
+        </div>;
+      })()}
 
       {serviceRejection && (
         <div className="fixed inset-0 z-[10001] grid place-items-center bg-slate-950/55 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setServiceRejection(null); }}>
