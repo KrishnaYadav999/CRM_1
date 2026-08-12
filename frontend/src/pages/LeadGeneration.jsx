@@ -1673,6 +1673,9 @@ export default function LeadGeneration() {
     const generatedForOwnerId = generatedForOwner?._id || generatedForOwner?.id || generatedForOwner?.crmUserId || generatedForOwner?.userId || generatedForUserId || currentUser?._id || currentUser?.id || '';
     const generatedForOwnerName = generatedForOwner?.name || generatedForOwner?.email || currentUser?.name || currentUser?.email || '';
     const generatedForOwnerEmail = generatedForOwner?.email || currentUser?.email || '';
+    const actualCreatorId = currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.userId || '';
+    const actualCreatorName = currentUser?.name || currentUser?.email || '';
+    const actualCreatorEmail = currentUser?.email || '';
     const submittedAt = workflowStatus === 'submitted' ? new Date().toISOString() : lead.submittedAt;
     const formStartedAt = lead.formStartedAt || formStartedAtRef.current || new Date().toISOString();
     return {
@@ -1682,9 +1685,9 @@ export default function LeadGeneration() {
       generatedForEmail: generatedForOwnerEmail,
       serviceSelections: serviceRows.map((row, index) => ({
         ...row,
-        createdByCrmUserId: index < frozenServiceRowCount ? (row.createdByCrmUserId || '') : String(generatedForOwnerId),
-        createdByName: index < frozenServiceRowCount ? (row.createdByName || '') : generatedForOwnerName,
-        createdByEmail: index < frozenServiceRowCount ? (row.createdByEmail || '') : generatedForOwnerEmail
+        createdByCrmUserId: index < frozenServiceRowCount ? (row.createdByCrmUserId || '') : String(actualCreatorId),
+        createdByName: index < frozenServiceRowCount ? (row.createdByName || '') : actualCreatorName,
+        createdByEmail: index < frozenServiceRowCount ? (row.createdByEmail || '') : actualCreatorEmail
       })),
       addresses: addressRows,
       contacts: contactRows,
@@ -3317,9 +3320,9 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
       'Referred By': item.referredBy || '',
       Source: item.source || '',
       Notes: item.notes || '',
-      'Assigned To': item.assignedTo?.name || item.assignedToText || '',
-      'Assigned By': item.assignedBy || '',
-      'Created By': item.importedCreatedBy || '',
+      'Assigned To': item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '',
+      'Assigned By': item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '') : ''),
+      'Created By': item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '',
       'Lead Date': item.leadDate || '',
       'Next Follow-Up Date': item.nextFollowUpDate || '',
       'Next Follow-Up Time': item.nextFollowUpTime || '',
@@ -3401,9 +3404,9 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.contactPerson || '-'}</span></td>
                     <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{item.mobileNo1 || '-'}</span></td>
                     <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip normal-case">{item.emails || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.assignedBy || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.importedCreatedBy || '-'}</span></td>
+                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-'}</span></td>
+                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-')}</span></td>
+                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '-'}</span></td>
                     <td className="px-5 py-4"><span className="rounded-lg bg-lime-50 px-3 py-1 text-xs font-black text-lime-700 ring-1 ring-lime-200">{item.status || 'Draft'}</span></td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">

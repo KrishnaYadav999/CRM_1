@@ -11,5 +11,14 @@ test('Other User lead ownership is persisted separately from the actual creator'
   assert.match(controller, /'generatedForUser'/);
   assert.match(page, /generatedForUser: generatedForOwnerId/);
   assert.match(page, /createdByCrmUserId: index < frozenServiceRowCount/);
-  assert.match(page, /String\(generatedForOwnerId\)/);
+  assert.match(page, /String\(actualCreatorId\)/);
+  assert.match(controller, /createdBy: user\?\._id/);
+  assert.match(controller, /populate\('generatedForUser', 'name email'\)/);
+});
+
+test('actual creator and generated-for owner can both quote lead services', () => {
+  const quotationPage = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(quotationPage, /lead\.generatedForUser\?\._id/);
+  assert.match(quotationPage, /lead\.generatedForName/);
+  assert.match(quotationPage, /participantTokens\.some\(\(token\) => userTokens\.includes\(token\)\)/);
 });

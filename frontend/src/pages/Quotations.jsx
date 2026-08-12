@@ -388,6 +388,25 @@ function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
     currentUser?.email
   );
   if (!userTokens.length) return false;
+  // A lead can be entered by one user on behalf of another. Both the actual
+  // creator and the generated-for owner must be able to quote its services.
+  const participantTokens = ownerIdentityTokens(
+    lead.createdBy?._id,
+    lead.createdBy?.id,
+    lead.createdBy?.name,
+    lead.createdBy?.email,
+    lead.createdByCrmUserId,
+    lead.createdByName,
+    lead.createdByEmail,
+    lead.importedCreatedBy,
+    lead.generatedForUser?._id,
+    lead.generatedForUser?.id,
+    lead.generatedForUser?.name,
+    lead.generatedForUser?.email,
+    lead.generatedForName,
+    lead.generatedForEmail
+  );
+  if (participantTokens.some((token) => userTokens.includes(token))) return true;
   const ownerTokens = ownerIdentityTokens(
     row.createdByCrmUserId,
     row.createdByName,

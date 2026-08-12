@@ -383,7 +383,7 @@ async function getNextLeadCode() {
   return `${LEAD_CODE_PREFIX}${String(latestNumber + 1).padStart(4, '0')}`;
 }
 
-async function createLeadRecord(rawBody, userId) {
+async function createLeadRecord(rawBody, user) {
   const data = cleanBody(rawBody);
   const duplicateServiceError = validateDuplicateServiceSelections(data);
   if (duplicateServiceError) {
@@ -416,7 +416,27 @@ async function createLeadRecord(rawBody, userId) {
     }
   }
 
-  return Lead.create({ ...data, leadCode: await getNextLeadCode(), createdBy: userId });
+  // Audit attribution must always identify the authenticated user who actually
+  // created the record. `generatedFor*` separately identifies its business owner.
+  const createdByName = String(user?.name || user?.email || '').trim();
+  const createdByEmail = String(user?.email || '').trim().toLowerCase();
+  const createdByCrmUserId = String(user?._id || '').trim();
+
+  data.serviceSelections = (Array.isArray(data.serviceSelections) ? data.serviceSelections : []).map((row) => ({
+    ...row,
+    createdByCrmUserId,
+    createdByName,
+    createdByEmail
+  }));
+
+  return Lead.create({
+    ...data,
+    leadCode: await getNextLeadCode(),
+    createdBy: user?._id,
+    createdByName,
+    createdByEmail,
+    createdByCrmUserId
+  });
 }
 
 function royaltyIdentityTokens(...values) {
@@ -675,6 +695,7 @@ exports.searchCompanies = async (req, res) => {
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .populate('createdBy', 'name email')
+    .populate('generatedForUser', 'name email')
     .sort({ company: 1, createdAt: -1 })
     .limit(10)
     .lean();
@@ -704,6 +725,7 @@ exports.listLeads = async (req, res) => {
   ]))
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
+    .populate('createdBy', 'name email')
     .sort({ leadCode: 1, createdAt: 1 });
   await Promise.all(leads.map(async (lead) => {
     if (!Array.isArray(lead.serviceSelections)) return;
@@ -958,7 +980,7 @@ exports.bulkCreateLeads = async (req, res) => {
         await lead.save();
         updated += 1;
       } else {
-        lead = await createLeadRecord(buildBulkCreateData(data, creator), creator?._id || req.user?._id);
+        lead = await createLeadRecord(buildBulkCreateData(data, creator), creator || req.user);
         created += 1;
       }
       leads.push(lead);
@@ -1120,10 +1142,10 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       return approval;
     }));
   }
-  const query = { type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service'] } };
+  const query = { type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service', 'lead_temporary'] } };
   if (!admin) {
     const userId = String(req.user?._id || req.user?.id || '');
-    query.$or = [{ 'payload.requestedById': userId }, { 'payload.claimantId': userId }, { 'payload.originalCreatorId': userId }];
+    query.$or = [{ 'payload.requestedById': userId }, { 'payload.claimantId': userId }, { 'payload.originalCreatorId': userId }, { 'payload.managerId': userId }, { 'payload.temporaryUserId': userId }];
   }
   const approvals = await PendingApproval.find(query).populate('actionBy', 'name email').sort({ createdAt: -1 }).lean();
   res.json({ ok: true, approvals });
