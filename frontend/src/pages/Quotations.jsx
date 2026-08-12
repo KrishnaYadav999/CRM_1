@@ -912,7 +912,17 @@ export default function Quotations() {
       if (!groups.has(key)) groups.set(key, { key, company, quotations: [] });
       groups.get(key).quotations.push(row);
     });
-    return [...groups.values()].sort((left, right) => left.company.localeCompare(right.company));
+    const quotationTime = (row = {}) => {
+      const value = row.quotationDate || row.createdAt || row.updatedAt;
+      const timestamp = value ? new Date(value).getTime() : 0;
+      return Number.isNaN(timestamp) ? 0 : timestamp;
+    };
+    return [...groups.values()]
+      .map((group) => {
+        const sortedQuotations = [...group.quotations].sort((left, right) => quotationTime(right) - quotationTime(left));
+        return { ...group, quotations: sortedQuotations, latestQuotation: sortedQuotations[0] || null };
+      })
+      .sort((left, right) => quotationTime(right.latestQuotation) - quotationTime(left.latestQuotation) || left.company.localeCompare(right.company));
   }, [filteredQuotations]);
   const totalPages = Math.max(1, Math.ceil(companyGroups.length / rowsPerPage));
   const scopeBasicAmount = quotation.pricingMode === 'combined'
@@ -1752,11 +1762,11 @@ export default function Quotations() {
                     const grandTotal = group.quotations.reduce((sum, row) => sum + (Number(row.grandTotal) || 0), 0);
                     const openCount = group.quotations.filter((row) => String(row.serviceState || 'open').toLowerCase() !== 'closed').length;
                     const leadStatus = openCount ? 'Open' : 'Closed';
-                    const first = group.quotations[0] || {};
+                    const first = group.latestQuotation || group.quotations[0] || {};
                     const isOpen = expandedCompany === group.key;
                     return <React.Fragment key={group.key}>
                       <tr className="bg-white transition hover:bg-emerald-50/30">
-                        <td className="px-4 py-5"><button type="button" onClick={() => setExpandedCompany(isOpen ? '' : group.key)} className="flex w-full items-center gap-3 text-left"><ChevronDown className={`h-5 w-5 shrink-0 text-emerald-700 transition ${isOpen ? 'rotate-180' : '-rotate-90'}`} /><span><strong className="block break-words uppercase text-slate-800">{group.company}</strong><small className="font-bold text-emerald-700">Click to view {quotationCount} quotation{quotationCount === 1 ? '' : 's'}</small></span></button></td>
+                        <td className="px-4 py-5"><button type="button" onClick={() => setExpandedCompany(isOpen ? '' : group.key)} className="flex w-full items-center gap-3 text-left"><ChevronDown className={`h-5 w-5 shrink-0 text-emerald-700 transition ${isOpen ? 'rotate-180' : '-rotate-90'}`} /><span><strong className="block break-words uppercase text-slate-800">{group.company}</strong><small className="font-bold text-emerald-700">Click to view {quotationCount} quotation{quotationCount === 1 ? '' : 's'}</small><small className="mt-1 block font-bold text-slate-400">Latest: {first.quotationNumber || '-'} · {formatDisplayDate(first.quotationDate || first.createdAt)}</small></span></button></td>
                         <td className="px-4 py-5 font-black text-slate-600">{displayLeadCode(first)}</td>
                         <td className="px-4 py-5 font-black uppercase text-slate-600">{first.leadDetails?.contactPerson || '-'}</td>
                         <td className="px-4 py-5"><span className="rounded-full bg-blue-50 px-3 py-2 font-black text-blue-700">{quotationCount}</span></td>
@@ -1764,7 +1774,7 @@ export default function Quotations() {
                         <td className="px-4 py-5 font-black text-orange-600">{formatInr(grandTotal)}</td>
                         <td className="px-4 py-5"><span className={`rounded-full border px-3 py-2 text-xs font-black uppercase ${leadStatus === 'Open' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{leadStatus}{openCount && openCount !== quotationCount ? ` (${openCount})` : ''}</span></td>
                       </tr>
-                      {isOpen && <tr><td colSpan={7} className="bg-slate-50 p-5"><div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['Quotation No.', 'Date', 'Valid Until', 'Items', 'Amount', 'Lead Status', 'Quotation Status', 'Actions'].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{group.quotations.map((row) => <tr key={row._id || row.id} className="border-t"><td className="p-3 font-black text-orange-600">{row.quotationNumber || '-'}</td><td className="p-3 font-bold">{formatDisplayDate(row.quotationDate || row.createdAt)}</td><td className="p-3 font-bold">{formatDisplayDate(row.validUntil)}</td><td className="p-3 font-black">{row.items?.length || 0}</td><td className="p-3 font-black text-orange-600">{formatInr(Number(row.grandTotal) || 0)}</td><td className="p-3"><span className={`font-black uppercase ${String(row.serviceState || 'open').toLowerCase() === 'closed' ? 'text-red-600' : 'text-emerald-700'}`}>{row.serviceState || 'open'}</span></td><td className="p-3 font-black uppercase">{row.status || 'draft'}</td><td className="p-3"><div className="flex gap-2"><button type="button" onClick={() => showQuotationDetail(row)} className="rounded-lg border px-3 py-2 font-black text-emerald-700">View</button>{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 font-black text-orange-600">Edit</button>}</div></td></tr>)}</tbody></table></div></td></tr>}
+                      {isOpen && <tr><td colSpan={7} className="bg-slate-50 p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="font-black text-slate-900">Company Wise Quotations</h3><p className="text-xs font-bold text-slate-500">Latest quotation is always listed first. Select View to open an individual quotation.</p></div><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">{quotationCount} total</span></div><div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['Quotation No.', 'Date', 'Valid Until', 'Items', 'Amount', 'Lead Status', 'Quotation Status', 'Actions'].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{group.quotations.map((row, quotationIndex) => <tr key={row._id || row.id} className={`border-t ${quotationIndex === 0 ? 'bg-emerald-50/60' : ''}`}><td className="p-3 font-black text-orange-600"><span className="inline-flex items-center gap-2">{row.quotationNumber || '-'}{quotationIndex === 0 && <em className="not-italic rounded-full bg-emerald-600 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-white">Latest</em>}</span></td><td className="p-3 font-bold">{formatDisplayDate(row.quotationDate || row.createdAt)}</td><td className="p-3 font-bold">{formatDisplayDate(row.validUntil)}</td><td className="p-3 font-black">{row.items?.length || 0}</td><td className="p-3 font-black text-orange-600">{formatInr(Number(row.grandTotal) || 0)}</td><td className="p-3"><span className={`font-black uppercase ${String(row.serviceState || 'open').toLowerCase() === 'closed' ? 'text-red-600' : 'text-emerald-700'}`}>{row.serviceState || 'open'}</span></td><td className="p-3 font-black uppercase">{row.status || 'draft'}</td><td className="p-3"><div className="flex gap-2"><button type="button" onClick={() => showQuotationDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 font-black text-emerald-700"><Eye className="h-3.5 w-3.5" /> View</button>{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 font-black text-orange-600">Edit</button>}</div></td></tr>)}</tbody></table></div></td></tr>}
                     </React.Fragment>;
                   })}
                 </tbody>
