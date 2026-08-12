@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, CheckCircle2, Clock3, Edit3, Eye, FileText, RefreshCw, RotateCcw, Search, X, XCircle, Users } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Clock3, Edit3, Eye, FileCheck2, FileText, RefreshCw, RotateCcw, Search, X, XCircle, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -164,6 +164,10 @@ export default function PendingApproval() {
   const canApprove = adminRoles.includes(normalizedRole);
   const isComplianceApprovalView = isComplianceRole(currentUser?.role) && !canApprove;
   const canApproveClients = canApprove || isComplianceApprovalView;
+
+  useEffect(() => {
+    if (location.state?.approvalNotice) setNotice(location.state.approvalNotice);
+  }, [location.state?.approvalNotice]);
 
   const allApprovalRows = useMemo(() => isComplianceApprovalView
     ? pendingClients
@@ -546,14 +550,8 @@ export default function PendingApproval() {
   }
 
   function openClientMaster(row) {
-    const selectedLeadId = row?.selectedLeadId || row?.leadId || row?.uniqueId || row?.payload?.selectedLeadId || row?.payload?.selectedLead;
-    navigate('/sales/client-master', {
-      state: {
-        selectedLeadId,
-        companyName: row?.clientName || row?.companyName || '',
-        fromPendingApproval: true
-      }
-    });
+    if (!row?.id) return;
+    navigate(`/pending-approval/clients/${row.id}/review`);
   }
 
   async function approveAllPendingQuotations() {
@@ -748,19 +746,7 @@ export default function PendingApproval() {
                 total={filteredClients.length}
                 onPrev={() => setClientPage((value) => Math.max(1, value - 1))}
                 onNext={() => setClientPage((value) => Math.min(clientTotalPages, value + 1))}
-                actions={canApproveClients ? (
-                  <button
-                    type="button"
-                    disabled={!pendingClients.length || Boolean(savingId)}
-                    onClick={approveAllPendingClients}
-                    className="pending-approve-all"
-                  >
-                    {savingId === 'approve-all' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    Approve All
-                  </button>
-                ) : (
-                  <span className="pending-admin-only">Admin only</span>
-                )}
+                actions={<span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Full verification required</span>}
               >
                 {visibleClients.map((client) => (
                   <tr key={client.id}>
@@ -770,7 +756,7 @@ export default function PendingApproval() {
                     <Cell>{client.eprCategory}</Cell>
                     <Cell>{client.createdBy}</Cell>
                     <Cell>{[formatApprovalValue(client.requestDate), formatApprovalValue(client.requestTime)].filter((item) => item !== '-').join(' ')}</Cell>
-                    <ActionCell row={client} savingId={savingId} onUpdate={requestClientDecision} canApprove={canApproveClients} />
+                    <Cell><button type="button" onClick={() => openClientMaster(client)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white"><FileCheck2 className="h-4 w-4" />Review</button></Cell>
                   </tr>
                 ))}
               </ApprovalTable>

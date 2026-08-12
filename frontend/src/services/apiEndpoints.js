@@ -48,6 +48,9 @@ const API_ENDPOINTS = {
     approveAllPendingClients: '/clients/pending-approvals/clients/approve-all',
     detail: (id) => `/clients/${encodePathValue(id)}`,
     approval: (id) => `/clients/${encodePathValue(id)}/approval`,
+    complianceReview: (id) => `/clients/${encodePathValue(id)}/compliance-review`,
+    complianceReviewSection: (id, sectionKey) => `/clients/${encodePathValue(id)}/compliance-review/sections/${encodePathValue(sectionKey)}`,
+    complianceReviewDecision: (id) => `/clients/${encodePathValue(id)}/compliance-review/decision`,
     annualReturn: (id) => `/clients/${encodePathValue(id)}/annual-return`
   },
   quotations: {

@@ -14,6 +14,7 @@ import AnnualReturns from './pages/AnnualReturns'
 import CalendarTodo from './pages/CalendarTodo'
 import Notifications from './pages/Notifications'
 import PendingApproval from './pages/PendingApproval'
+import ClientComplianceReview from './pages/ClientComplianceReview'
 import NotFound from './pages/NotFound'
 import AssistantPage from './pages/AssistantPage'
 import ProformaInvoices from './pages/ProformaInvoices'
@@ -84,7 +85,8 @@ function App(){
         <Route path="/dashboard/users" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminDashboard/></ProtectedRoute>} />
         <Route path="/superadmin-dashboard" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><SuperAdminDashboard/></ProtectedRoute>} />
         <Route path="/dashboard/activity-logs" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><ActivityLogs/></ProtectedRoute>} />
-        <Route path="/pending-approval" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingApproval/></ProtectedRoute>} />
+        <Route path="/pending-approval" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'compliance']}><PendingApproval/></ProtectedRoute>} />
+        <Route path="/pending-approval/clients/:clientId/review" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'compliance']}><ClientComplianceReview/></ProtectedRoute>} />
         <Route path="/pending-leads" element={<Navigate to="/pending-leads/open" replace />} />
         <Route path="/pending-leads/open" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingLeads mode="open"/></ProtectedRoute>} />
         <Route path="/pending-leads/closed" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingLeads mode="closed"/></ProtectedRoute>} />

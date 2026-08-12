@@ -3,6 +3,7 @@ const Client = require('../models/Client');
 const Quotation = require('../models/Quotation');
 const AnnualReturn = require('../models/AnnualReturn');
 const PendingApproval = require('../models/PendingApproval');
+const ClientComplianceReview = require('../models/ClientComplianceReview');
 const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
 const { notifyPoSpecialApproval } = require('../services/poApprovalNotifications');
 const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
@@ -1269,6 +1270,15 @@ exports.updateClientApproval = async (req, res) => {
   const client = mongoose.Types.ObjectId.isValid(req.params.id)
     ? await Client.findById(req.params.id)
     : null;
+
+  if (client && status === 'APPROVED') {
+    const complianceReview = await ClientComplianceReview.findOne({ client: client._id }).lean();
+    const sections = Array.isArray(complianceReview?.sections) ? complianceReview.sections : [];
+    const reviewComplete = sections.length === 8
+      && sections.every((section) => ['VERIFIED', 'NOT_APPLICABLE'].includes(section.status))
+      && complianceReview?.status === 'APPROVED';
+    if (!reviewComplete) return res.status(409).json({ error: 'Complete all Compliance Verification tabs before approving this Client Master' });
+  }
 
   if (!client) {
     const createdClient = await Client.create({
