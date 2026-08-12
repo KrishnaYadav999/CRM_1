@@ -854,6 +854,7 @@ export default function Quotations() {
   const navigate = useNavigate();
   const location = useLocation();
   const quotationContext = location.state?.quotationContext || null;
+  const [fromPendingApproval, setFromPendingApproval] = useState(Boolean(location.state?.fromPendingApproval));
 
   const selectedLead = useMemo(() => {
     if (quotationContext?.sourceType === 'client' || (quotationContext?.clientId && quotationContext?.clientName)) return null;
@@ -1016,6 +1017,7 @@ export default function Quotations() {
         return keys.includes(previewKey);
       }) || quotationSnapshot;
       if (target) {
+        if (location.state?.fromPendingApproval) setFromPendingApproval(true);
         setPreviewQuotation(normalizeQuotationSnapshot(target));
         navigate(location.pathname, { replace: true, state: {} });
       }
@@ -1849,7 +1851,7 @@ export default function Quotations() {
             onRevise={() => editQuotation(detailQuotation)}
           />
         )}
-        {previewQuotation && <QuotationPreviewDrawer quotation={previewQuotation} onClose={() => setPreviewQuotation(null)} />}
+        {previewQuotation && <QuotationPreviewDrawer quotation={previewQuotation} onClose={() => setPreviewQuotation(null)} onBackToPendingApproval={fromPendingApproval ? () => navigate('/pending-approval') : null} />}
         {successModal && (
           <SuccessDialog
             title={successModal.title}
@@ -2558,7 +2560,7 @@ function HistoryRow({ tone, title, by, date, status }) {
   );
 }
 
-function QuotationPreviewDrawer({ quotation, onClose }) {
+function QuotationPreviewDrawer({ quotation, onClose, onBackToPendingApproval }) {
   const details = quotation.leadDetails || {};
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
@@ -2717,6 +2719,7 @@ function QuotationPreviewDrawer({ quotation, onClose }) {
             </div>
           </div>
           <div className="flex gap-2">
+            {onBackToPendingApproval && <button type="button" onClick={onBackToPendingApproval} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-5 font-black text-emerald-800"><ArrowLeft className="h-4 w-4" />Back to Pending Approval</button>}
             <button type="button" onClick={onClose} className="btn-lift min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Close</button>
             <button type="button" disabled={downloadingPdf} onClick={handleDownloadPdf} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 font-black text-white disabled:cursor-wait disabled:opacity-70"><Download className={`h-4 w-4 ${downloadingPdf ? 'animate-bounce' : ''}`} />{downloadingPdf ? 'Generating PDF...' : 'Download PDF'}</button>
           </div>

@@ -33,8 +33,11 @@ test('custom compliance roles pass compliance-family authorization and sidebar v
 test('pending client company navigation preselects its lead in Client Master', () => {
   const approvals = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
   const clientMaster = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  const quotations = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(approvals, /navigate\(`\/pending-approval\/clients\/\$\{row\.id\}\/review`\)/);
   assert.match(approvals, /fromPendingApproval: true/);
+  assert.match(quotations, /Back to Pending Approval/);
+  assert.match(quotations, /onBackToPendingApproval=\{fromPendingApproval/);
   assert.match(clientMaster, /location\.state\?\.fromPendingApproval/);
   assert.match(clientMaster, /handleLeadSelect\(leadValue\)/);
 });
