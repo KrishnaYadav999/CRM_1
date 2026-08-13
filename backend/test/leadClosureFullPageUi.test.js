@@ -12,7 +12,9 @@ test('lead closure uses a full-screen workspace and shows only the selected quot
 });
 
 test('quotation and PO data share one table with combined and individual amount presentation', () => {
-  assert.match(source, /'Basic Amount \(INR\)', 'PO Number', 'PO Proof', 'Service'/);
+  assert.match(source, /'Basic Amount \(INR\)', 'PO Number', 'PO Amount \(INR\)', 'PO Proof', 'Service'/);
+  assert.match(source, /updatePo\(index, \{ poAmount: event\.target\.value \}\)/);
+  assert.match(source, /value=\{po\.poAmount \?\? ''\}/);
   assert.match(source, /quotation\.combinedBasicAmount \|\| quotation\.grandTotal/);
   assert.match(source, /rowSpan=\{combined \? rows\.length : 1\}/);
   assert.doesNotMatch(source, /Add Extra PO/);
