@@ -9,10 +9,10 @@ test('lead closure auto-fetches quotation fields and supports one or multiple PO
   const page = read('../../frontend/src/pages/LeadGeneration.jsx');
   assert.match(page, /Quotation details auto-fetched/);
   assert.match(page, /EPR \/ Service Period/);
-  assert.match(page, /PO Amount \(INR\)/);
-  assert.match(page, /One Purchase Order/);
-  assert.match(page, /Multiple Purchase Orders/);
-  assert.match(page, /Save PO Details/);
+  assert.match(page, /Basic Amount \(INR\)/);
+  assert.match(page, /Enter PO details against every quotation service/);
+  assert.match(page, /quotation service row/);
+  assert.match(page, /Confirm Lead Closure/);
 });
 
 test('PO approval is persisted and restricted to Admin and Super Admin', () => {

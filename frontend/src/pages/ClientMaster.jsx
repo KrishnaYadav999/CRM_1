@@ -748,6 +748,19 @@ function findCachedClientDraft(keys = [], assignedServiceId = '') {
   return scopedKeys.map((key) => cache[key]).find(Boolean) || null;
 }
 
+function removeCachedClientDraft(draft = {}) {
+  if (!draft?.id) return;
+  const cache = readClientDraftCache();
+  let changed = false;
+  Object.keys(cache).forEach((key) => {
+    if (String(cache[key]?.id || '') === String(draft.id)) {
+      delete cache[key];
+      changed = true;
+    }
+  });
+  if (changed) writeClientDraftCache(cache);
+}
+
 function rememberClientDraft(savedClient = {}, fallbackClient = {}) {
   const savedData = readClientData(savedClient);
   const data = { ...fallbackClient, ...savedData };
@@ -1106,7 +1119,16 @@ export default function ClientMaster() {
         data: { ...emptyClient, ...readClientData(matchedClient), selectedLead: leadValue || matchedClient.selectedLead || '' }
       };
     }
-    return findCachedClientDraft(strongLeadKeys, assignedServiceId);
+    const cachedDraft = findCachedClientDraft(strongLeadKeys, assignedServiceId);
+    // A cached draft with a database id is only a convenience copy of that
+    // server record. If the record was deleted from the database, do not
+    // resurrect its old data in the form. Drafts that were never saved (no id)
+    // remain available to the user.
+    if (cachedDraft?.id) {
+      removeCachedClientDraft(cachedDraft);
+      return null;
+    }
+    return cachedDraft;
   }
 
   function handleLeadSelect(value, selectedService = null) {
