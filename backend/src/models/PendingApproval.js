@@ -24,6 +24,8 @@ const PendingApprovalSchema = new mongoose.Schema({
   notifiedAdminEmails: [{ type: String, lowercase: true, trim: true }],
   actionBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   actionAt: { type: Date },
+  decisionProofUrl: { type: String, trim: true },
+  decisionProofName: { type: String, trim: true },
   remarks: { type: String, trim: true, maxlength: 2500 }
 }, { timestamps: true });
 

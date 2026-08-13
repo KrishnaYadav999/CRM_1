@@ -744,6 +744,17 @@ exports.updateQuotationApproval = async (req, res) => {
     return res.status(400).json({ error: 'Approval status must be APPROVED or REJECTED' });
   }
 
+  const reviewerRole = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const remarks = String(req.body.remarks || '').trim();
+  const proofUrl = String(req.body.proofUrl || '').trim();
+  const proofName = String(req.body.proofName || '').trim();
+  if (status === 'REJECTED' && !remarks) {
+    return res.status(400).json({ error: 'Please enter a rejection reason.' });
+  }
+  if (status === 'APPROVED' && reviewerRole === 'admin' && !proofUrl) {
+    return res.status(400).json({ error: 'Admin must upload approval proof before approving this quotation.' });
+  }
+
   const approvalRecordId = String(req.body.approvalRecordId || '').trim();
   const approvalRecord = require('mongoose').Types.ObjectId.isValid(approvalRecordId)
     ? await PendingApproval.findById(approvalRecordId)
@@ -753,7 +764,9 @@ exports.updateQuotationApproval = async (req, res) => {
     nextReminderAt: null,
     actionBy: req.user?._id,
     actionAt: new Date(),
-    remarks: String(req.body.remarks || '').trim()
+    remarks,
+    decisionProofUrl: proofUrl,
+    decisionProofName: proofName
   };
   const requestedId = String(req.params.id || '').trim();
   const resolvedQuotationId = require('mongoose').Types.ObjectId.isValid(requestedId)
@@ -768,6 +781,15 @@ exports.updateQuotationApproval = async (req, res) => {
   }
 
   quotation.status = status === 'APPROVED' ? 'approved' : 'rejected';
+  quotation.approvalDecision = {
+    status,
+    remarks,
+    proofUrl,
+    proofName,
+    reviewerRole,
+    actionBy: req.user?._id,
+    actionAt: update.actionAt
+  };
   await quotation.save();
 
   await PendingApproval.updateMany(
@@ -852,6 +874,10 @@ exports.bulkCreateQuotations = async (req, res) => {
 };
 
 exports.approveAllPendingQuotations = async (req, res) => {
+  const reviewerRole = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (reviewerRole !== 'superadmin') {
+    return res.status(403).json({ error: 'Only Super Admin can approve all quotations without individual proof.' });
+  }
   const remarks = String(req.body.remarks || 'Bulk approved').trim();
   const records = await PendingApproval.find({ type: 'quotation', approvalStatus: 'PENDING' });
   let approved = 0;
@@ -862,6 +888,7 @@ exports.approveAllPendingQuotations = async (req, res) => {
       const quotation = await Quotation.findById(record.sourceClientId);
       if (quotation) {
         quotation.status = 'approved';
+        quotation.approvalDecision = { status: 'APPROVED', remarks, proofUrl: '', proofName: '', reviewerRole, actionBy: req.user?._id, actionAt: new Date() };
         await quotation.save();
         await quotation.populate('createdBy', 'name email');
       }

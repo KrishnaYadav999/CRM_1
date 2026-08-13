@@ -79,6 +79,7 @@ const QuotationSchema = new mongoose.Schema({
   leadGeneratedBy: { type: String, trim: true },
   assignedUserName: { type: String, trim: true },
   revisionHistory: { type: Array, default: [] },
+  approvalDecision: { type: mongoose.Schema.Types.Mixed, default: {} },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
