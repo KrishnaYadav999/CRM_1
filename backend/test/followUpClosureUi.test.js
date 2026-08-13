@@ -7,7 +7,7 @@ const frontendRoot = path.resolve(__dirname, '../../frontend/src');
 
 test('Client Master consent year choices extend through 2040', () => {
   const constants = fs.readFileSync(path.join(frontendRoot, 'features/clientMaster/clientMaster.constants.js'), 'utf8');
-  assert.match(constants, /years:\s*Array\.from\(\{\s*length:\s*26\s*\},\s*\(_?,?\s*index\)\s*=>\s*String\(2040\s*-\s*index\)\)/);
+  assert.match(constants, /return `\$\{start\}-\$\{String\(\(start \+ 1\) % 100\)\.padStart\(2, '0'\)\}`/);
 });
 
 test('updating a follow-up closes the prior item and keeps closed history visible', () => {

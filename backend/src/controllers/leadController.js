@@ -261,9 +261,15 @@ function cleanBody(body) {
           poStatus: ['received', 'provisional'].includes(String(row?.poStatus || '')) ? String(row.poStatus) : '',
           poYearRows: Array.isArray(row?.poYearRows) ? row.poYearRows.slice(0, 25).map((po) => ({
             fy: String(po?.fy || '').trim(), poNumber: String(po?.poNumber || '').trim(),
+            poAmount: Math.max(0, Number(po?.poAmount) || 0),
             poFileUrl: String(po?.poFileUrl || '').trim(), poFileName: String(po?.poFileName || '').trim(),
-            services: Array.isArray(po?.services) ? po.services.map((service) => String(service || '').trim()).filter(Boolean) : []
+            services: Array.isArray(po?.services) ? po.services.map((service) => String(service || '').trim()).filter(Boolean) : [],
+            quotationId: String(po?.quotationId || '').trim(), quotationNumber: String(po?.quotationNumber || '').trim(),
+            quotationItems: Array.isArray(po?.quotationItems) ? po.quotationItems.slice(0, 25) : [],
+            quotationCreatedById: String(po?.quotationCreatedById || '').trim(),
+            quotationCreatedByEmail: String(po?.quotationCreatedByEmail || '').trim().toLowerCase()
           })) : [],
+          poApprovalStatus: ['PENDING', 'APPROVED', 'REJECTED', 'REVISION_REQUIRED'].includes(String(row?.poApprovalStatus || '').toUpperCase()) ? String(row.poApprovalStatus).toUpperCase() : '',
           closureApprovalProofUrl: String(row?.closureApprovalProofUrl || '').trim(),
           closureApprovalProofName: String(row?.closureApprovalProofName || '').trim(),
           provisionalCloseExpiresAt: String(row?.provisionalCloseExpiresAt || '').trim(),
@@ -359,12 +365,38 @@ function validateClosureAssignments(data = {}) {
     if (!row.closedBy) continue;
     if (row.poStatus === 'received') {
       const poRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
-      if (!poRows.length || poRows.some((po) => !po.fy || !po.poNumber || !po.poFileUrl || !Array.isArray(po.services) || !po.services.length)) return `Assignment row ${index + 1}: complete every PO detail before closing.`;
+      if (!poRows.length || poRows.some((po) => !po.fy || !po.poNumber || !(Number(po.poAmount) > 0) || !po.poFileUrl || !Array.isArray(po.services) || !po.services.length)) return `Assignment row ${index + 1}: complete every PO detail, including PO Amount, before closing.`;
     } else if (row.poStatus === 'provisional') {
       if (!row.closureApprovalProofUrl || !row.provisionalCloseExpiresAt) return `Assignment row ${index + 1}: Super Admin approval proof is required for closure without PO.`;
     } else return `Assignment row ${index + 1}: choose whether the PO was received before closing.`;
   }
   return '';
+}
+
+async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
+  const beforeRows = Array.isArray(beforeLead.assignments) ? beforeLead.assignments : [];
+  const rows = Array.isArray(lead.assignments) ? lead.assignments : [];
+  await Promise.all(rows.map(async (row, index) => {
+    if (row.poStatus !== 'received' || !row.closedBy) return;
+    const before = beforeRows[index] || {};
+    const changed = JSON.stringify(before.poYearRows || []) !== JSON.stringify(row.poYearRows || []);
+    if (!changed && row.poApprovalStatus) return;
+    row.poApprovalStatus = 'PENDING';
+    const service = (lead.serviceSelections || [])[index] || {};
+    const sourceClientId = `${lead._id}:po:${row.assignedServiceId || index}`;
+    await PendingApproval.findOneAndUpdate(
+      { type: 'purchase_order', source: 'crm', sourceClientId },
+      { $setOnInsert: { type: 'purchase_order', source: 'crm', sourceClientId }, $set: {
+        uniqueId: lead.leadCode || String(lead._id), clientName: lead.company || 'Lead', approvalStatus: 'PENDING',
+        piboCategory: service.subApplicantType || service.piboCategory || service.applicantType || '',
+        eprCategory: service.eprCategory || '', createdByName: actor?.name || actor?.email || '',
+        requestDate: new Date().toLocaleDateString('en-GB'), requestTime: new Date().toLocaleTimeString('en-US'),
+        payload: { leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex: index, assignedServiceId: row.assignedServiceId || '', service, poYearRows: row.poYearRows || [], leadCreatorId: String(lead.createdBy?._id || lead.createdBy || ''), leadCreatorEmail: lead.createdBy?.email || lead.createdByEmail || '', quotationCreatorIds: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedById).filter(Boolean))], quotationCreatorEmails: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedByEmail).filter(Boolean))] },
+        actionBy: null, actionAt: null, remarks: ''
+      } }, { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+  }));
+  lead.markModified('assignments');
 }
 
 function leadCodeSequence(value) {
@@ -839,6 +871,7 @@ exports.updateLead = async (req, res) => {
     }
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
+    await upsertPurchaseOrderApprovals({ beforeLead, lead, actor: req.user });
     await lead.save();
     if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
       await Lead.collection.updateOne({ _id: lead._id }, { $unset: { piboCategory: '' } });
@@ -884,6 +917,45 @@ exports.updateLead = async (req, res) => {
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to update lead' });
   }
+};
+
+exports.decidePurchaseOrderApproval = async (req, res) => {
+  const status = String(req.body.status || '').trim().toUpperCase();
+  if (!['APPROVED', 'REJECTED', 'REVISION_REQUIRED'].includes(status)) return res.status(400).json({ error: 'Select Approve, Reject, or Revision Required.' });
+  const remarks = String(req.body.remarks || '').trim();
+  if (!remarks) return res.status(400).json({ error: 'Decision remarks are required.' });
+  const screenshotUrl = String(req.body.screenshotUrl || '').trim();
+  if (status === 'REVISION_REQUIRED' && !screenshotUrl) return res.status(400).json({ error: 'Upload a correction screenshot for Revision Required.' });
+  const approval = await PendingApproval.findOne({ _id: req.params.id, type: 'purchase_order' });
+  if (!approval) return res.status(404).json({ error: 'PO approval request not found.' });
+  const lead = await Lead.findById(approval.payload?.leadId).populate('createdBy', 'name email');
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  const index = Number(approval.payload?.assignmentIndex);
+  if (!lead.assignments?.[index]) return res.status(404).json({ error: 'Lead assignment not found.' });
+  lead.assignments[index].poApprovalStatus = status;
+  lead.markModified('assignments');
+  await lead.save();
+  approval.approvalStatus = status;
+  approval.remarks = remarks;
+  approval.actionBy = req.user?._id;
+  approval.actionAt = new Date();
+  approval.payload = { ...(approval.payload || {}), decisionScreenshotUrl: screenshotUrl, decidedBy: req.user?.name || req.user?.email || '' };
+  approval.markModified('payload');
+  await approval.save();
+  const recipients = [...new Set([approval.payload?.leadCreatorEmail, ...(approval.payload?.quotationCreatorEmails || [])].filter(Boolean))];
+  const verb = status === 'APPROVED' ? 'approved' : status === 'REJECTED' ? 'rejected' : 'marked for revision';
+  const html = `<div style="font-family:Arial,sans-serif;color:#334155"><h2>Purchase Order ${escapeHtml(verb)}</h2><p>The quotation and PO for <strong>${escapeHtml(lead.company || lead.leadCode)}</strong> were ${escapeHtml(verb)}.</p><p><strong>Remarks:</strong> ${escapeHtml(remarks)}</p>${screenshotUrl ? `<p><a href="${escapeHtml(screenshotUrl)}">View correction screenshot</a></p>` : ''}<p>Please revise the quotation and PO details when revision is required.</p></div>`;
+  let screenshotAttachment = null;
+  if (screenshotUrl) {
+    try {
+      const response = await fetch(screenshotUrl);
+      if (response.ok) screenshotAttachment = { filename: 'po-correction-screenshot.jpg', content: Buffer.from(await response.arrayBuffer()), contentType: response.headers.get('content-type') || 'image/jpeg' };
+    } catch (error) {
+      console.error('Unable to attach PO correction screenshot', error.message);
+    }
+  }
+  await Promise.allSettled(recipients.map((email) => sendMail(email, `PO ${status.replace('_', ' ')} - ${lead.company || lead.leadCode}`, html, { branded: false, attachments: screenshotAttachment ? [screenshotAttachment] : [] })));
+  res.json({ ok: true, approval });
 };
 
 exports.recordIntroductionEmail = async (req, res) => {
@@ -1142,7 +1214,7 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       return approval;
     }));
   }
-  const query = { type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service', 'lead_temporary'] } };
+  const query = { type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service', 'lead_temporary', 'purchase_order'] } };
   if (!admin) {
     const userId = String(req.user?._id || req.user?.id || '');
     query.$or = [{ 'payload.requestedById': userId }, { 'payload.claimantId': userId }, { 'payload.originalCreatorId': userId }, { 'payload.managerId': userId }, { 'payload.temporaryUserId': userId }];

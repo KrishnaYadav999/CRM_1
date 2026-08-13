@@ -1,12 +1,12 @@
 const mongoose = require('mongoose');
 
 const PendingApprovalSchema = new mongoose.Schema({
-  type: { type: String, enum: ['client', 'quotation', 'lead_duplicate', 'lead_royalty', 'lead_service', 'lead_temporary'], default: 'client', index: true },
+  type: { type: String, enum: ['client', 'quotation', 'purchase_order', 'lead_duplicate', 'lead_royalty', 'lead_service', 'lead_temporary'], default: 'client', index: true },
   source: { type: String, trim: true, default: 'crm', index: true },
   sourceClientId: { type: String, trim: true, index: true },
   uniqueId: { type: String, trim: true, index: true },
   clientName: { type: String, trim: true },
-  approvalStatus: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING', index: true },
+  approvalStatus: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED', 'REVISION_REQUIRED'], default: 'PENDING', index: true },
   piboCategory: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
   createdByName: { type: String, trim: true },

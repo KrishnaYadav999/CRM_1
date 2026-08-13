@@ -4,7 +4,7 @@ const User = require('../models/User');
 const { ADMIN_ROLES } = require('../constants/roles');
 const { sendMail } = require('../utils/mailer');
 
-const TEN_MINUTES = 10 * 60 * 1000;
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 let schedulerStarted = false;
 
 function escapeHtml(value) {
@@ -39,7 +39,7 @@ async function runLeadServiceApprovalReminders(now = new Date()) {
         <h2 style="color:${redFlag ? '#dc2626' : '#0f766e'}">${redFlag ? 'Red Flag: Final Reminder' : 'Additional Service Approval Reminder'}</h2>
         <p>The additional service request for <strong>${escapeHtml(record.clientName)}</strong> is still awaiting your preliminary decision.</p>
         <p><strong>Reminder:</strong> ${reminderNumber} of 2</p>
-        <p>Please approve or reject it from CRM Pending Approval within 10 minutes.</p>
+        <p>Please approve or reject it from CRM Pending Approval within 24 hours.</p>
         ${redFlag ? '<p style="padding:12px;background:#fef2f2;border-left:4px solid #dc2626;color:#991b1b"><strong>Red Flag:</strong> If no action is taken after this reminder, the system will automatically record a preliminary approval. Final authority will remain with Admin/Superadmin.</p>' : ''}
         <p><strong>Thanks &amp; Regards,</strong><br><strong>Team Ananttattva</strong></p>
       </div>`;
@@ -54,7 +54,7 @@ async function runLeadServiceApprovalReminders(now = new Date()) {
       });
       record.reminderCount = reminderNumber;
       record.lastReminderAt = now;
-      record.nextReminderAt = new Date(now.getTime() + TEN_MINUTES);
+      record.nextReminderAt = new Date(now.getTime() + TWENTY_FOUR_HOURS_MS);
       await record.save();
       reminded += 1;
       continue;
@@ -63,7 +63,7 @@ async function runLeadServiceApprovalReminders(now = new Date()) {
     payload.preliminaryStatus = 'APPROVED';
     payload.preliminaryActionBy = 'CRM System';
     payload.preliminaryActionAt = now;
-    payload.preliminaryReason = 'The original lead creator did not respond after two 10-minute reminders. The system recorded a preliminary approval automatically.';
+    payload.preliminaryReason = 'The original lead creator did not respond after two 24-hour reminders. The system recorded a preliminary approval automatically.';
     payload.autoApproved = true;
     record.payload = payload;
     record.remarks = 'Preliminary approval automatically recorded by CRM after two unanswered reminders. Awaiting final Admin/Superadmin review.';
@@ -105,7 +105,7 @@ function startLeadServiceApprovalReminderScheduler() {
 }
 
 module.exports = {
-  TEN_MINUTES,
+  TWENTY_FOUR_HOURS_MS,
   runLeadServiceApprovalReminders,
   startLeadServiceApprovalReminderScheduler
 };

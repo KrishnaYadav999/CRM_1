@@ -131,7 +131,7 @@ async function notifyAdditionalLeadServices({ beforeLead, afterLead, actor }) {
         createdByName: actorName,
         requestDate: new Date().toISOString().slice(0, 10),
         requestTime: new Date().toTimeString().slice(0, 8),
-        nextReminderAt: new Date(Date.now() + 10 * 60 * 1000),
+        nextReminderAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         payload: {
           eventKey,
           leadId,

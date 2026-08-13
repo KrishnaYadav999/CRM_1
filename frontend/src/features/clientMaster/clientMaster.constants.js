@@ -6,7 +6,10 @@ export const selectOptions = {
   piboCategory: ['Producer', 'Importer', 'Brand Owner', 'Recycler', 'PWP', 'Refurbisher'],
   eprCategory: ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste'],
   // Consent issue/validity dropdowns must allow upcoming renewal years too.
-  years: Array.from({ length: 26 }, (_, index) => String(2040 - index)),
+  years: Array.from({ length: 26 }, (_, index) => {
+    const start = 2040 - index;
+    return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+  }),
   annualReturnYears: buildAnnualReturnYearOptions(),
   states: ['Gujarat', 'Maharashtra', 'Karnataka', 'Delhi', 'Rajasthan', 'Uttar Pradesh', 'Haryana', 'Tamil Nadu', 'Telangana'],
   cities: ['Ahmedabad', 'Surat', 'Mumbai', 'Pune', 'Bengaluru', 'Delhi', 'Jaipur', 'Noida', 'Gurugram', 'Chennai', 'Hyderabad'],
