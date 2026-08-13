@@ -25,6 +25,17 @@ function inputDate(offsetDays = 0) {
   return `${pick('year')}-${pick('month')}-${pick('day')}`
 }
 
+function entityId(value) {
+  if (value && typeof value === 'object') return String(value._id || value.id || '')
+  return String(value || '')
+}
+
+function displayText(value, fallback = '-') {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'object') return String(value.name || value.email || value.label || value._id || value.id || fallback)
+  return String(value)
+}
+
 function riskTone(key) {
   return {
     healthy: 'bg-emerald-100 text-emerald-800 ring-emerald-200', away: 'bg-orange-100 text-orange-800 ring-orange-200',
@@ -56,9 +67,10 @@ function topRow(rows, selector) {
 
 function buildOperationGroups(rows, teams = []) {
   if (teams.length) return teams.map((team) => {
-    const manager = rows.find((row) => String(row.id) === String(team.managerId)) || null
-    const memberIds = new Set((team.memberIds || []).map(String))
-    const members = rows.filter((row) => memberIds.has(String(row.id)) && String(row.id) !== String(team.managerId))
+    const managerId = entityId(team.managerId)
+    const manager = rows.find((row) => entityId(row.id) === managerId) || null
+    const memberIds = new Set((team.memberIds || []).map(entityId))
+    const members = rows.filter((row) => memberIds.has(entityId(row.id)) && entityId(row.id) !== managerId)
     const people = [...(manager ? [manager] : []), ...members]
     const filled = people.reduce((sum, row) => sum + Number(row.clientFieldsFilled || 0), 0)
     const missing = people.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
@@ -309,7 +321,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
             <button type="button" onClick={() => navigate('/sales/quotations')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-black text-white">Open Quotations</button>
           </header>
           <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Quotation</th><th className="px-5 py-3">Company</th><th className="px-5 py-3">Lead Code</th><th className="px-5 py-3">Prepared By</th><th className="px-5 py-3">Date</th><th className="px-5 py-3 text-right">Items</th><th className="px-5 py-3 text-right">Amount</th><th className="px-5 py-3">Status</th></tr></thead><tbody>
-            {quotationMisRows.map((row, index) => <tr key={row._id || row.id || index} className={`border-t border-slate-100 font-semibold text-slate-700 hover:bg-orange-50/50 ${index === 0 ? 'bg-orange-50/60' : ''}`}><td className="px-5 py-3"><strong className="text-orange-700">{row.quotationNumber || '-'}</strong>{index === 0 && <small className="ml-2 rounded-full bg-orange-500 px-2 py-1 text-[9px] font-black uppercase text-white">Latest</small>}</td><td className="px-5 py-3 font-black text-slate-950">{row.companyName || row.leadDetails?.companyName || '-'}</td><td className="px-5 py-3">{row.leadCode || row.leadDetails?.leadCode || '-'}</td><td className="px-5 py-3">{row.preparedBy || row.createdByName || row.createdBy || '-'}</td><td className="px-5 py-3">{formatReportDate(row.quotationDate || row.createdAt)}</td><td className="px-5 py-3 text-right font-black">{row.items?.length || 0}</td><td className="px-5 py-3 text-right font-black text-orange-700">₹{(Number(row.grandTotal) || 0).toLocaleString('en-IN')}</td><td className="px-5 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-700">{row.status || 'draft'}</span></td></tr>)}
+            {quotationMisRows.map((row, index) => <tr key={entityId(row._id || row.id) || index} className={`border-t border-slate-100 font-semibold text-slate-700 hover:bg-orange-50/50 ${index === 0 ? 'bg-orange-50/60' : ''}`}><td className="px-5 py-3"><strong className="text-orange-700">{displayText(row.quotationNumber)}</strong>{index === 0 && <small className="ml-2 rounded-full bg-orange-500 px-2 py-1 text-[9px] font-black uppercase text-white">Latest</small>}</td><td className="px-5 py-3 font-black text-slate-950">{displayText(row.companyName || row.leadDetails?.companyName)}</td><td className="px-5 py-3">{displayText(row.leadCode || row.leadDetails?.leadCode)}</td><td className="px-5 py-3">{displayText(row.preparedBy || row.createdByName || row.createdBy)}</td><td className="px-5 py-3">{formatReportDate(row.quotationDate || row.createdAt)}</td><td className="px-5 py-3 text-right font-black">{row.items?.length || 0}</td><td className="px-5 py-3 text-right font-black text-orange-700">₹{(Number(row.grandTotal) || 0).toLocaleString('en-IN')}</td><td className="px-5 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-700">{displayText(row.status, 'draft')}</span></td></tr>)}
             {!loading && !quotationMisRows.length && <tr><td colSpan="8" className="p-10 text-center font-bold text-slate-400">No quotations found.</td></tr>}
           </tbody></table></div>
         </section>}

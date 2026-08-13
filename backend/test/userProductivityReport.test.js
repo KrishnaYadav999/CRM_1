@@ -50,6 +50,8 @@ test('productivity report limits heavy telemetry queries and falls back per data
   assert.match(source, /\.limit\(5000\)\.maxTimeMS\(15000\)/);
   assert.match(source, /\.limit\(10000\)\.maxTimeMS\(15000\)/);
   assert.match(source, /REPORT_CACHE_TTL_MS = 60 \* 1000/);
+  assert.match(source, /managerId: entityId\(team\.manager\)/);
+  assert.match(source, /memberIds: \(team\.members \|\| \[\]\)\.map\(entityId\)\.filter\(Boolean\)/);
 });
 
 test('productivity rows include manager hierarchy and Client Master completion totals', () => {

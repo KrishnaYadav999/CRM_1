@@ -10,6 +10,11 @@ const ONLINE_WINDOW_MS = 15 * 60 * 1000;
 const REPORT_CACHE_TTL_MS = 60 * 1000;
 const productivityReportCache = new Map();
 
+function entityId(value) {
+  if (value && typeof value === 'object') return value._id || value.id || null;
+  return value || null;
+}
+
 async function reportQuery(label, query, fallback = []) {
   try {
     return await query;
@@ -172,7 +177,7 @@ async function getUserProductivityReport({ from, to, requester }) {
   const operationTeams = await reportQuery('teams', isAdmin
     ? Team.find().select('name manager operationHead members').sort({ name: 1 }).lean()
     : Team.find({ $or: [{ manager: requesterId }, { operationHead: requesterId }] }).select('name manager operationHead members').sort({ name: 1 }).lean());
-  const scopedUserIds = isAdmin ? null : operationTeams.flatMap((team) => [team.manager, ...(team.members || [])]).filter(Boolean);
+  const scopedUserIds = isAdmin ? null : operationTeams.flatMap((team) => [entityId(team.manager), ...(team.members || []).map(entityId)]).filter(Boolean);
   const userFilter = isAdmin ? {} : { _id: { $in: scopedUserIds } };
   const activityUserFilter = isAdmin ? {} : { userId: { $in: scopedUserIds } };
   const ownerFilter = isAdmin ? {} : { createdBy: { $in: scopedUserIds } };
@@ -197,10 +202,10 @@ async function getUserProductivityReport({ from, to, requester }) {
     ...buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period }),
     misAccess: {
       isAdmin,
-      scope: isAdmin ? 'all' : (operationTeams.some((team) => String(team.operationHead || '') === String(requesterId)) ? 'operation-head' : 'manager'),
+      scope: isAdmin ? 'all' : (operationTeams.some((team) => String(entityId(team.operationHead) || '') === String(requesterId)) ? 'operation-head' : 'manager'),
       showSales: isAdmin,
       showQuotations: isAdmin,
-      operationTeams: operationTeams.map((team) => ({ id: team._id, name: team.name, managerId: team.manager, operationHeadId: team.operationHead, memberIds: team.members || [] }))
+      operationTeams: operationTeams.map((team) => ({ id: entityId(team._id), name: String(team.name || 'Operations Team'), managerId: entityId(team.manager), operationHeadId: entityId(team.operationHead), memberIds: (team.members || []).map(entityId).filter(Boolean) }))
     }
   };
   productivityReportCache.set(cacheKey, { createdAt: Date.now(), report });

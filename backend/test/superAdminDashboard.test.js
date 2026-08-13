@@ -12,6 +12,9 @@ test('super admin dashboard uses live overview and audit data with date filters'
   assert.doesNotMatch(page, /return request\(\)/);
   assert.match(page, /const reportResult = await loadProductivityReport\(\)/);
   assert.match(page, /Unable to load Quotation MIS/);
+  assert.match(page, /function displayText\(value, fallback = '-'\)/);
+  assert.match(page, /displayText\(row\.preparedBy \|\| row\.createdByName \|\| row\.createdBy\)/);
+  assert.match(page, /function entityId\(value\)/);
 });
 
 test('super admin dashboard exposes productivity, risk, reporting, and user-management actions', () => {
