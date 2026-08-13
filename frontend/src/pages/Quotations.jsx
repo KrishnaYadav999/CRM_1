@@ -377,6 +377,17 @@ function findLeadForQuotation(quotation = {}, leads = []) {
     || leads.find((lead) => leadCode && [lead.leadCode, lead.businessLeadCode, lead.sourceLeadId].map(normalizeSearchValue).includes(leadCode));
 }
 
+function quotationOwnerName(quotation = {}) {
+  return String(
+    quotation.leadGeneratedBy
+    || quotation.assignedUserName
+    || quotation.createdByName
+    || quotation.createdBy?.name
+    || quotation.createdBy?.email
+    || '-'
+  ).trim() || '-';
+}
+
 function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
   if (adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase())) return true;
   const userTokens = ownerIdentityTokens(
@@ -2736,7 +2747,7 @@ function QuotationPreviewDrawer({ quotation, onClose, onBackToPendingApproval })
                 <div className="grid gap-8 md:grid-cols-2">
                   <div className="text-[11px] font-bold leading-5 text-slate-950">
                     <p className="font-black">From:</p>
-                    <p>Krunal Goda</p>
+                    <p>{quotationOwnerName(quotation)}</p>
                     <p>AnantTattva Private Limited</p>
                     <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Andheri East, Mumbai - 400059</p>
                     <p>GST Number: {ANANT_TATTVA_GST_NUMBER}</p>
@@ -2744,7 +2755,7 @@ function QuotationPreviewDrawer({ quotation, onClose, onBackToPendingApproval })
                   <div className="text-right text-[11px] font-normal leading-5 text-slate-950">
                     <p>Quotation Date: {date}</p>
                     <p>Quotation No.: {quotation.quotationNumber || '-'}</p>
-                    <p>Quotation Valid Until: {quotation.validUntil || '-'}</p>
+                    <p>Quotation Valid Until: {formatDisplayDate(quotation.validUntil)}</p>
                     <p>Created: {date}</p>
                     <p>Prepared By: {quotation.createdBy?.name || '-'}</p>
                   </div>
@@ -2949,7 +2960,7 @@ function buildQuotationPrintHtml(quotation) {
       <section class="top">
         <div>
           <p class="label">From:</p>
-          <p>Krunal Goda</p>
+          <p>${escapeHtml(quotationOwnerName(quotation))}</p>
           <p class="strong">AnantTattva Private Limited</p>
           <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Next to J B Nagar Metro Chakala, Andheri East, Mumbai - 400059</p>
           <p><span class="strong">GST Number:</span> ${ANANT_TATTVA_GST_NUMBER}</p>
@@ -2957,7 +2968,7 @@ function buildQuotationPrintHtml(quotation) {
         <div class="right">
           <p>Quotation Date: ${escapeHtml(createdDate)}</p>
           <p>Quotation No.: ${escapeHtml(quotation.quotationNumber || '-')}</p>
-          <p>Quotation Valid Until: ${escapeHtml(quotation.validUntil || '-')}</p>
+          <p>Quotation Valid Until: ${escapeHtml(formatDisplayDate(quotation.validUntil))}</p>
           <p>Created: ${escapeHtml(createdDate)}</p>
           <p>Prepared By: ${escapeHtml(quotation.createdBy?.name || '-')}</p>
         </div>
