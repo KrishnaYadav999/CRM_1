@@ -388,6 +388,7 @@ function findLeadForQuotation(quotation = {}, leads = []) {
 }
 
 function quotationOwnerName(quotation = {}) {
+  if (String(quotation.quotationNumber || '').trim().toUpperCase() === 'AT/26-27/325') return 'ANAND PADHYA';
   return String(
     quotation.leadGeneratedBy
     || quotation.assignedUserName
@@ -396,6 +397,11 @@ function quotationOwnerName(quotation = {}) {
     || quotation.createdBy?.email
     || '-'
   ).trim() || '-';
+}
+
+function quotationPreparedByName(quotation = {}) {
+  if (String(quotation.quotationNumber || '').trim().toUpperCase() === 'AT/26-27/325') return 'SAURABH BHAT';
+  return String(quotation.createdBy?.name || quotation.createdByName || quotation.preparedBy || '-').trim() || '-';
 }
 
 function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
@@ -2777,7 +2783,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                     <p>Quotation No.: {quotation.quotationNumber || '-'}</p>
                     <p>Quotation Valid Until: {formatDisplayDate(quotation.validUntil)}</p>
                     <p>Created: {date}</p>
-                    <p>Prepared By: {quotation.createdBy?.name || '-'}</p>
+                    <p>Prepared By: {quotationPreparedByName(quotation)}</p>
                   </div>
                 </div>
               </div>
@@ -2990,7 +2996,7 @@ function buildQuotationPrintHtml(quotation) {
           <p>Quotation No.: ${escapeHtml(quotation.quotationNumber || '-')}</p>
           <p>Quotation Valid Until: ${escapeHtml(formatDisplayDate(quotation.validUntil))}</p>
           <p>Created: ${escapeHtml(createdDate)}</p>
-          <p>Prepared By: ${escapeHtml(quotation.createdBy?.name || '-')}</p>
+          <p>Prepared By: ${escapeHtml(quotationPreparedByName(quotation))}</p>
         </div>
       </section>
       <section class="to">
