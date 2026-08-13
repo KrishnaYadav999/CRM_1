@@ -219,6 +219,18 @@ function quotationYearMappingHeader(items = []) {
   return 'Annual Return EPR Year / Credit Year';
 }
 
+function hidePwpRegistrationYearColumn(items = []) {
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const yearItems = items.filter((item) => quotationAnnualReturnOrCreditYears(item).length > 0);
+  if (!yearItems.length) return false;
+  return yearItems.every((item) => {
+    const service = normalize(item.servicesOffered);
+    return normalize(item.businessCategory) === 'eprconsultancy'
+      && normalize(getQuotationApplicantType(item)) === 'pwp'
+      && (service === 'registration' || service.includes('newregistration'));
+  });
+}
+
 function isMeaningfulQuotationItem(item = {}) {
   return [
     item.industryType,
@@ -2576,7 +2588,7 @@ function QuotationPreviewDrawer({ quotation, onClose, onBackToPendingApproval })
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
-  const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0);
+  const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0) && !hidePwpRegistrationYearColumn(items);
   const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const scopeItems = (quotation.scopeOfWork || []).filter(Boolean);
   const documentRef = useRef(null);
@@ -2879,7 +2891,7 @@ function buildQuotationPrintHtml(quotation) {
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
-  const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0);
+  const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0) && !hidePwpRegistrationYearColumn(items);
   const yearMappingHeader = quotationYearMappingHeader(items);
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const rows = items.map((item, index) => `

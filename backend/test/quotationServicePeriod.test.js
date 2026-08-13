@@ -231,6 +231,15 @@ test('quotation mapping view and print hide the EPR service period column', () =
   assert.doesNotMatch(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
 });
 
+test('PWP registration-only consultancy quotation hides Registration Year in view and print', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /function hidePwpRegistrationYearColumn\(items = \[\]\)/);
+  assert.match(page, /normalize\(item\.businessCategory\) === 'eprconsultancy'/);
+  assert.match(page, /normalize\(getQuotationApplicantType\(item\)\) === 'pwp'/);
+  assert.match(page, /service === 'registration' \|\| service\.includes\('newregistration'\)/);
+  assert.equal((page.match(/&& !hidePwpRegistrationYearColumn\(items\)/g) || []).length, 2);
+});
+
 test('quotation download uses the client name and preserves each designed page boundary', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /details\.companyName \|\| quotation\.quotationNumber/);
