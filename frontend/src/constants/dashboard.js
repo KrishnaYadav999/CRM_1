@@ -9,6 +9,7 @@ import {
   Home,
   Megaphone,
   LifeBuoy,
+  MessagesSquare,
   UserRound,
   Users,
   Activity,
@@ -97,6 +98,11 @@ export const navSections = [
         label: 'Help Yourself',
         icon: FileText,
         path: '/help-yourself'
+      },
+      {
+        label: 'Internal Tickets',
+        icon: MessagesSquare,
+        path: '/internal-tickets'
       },
       {
         label: 'Support Tickets',

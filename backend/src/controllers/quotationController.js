@@ -632,6 +632,7 @@ exports.listQuotations = async (req, res) => {
   const scopedFilter = combineFilters(filter, accessFilter);
   const query = Quotation.find(scopedFilter)
     .populate('createdBy', 'name email')
+    .populate('approvalDecision.actionBy', 'name email role')
     .sort({ quotationDate: -1, createdAt: -1 });
   if (limit) query.skip((page - 1) * limit).limit(limit);
   const [quotations, total] = await Promise.all([query.lean(), Quotation.countDocuments(scopedFilter)]);
@@ -643,7 +644,7 @@ exports.getQuotation = async (req, res) => {
   const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
   await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const quotation = await Quotation.findOne(combineFilters({ _id: req.params.id }, await quotationAccessFilter(req.user)))
-    .populate('createdBy', 'name email').lean();
+    .populate('createdBy', 'name email').populate('approvalDecision.actionBy', 'name email role').lean();
   if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
   return res.json({ ok: true, quotation });
 };
@@ -654,7 +655,7 @@ exports.listLeadQuotations = async (req, res) => {
   await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const leadId = cleanString(req.params.leadId);
   const quotations = await Quotation.find(combineFilters({ leadId }, await quotationAccessFilter(req.user)))
-    .populate('createdBy', 'name email').sort({ quotationDate: -1, createdAt: -1 }).lean();
+    .populate('createdBy', 'name email').populate('approvalDecision.actionBy', 'name email role').sort({ quotationDate: -1, createdAt: -1 }).lean();
   return res.json({ ok: true, quotations });
 };
 

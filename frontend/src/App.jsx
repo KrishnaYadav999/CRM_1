@@ -22,6 +22,7 @@ import ComplianceHealthDashboard from './pages/ComplianceHealthDashboard'
 import PendingLeads from './pages/PendingLeads'
 import HelpYourself from './pages/HelpYourself'
 import SupportTickets from './pages/SupportTickets'
+import InternalTickets from './pages/InternalTickets'
 import SuperAdminDashboard from './pages/SuperAdminDashboard'
 import ActivityLogs from './pages/ActivityLogs'
 import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
@@ -107,6 +108,7 @@ function App(){
         <Route path="/sales/proforma-invoices" element={<ProtectedRoute><ProformaInvoices/></ProtectedRoute>} />
         <Route path="/help-yourself" element={<ProtectedRoute><HelpYourself/></ProtectedRoute>} />
         <Route path="/support-tickets" element={<ProtectedRoute><SupportTickets/></ProtectedRoute>} />
+        <Route path="/internal-tickets" element={<ProtectedRoute><InternalTickets/></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>

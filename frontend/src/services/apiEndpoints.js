@@ -97,6 +97,11 @@ const API_ENDPOINTS = {
     create: '/teams',
     detail: (id) => `/teams/${encodePathValue(id)}`
   },
+  internalTickets: {
+    list: '/internal-tickets',
+    create: '/internal-tickets',
+    detail: (id) => `/internal-tickets/${encodePathValue(id)}`
+  },
   healthReports: {
     list: '/health-report-assignments',
     create: '/health-report-assignments',
