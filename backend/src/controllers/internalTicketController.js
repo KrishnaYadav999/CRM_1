@@ -27,9 +27,13 @@ async function nextNumber() {
 
 exports.list = async (req, res) => {
   const admin = ['admin', 'superadmin'].includes(String(req.user?.role || '').toLowerCase());
-  const query = admin ? {} : { $or: [{ createdBy: req.user._id }, { participants: req.user._id }] };
+  // Conversations are private by default, including for administrators. Admins can
+  // deliberately enter oversight mode with ?scope=all; this prevents unrelated
+  // employee conversations from appearing in everyone's normal inbox.
+  const oversight = admin && String(req.query.scope || '').toLowerCase() === 'all';
+  const query = oversight ? {} : { $or: [{ createdBy: req.user._id }, { participants: req.user._id }] };
   const tickets = await InternalTicket.find(query).populate('createdBy participants', 'name email role avatarUrl').sort({ lastMessageAt: -1 }).lean();
-  res.json({ ok: true, tickets });
+  res.json({ ok: true, tickets, scope: oversight ? 'all' : 'mine' });
 };
 
 exports.create = async (req, res) => {
@@ -39,6 +43,7 @@ exports.create = async (req, res) => {
   if (!subject) return res.status(400).json({ error: 'Ticket subject is required.' });
   if (!message && !attachments.length) return res.status(400).json({ error: 'Add a message or attachment.' });
   const participantIds = [...new Set((Array.isArray(req.body.participants) ? req.body.participants : []).filter(mongoose.Types.ObjectId.isValid).map(String))];
+  if (!participantIds.length) return res.status(400).json({ error: 'Select at least one participant for this private conversation.' });
   const ticket = await InternalTicket.create({ ticketNumber: await nextNumber(), subject,
     priority: PRIORITIES.includes(req.body.priority) ? req.body.priority : 'Medium', createdBy: req.user._id,
     participants: participantIds, messages: [{ message, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role, attachments }]

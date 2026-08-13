@@ -24,7 +24,10 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(model, /messages/);
   assert.match(controller, /cleanAttachments/);
   assert.match(controller, /canAccess/);
+  assert.match(controller, /req\.query\.scope/);
+  assert.match(controller, /Select at least one participant/);
   assert.match(app, /\/api\/internal-tickets/);
   assert.match(frontend, /Internal Tickets & Team Chat/);
   assert.match(frontend, /Attach files or images/);
+  assert.match(frontend, /scope.*mine/);
 });
