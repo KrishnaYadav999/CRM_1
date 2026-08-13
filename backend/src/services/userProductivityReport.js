@@ -7,6 +7,17 @@ const Client = require('../models/Client');
 const Team = require('../models/Team');
 
 const ONLINE_WINDOW_MS = 15 * 60 * 1000;
+const REPORT_CACHE_TTL_MS = 60 * 1000;
+const productivityReportCache = new Map();
+
+async function reportQuery(label, query, fallback = []) {
+  try {
+    return await query;
+  } catch (error) {
+    console.error('[productivity-report] query failed', { label, message: error.message, code: error.code });
+    return fallback;
+  }
+}
 
 function reportDateRange(from, to) {
   const today = new Intl.DateTimeFormat('en-CA', {
@@ -155,29 +166,34 @@ async function getUserProductivityReport({ from, to, requester }) {
   const requesterRole = String(requester?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const isAdmin = ['admin', 'superadmin'].includes(requesterRole);
   const requesterId = requester?._id || requester?.id;
-  const operationTeams = isAdmin
-    ? await Team.find().select('name manager operationHead members').sort({ name: 1 }).lean()
-    : await Team.find({ $or: [{ manager: requesterId }, { operationHead: requesterId }] }).select('name manager operationHead members').sort({ name: 1 }).lean();
+  const cacheKey = `${String(requesterId || 'anonymous')}:${requesterRole}:${period.from}:${period.to}`;
+  const cached = productivityReportCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < REPORT_CACHE_TTL_MS) return cached.report;
+  const operationTeams = await reportQuery('teams', isAdmin
+    ? Team.find().select('name manager operationHead members').sort({ name: 1 }).lean()
+    : Team.find({ $or: [{ manager: requesterId }, { operationHead: requesterId }] }).select('name manager operationHead members').sort({ name: 1 }).lean());
   const scopedUserIds = isAdmin ? null : operationTeams.flatMap((team) => [team.manager, ...(team.members || [])]).filter(Boolean);
   const userFilter = isAdmin ? {} : { _id: { $in: scopedUserIds } };
   const activityUserFilter = isAdmin ? {} : { userId: { $in: scopedUserIds } };
   const ownerFilter = isAdmin ? {} : { createdBy: { $in: scopedUserIds } };
   const [users, sessions, activities, leads, clients, ticketStats] = await Promise.all([
-    User.find(userFilter).select('name email role team teamId managerId operationHeadId isActive lastLogin').lean(),
-    UserSession.find({ ...activityUserFilter, loginAt: { $gte: period.start, $lte: period.end } }).sort({ loginAt: -1 }).limit(10000).lean(),
-    AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } }).sort({ occurredAt: -1 }).limit(25000).lean(),
-    Lead.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy status closedBy closedAt createdAt').lean(),
-    Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data createdAt').lean(),
-    SupportTicket.aggregate([
+    reportQuery('users', User.find(userFilter).select('name email role team teamId managerId operationHeadId isActive lastLogin').lean()),
+    reportQuery('sessions', UserSession.find({ ...activityUserFilter, loginAt: { $gte: period.start, $lte: period.end } })
+      .select('userId loginAt lastActivityAt logoutAt activeSeconds activityCount presenceState ipAddress userAgent').sort({ loginAt: -1 }).limit(5000).maxTimeMS(15000).lean()),
+    reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } })
+      .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
+    reportQuery('leads', Lead.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy status closedBy closedAt createdAt').maxTimeMS(15000).lean()),
+    reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data createdAt').maxTimeMS(20000).lean()),
+    reportQuery('tickets', SupportTicket.aggregate([
       { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },
       { $group: {
         _id: '$createdBy', total: { $sum: 1 },
         open: { $sum: { $cond: [{ $in: ['$status', ['Open', 'In Progress']] }, 1, 0] } },
         resolved: { $sum: { $cond: [{ $in: ['$status', ['Resolved', 'Closed']] }, 1, 0] } }
       } }
-    ])
+    ]).option({ maxTimeMS: 15000 }))
   ]);
-  return {
+  const report = {
     ...buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period }),
     misAccess: {
       isAdmin,
@@ -187,6 +203,9 @@ async function getUserProductivityReport({ from, to, requester }) {
       operationTeams: operationTeams.map((team) => ({ id: team._id, name: team.name, managerId: team.manager, operationHeadId: team.operationHead, memberIds: team.members || [] }))
     }
   };
+  productivityReportCache.set(cacheKey, { createdAt: Date.now(), report });
+  if (productivityReportCache.size > 50) productivityReportCache.delete(productivityReportCache.keys().next().value);
+  return report;
 }
 
 function clientSectionAnalysis(data = {}) {

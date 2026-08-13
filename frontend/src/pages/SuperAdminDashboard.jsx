@@ -120,34 +120,26 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [quotations, setQuotations] = useState([])
 
   async function loadProductivityReport() {
-    const request = () => api.get(API_ENDPOINTS.auth.userProductivityReport, {
+    return api.get(API_ENDPOINTS.auth.userProductivityReport, {
       params: { from: appliedFilters.from, to: appliedFilters.to },
-      timeout: 90000
+      timeout: 30000
     })
-    try {
-      return await request()
-    } catch (requestError) {
-      const status = requestError?.response?.status
-      const retryable = requestError?.code === 'ECONNABORTED' || !requestError?.response || status >= 500
-      if (!retryable) throw requestError
-      return request()
-    }
   }
 
   async function load() {
     setLoading(true)
     setError('')
     try {
-      const [reportResult, quotationResult] = await Promise.allSettled([
-        loadProductivityReport(),
-        misPage && currentUserIsAdmin ? api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 }) : Promise.resolve({ data: { quotations: [] } })
-      ])
-      if (reportResult.status !== 'fulfilled') throw reportResult.reason
-      setReport(reportResult.value.data || reportResult.value)
-      if (quotationResult.status === 'fulfilled') setQuotations(quotationResult.value.data?.quotations || [])
+      const reportResult = await loadProductivityReport()
+      setReport(reportResult.data || reportResult)
     } catch (requestError) {
       setError(requestError?.response?.data?.error || 'Unable to load the user activity report. Please try again.')
     } finally { setLoading(false) }
+    if (misPage && currentUserIsAdmin) {
+      api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 })
+        .then((result) => setQuotations(result.data?.quotations || []))
+        .catch((quotationError) => console.error('Unable to load Quotation MIS', quotationError))
+    }
   }
 
   useEffect(() => { load() }, [appliedFilters.from, appliedFilters.to])

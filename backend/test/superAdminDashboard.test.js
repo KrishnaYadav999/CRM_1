@@ -9,6 +9,9 @@ test('super admin dashboard uses live overview and audit data with date filters'
   assert.match(page, /API_ENDPOINTS\.auth\.userProductivityReport/);
   assert.match(page, /params: \{ from: appliedFilters\.from, to: appliedFilters\.to \}/);
   assert.match(page, /timeZone: 'Asia\/Kolkata'/);
+  assert.doesNotMatch(page, /return request\(\)/);
+  assert.match(page, /const reportResult = await loadProductivityReport\(\)/);
+  assert.match(page, /Unable to load Quotation MIS/);
 });
 
 test('super admin dashboard exposes productivity, risk, reporting, and user-management actions', () => {

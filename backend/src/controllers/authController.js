@@ -650,6 +650,7 @@ exports.userProductivityReport = async (req, res) => {
     const report = await getUserProductivityReport({ from: req.query.from, to: req.query.to, requester: req.user });
     res.json({ ok: true, ...report });
   } catch (error) {
+    console.error('[productivity-report] request failed', { message: error.message, code: error.code, stack: error.stack });
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Unable to generate the user activity report' });
   }
 };

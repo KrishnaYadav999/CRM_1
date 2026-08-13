@@ -42,6 +42,16 @@ test('report service uses grouped ticket aggregation instead of per-user queries
   assert.match(source, /createdAt: \{ \$gte: period\.start, \$lte: period\.end \}/);
 });
 
+test('productivity report limits heavy telemetry queries and falls back per dataset', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/userProductivityReport.js'), 'utf8');
+  assert.match(source, /async function reportQuery\(label, query, fallback = \[\]\)/);
+  assert.match(source, /\.limit\(5000\)\.maxTimeMS\(15000\)/);
+  assert.match(source, /\.limit\(10000\)\.maxTimeMS\(15000\)/);
+  assert.match(source, /REPORT_CACHE_TTL_MS = 60 \* 1000/);
+});
+
 test('productivity rows include manager hierarchy and Client Master completion totals', () => {
   const report = buildUserProductivityReport({
     users: [{ ...user('manager-1', 'Tushar Manager'), role: 'manager' }, { ...user('user-1', 'Prachi User'), managerId: 'manager-1' }],
