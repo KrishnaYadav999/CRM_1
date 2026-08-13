@@ -105,6 +105,19 @@ const emptyPlantConsent = {
 };
 
 function TableInput({ value, onChange, placeholder = '', type = 'text', options }) {
+  if (type === 'date') {
+    return (
+      <div className="min-w-52">
+        <PremiumDatePicker
+          value={value || ''}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder || 'YYYY/MM/DD'}
+          displayFormat="yyyy/mm/dd"
+        />
+      </div>
+    );
+  }
+
   if (options) {
     return <div className="min-w-44"><SearchableSelect value={value || ''} options={options} onChange={onChange} placeholder={placeholder || 'Select'} /></div>;
   }
@@ -321,8 +334,8 @@ function CteTab({ client, setValue, selectOptions }) {
               columns={[
                 { key: 'cteConsentNo', label: 'CTE Consent No.', placeholder: 'Enter consent no.' },
                 { key: 'cteCategory', label: 'CTE Category', placeholder: 'Enter category' },
-                { key: 'cteIssuedDate', label: 'CTE Issued Year', placeholder: 'Select year', options: selectOptions.years },
-                { key: 'cteValidDate', label: 'CTE Valid Upto', placeholder: 'Select year', options: selectOptions.years },
+                { key: 'cteIssuedDate', label: 'CTE Issued Year', placeholder: 'YYYY/MM/DD', type: 'date' },
+                { key: 'cteValidDate', label: 'CTE Valid Upto', placeholder: 'YYYY/MM/DD', type: 'date' },
                 { key: 'plantLocation', label: 'Plant Location', placeholder: 'Enter location' },
                 { key: 'cteDocument', label: 'CTE Document Upload', type: 'file' }
               ]}
@@ -347,8 +360,8 @@ function CteTab({ client, setValue, selectOptions }) {
               plants={plants}
               columns={[
                 { key: 'ctoOrderNo', label: 'CTO/CCA Consent Order No.', placeholder: 'Enter order no.' },
-                { key: 'ctoIssueDate', label: 'CTO/CCA Date of Issue', placeholder: 'Select year', options: selectOptions.years },
-                { key: 'ctoValidDate', label: 'CTO/CCA Valid Upto', placeholder: 'Select year', options: selectOptions.years },
+                { key: 'ctoIssueDate', label: 'CTO/CCA Date of Issue', placeholder: 'YYYY/MM/DD', type: 'date' },
+                { key: 'ctoValidDate', label: 'CTO/CCA Valid Upto', placeholder: 'YYYY/MM/DD', type: 'date' },
                 { key: 'ctoDocument', label: 'CTO/CCA Document Upload', type: 'file' }
               ]}
               onPlantChange={updatePlant}

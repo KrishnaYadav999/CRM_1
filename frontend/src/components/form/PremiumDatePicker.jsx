@@ -20,7 +20,7 @@ function dateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
-export default function PremiumDatePicker({ value = '', onChange, disabled = false, readOnly = false, className = '', placeholder = 'Select date', min, max, 'aria-label': ariaLabel }) {
+export default function PremiumDatePicker({ value = '', onChange, disabled = false, readOnly = false, className = '', placeholder = 'Select date', min, max, displayFormat = 'default', 'aria-label': ariaLabel }) {
   const selected = parseDate(value);
   const [open, setOpen] = useState(false);
   const [viewDate, setViewDate] = useState(selected || new Date());
@@ -119,7 +119,7 @@ export default function PremiumDatePicker({ value = '', onChange, disabled = fal
   return <>
     <button ref={triggerRef} type="button" aria-label={ariaLabel || placeholder} aria-expanded={open} disabled={disabled} className={`premium-date-trigger ${value ? 'has-value' : ''} ${className}`.trim()} onClick={() => !readOnly && setOpen((current) => !current)}>
       <span className="premium-date-trigger__icon"><CalendarDays /></span>
-      <span className="premium-date-trigger__copy"><small>{value ? 'Selected date' : 'Date'}</small><strong>{selected ? DISPLAY_FORMATTER.format(selected) : placeholder}</strong></span>
+      <span className="premium-date-trigger__copy"><small>{value ? 'Selected date' : 'Date'}</small><strong>{selected ? (displayFormat === 'yyyy/mm/dd' ? dateKey(selected).replaceAll('-', '/') : DISPLAY_FORMATTER.format(selected)) : placeholder}</strong></span>
       <ChevronRight className={`premium-date-trigger__chevron ${open ? 'is-open' : ''}`} />
     </button>
     {popup}
