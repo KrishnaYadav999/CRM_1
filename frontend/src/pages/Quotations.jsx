@@ -221,9 +221,7 @@ function quotationYearMappingHeader(items = []) {
 
 function hidePwpRegistrationYearColumn(items = []) {
   const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-  const yearItems = items.filter((item) => quotationAnnualReturnOrCreditYears(item).length > 0);
-  if (!yearItems.length) return false;
-  return yearItems.every((item) => {
+  return items.some((item) => {
     const service = normalize(item.servicesOffered);
     return normalize(item.businessCategory) === 'eprconsultancy'
       && normalize(getQuotationApplicantType(item)) === 'pwp'
@@ -1874,7 +1872,7 @@ export default function Quotations() {
             onRevise={() => editQuotation(detailQuotation)}
           />
         )}
-        {previewQuotation && <QuotationPreviewDrawer quotation={previewQuotation} onClose={() => setPreviewQuotation(null)} onBackToPendingApproval={fromPendingApproval ? () => navigate('/pending-approval') : null} />}
+        {previewQuotation && <QuotationPreviewDrawer quotation={previewQuotation} currentUser={currentUser} onClose={() => setPreviewQuotation(null)} onBackToPendingApproval={fromPendingApproval ? () => navigate('/pending-approval') : null} />}
         {successModal && (
           <SuccessDialog
             title={successModal.title}
@@ -2583,12 +2581,17 @@ function HistoryRow({ tone, title, by, date, status }) {
   );
 }
 
-function QuotationPreviewDrawer({ quotation, onClose, onBackToPendingApproval }) {
+function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendingApproval }) {
   const details = quotation.leadDetails || {};
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
   const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0) && !hidePwpRegistrationYearColumn(items);
+  const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const isAdminUser = normalizedRole === 'admin' || normalizedRole === 'superadmin';
+  const approvalStatus = String(quotation.approvalStatus || quotation.adminApproval || quotation.status || '').trim().toLowerCase();
+  const isQuotationApproved = approvalStatus === 'approved';
+  const canDownloadPdf = isAdminUser || isQuotationApproved;
   const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const scopeItems = (quotation.scopeOfWork || []).filter(Boolean);
   const documentRef = useRef(null);
@@ -2661,6 +2664,10 @@ function QuotationPreviewDrawer({ quotation, onClose, onBackToPendingApproval })
   }
 
   async function handleDownloadPdf() {
+    if (!canDownloadPdf) {
+      setDownloadError('Quotation PDF can be downloaded only after Admin or Super Admin approval.');
+      return;
+    }
     if (downloadingPdf || !documentRef.current) return;
     setDownloadingPdf(true);
     setDownloadError('');
@@ -2744,11 +2751,12 @@ function QuotationPreviewDrawer({ quotation, onClose, onBackToPendingApproval })
           <div className="flex gap-2">
             {onBackToPendingApproval && <button type="button" onClick={onBackToPendingApproval} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-5 font-black text-emerald-800"><ArrowLeft className="h-4 w-4" />Back to Pending Approval</button>}
             <button type="button" onClick={onClose} className="btn-lift min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Close</button>
-            <button type="button" disabled={downloadingPdf} onClick={handleDownloadPdf} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 font-black text-white disabled:cursor-wait disabled:opacity-70"><Download className={`h-4 w-4 ${downloadingPdf ? 'animate-bounce' : ''}`} />{downloadingPdf ? 'Generating PDF...' : 'Download PDF'}</button>
+            <button type="button" disabled={downloadingPdf || !canDownloadPdf} title={!canDownloadPdf ? 'Admin or Super Admin approval is required before downloading this quotation.' : 'Download quotation PDF'} onClick={handleDownloadPdf} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"><Download className={`h-4 w-4 ${downloadingPdf ? 'animate-bounce' : ''}`} />{downloadingPdf ? 'Generating PDF...' : canDownloadPdf ? 'Download PDF' : 'Approval Required'}</button>
           </div>
         </div>
         <div className="hidden-scrollbar flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_36%,#eef2f7_100%)] p-5 sm:p-8">
           {downloadError && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600">{downloadError}</div>}
+          {!canDownloadPdf && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800">PDF download will be available after this quotation is approved by an Admin or Super Admin.</div>}
           <div ref={documentRef} data-quotation-pdf className="mx-auto max-w-[760px]">
             <section className="min-h-[1020px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
               <div className="flex items-center justify-between pb-2">

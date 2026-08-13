@@ -231,13 +231,23 @@ test('quotation mapping view and print hide the EPR service period column', () =
   assert.doesNotMatch(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
 });
 
-test('PWP registration-only consultancy quotation hides Registration Year in view and print', () => {
+test('quotation containing PWP registration consultancy hides Registration Year in view and print', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function hidePwpRegistrationYearColumn\(items = \[\]\)/);
+  assert.match(page, /return items\.some\(\(item\) => \{/);
   assert.match(page, /normalize\(item\.businessCategory\) === 'eprconsultancy'/);
   assert.match(page, /normalize\(getQuotationApplicantType\(item\)\) === 'pwp'/);
   assert.match(page, /service === 'registration' \|\| service\.includes\('newregistration'\)/);
   assert.equal((page.match(/&& !hidePwpRegistrationYearColumn\(items\)/g) || []).length, 2);
+});
+
+test('quotation PDF download requires approval for non-admin users', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /QuotationPreviewDrawer quotation=\{previewQuotation\} currentUser=\{currentUser\}/);
+  assert.match(page, /const canDownloadPdf = isAdminUser \|\| isQuotationApproved/);
+  assert.match(page, /if \(!canDownloadPdf\) \{/);
+  assert.match(page, /disabled=\{downloadingPdf \|\| !canDownloadPdf\}/);
+  assert.match(page, /PDF download will be available after this quotation is approved/);
 });
 
 test('quotation download uses the client name and preserves each designed page boundary', () => {
