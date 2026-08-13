@@ -15,6 +15,12 @@ test('super admin dashboard uses live overview and audit data with date filters'
   assert.match(page, /function displayText\(value, fallback = '-'\)/);
   assert.match(page, /displayText\(row\.preparedBy \|\| row\.createdByName \|\| row\.createdBy\)/);
   assert.match(page, /function entityId\(value\)/);
+  assert.match(page, /function buildFallbackMisReport\(/);
+  assert.match(page, /API_ENDPOINTS\.auth\.users/);
+  assert.match(page, /API_ENDPOINTS\.leads\.list/);
+  assert.match(page, /API_ENDPOINTS\.clients\.list/);
+  assert.match(page, /API_ENDPOINTS\.teams\.list/);
+  assert.match(page, /Sales and Operation MIS are showing current CRM records/);
 });
 
 test('super admin dashboard exposes productivity, risk, reporting, and user-management actions', () => {

@@ -36,6 +36,60 @@ function displayText(value, fallback = '-') {
   return String(value)
 }
 
+function dateInReportRange(value, from, to) {
+  const date = String(value || '').slice(0, 10)
+  return Boolean(date && date >= from && date <= to)
+}
+
+function fallbackCompletion(data = {}) {
+  let filled = 0
+  let total = 0
+  const visit = (value, key = '') => {
+    if (/password|otp|token|secret/i.test(key)) return
+    if (Array.isArray(value)) { value.forEach((item) => visit(item, key)); return }
+    if (value && typeof value === 'object') {
+      const entries = Object.entries(value).filter(([field]) => !/^(_id|createdAt|updatedAt)$/i.test(field))
+      if (entries.some(([field]) => /^(url|secureUrl|dataUrl|path|publicId|name|fileName)$/i.test(field))) {
+        total += 1
+        if (entries.some(([field, item]) => /^(url|secureUrl|dataUrl|path|publicId|name|fileName)$/i.test(field) && item)) filled += 1
+        return
+      }
+      entries.forEach(([field, item]) => visit(item, field))
+      return
+    }
+    total += 1
+    if (value !== undefined && value !== null && String(value).trim() !== '') filled += 1
+  }
+  visit(data)
+  return { filled, missing: Math.max(0, total - filled) }
+}
+
+function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = [], from, to }) {
+  const periodLeads = leads.filter((lead) => dateInReportRange(lead.createdAt, from, to))
+  const periodClients = clients.filter((client) => dateInReportRange(client.createdAt, from, to))
+  const rows = users.map((account) => {
+    const id = entityId(account._id || account.id)
+    const ownedLeads = periodLeads.filter((lead) => entityId(lead.createdBy) === id)
+    const ownedClients = periodClients.filter((client) => entityId(client.createdBy) === id)
+    const completion = ownedClients.map((client) => fallbackCompletion(client.data || {}))
+    const clientFieldsFilled = completion.reduce((sum, item) => sum + item.filled, 0)
+    const clientFieldsMissing = completion.reduce((sum, item) => sum + item.missing, 0)
+    const closedLeads = ownedLeads.filter((lead) => lead.closedBy || lead.closedAt || /closed/i.test(String(lead.status || ''))).length
+    return {
+      id, name: displayText(account.name || account.email, 'Unnamed user'), email: displayText(account.email, ''),
+      role: String(account.role || '').toLowerCase(), team: displayText(account.team, 'No team assigned'), managerId: entityId(account.managerId),
+      active: account.isActive !== false, online: false, presence: account.lastLogin ? 'Offline' : 'Never Logged In', lastLogin: account.lastLogin || null,
+      lastActivity: account.lastLogin || null, totalLeads: ownedLeads.length, closedLeads, openLeads: Math.max(0, ownedLeads.length - closedLeads),
+      clientMasters: ownedClients.length, clientFieldsFilled, clientFieldsMissing,
+      clientCompletionPercentage: clientFieldsFilled + clientFieldsMissing ? Math.round(clientFieldsFilled / (clientFieldsFilled + clientFieldsMissing) * 100) : 0,
+      activeSeconds: 0, openSeconds: 0, awaySeconds: 0, activityCount: 0, sessions: 0, score: 0,
+      tickets: { total: 0, open: 0, resolved: 0 }, risk: { key: account.lastLogin ? 'healthy' : 'never', level: account.lastLogin ? 'Low Risk' : 'Never Logged In', reason: account.lastLogin ? 'Fallback MIS data' : 'No successful CRM login recorded', rank: account.lastLogin ? 1 : 5 },
+      recentActions: [], timeline: [], latestAccess: null
+    }
+  })
+  return { period: { from, to }, users: rows, summary: summarize(rows), misAccess: { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: teams.map((team) => ({ id: entityId(team._id || team.id), name: displayText(team.name, 'Operations Team'), managerId: entityId(team.manager), operationHeadId: entityId(team.operationHead), memberIds: (team.members || []).map(entityId) })) } }
+}
+
 function riskTone(key) {
   return {
     healthy: 'bg-emerald-100 text-emerald-800 ring-emerald-200', away: 'bg-orange-100 text-orange-800 ring-orange-200',
@@ -145,7 +199,21 @@ export default function SuperAdminDashboard({ misPage = false }) {
       const reportResult = await loadProductivityReport()
       setReport(reportResult.data || reportResult)
     } catch (requestError) {
-      setError(requestError?.response?.data?.error || 'Unable to load the user activity report. Please try again.')
+      if (misPage && currentUserIsAdmin) {
+        const fallbackResults = await Promise.allSettled([
+          api.get(API_ENDPOINTS.auth.users, { timeout: 30000 }), api.get(API_ENDPOINTS.leads.list, { timeout: 30000 }),
+          api.get(API_ENDPOINTS.clients.list, { timeout: 30000 }), api.get(API_ENDPOINTS.teams.list, { timeout: 30000 })
+        ])
+        const [usersResult, leadsResult, clientsResult, teamsResult] = fallbackResults
+        const users = usersResult.status === 'fulfilled' ? usersResult.value.data?.users || [] : []
+        const leads = leadsResult.status === 'fulfilled' ? leadsResult.value.data?.leads || [] : []
+        const clients = clientsResult.status === 'fulfilled' ? clientsResult.value.data?.clients || [] : []
+        const teams = teamsResult.status === 'fulfilled' ? teamsResult.value.data?.teams || [] : []
+        if (users.length) {
+          setReport(buildFallbackMisReport({ users, leads, clients, teams, from: appliedFilters.from, to: appliedFilters.to }))
+          setError('Live activity telemetry is temporarily unavailable. Sales and Operation MIS are showing current CRM records.')
+        } else setError(requestError?.response?.data?.error || 'Unable to load MIS data. Please try again.')
+      } else setError(requestError?.response?.data?.error || 'Unable to load the user activity report. Please try again.')
     } finally { setLoading(false) }
     if (misPage && currentUserIsAdmin) {
       api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 })
