@@ -63,6 +63,21 @@ function formatAmount(value) {
   return amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function PoProof({ row }) {
+  const url = String(row?.poFileUrl || row?.poProof?.url || '').trim();
+  if (!url) return <span className="text-xs font-semibold text-slate-400">No PO proof</span>;
+  const name = String(row?.poFileName || row?.poProof?.fileName || 'PO proof');
+  const mime = String(row?.poFileMimeType || row?.poProof?.mimeType || '').toLowerCase();
+  const image = mime.startsWith('image/') || /\.(?:png|jpe?g|webp|gif)(?:\?|$)/i.test(url);
+  return <div className="mt-2 flex items-center gap-2">
+    {image && <a href={url} target="_blank" rel="noreferrer" title="Open full PO proof"><img src={url} alt={name} className="h-14 w-14 rounded-lg border border-slate-200 bg-white object-cover shadow-sm" /></a>}
+    <div className="flex flex-col items-start gap-1">
+      <a href={url} target="_blank" rel="noreferrer" className="font-black text-blue-600 underline">View PO Proof</a>
+      <a href={url} download={name} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-slate-500 hover:text-slate-800">Download · {name}</a>
+    </div>
+  </div>;
+}
+
 function applyBulkLeadCreators(clients = [], leads = []) {
   const byKey = new Map();
   leads.forEach((lead) => {
@@ -860,7 +875,7 @@ export default function PendingApproval() {
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
                   const poRows = row.payload?.poYearRows || [];
-                  return <tr key={id}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.eprCategory || '-'}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 whitespace-nowrap"><strong>{po.fy || '-'}</strong> · {po.poNumber || '-'} {po.poFileUrl && <a href={po.poFileUrl} target="_blank" rel="noreferrer" className="ml-2 font-black text-blue-600 underline">View PO</a>}</div>)}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">₹{Number(po.poAmount || 0).toLocaleString('en-IN')}</div>)}</Cell><Cell>{poRows.map((po, index) => <div key={index}>{po.quotationNumber || '-'}</div>)}</Cell><Cell>{row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
+                  return <tr key={id}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.length ? poRows.map((po, index) => <div key={`${po.poNumber || 'po'}-${index}`} className="mb-3 min-w-56 rounded-xl border border-slate-100 bg-slate-50 p-2"><div><strong>{po.fy || '-'}</strong> · {po.poNumber || '-'}</div><div className="mt-1 text-[10px] font-bold uppercase text-slate-400">{Array.isArray(po.services) ? po.services.map((service) => formatApprovalValue(service)).join(', ') : '-'}</div><PoProof row={po} /></div>) : <span className="font-semibold text-slate-400">No PO rows found</span>}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmount == null ? '-' : `₹${Number(po.poAmount).toLocaleString('en-IN')}`}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <div key={index}><strong>{po.quotationNumber || '-'}</strong>{po.quotationId && <small className="mt-1 block max-w-32 truncate text-slate-400" title={String(po.quotationId)}>{po.quotationId}</small>}</div>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
                 })}
               </ApprovalTable>
             ) : activeTab === 'temporary' ? (

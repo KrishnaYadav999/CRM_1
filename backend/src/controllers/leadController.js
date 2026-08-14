@@ -395,7 +395,7 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
         piboCategory: service.subApplicantType || service.piboCategory || service.applicantType || '',
         eprCategory: service.eprCategory || '', createdByName: actor?.name || actor?.email || '',
         requestDate: new Date().toLocaleDateString('en-GB'), requestTime: new Date().toLocaleTimeString('en-US'),
-        payload: { leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex: index, assignedServiceId: row.assignedServiceId || '', service, poYearRows: row.poYearRows || [], leadCreatorId: String(lead.createdBy?._id || lead.createdBy || ''), leadCreatorEmail: lead.createdBy?.email || lead.createdByEmail || '', quotationCreatorIds: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedById).filter(Boolean))], quotationCreatorEmails: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedByEmail).filter(Boolean))] },
+        payload: { leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex: index, assignedServiceId: row.assignedServiceId || '', service, poYearRows: row.poYearRows || [], poSubmittedById: String(actor?._id || actor?.id || ''), poSubmittedByEmail: actor?.email || '', poSubmittedByName: actor?.name || actor?.email || '', leadCreatorId: String(lead.createdBy?._id || lead.createdBy || ''), leadCreatorEmail: lead.createdBy?.email || lead.createdByEmail || '', quotationCreatorIds: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedById).filter(Boolean))], quotationCreatorEmails: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedByEmail).filter(Boolean))] },
         actionBy: null, actionAt: null, remarks: ''
       } }, { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -946,7 +946,17 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
   approval.payload = { ...(approval.payload || {}), decisionScreenshotUrl: screenshotUrl, decidedBy: req.user?.name || req.user?.email || '' };
   approval.markModified('payload');
   await approval.save();
-  const recipients = [...new Set([approval.payload?.leadCreatorEmail, ...(approval.payload?.quotationCreatorEmails || [])].filter(Boolean))];
+  const responsibleUsers = await User.find({ $or: [
+    { role: { $in: ADMIN_ROLES }, isActive: { $ne: false } },
+    ...(approval.payload?.poSubmittedById ? [{ _id: approval.payload.poSubmittedById }] : []),
+    ...(approval.createdByName ? [{ name: approval.createdByName }] : [])
+  ] }).select('email').lean();
+  const recipients = [...new Set([
+    ...responsibleUsers.map((user) => user.email),
+    approval.payload?.poSubmittedByEmail,
+    approval.payload?.leadCreatorEmail,
+    ...(approval.payload?.quotationCreatorEmails || [])
+  ].map((email) => String(email || '').trim().toLowerCase()).filter(Boolean))];
   const verb = status === 'APPROVED' ? 'approved' : status === 'REJECTED' ? 'rejected' : 'marked for revision';
   const html = `<div style="font-family:Arial,sans-serif;color:#334155"><h2>Purchase Order ${escapeHtml(verb)}</h2><p>The quotation and PO for <strong>${escapeHtml(lead.company || lead.leadCode)}</strong> were ${escapeHtml(verb)}.</p><p><strong>Remarks:</strong> ${escapeHtml(remarks)}</p>${screenshotUrl ? `<p><a href="${escapeHtml(screenshotUrl)}">View correction screenshot</a></p>` : ''}<p>Please revise the quotation and PO details when revision is required.</p></div>`;
   let screenshotAttachment = null;
@@ -1224,6 +1234,60 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
     query.$or = [{ 'payload.requestedById': userId }, { 'payload.claimantId': userId }, { 'payload.originalCreatorId': userId }, { 'payload.managerId': userId }, { 'payload.temporaryUserId': userId }];
   }
   const approvals = await PendingApproval.find(query).populate('actionBy', 'name email').sort({ createdAt: -1 }).lean();
+  const purchaseOrderApprovals = approvals.filter((approval) => approval.type === 'purchase_order');
+  if (purchaseOrderApprovals.length) {
+    const leadIds = [...new Set(purchaseOrderApprovals.map((approval) => String(approval.payload?.leadId || '')).filter(mongoose.isValidObjectId))];
+    const leads = await Lead.find({ _id: { $in: leadIds } }).populate('createdBy', 'name email').lean();
+    const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
+    const leadCodes = leads.map((lead) => lead.leadCode).filter(Boolean);
+    const quotations = await Quotation.find({ $or: [
+      { leadRef: { $in: leadIds } }, { leadId: { $in: leadIds } },
+      { leadCode: { $in: leadCodes } }, { businessLeadCode: { $in: leadCodes } }
+    ] }).lean();
+    const quoteForRow = (row, lead) => quotations.find((quote) => String(quote._id) === String(row.quotationId || ''))
+      || quotations.find((quote) => quote.quotationNumber && quote.quotationNumber === row.quotationNumber)
+      || quotations.find((quote) => [quote.leadRef, quote.leadId, quote.leadCode, quote.businessLeadCode].some((value) => [String(lead._id), lead.leadCode].includes(String(value || ''))));
+    purchaseOrderApprovals.forEach((approval) => {
+      const payload = approval.payload || {};
+      const lead = leadById.get(String(payload.leadId || ''));
+      if (!lead) return;
+      const assignmentIndex = Number(payload.assignmentIndex);
+      const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+      const assignment = (Number.isInteger(assignmentIndex) && assignments[assignmentIndex]?.poYearRows?.length ? assignments[assignmentIndex] : null)
+        || assignments.find((row) => payload.assignedServiceId && String(row.assignedServiceId || '') === String(payload.assignedServiceId) && row.poYearRows?.length)
+        || assignments.find((row) => Array.isArray(row.poYearRows) && row.poYearRows.length)
+        || null;
+      const liveRows = Array.isArray(assignment?.poYearRows) ? assignment.poYearRows : [];
+      const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
+      const poYearRows = (liveRows.length ? liveRows : snapshotRows).map((liveRow, rowIndex) => {
+        const snapshot = snapshotRows.find((row) => row.poNumber && row.poNumber === liveRow.poNumber) || snapshotRows[rowIndex] || {};
+        const row = { ...snapshot, ...liveRow };
+        const quotation = quoteForRow(row, lead);
+        return {
+          ...row,
+          poAmount: Number(row.poAmount) > 0 ? Number(row.poAmount) : (Number(quotation?.grandTotal) || null),
+          currency: row.currency || 'INR',
+          quotationId: row.quotationId || (quotation?._id ? String(quotation._id) : ''),
+          quotationNumber: row.quotationNumber || quotation?.quotationNumber || '',
+          poFileMimeType: row.poFileMimeType || '',
+          poFileSize: row.poFileSize ?? null
+        };
+      });
+      const resolvedIndex = assignments.indexOf(assignment);
+      const service = (lead.serviceSelections || []).find((row) => payload.assignedServiceId && String(row.assignedServiceId || '') === String(payload.assignedServiceId))
+        || lead.serviceSelections?.[resolvedIndex >= 0 ? resolvedIndex : assignmentIndex]
+        || payload.service
+        || {};
+      approval.payload = {
+        ...payload,
+        leadCode: payload.leadCode || lead.leadCode || '',
+        service,
+        poYearRows,
+        leadCreatorId: payload.leadCreatorId || String(lead.createdBy?._id || lead.createdBy || ''),
+        leadCreatorEmail: payload.leadCreatorEmail || lead.createdBy?.email || lead.createdByEmail || ''
+      };
+    });
+  }
   res.json({ ok: true, approvals });
 };
 

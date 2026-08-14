@@ -25,6 +25,9 @@ test('PO approval is persisted and restricted to Admin and Super Admin', () => {
   assert.match(controller, /upsertPurchaseOrderApprovals/);
   assert.match(controller, /poApprovalStatus = status/);
   assert.match(controller, /attachments: screenshotAttachment \? \[screenshotAttachment\] : \[\]/);
+  assert.match(controller, /poSubmittedByEmail/);
+  assert.match(controller, /role: \{ \$in: ADMIN_ROLES \}/);
+  assert.match(controller, /liveRows\.length \? liveRows : snapshotRows/);
 });
 
 test('Pending Approval exposes PO approve reject and revision actions', () => {
@@ -34,4 +37,14 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /REVISION_REQUIRED/);
   assert.match(page, /Upload correction screenshot \(required\)/);
   assert.match(page, /purchaseOrderApprovalDecision/);
+  assert.match(page, /View PO Proof/);
+  assert.match(page, /Download ·/);
+});
+
+test('Super Admin home omits MIS tables and Home navigation omits Activity Logs', () => {
+  const dashboard = read('../../frontend/src/pages/SuperAdminDashboard.jsx');
+  const navigation = read('../../frontend/src/constants/dashboard.js');
+  assert.match(dashboard, /misPage && misAccess\.showSales/);
+  assert.match(dashboard, /misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200/);
+  assert.doesNotMatch(navigation, /label: 'Activity Logs'/);
 });

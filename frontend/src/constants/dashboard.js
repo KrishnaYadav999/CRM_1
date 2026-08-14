@@ -12,7 +12,6 @@ import {
   MessagesSquare,
   UserRound,
   Users,
-  Activity,
   BarChart3
 } from 'lucide-react'
 
@@ -56,7 +55,6 @@ export const navSections = [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard', roles: adminRoles },
           { label: 'Super Admin Dashboard', icon: Gauge, path: '/superadmin-dashboard', roles: adminRoles },
           { label: 'MIS', icon: BarChart3, path: '/mis', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
-          { label: 'Activity Logs', icon: Activity, path: '/dashboard/activity-logs', roles: adminRoles },
           { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: [...adminRoles, 'compliance'], complianceFamily: true },
           {
             label: 'Pending Leads',

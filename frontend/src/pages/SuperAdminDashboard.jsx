@@ -356,7 +356,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
           <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-orange-500" /><div><h2 className="font-black text-slate-950">Admin Attention</h2><p className="text-xs font-semibold text-slate-500">Accounts to review</p></div></div><div className="mt-3 space-y-2">{attention.map((item) => <button key={item.key} onClick={() => { const next = { ...draftFilters, risk: item.key }; setDraftFilters(next); setAppliedFilters(next) }} className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-left hover:border-emerald-200"><span className="text-xs font-black text-slate-700">{item.label}</span><strong className="text-lg text-slate-950">{item.count}</strong></button>)}</div></aside>
         </section>
 
-        {(!misPage || misAccess.showSales) && <section className="mt-4 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
+        {misPage && misAccess.showSales && <section className="mt-4 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-5 py-4">
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Department MIS</p><h2 className="text-xl font-black text-slate-950">Sales MIS</h2><p className="text-xs font-semibold text-slate-500">Only Sales users · live lead status for the selected report period</p></div></div>
             <button type="button" onClick={() => downloadMisPdf('sales')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'sales' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'sales' ? 'Generating...' : 'Download Sales PDF'}</button>
@@ -367,7 +367,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
           </tbody></table></div>
         </section>}
 
-        <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
+        {misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-white px-5 py-4">
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-100 text-cyan-700"><Building2 className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-700">Team hierarchy MIS</p><h2 className="text-xl font-black text-slate-950">Operation MIS</h2><p className="text-xs font-semibold text-slate-500">Team → Manager → Users · Client Master data completion analysis</p></div></div>
             <button type="button" onClick={() => downloadMisPdf('operation')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'operation' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'operation' ? 'Generating...' : 'Download Operation PDF'}</button>
@@ -381,7 +381,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
             })}
             {!loading && !operationGroups.length && <tr><td colSpan="7" className="p-10 text-center font-bold text-slate-400">No Operation teams found.</td></tr>}
           </tbody></table></div>
-        </section>
+        </section>}
 
         {misPage && misAccess.showQuotations && <section className="mt-4 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
