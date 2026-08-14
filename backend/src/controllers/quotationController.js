@@ -335,6 +335,8 @@ function cleanBody(body, user = null, existingItems = []) {
   return {
     leadId: cleanString(body.leadId),
     leadCode: cleanString(body.leadCode),
+    fromName: cleanString(body.fromName).slice(0, 120),
+    preparedByName: cleanString(body.preparedByName).slice(0, 120),
     leadDetails: cleanLeadDetails(body.leadDetails),
     validUntil: cleanString(body.validUntil),
     pricingMode,
@@ -706,7 +708,7 @@ exports.updateQuotation = async (req, res) => {
   }
   const previous = quotation.toObject();
   const labels = {
-    leadId: 'Lead', leadCode: 'Lead Code', companyName: 'Company', leadDetails: 'Lead Details',
+    leadId: 'Lead', leadCode: 'Lead Code', fromName: 'From Name', preparedByName: 'Prepared By Name', companyName: 'Company', leadDetails: 'Lead Details',
     quotationDate: 'Quotation Date', validUntil: 'Valid Until', items: 'Quotation Items', terms: 'Terms', scopeOfWork: 'Scope of Work',
     subtotal: 'Subtotal', grandTotal: 'Grand Total'
   };

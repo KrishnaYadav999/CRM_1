@@ -76,6 +76,8 @@ const QuotationSchema = new mongoose.Schema({
   syncMatchStatus: { type: String, enum: ['matched', 'unmatched'], default: 'matched', index: true },
   unmatchedReason: { type: String, trim: true },
   createdByName: { type: String, trim: true },
+  fromName: { type: String, trim: true, maxlength: 120 },
+  preparedByName: { type: String, trim: true, maxlength: 120 },
   leadGeneratedBy: { type: String, trim: true },
   assignedUserName: { type: String, trim: true },
   revisionHistory: { type: Array, default: [] },

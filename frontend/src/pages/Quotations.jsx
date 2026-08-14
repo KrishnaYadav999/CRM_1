@@ -246,6 +246,8 @@ function isMeaningfulQuotationItem(item = {}) {
 const emptyQuotation = {
   leadId: '',
   leadCode: '',
+  fromName: '',
+  preparedByName: '',
   leadDetails: emptyLeadDetails,
   validUntil: '',
   pricingMode: '',
@@ -390,7 +392,8 @@ function findLeadForQuotation(quotation = {}, leads = []) {
 function quotationOwnerName(quotation = {}) {
   if (String(quotation.quotationNumber || '').trim().toUpperCase() === 'AT/26-27/325') return 'ANAND PADHYA';
   return String(
-    quotation.leadGeneratedBy
+    quotation.fromName
+    || quotation.leadGeneratedBy
     || quotation.assignedUserName
     || quotation.createdByName
     || quotation.createdBy?.name
@@ -401,7 +404,7 @@ function quotationOwnerName(quotation = {}) {
 
 function quotationPreparedByName(quotation = {}) {
   if (String(quotation.quotationNumber || '').trim().toUpperCase() === 'AT/26-27/325') return 'SAURABH BHAT';
-  return String(quotation.createdBy?.name || quotation.createdByName || quotation.preparedBy || '-').trim() || '-';
+  return String(quotation.preparedByName || quotation.createdBy?.name || quotation.createdByName || quotation.preparedBy || '-').trim() || '-';
 }
 
 function serviceBelongsToUser(row = {}, lead = {}, currentUser = null) {
@@ -877,6 +880,8 @@ export default function Quotations() {
   const [notice, setNotice] = useState('');
   const [bulkPreview, setBulkPreview] = useState(null);
   const [bulkImporting, setBulkImporting] = useState(false);
+  const [leadIdentityPrompt, setLeadIdentityPrompt] = useState(null);
+  const [leadIdentityError, setLeadIdentityError] = useState('');
   const bulkInputRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -1218,6 +1223,8 @@ export default function Quotations() {
     setQuotation({
       leadId: row.leadId || '',
       leadCode: row.leadCode || '',
+      fromName: row.fromName || quotationOwnerName(row),
+      preparedByName: row.preparedByName || quotationPreparedByName(row),
       leadDetails: { ...emptyLeadDetails, ...(row.leadDetails || {}) },
       validUntil: row.validUntil || '',
       pricingMode: row.pricingMode || (Array.isArray(row.items) && row.items.length ? 'individual' : ''),
@@ -1234,7 +1241,14 @@ export default function Quotations() {
     setViewMode('form');
   }
 
-  function selectLead(leadId) {
+  function requestLeadSelection(leadId) {
+    if (!leadId) return;
+    const defaultName = String(currentUser?.name || '').trim();
+    setLeadIdentityError('');
+    setLeadIdentityPrompt({ leadId, fromName: defaultName, preparedByName: defaultName });
+  }
+
+  function selectLead(leadId, identity) {
     const leadIndex = leads.findIndex((item) => String(item._id || item.id) === String(leadId));
     const lead = leadIndex >= 0 ? leads[leadIndex] : null;
     const businessLeadCode = displayLeadCode(lead, leadIndex);
@@ -1248,6 +1262,8 @@ export default function Quotations() {
       ...current,
       leadId,
       leadCode: businessLeadCode === '-' ? '' : businessLeadCode,
+      fromName: String(identity?.fromName || '').trim(),
+      preparedByName: String(identity?.preparedByName || '').trim(),
       leadDetails: mapLeadToDetails(lead),
       pricingMode: savedQuotation?.pricingMode || current.pricingMode || '',
       combinedBasicAmount: savedQuotation?.pricingMode === 'combined' ? (savedQuotation.combinedBasicAmount ?? '') : '',
@@ -1262,6 +1278,18 @@ export default function Quotations() {
     setEditingId(savedQuotation?._id || savedQuotation?.id || '');
     setEditingItemIndex(null);
     setItemDrafts({});
+  }
+
+  function confirmLeadIdentity() {
+    const fromName = String(leadIdentityPrompt?.fromName || '').trim();
+    const preparedByName = String(leadIdentityPrompt?.preparedByName || '').trim();
+    if (!fromName || !preparedByName) {
+      setLeadIdentityError('From Name and Prepared By Name are required.');
+      return;
+    }
+    selectLead(leadIdentityPrompt.leadId, { fromName, preparedByName });
+    setLeadIdentityPrompt(null);
+    setLeadIdentityError('');
   }
 
   async function addDropdownOption(field, name) {
@@ -1603,6 +1631,10 @@ export default function Quotations() {
   }
 
   async function saveQuotation(status = quotation.status) {
+    if (!String(quotation.fromName || '').trim() || !String(quotation.preparedByName || '').trim()) {
+      setError('Select the lead again and enter both From Name and Prepared By Name.');
+      return;
+    }
     const gstNumber = String(quotation.leadDetails.gstNumber || '').trim().toUpperCase();
     const gstPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
     if (gstNumber && gstNumber.length !== 15) {
@@ -1925,7 +1957,7 @@ export default function Quotations() {
               <LeadSelect
                 value={quotation.leadId || ''}
                 disabled={fetchedQuoteDetailsLocked}
-                onChange={selectLead}
+                onChange={requestLeadSelection}
                 options={[
                   ...(quotationContext?.sourceType === 'client' && quotationContext.clientId ? [{
                     value: quotationContext.clientId,
@@ -2182,6 +2214,35 @@ export default function Quotations() {
           message={successModal.message}
           onClose={() => setSuccessModal(null)}
         />
+      )}
+      {leadIdentityPrompt && (
+        <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="quotation-identity-title">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-2xl">
+            <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-emerald-50 via-white to-orange-50 p-6">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Quotation identity</p>
+                <h2 id="quotation-identity-title" className="mt-1 text-2xl font-black text-slate-950">From &amp; Prepared By</h2>
+                <p className="mt-2 text-sm font-bold text-slate-500">These names will appear in the quotation preview and downloaded PDF.</p>
+              </div>
+              <button type="button" onClick={() => { setLeadIdentityPrompt(null); setLeadIdentityError(''); }} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500" title="Cancel"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="space-y-4 p-6">
+              <label className="block">
+                <span className="mb-2 block text-sm font-black text-slate-700">From Name <b className="text-red-500">*</b></span>
+                <input autoFocus maxLength={120} value={leadIdentityPrompt.fromName} onChange={(event) => { setLeadIdentityPrompt((current) => ({ ...current, fromName: event.target.value })); setLeadIdentityError(''); }} placeholder="Enter From Name" className="form-input w-full font-black uppercase" />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-black text-slate-700">Prepared By Name <b className="text-red-500">*</b></span>
+                <input maxLength={120} value={leadIdentityPrompt.preparedByName} onChange={(event) => { setLeadIdentityPrompt((current) => ({ ...current, preparedByName: event.target.value })); setLeadIdentityError(''); }} onKeyDown={(event) => { if (event.key === 'Enter') confirmLeadIdentity(); }} placeholder="Enter Prepared By Name" className="form-input w-full font-black uppercase" />
+              </label>
+              {leadIdentityError && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600">{leadIdentityError}</p>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 p-5">
+              <button type="button" onClick={() => { setLeadIdentityPrompt(null); setLeadIdentityError(''); }} className="rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-600">Cancel</button>
+              <button type="button" onClick={confirmLeadIdentity} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white shadow-lg shadow-emerald-700/20">Continue</button>
+            </footer>
+          </div>
+        </div>
       )}
       {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
     </DashboardShell>
