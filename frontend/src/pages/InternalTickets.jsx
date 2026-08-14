@@ -11,6 +11,8 @@ const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: 
 const initials = (value) => String(value || 'CRM User').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
 const fileUrl = (file) => String(file?.url || file?.secureUrl || '')
 const EMOJIS = ['😀', '😂', '😍', '👍', '👏', '🎉', '✅', '🙏', '🔥', '💯', '🤝', '📌']
+const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] }
+const waitForIce = (peer) => new Promise((resolve) => { if (peer.iceGatheringState === 'complete') return resolve(); const done = () => { if (peer.iceGatheringState === 'complete') { peer.removeEventListener('icegatheringstatechange', done); resolve() } }; peer.addEventListener('icegatheringstatechange', done); setTimeout(resolve, 5000) })
 
 function AttachmentList({ items = [], onPreview }) {
   if (!items.length) return null
@@ -65,10 +67,13 @@ export default function InternalTickets() {
   const [previewFile, setPreviewFile] = useState(null)
   const [callMode, setCallMode] = useState('')
   const [callError, setCallError] = useState('')
+  const [callStatus, setCallStatus] = useState('')
   const [compactMode, setCompactMode] = useState(false)
   const messageEndRef = useRef(null)
   const localVideoRef = useRef(null)
+  const remoteVideoRef = useRef(null)
   const mediaStreamRef = useRef(null)
+  const peerRef = useRef(null)
 
   async function load(nextScope = scope) {
     setLoading(true)
@@ -84,7 +89,32 @@ export default function InternalTickets() {
 
   useEffect(() => { load(scope) }, [scope])
   useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [selected?.messages?.length])
-  useEffect(() => () => mediaStreamRef.current?.getTracks().forEach((track) => track.stop()), [])
+  useEffect(() => () => { mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); peerRef.current?.close() }, [])
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const { data } = await api.get(API_ENDPOINTS.internalTickets.list, { params: scope === 'all' ? { scope: 'all' } : {} })
+        const nextTickets = data.tickets || []
+        setTickets(nextTickets)
+        const ringing = nextTickets.find((ticket) => ticket.callSession?.status === 'ringing' && String(ticket.callSession.initiatedBy) !== String(currentUser?._id || currentUser?.id))
+        if (ringing && !callMode) { setSelected(ringing); setStatusView(ringing.status); setAppView('chat'); setCallMode(`incoming-${ringing.callSession.mode}`); setCallStatus('Incoming call') }
+      } catch { /* regular page loading handles visible errors */ }
+    }, 2500)
+    return () => clearInterval(timer)
+  }, [scope, callMode])
+  useEffect(() => {
+    if (!callMode || callMode.startsWith('incoming') || !selected?._id) return undefined
+    const timer = setInterval(async () => {
+      try {
+        const { data } = await api.get(API_ENDPOINTS.internalTickets.detail(selected._id))
+        const session = data.ticket?.callSession
+        setSelected(data.ticket)
+        if (session?.status === 'active' && session.answer && peerRef.current && !peerRef.current.currentRemoteDescription) { await peerRef.current.setRemoteDescription(JSON.parse(session.answer)); setCallStatus('Connected') }
+        if (['rejected', 'ended'].includes(session?.status)) endCall(false)
+      } catch { /* keep the current call UI while retrying */ }
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [callMode, selected?._id])
 
   const counts = useMemo(() => Object.fromEntries(STATUSES.map((status) => [status, tickets.filter((ticket) => ticket.status === status).length])), [tickets])
   const visible = useMemo(() => tickets.filter((ticket) => {
@@ -140,15 +170,43 @@ export default function InternalTickets() {
   function sendReply() { if (reply.trim() || replyFiles.length) update({ message: reply, attachments: replyFiles }) }
   function onComposerKeyDown(event) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendReply() } }
   function openUserChat(user) { const id = String(user._id || user.id); setDraft({ ...emptyDraft, subject: user.name || user.email, participants: [id] }); setCreating(true); setSearch('') }
+  async function createPeer(stream) {
+    const peer = new RTCPeerConnection(RTC_CONFIG)
+    stream.getTracks().forEach((track) => peer.addTrack(track, stream))
+    peer.ontrack = (event) => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0] }
+    peer.onconnectionstatechange = () => { if (peer.connectionState === 'connected') setCallStatus('Connected'); if (['failed', 'disconnected'].includes(peer.connectionState)) setCallStatus('Connection interrupted') }
+    peerRef.current = peer
+    return peer
+  }
   async function startCall(mode) {
-    setCallError(''); setCallMode(mode)
+    if (!selected) return
+    setCallError(''); setCallMode(mode); setCallStatus('Starting call...')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' })
       mediaStreamRef.current = stream
+      const peer = await createPeer(stream)
+      await peer.setLocalDescription(await peer.createOffer()); await waitForIce(peer)
+      await api.patch(API_ENDPOINTS.internalTickets.call(selected._id), { action: 'start', mode, offer: JSON.stringify(peer.localDescription) })
+      setCallStatus('Ringing participants...')
       setTimeout(() => { if (localVideoRef.current) localVideoRef.current.srcObject = stream }, 0)
-    } catch { setCallError('Microphone/camera permission was denied or no device is available.') }
+    } catch (error) { setCallError(error?.response?.data?.error || 'Microphone/camera permission was denied or the call could not start.'); setCallStatus('Call failed') }
   }
-  function endCall() { mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); mediaStreamRef.current = null; setCallMode(''); setCallError('') }
+  async function answerCall() {
+    const session = selected?.callSession; const mode = session?.mode
+    if (!session?.offer) return
+    setCallMode(mode); setCallStatus('Connecting...'); setCallError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' }); mediaStreamRef.current = stream
+      const peer = await createPeer(stream); await peer.setRemoteDescription(JSON.parse(session.offer)); await peer.setLocalDescription(await peer.createAnswer()); await waitForIce(peer)
+      const { data } = await api.patch(API_ENDPOINTS.internalTickets.call(selected._id), { action: 'answer', answer: JSON.stringify(peer.localDescription) }); setSelected(data.ticket); setCallStatus('Connected')
+      setTimeout(() => { if (localVideoRef.current) localVideoRef.current.srcObject = stream }, 0)
+    } catch (error) { setCallError(error?.response?.data?.error || 'Unable to answer the call.'); setCallStatus('Call failed') }
+  }
+  async function rejectCall() { try { await api.patch(API_ENDPOINTS.internalTickets.call(selected._id), { action: 'reject' }) } finally { endCall(false) } }
+  async function endCall(notify = true) {
+    if (notify && selected?._id) { try { await api.patch(API_ENDPOINTS.internalTickets.call(selected._id), { action: 'end' }) } catch { /* local cleanup must always run */ } }
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); peerRef.current?.close(); mediaStreamRef.current = null; peerRef.current = null; setCallMode(''); setCallError(''); setCallStatus('')
+  }
 
   return <DashboardShell currentUser={currentUser}>
     <div className="teams-page" aria-label="Internal Tickets & Team Chat">
@@ -173,6 +231,7 @@ export default function InternalTickets() {
     </div>
     {creating && <div className="teams-modal-backdrop"><form onSubmit={create} className="teams-create-modal"><header><div><small>Internal collaboration</small><h2>New ticket chat</h2><p>Create a private workspace with selected participants.</p></div><button type="button" onClick={() => setCreating(false)}><X /></button></header><div className="teams-create-body"><label><span>Subject</span><input required value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} placeholder="What does your team need to discuss?" /></label><label><span>Priority</span><select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select></label><fieldset><legend>Select participants</legend><div>{users.map((user) => { const id = String(user._id || user.id); return <label key={id}><input type="checkbox" checked={draft.participants.includes(id)} onChange={(event) => setDraft((current) => ({ ...current, participants: event.target.checked ? [...current.participants, id] : current.participants.filter((value) => value !== id) }))} /><span className="teams-avatar">{initials(user.name || user.email)}</span><span>{user.name || user.email}</span></label> })}</div></fieldset><label><span>First message</span><textarea value={draft.message} onChange={(event) => setDraft({ ...draft, message: event.target.value })} rows="4" placeholder="Start the conversation..." /></label><label className="teams-upload"><input type="file" multiple onChange={(event) => upload(event, 'draft')} /><Paperclip />Attach files or images</label><AttachmentList items={draft.attachments} /></div><footer><button type="button" onClick={() => setCreating(false)}>Cancel</button><button disabled={saving || uploading}>{saving ? 'Creating...' : 'Create ticket chat'}</button></footer></form></div>}
     {previewFile && <div className="teams-modal-backdrop"><div className="teams-preview-modal"><header><div><h2>{previewFile.name || 'Attachment preview'}</h2><small>{previewFile.type || 'Shared file'}</small></div><button onClick={() => setPreviewFile(null)}><X /></button></header><div>{String(previewFile.type || '').startsWith('image/') ? <img src={fileUrl(previewFile)} alt={previewFile.name || 'Attachment'} /> : String(previewFile.type || '').includes('pdf') ? <iframe src={fileUrl(previewFile)} title={previewFile.name || 'PDF preview'} /> : <div className="teams-preview-unsupported"><FileText /><p>Preview is not available for this file type.</p><a href={fileUrl(previewFile)} target="_blank" rel="noreferrer">Open or download file</a></div>}</div><footer><a href={fileUrl(previewFile)} target="_blank" rel="noreferrer" download><Download />Download</a></footer></div></div>}
-    {callMode && <div className="teams-modal-backdrop"><div className="teams-call-modal"><header><strong>{callMode === 'video' ? 'Video call' : 'Audio call'} · {selected?.subject}</strong><button onClick={endCall}><X /></button></header><div className="teams-call-stage">{callMode === 'video' ? <video ref={localVideoRef} autoPlay muted playsInline /> : <span className="teams-avatar teams-call-avatar">{initials(selected?.subject)}</span>}<h2>{callError || 'Device connected'}</h2><p>{callError ? 'Check browser permissions and try again.' : 'Your camera and microphone are ready. Live participant calling requires the recipient to join this ticket session.'}</p></div><footer><button className="teams-call-control"><Mic /></button><button className="teams-call-control"><Video /></button><button className="teams-call-end" onClick={endCall}><Phone /></button></footer></div></div>}
+    {callMode && <div className="teams-modal-backdrop"><div className="teams-call-modal"><header><strong>{callMode.includes('video') ? 'Video call' : 'Audio call'} · {selected?.subject}</strong><button onClick={() => callMode.startsWith('incoming') ? rejectCall() : endCall()}><X /></button></header><div className="teams-call-stage">{callMode.includes('video') && !callMode.startsWith('incoming') ? <div className="teams-video-stage"><video ref={remoteVideoRef} autoPlay playsInline /><video className="teams-local-video" ref={localVideoRef} autoPlay muted playsInline /></div> : <span className="teams-avatar teams-call-avatar">{initials(callMode.startsWith('incoming') ? selected?.callSession?.initiatedByName : selected?.subject)}</span>}<h2>{callError || (callMode.startsWith('incoming') ? `${selected?.callSession?.initiatedByName || 'A participant'} is calling` : callStatus)}</h2><p>{callError ? 'Check browser permissions and try again.' : callMode.startsWith('incoming') ? `Incoming ${selected?.callSession?.mode || 'audio'} call for ${selected?.ticketNumber}` : callStatus === 'Connected' ? 'You are now connected to the other participant.' : 'Waiting for another ticket participant to answer.'}</p></div><footer>{callMode.startsWith('incoming') ? <><button className="teams-call-accept" onClick={answerCall}><Phone /></button><button className="teams-call-end" onClick={rejectCall}><Phone /></button></> : <><button className="teams-call-control"><Mic /></button><button className="teams-call-control"><Video /></button><button className="teams-call-end" onClick={() => endCall()}><Phone /></button></>}</footer></div></div>}
+    {callMode && !callMode.includes('video') && !callMode.startsWith('incoming') && <audio ref={remoteVideoRef} autoPlay />}
   </DashboardShell>
 }

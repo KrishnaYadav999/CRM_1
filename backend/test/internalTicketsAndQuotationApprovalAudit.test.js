@@ -40,6 +40,14 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(frontend, /appView === 'files'/);
   assert.match(frontend, /appView === 'settings'/);
   assert.match(frontend, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(frontend, /RTCPeerConnection/);
+  assert.match(frontend, /createOffer/);
+  assert.match(frontend, /createAnswer/);
+  assert.match(frontend, /Incoming call/);
   assert.match(frontend, /previewFile/);
   assert.match(model, /enum: \['Open', 'In Progress', 'Resolved', 'Closed'\]/);
+  assert.match(model, /CallSessionSchema/);
+  assert.match(controller, /exports\.call/);
+  assert.match(controller, /action === 'answer'/);
+  assert.match(read('backend/src/routes/internalTickets.js'), /patch\('\/:id\/call'/);
 });

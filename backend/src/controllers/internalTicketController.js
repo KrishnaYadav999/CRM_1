@@ -36,6 +36,34 @@ exports.list = async (req, res) => {
   res.json({ ok: true, tickets, scope: oversight ? 'all' : 'mine' });
 };
 
+exports.detail = async (req, res) => {
+  const ticket = await InternalTicket.findById(req.params.id).populate('createdBy participants', 'name email role avatarUrl').lean();
+  if (!ticket) return res.status(404).json({ error: 'Internal ticket not found.' });
+  if (!canAccess(ticket, req.user)) return res.status(403).json({ error: 'You cannot access this internal ticket.' });
+  res.json({ ok: true, ticket });
+};
+
+exports.call = async (req, res) => {
+  const ticket = await InternalTicket.findById(req.params.id);
+  if (!ticket) return res.status(404).json({ error: 'Internal ticket not found.' });
+  if (!canAccess(ticket, req.user)) return res.status(403).json({ error: 'You cannot access this internal ticket.' });
+  const action = String(req.body.action || '').toLowerCase();
+  if (action === 'start') {
+    if (!['audio', 'video'].includes(req.body.mode) || !String(req.body.offer || '').trim()) return res.status(400).json({ error: 'Call mode and offer are required.' });
+    ticket.callSession = { initiatedBy: req.user._id, initiatedByName: req.user.name || req.user.email, mode: req.body.mode, status: 'ringing', offer: String(req.body.offer), answer: '', startedAt: new Date() };
+  } else if (action === 'answer') {
+    if (!ticket.callSession || ticket.callSession.status !== 'ringing' || !String(req.body.answer || '').trim()) return res.status(409).json({ error: 'This call is no longer ringing.' });
+    if (String(ticket.callSession.initiatedBy) === String(req.user._id)) return res.status(400).json({ error: 'Caller cannot answer their own call.' });
+    ticket.callSession.answer = String(req.body.answer); ticket.callSession.status = 'active'; ticket.callSession.answeredAt = new Date();
+  } else if (action === 'reject' || action === 'end') {
+    if (!ticket.callSession) return res.status(409).json({ error: 'No call is active.' });
+    ticket.callSession.status = action === 'reject' ? 'rejected' : 'ended'; ticket.callSession.endedAt = new Date();
+  } else return res.status(400).json({ error: 'Invalid call action.' });
+  await ticket.save();
+  const saved = await InternalTicket.findById(ticket._id).populate('createdBy participants', 'name email role avatarUrl').lean();
+  res.json({ ok: true, ticket: saved });
+};
+
 exports.create = async (req, res) => {
   const subject = String(req.body.subject || '').trim();
   const message = String(req.body.message || '').trim();
