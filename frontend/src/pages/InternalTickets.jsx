@@ -1,30 +1,140 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { FileText, Loader2, MessageSquareText, Paperclip, Plus, Search, Send, ShieldCheck, UserRound, Users, X } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Activity, Bell, CheckCircle2, ChevronDown, Circle, FileText, Folder, Loader2, MessageSquareText, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users, X } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { uploadMediaBatch } from '../services/mediaUpload'
 
+const STATUSES = ['Open', 'In Progress', 'Resolved', 'Closed']
 const emptyDraft = { subject: '', priority: 'Medium', participants: [], message: '', attachments: [] }
-const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
+const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'
+const initials = (value) => String(value || 'CRM User').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
 
 function AttachmentList({ items = [] }) {
   if (!items.length) return null
-  return <div className="mt-3 grid gap-2 sm:grid-cols-2">{items.map((file, index) => { const image = String(file.type || '').startsWith('image/'); return <a key={`${file.url}-${index}`} href={file.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-2 text-xs font-black text-slate-700 hover:border-emerald-300">{image ? <img src={file.url} alt={file.name} className="h-12 w-12 rounded-lg object-cover" /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-50 text-blue-700"><FileText className="h-5 w-5" /></span>}<span className="min-w-0 truncate">{file.name || 'Attachment'}</span></a> })}</div>
+  return <div className="teams-attachments">{items.map((file, index) => {
+    const image = String(file.type || '').startsWith('image/')
+    return <a key={`${file.url}-${index}`} href={file.url} target="_blank" rel="noreferrer" className="teams-attachment">
+      {image ? <img src={file.url} alt={file.name || 'Attachment'} /> : <span><FileText /></span>}
+      <div><strong>{file.name || 'Attachment'}</strong><small>{file.size ? `${Math.ceil(file.size / 1024)} KB` : 'Open attachment'}</small></div>
+    </a>
+  })}</div>
+}
+
+function StatusBadge({ status }) {
+  return <span className={`teams-status teams-status-${String(status).toLowerCase().replace(/\s+/g, '-')}`}><i />{status}</span>
+}
+
+function ConversationRow({ ticket, active, onSelect }) {
+  const owner = ticket.createdBy?.name || 'CRM User'
+  const last = ticket.messages?.[ticket.messages.length - 1]
+  return <button type="button" onClick={onSelect} className={`teams-conversation-row ${active ? 'is-active' : ''}`}>
+    <span className="teams-avatar">{initials(owner)}<i /></span>
+    <span className="teams-conversation-copy"><span><strong>{ticket.subject}</strong><time>{stamp(ticket.lastMessageAt)}</time></span><small>{last?.authorName || owner}: {last?.message || (last?.attachments?.length ? 'Shared an attachment' : ticket.ticketNumber)}</small><span className="teams-row-meta"><b>{ticket.ticketNumber}</b><StatusBadge status={ticket.status} /></span></span>
+  </button>
+}
+
+function EmptyConversation() {
+  return <div className="teams-empty"><span><MessageSquareText /></span><h2>Select a ticket conversation</h2><p>Choose a conversation from the left to start collaborating with your team.</p></div>
 }
 
 export default function InternalTickets() {
   const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
   const isAdmin = ['admin', 'superadmin'].includes(String(currentUser?.role || '').toLowerCase())
-  const [tickets, setTickets] = useState([]); const [users, setUsers] = useState([]); const [selected, setSelected] = useState(null)
-  const [draft, setDraft] = useState(emptyDraft); const [reply, setReply] = useState(''); const [replyFiles, setReplyFiles] = useState([])
-  const [creating, setCreating] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [uploading, setUploading] = useState(false); const [search, setSearch] = useState(''); const [error, setError] = useState('')
+  const [tickets, setTickets] = useState([])
+  const [users, setUsers] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [draft, setDraft] = useState(emptyDraft)
+  const [reply, setReply] = useState('')
+  const [replyFiles, setReplyFiles] = useState([])
+  const [creating, setCreating] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
   const [scope, setScope] = useState('mine')
-  async function load(nextScope = scope) { setLoading(true); try { const [ticketRes, userRes] = await Promise.all([api.get(API_ENDPOINTS.internalTickets.list, { params: nextScope === 'all' ? { scope: 'all' } : {} }), api.get(API_ENDPOINTS.auth.users)]); setTickets(ticketRes.data.tickets || []); setUsers((userRes.data.users || []).filter((user) => String(user._id || user.id) !== String(currentUser?._id || currentUser?.id))); setSelected((active) => active ? (ticketRes.data.tickets || []).find((item) => item._id === active._id) || null : null) } catch (err) { setError(err?.response?.data?.error || 'Unable to load internal tickets.') } finally { setLoading(false) } }
+  const [statusView, setStatusView] = useState('Open')
+  const messageEndRef = useRef(null)
+
+  async function load(nextScope = scope) {
+    setLoading(true)
+    try {
+      const [ticketRes, userRes] = await Promise.all([api.get(API_ENDPOINTS.internalTickets.list, { params: nextScope === 'all' ? { scope: 'all' } : {} }), api.get(API_ENDPOINTS.auth.users)])
+      const nextTickets = ticketRes.data.tickets || []
+      setTickets(nextTickets)
+      setUsers((userRes.data.users || []).filter((user) => String(user._id || user.id) !== String(currentUser?._id || currentUser?.id)))
+      setSelected((active) => active ? nextTickets.find((item) => item._id === active._id) || null : null)
+    } catch (err) { setError(err?.response?.data?.error || 'Unable to load internal tickets.') }
+    finally { setLoading(false) }
+  }
+
   useEffect(() => { load(scope) }, [scope])
-  const visible = useMemo(() => tickets.filter((ticket) => [ticket.ticketNumber, ticket.subject, ticket.createdBy?.name, ...(ticket.participants || []).map((user) => user.name)].join(' ').toLowerCase().includes(search.toLowerCase())), [tickets, search])
-  async function upload(event, target) { const files = Array.from(event.target.files || []); event.target.value = ''; if (!files.length) return; setUploading(true); try { const uploaded = await uploadMediaBatch(files.slice(0, 8), 'crm/internal-tickets'); target === 'draft' ? setDraft((current) => ({ ...current, attachments: [...current.attachments, ...uploaded] })) : setReplyFiles((current) => [...current, ...uploaded]) } catch (err) { setError(err.message || 'Attachment upload failed.') } finally { setUploading(false) } }
-  async function create(event) { event.preventDefault(); if (!draft.participants.length) { setError('Select at least one participant for this private conversation.'); return } setSaving(true); try { const { data } = await api.post(API_ENDPOINTS.internalTickets.create, draft); setScope('mine'); setTickets((current) => [data.ticket, ...current]); setSelected(data.ticket); setDraft(emptyDraft); setCreating(false) } catch (err) { setError(err?.response?.data?.error || 'Unable to create internal ticket.') } finally { setSaving(false) } }
-  async function update(payload) { if (!selected) return; setSaving(true); try { const { data } = await api.put(API_ENDPOINTS.internalTickets.detail(selected._id), payload); setTickets((current) => current.map((item) => item._id === data.ticket._id ? data.ticket : item)); setSelected(data.ticket); setReply(''); setReplyFiles([]) } catch (err) { setError(err?.response?.data?.error || 'Unable to update internal ticket.') } finally { setSaving(false) } }
-  return <DashboardShell currentUser={currentUser}><div className="min-h-[calc(100vh-4rem)] bg-[#f3f8f6] p-4 lg:p-7"><section className="mx-auto max-w-[1800px] overflow-hidden rounded-[28px] border border-emerald-100 bg-white shadow-xl shadow-emerald-950/5"><header className="flex flex-col gap-5 bg-gradient-to-r from-[#073f32] to-[#11765a] p-6 text-white lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.22em] text-emerald-200">Private team workspace</p><h1 className="mt-2 text-3xl font-black">Internal Tickets & Team Chat</h1><p className="mt-2 text-sm text-emerald-50/80">Discuss internal work, share documents and images, and keep every decision in one audit trail.</p></div><button onClick={() => setCreating(true)} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 font-black"><Plus className="h-5 w-5" />New Internal Ticket</button></header>{error && <div className="m-4 flex justify-between rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}<button onClick={() => setError('')}><X className="h-4 w-4" /></button></div>}<div className="grid min-h-[700px] lg:grid-cols-[390px_minmax(0,1fr)]"><aside className="border-r border-slate-200 bg-slate-50/70"><div className="border-b p-4"><div className="relative"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tickets or people..." /></div></div><div className="max-h-[640px] overflow-y-auto">{loading ? <div className="grid min-h-48 place-items-center"><Loader2 className="animate-spin text-emerald-700" /></div> : visible.map((ticket) => <button key={ticket._id} onClick={() => setSelected(ticket)} className={`w-full border-b p-4 text-left hover:bg-emerald-50 ${selected?._id === ticket._id ? 'bg-emerald-50 ring-inset ring-2 ring-emerald-200' : ''}`}><div className="flex items-center justify-between gap-3"><strong className="text-xs text-emerald-700">{ticket.ticketNumber}</strong><span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-slate-500">{ticket.status}</span></div><h3 className="mt-2 truncate font-black text-slate-900">{ticket.subject}</h3><p className="mt-1 text-xs text-slate-500">{ticket.createdBy?.name || 'CRM User'} · {stamp(ticket.lastMessageAt)}</p></button>)}</div></aside><main className="flex min-w-0 flex-col">{selected ? <><div className="border-b p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-emerald-700" /><strong className="text-emerald-700">{selected.ticketNumber}</strong></div><h2 className="mt-2 text-2xl font-black">{selected.subject}</h2><p className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><Users className="h-4 w-4" />{[selected.createdBy, ...(selected.participants || [])].map((user) => user?.name).filter(Boolean).join(', ')}</p></div><select value={selected.status} onChange={(event) => update({ status: event.target.value })} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black"><option>Open</option><option>In Progress</option><option>Resolved</option><option>Closed</option></select></div></div><div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 p-5">{(selected.messages || []).map((message, index) => { const mine = String(message.author) === String(currentUser?._id || currentUser?.id); return <div key={message._id || index} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}><article className={`max-w-[82%] rounded-2xl p-4 shadow-sm ${mine ? 'rounded-tr-sm bg-emerald-700 text-white' : 'rounded-tl-sm border bg-white'}`}><div className="flex justify-between gap-5 text-xs"><strong>{message.authorName || 'CRM User'}</strong><span className={mine ? 'text-emerald-100' : 'text-slate-400'}>{stamp(message.createdAt)}</span></div>{message.message && <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.message}</p>}<AttachmentList items={message.attachments} /></article></div>})}</div><div className="border-t bg-white p-4"><AttachmentList items={replyFiles} /><div className="mt-2 flex items-end gap-2"><label className="grid h-12 w-12 shrink-0 cursor-pointer place-items-center rounded-xl border border-slate-200 text-slate-600"><input type="file" multiple className="sr-only" onChange={(event) => upload(event, 'reply')} /><Paperclip className="h-5 w-5" /></label><textarea value={reply} onChange={(event) => setReply(event.target.value)} rows="2" className="min-h-12 flex-1 resize-none rounded-xl border border-slate-200 p-3" placeholder="Write an internal message..." /><button disabled={saving || uploading || (!reply.trim() && !replyFiles.length)} onClick={() => update({ message: reply, attachments: replyFiles })} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white disabled:opacity-40"><Send className="h-5 w-5" /></button></div></div></> : <div className="grid flex-1 place-items-center p-8 text-center"><div><span className="mx-auto grid h-20 w-20 place-items-center rounded-3xl bg-emerald-50 text-emerald-700"><MessageSquareText className="h-9 w-9" /></span><h2 className="mt-5 text-2xl font-black">Select an internal ticket</h2><p className="mt-2 text-sm text-slate-500">Open a conversation or create a new team ticket.</p></div></div>}</main></div></section></div>{creating && <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/55 p-4"><form onSubmit={create} className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-[28px] bg-white shadow-2xl"><header className="flex justify-between border-b p-6"><div><p className="text-xs font-black uppercase tracking-widest text-emerald-700">Team collaboration</p><h2 className="mt-2 text-2xl font-black">Create Internal Ticket</h2></div><button type="button" onClick={() => setCreating(false)}><X /></button></header><div className="space-y-4 p-6"><input required value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} className="form-input" placeholder="Ticket subject" /><select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })} className="form-input"><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select><div><p className="mb-2 text-xs font-black uppercase text-slate-500">Select participants</p><div className="grid max-h-44 gap-2 overflow-y-auto rounded-xl border p-3 sm:grid-cols-2">{users.map((user) => { const id = String(user._id || user.id); return <label key={id} className="flex items-center gap-2 rounded-lg bg-slate-50 p-2 text-xs font-bold"><input type="checkbox" checked={draft.participants.includes(id)} onChange={(event) => setDraft((current) => ({ ...current, participants: event.target.checked ? [...current.participants, id] : current.participants.filter((value) => value !== id) }))} />{user.name || user.email}</label> })}</div></div><textarea value={draft.message} onChange={(event) => setDraft({ ...draft, message: event.target.value })} rows="5" className="form-input resize-none" placeholder="Start the conversation..." /><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed p-4 font-black text-emerald-700"><input type="file" multiple className="sr-only" onChange={(event) => upload(event, 'draft')} /><Paperclip className="h-5 w-5" />Attach files or images</label><AttachmentList items={draft.attachments} /></div><footer className="flex justify-end gap-3 border-t p-5"><button type="button" onClick={() => setCreating(false)} className="rounded-xl border px-5 py-3 font-black">Cancel</button><button disabled={saving || uploading} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white disabled:opacity-50">{saving ? 'Creating...' : 'Create Ticket'}</button></footer></form></div>}</DashboardShell>
+  useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [selected?.messages?.length])
+
+  const counts = useMemo(() => Object.fromEntries(STATUSES.map((status) => [status, tickets.filter((ticket) => ticket.status === status).length])), [tickets])
+  const visible = useMemo(() => tickets.filter((ticket) => {
+    const haystack = [ticket.ticketNumber, ticket.subject, ticket.createdBy?.name, ...(ticket.participants || []).map((user) => user.name)].join(' ').toLowerCase()
+    return ticket.status === statusView && haystack.includes(search.trim().toLowerCase())
+  }), [tickets, search, statusView])
+
+  async function upload(event, target) {
+    const files = Array.from(event.target.files || []); event.target.value = ''
+    if (!files.length) return
+    setUploading(true)
+    try {
+      const uploaded = await uploadMediaBatch(files.slice(0, 8), 'crm/internal-tickets')
+      target === 'draft' ? setDraft((current) => ({ ...current, attachments: [...current.attachments, ...uploaded] })) : setReplyFiles((current) => [...current, ...uploaded])
+    } catch (err) { setError(err.message || 'Attachment upload failed.') }
+    finally { setUploading(false) }
+  }
+
+  async function create(event) {
+    event.preventDefault()
+    if (!draft.participants.length) return setError('Select at least one participant for this private conversation.')
+    setSaving(true)
+    try {
+      const { data } = await api.post(API_ENDPOINTS.internalTickets.create, draft)
+      setScope('mine'); setStatusView('Open'); setTickets((current) => [data.ticket, ...current]); setSelected(data.ticket); setDraft(emptyDraft); setCreating(false)
+    } catch (err) { setError(err?.response?.data?.error || 'Unable to create internal ticket.') }
+    finally { setSaving(false) }
+  }
+
+  async function update(payload) {
+    if (!selected) return
+    setSaving(true)
+    try {
+      const { data } = await api.put(API_ENDPOINTS.internalTickets.detail(selected._id), payload)
+      setTickets((current) => current.map((item) => item._id === data.ticket._id ? data.ticket : item)); setSelected(data.ticket); setReply(''); setReplyFiles([])
+      if (payload.status) setStatusView(payload.status)
+    } catch (err) { setError(err?.response?.data?.error || 'Unable to update internal ticket.') }
+    finally { setSaving(false) }
+  }
+
+  function sendReply() { if (reply.trim() || replyFiles.length) update({ message: reply, attachments: replyFiles }) }
+  function onComposerKeyDown(event) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendReply() } }
+
+  return <DashboardShell currentUser={currentUser}>
+    <div className="teams-page" aria-label="Internal Tickets & Team Chat">
+      <header className="teams-topbar"><div className="teams-product"><span><Users /></span><strong>Internal Teams</strong></div><div className="teams-global-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tickets, messages and people" /></div><div className="teams-profile"><Bell /><span className="teams-avatar">{initials(currentUser?.name)}</span><div><strong>{currentUser?.name || 'CRM User'}</strong><small>Available</small></div><ChevronDown /></div></header>
+      {error && <div className="teams-error">{error}<button onClick={() => setError('')}><X /></button></div>}
+      <section className="teams-shell">
+        <nav className="teams-app-rail" aria-label="Internal collaboration navigation"><button title="Activity"><Activity /><span>Activity</span></button><button className="is-active" title="Chat"><MessageSquareText /><span>Chat</span></button><button title="Files"><Folder /><span>Files</span></button><button title="Settings"><Settings /><span>Settings</span></button></nav>
+        <aside className="teams-sidebar">
+          <div className="teams-sidebar-title"><div><small>Workspace</small><h2>Internal Tickets</h2></div><button onClick={() => setCreating(true)} title="New internal ticket"><Plus /></button></div>
+          <div className="teams-scope-tabs"><button className={scope === 'mine' ? 'is-active' : ''} onClick={() => setScope('mine')}>My chats</button>{isAdmin && <button className={scope === 'all' ? 'is-active' : ''} onClick={() => setScope('all')}><ShieldCheck /> Oversight</button>}</div>
+          <div className="teams-quick-title">Quick views</div><div className="teams-status-list">{STATUSES.map((status) => <button key={status} className={statusView === status ? 'is-active' : ''} onClick={() => { setStatusView(status); setSelected(null) }}>{status === 'Resolved' || status === 'Closed' ? <CheckCircle2 /> : <Circle />}<span>{status}</span><b>{counts[status] || 0}</b></button>)}</div>
+          <div className="teams-chat-heading"><span>Ticket chats</span><button onClick={() => load()} title="Refresh"><MoreHorizontal /></button></div>
+          <div className="teams-conversation-list">{loading ? <div className="teams-loading"><Loader2 /></div> : visible.length ? visible.map((ticket) => <ConversationRow key={ticket._id} ticket={ticket} active={selected?._id === ticket._id} onSelect={() => setSelected(ticket)} />) : <div className="teams-list-empty">No {statusView.toLowerCase()} tickets found.</div>}</div>
+        </aside>
+        <main className="teams-workspace">{!selected ? <EmptyConversation /> : <>
+          <header className="teams-chat-header"><span className="teams-avatar teams-avatar-lg">{initials(selected.subject)}<i /></span><div className="teams-chat-identity"><small>{selected.ticketNumber}</small><h2>{selected.subject}</h2><p><Users />{[selected.createdBy, ...(selected.participants || [])].map((user) => user?.name).filter(Boolean).join(', ')}</p></div><div className="teams-chat-actions"><StatusBadge status={selected.status} /><select aria-label="Ticket status" value={selected.status} onChange={(event) => update({ status: event.target.value })}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select><button title="More options"><MoreHorizontal /></button></div></header>
+          <div className="teams-chat-tabs"><button className="is-active">Chat</button><button>Shared</button><button>Details</button></div>
+          <div className="teams-messages"><div className="teams-date-divider"><span>Ticket conversation</span></div>{(selected.messages || []).map((message, index) => { const mine = String(message.author) === String(currentUser?._id || currentUser?.id); return <article key={message._id || index} className={`teams-message ${mine ? 'is-mine' : ''}`}>{!mine && <span className="teams-avatar">{initials(message.authorName)}</span>}<div className="teams-message-content"><header><strong>{message.authorName || 'CRM User'}</strong><time>{stamp(message.createdAt)}</time></header><div className="teams-message-bubble">{message.message && <p>{message.message}</p>}<AttachmentList items={message.attachments} /></div></div></article> })}<div ref={messageEndRef} /></div>
+          <footer className="teams-composer"><AttachmentList items={replyFiles} /><div className="teams-compose-box"><textarea value={reply} onChange={(event) => setReply(event.target.value)} onKeyDown={onComposerKeyDown} rows="2" placeholder={`Message ${selected.ticketNumber}`} /><div className="teams-compose-actions"><div><button title="Emoji"><Smile /></button><label title="Attach files"><input type="file" multiple onChange={(event) => upload(event, 'reply')} /><Paperclip /></label></div><button className="teams-send" disabled={saving || uploading || (!reply.trim() && !replyFiles.length)} onClick={sendReply}>{saving ? <Loader2 className="animate-spin" /> : <Send />}</button></div></div><small>Press Enter to send · Shift + Enter for a new line</small></footer>
+        </>}</main>
+      </section>
+    </div>
+    {creating && <div className="teams-modal-backdrop"><form onSubmit={create} className="teams-create-modal"><header><div><small>Internal collaboration</small><h2>New ticket chat</h2><p>Create a private workspace with selected participants.</p></div><button type="button" onClick={() => setCreating(false)}><X /></button></header><div className="teams-create-body"><label><span>Subject</span><input required value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} placeholder="What does your team need to discuss?" /></label><label><span>Priority</span><select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select></label><fieldset><legend>Select participants</legend><div>{users.map((user) => { const id = String(user._id || user.id); return <label key={id}><input type="checkbox" checked={draft.participants.includes(id)} onChange={(event) => setDraft((current) => ({ ...current, participants: event.target.checked ? [...current.participants, id] : current.participants.filter((value) => value !== id) }))} /><span className="teams-avatar">{initials(user.name || user.email)}</span><span>{user.name || user.email}</span></label> })}</div></fieldset><label><span>First message</span><textarea value={draft.message} onChange={(event) => setDraft({ ...draft, message: event.target.value })} rows="4" placeholder="Start the conversation..." /></label><label className="teams-upload"><input type="file" multiple onChange={(event) => upload(event, 'draft')} /><Paperclip />Attach files or images</label><AttachmentList items={draft.attachments} /></div><footer><button type="button" onClick={() => setCreating(false)}>Cancel</button><button disabled={saving || uploading}>{saving ? 'Creating...' : 'Create ticket chat'}</button></footer></form></div>}
+  </DashboardShell>
 }

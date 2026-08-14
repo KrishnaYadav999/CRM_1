@@ -15,6 +15,7 @@ import './styles/modules/09-notifications-calendar.css'
 import './styles/modules/10-responsive-polish.css'
 import './styles/modules/11-final-overrides.css'
 import './styles/modules/12-typography-system.css'
+import './styles/modules/13-internal-teams.css'
 import { applyThemeSettings } from './components/dashboard/SettingsDrawer'
 
 window.addEventListener('unhandledrejection', (event) => {

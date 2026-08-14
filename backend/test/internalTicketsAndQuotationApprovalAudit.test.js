@@ -30,4 +30,9 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(frontend, /Internal Tickets & Team Chat/);
   assert.match(frontend, /Attach files or images/);
   assert.match(frontend, /scope.*mine/);
+  assert.match(frontend, /const STATUSES = \['Open', 'In Progress', 'Resolved', 'Closed'\]/);
+  assert.match(frontend, /onComposerKeyDown/);
+  assert.match(frontend, /teams-app-rail/);
+  assert.match(frontend, /teams-status-list/);
+  assert.match(model, /enum: \['Open', 'In Progress', 'Resolved', 'Closed'\]/);
 });
