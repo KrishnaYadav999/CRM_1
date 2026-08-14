@@ -111,6 +111,146 @@
     border-radius: 999px;
     background: #75c9bd;
   }
+
+  /* Compact Operations Dashboard composition matching the desktop reference. */
+  .operations-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 14px !important;
+  }
+
+  .operations-welcome-bar {
+    display: flex;
+    min-height: 72px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    border-bottom: 1px solid #e7edf5;
+    background: linear-gradient(110deg, #ffffff 0%, #f8faff 62%, #f4f2ff 100%);
+    padding: 12px 16px;
+  }
+
+  .operations-welcome-bar p {
+    color: #17213b;
+    font-size: 21px !important;
+    font-weight: 900;
+    line-height: 1.2 !important;
+  }
+
+  .operations-welcome-bar small {
+    display: block;
+    margin-top: 5px;
+    color: #7b8499;
+    font-size: 10px !important;
+    font-weight: 650;
+  }
+
+  .operations-welcome-actions,
+  .operations-welcome-actions span,
+  .operations-welcome-actions button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .operations-welcome-actions span,
+  .operations-welcome-actions button {
+    min-height: 38px;
+    border: 1px solid #dfe5ef;
+    border-radius: 8px;
+    background: #fff;
+    padding: 0 13px;
+    color: #334155;
+    font-size: 10px;
+    font-weight: 850;
+    box-shadow: 0 3px 12px rgba(15, 23, 42, .05);
+  }
+
+  .operations-po-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr);
+    gap: 12px !important;
+  }
+
+  .operations-po-overview,
+  .operations-po-users,
+  .red-flag-audit {
+    border-radius: 10px !important;
+    box-shadow: 0 5px 18px rgba(15, 23, 42, .055) !important;
+  }
+
+  .operations-po-overview {
+    padding: 15px !important;
+  }
+
+  .operations-po-overview h1 {
+    font-size: 18px !important;
+  }
+
+  .operations-po-overview .mt-5.grid {
+    margin-top: 13px !important;
+    gap: 8px !important;
+  }
+
+  .operations-po-overview .mt-5.grid > div {
+    min-height: 84px;
+    padding: 13px !important;
+  }
+
+  .operations-po-users header {
+    padding: 13px 15px !important;
+  }
+
+  .operations-po-users header label {
+    min-width: 260px !important;
+    height: 38px !important;
+  }
+
+  .operations-po-users > div:last-child {
+    max-height: 315px;
+    overflow-y: auto;
+  }
+
+  .operations-po-users > div:last-child > div > button {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+
+  .red-flag-audit > header {
+    padding: 14px 16px !important;
+  }
+
+  .red-flag-audit > header h2 {
+    font-size: 17px !important;
+  }
+
+  .red-flag-audit-summary b {
+    min-width: 68px !important;
+    padding: 7px 10px !important;
+    font-size: 16px !important;
+  }
+
+  .red-flag-table-wrap {
+    max-height: 390px;
+    overflow: auto;
+  }
+
+  .red-flag-audit th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 9px 12px !important;
+  }
+
+  .red-flag-audit td {
+    padding: 9px 12px !important;
+  }
+}
+
+@media screen and (max-width: 1399px) {
+  .operations-po-dashboard {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Printed quotations/reports must retain their exact physical dimensions. */

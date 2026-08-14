@@ -3264,8 +3264,8 @@ function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
   const poPending = Math.max(0, selectedRows.length - poReceived)
 
   return (
-    <div className="space-y-5">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5">
+    <div className="operations-po-dashboard space-y-5">
+      <section className="operations-po-overview overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[.22em] text-violet-600">PO Dashboard</p>
@@ -3291,7 +3291,7 @@ function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+      <section className="operations-po-users overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
         <header className="flex flex-col gap-4 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div><h2 className="font-black text-slate-950">PO Status By User</h2><p className="text-xs font-semibold text-slate-500">Click a user row, then expand a financial year to see clients.</p></div>
           <label className="flex h-11 min-w-[320px] items-center gap-3 rounded-xl border border-slate-200 px-4 text-slate-400 focus-within:border-violet-300"><Search className="h-4 w-4" /><input className="w-full bg-transparent text-sm font-semibold text-slate-800 outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search user, FY, client, PO..." /></label>
@@ -5152,12 +5152,22 @@ export default function AdminDashboard() {
                   />
                 ) : (
                   <>
-              <RedFlagAuditSection items={operationsFollowUps} users={users} title="Operations Red Flag & Missed Actions" />
+              <section className="operations-welcome-bar">
+                <div>
+                  <p>Good morning, {String(currentUser?.name || 'Team').split(/\s+/)[0]}! <span aria-hidden="true">👋</span></p>
+                  <small>Here&apos;s what&apos;s happening with your operations today.</small>
+                </div>
+                <div className="operations-welcome-actions">
+                  <span><CalendarDays className="h-4 w-4" />{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  <button type="button" onClick={() => loadDashboard({ force: true })}><RefreshCw className="h-4 w-4" />Refresh</button>
+                </div>
+              </section>
               <UserWisePoStatus
                 rows={scopedOperationsRows}
                 onRefresh={() => loadDashboard({ force: true })}
                 onOpenPo={openPoDetails}
               />
+              <RedFlagAuditSection items={operationsFollowUps} users={users} title="Operations Red Flag & Missed Actions" />
               <div className="operations-hero" style={{ display: 'none' }}>
                 <div className="flex min-w-0 items-center gap-4">
                   <span className="operations-hero-icon"><Activity className="h-6 w-6" /></span>

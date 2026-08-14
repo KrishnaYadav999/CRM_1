@@ -73,3 +73,15 @@ test('desktop CRM uses a compact 100-percent browser density without changing pr
   assert.match(density, /@media print/);
   assert.match(density, /zoom: 1 !important/);
 });
+
+test('operations dashboard uses the compact PO-first reference composition', () => {
+  const dashboard = read('frontend/src/pages/AdminDashboard.jsx');
+  const density = read('frontend/src/styles/modules/14-desktop-density.css');
+  const poIndex = dashboard.lastIndexOf('<UserWisePoStatus');
+  const auditIndex = dashboard.lastIndexOf('<RedFlagAuditSection');
+  assert.match(dashboard, /operations-welcome-bar/);
+  assert.ok(poIndex >= 0 && auditIndex > poIndex);
+  assert.match(dashboard, /operations-po-dashboard/);
+  assert.match(density, /grid-template-columns: minmax\(0, \.82fr\) minmax\(0, 1\.18fr\)/);
+  assert.match(density, /\.red-flag-table-wrap[\s\S]*max-height: 390px/);
+});
