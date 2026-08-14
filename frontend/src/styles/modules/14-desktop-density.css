@@ -1,0 +1,33 @@
+/*
+ * Desktop CRM density
+ * Keeps browser zoom at 100% while presenting the wider, compact workspace
+ * preferred by operations users. The reciprocal canvas prevents clipped pages.
+ */
+:root {
+  --crm-desktop-scale: 0.75;
+  --crm-desktop-canvas: 133.3334%;
+}
+
+@media screen and (min-width: 1100px) {
+  html,
+  body {
+    min-width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+
+  #root {
+    width: var(--crm-desktop-canvas);
+    min-height: 133.3334vh;
+    zoom: var(--crm-desktop-scale);
+  }
+}
+
+/* Printed quotations/reports must retain their exact physical dimensions. */
+@media print {
+  #root {
+    width: 100% !important;
+    min-height: auto !important;
+    zoom: 1 !important;
+  }
+}

@@ -55,3 +55,14 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(controller, /action === 'answer'/);
   assert.match(read('backend/src/routes/internalTickets.js'), /patch\('\/:id\/call'/);
 });
+
+test('desktop CRM uses a compact 100-percent browser density without changing print or mobile', () => {
+  const main = read('frontend/src/main.jsx');
+  const density = read('frontend/src/styles/modules/14-desktop-density.css');
+  assert.match(main, /14-desktop-density\.css/);
+  assert.match(density, /--crm-desktop-scale: 0\.75/);
+  assert.match(density, /min-width: 1100px/);
+  assert.match(density, /--crm-desktop-canvas: 133\.3334%/);
+  assert.match(density, /@media print/);
+  assert.match(density, /zoom: 1 !important/);
+});
