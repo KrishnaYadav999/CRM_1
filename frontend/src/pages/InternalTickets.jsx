@@ -74,6 +74,10 @@ export default function InternalTickets() {
   const remoteVideoRef = useRef(null)
   const mediaStreamRef = useRef(null)
   const peerRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const ringtoneTimerRef = useRef(null)
+  const titleTimerRef = useRef(null)
+  const originalTitleRef = useRef(document.title)
 
   async function load(nextScope = scope) {
     setLoading(true)
@@ -89,7 +93,26 @@ export default function InternalTickets() {
 
   useEffect(() => { load(scope) }, [scope])
   useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [selected?.messages?.length])
-  useEffect(() => () => { mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); peerRef.current?.close() }, [])
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)()
+      audioContextRef.current.resume?.()
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {})
+    }
+    window.addEventListener('pointerdown', unlockAudio, { once: true })
+    return () => { window.removeEventListener('pointerdown', unlockAudio); stopRingtone(); mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); peerRef.current?.close(); audioContextRef.current?.close?.() }
+  }, [])
+  useEffect(() => {
+    if (!callMode.startsWith('incoming')) return undefined
+    startRingtone()
+    const caller = selected?.callSession?.initiatedByName || 'CRM participant'
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const notice = new Notification(`${callMode.includes('video') ? 'Video' : 'Audio'} call from ${caller}`, { body: `${selected?.ticketNumber || 'Internal ticket'} · Click to answer`, tag: `internal-call-${selected?._id}`, requireInteraction: true })
+      notice.onclick = () => { window.focus(); notice.close() }
+      return () => { notice.close(); stopRingtone() }
+    }
+    return stopRingtone
+  }, [callMode, selected?._id])
   useEffect(() => {
     const timer = setInterval(async () => {
       try {
@@ -178,6 +201,25 @@ export default function InternalTickets() {
     peerRef.current = peer
     return peer
   }
+  function playRingPulse() {
+    const context = audioContextRef.current
+    if (!context || context.state !== 'running') return
+    ;[0, .22].forEach((delay) => {
+      const oscillator = context.createOscillator(); const gain = context.createGain(); const now = context.currentTime + delay
+      oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(660, now); oscillator.frequency.setValueAtTime(880, now + .1)
+      gain.gain.setValueAtTime(.0001, now); gain.gain.exponentialRampToValueAtTime(.16, now + .02); gain.gain.exponentialRampToValueAtTime(.0001, now + .18)
+      oscillator.connect(gain); gain.connect(context.destination); oscillator.start(now); oscillator.stop(now + .2)
+    })
+  }
+  function startRingtone() {
+    stopRingtone(); playRingPulse(); ringtoneTimerRef.current = setInterval(playRingPulse, 1600)
+    titleTimerRef.current = setInterval(() => { document.title = document.title.startsWith('Incoming call') ? originalTitleRef.current : `Incoming call · ${selected?.callSession?.initiatedByName || 'Internal Teams'}` }, 800)
+  }
+  function stopRingtone() {
+    if (ringtoneTimerRef.current) clearInterval(ringtoneTimerRef.current)
+    if (titleTimerRef.current) clearInterval(titleTimerRef.current)
+    ringtoneTimerRef.current = null; titleTimerRef.current = null; document.title = originalTitleRef.current
+  }
   async function startCall(mode) {
     if (!selected) return
     setCallError(''); setCallMode(mode); setCallStatus('Starting call...')
@@ -194,7 +236,7 @@ export default function InternalTickets() {
   async function answerCall() {
     const session = selected?.callSession; const mode = session?.mode
     if (!session?.offer) return
-    setCallMode(mode); setCallStatus('Connecting...'); setCallError('')
+    stopRingtone(); setCallMode(mode); setCallStatus('Connecting...'); setCallError('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' }); mediaStreamRef.current = stream
       const peer = await createPeer(stream); await peer.setRemoteDescription(JSON.parse(session.offer)); await peer.setLocalDescription(await peer.createAnswer()); await waitForIce(peer)
@@ -202,10 +244,10 @@ export default function InternalTickets() {
       setTimeout(() => { if (localVideoRef.current) localVideoRef.current.srcObject = stream }, 0)
     } catch (error) { setCallError(error?.response?.data?.error || 'Unable to answer the call.'); setCallStatus('Call failed') }
   }
-  async function rejectCall() { try { await api.patch(API_ENDPOINTS.internalTickets.call(selected._id), { action: 'reject' }) } finally { endCall(false) } }
+  async function rejectCall() { stopRingtone(); try { await api.patch(API_ENDPOINTS.internalTickets.call(selected._id), { action: 'reject' }) } finally { endCall(false) } }
   async function endCall(notify = true) {
     if (notify && selected?._id) { try { await api.patch(API_ENDPOINTS.internalTickets.call(selected._id), { action: 'end' }) } catch { /* local cleanup must always run */ } }
-    mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); peerRef.current?.close(); mediaStreamRef.current = null; peerRef.current = null; setCallMode(''); setCallError(''); setCallStatus('')
+    stopRingtone(); mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); peerRef.current?.close(); mediaStreamRef.current = null; peerRef.current = null; setCallMode(''); setCallError(''); setCallStatus('')
   }
 
   return <DashboardShell currentUser={currentUser}>

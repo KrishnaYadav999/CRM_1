@@ -44,6 +44,10 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(frontend, /createOffer/);
   assert.match(frontend, /createAnswer/);
   assert.match(frontend, /Incoming call/);
+  assert.match(frontend, /new Notification/);
+  assert.match(frontend, /startRingtone/);
+  assert.match(frontend, /createOscillator/);
+  assert.match(frontend, /document\.title/);
   assert.match(frontend, /previewFile/);
   assert.match(model, /enum: \['Open', 'In Progress', 'Resolved', 'Closed'\]/);
   assert.match(model, /CallSessionSchema/);
