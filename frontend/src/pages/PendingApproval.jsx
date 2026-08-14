@@ -78,6 +78,28 @@ function PoProof({ row }) {
   </div>;
 }
 
+function PoApprovalDetails({ row }) {
+  const quotationItem = Array.isArray(row?.quotationItems) ? row.quotationItems[0] || {} : {};
+  const details = [
+    ['FY / Service Period', row?.fy || quotationItem.servicesForYear || quotationItem.financialYear],
+    ['Industry Type', quotationItem.industryType],
+    ['Business Category', quotationItem.businessCategory],
+    ['Service Category', quotationItem.serviceCategory || quotationItem.eprCategory],
+    ['Service Start', quotationItem.serviceStartDate],
+    ['Service End', quotationItem.serviceEndDate],
+    ['Applicant Type', quotationItem.subApplicantType || quotationItem.piboCategory || quotationItem.applicantType],
+    ['Unit', quotationItem.unit || '1'],
+    ['UOM', quotationItem.unitLabel],
+    ['Basic Amount', quotationItem.basicAmount != null ? `₹${Number(quotationItem.basicAmount || 0).toLocaleString('en-IN')}` : null]
+  ];
+  return <article className="mb-3 min-w-[440px] rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-sm">
+    <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-slate-950">{row?.poNumber || 'PO number unavailable'}</strong><span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black text-emerald-700">{row?.currency || 'INR'} {row?.poAmount == null ? '-' : Number(row.poAmount).toLocaleString('en-IN')}</span></div>
+    <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-3">{details.map(([label, value]) => <div key={label}><small className="block text-[9px] font-black uppercase tracking-wide text-slate-400">{label}</small><span className="text-xs font-bold text-slate-700">{formatApprovalValue(value)}</span></div>)}</div>
+    <div className="mt-3 text-[10px] font-bold uppercase text-slate-500">Services: {Array.isArray(row?.services) ? row.services.map((service) => formatApprovalValue(service)).join(', ') || '-' : '-'}</div>
+    <PoProof row={row} />
+  </article>;
+}
+
 function applyBulkLeadCreators(clients = [], leads = []) {
   const byKey = new Map();
   leads.forEach((lead) => {
@@ -875,7 +897,7 @@ export default function PendingApproval() {
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
                   const poRows = row.payload?.poYearRows || [];
-                  return <tr key={id}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.length ? poRows.map((po, index) => <div key={`${po.poNumber || 'po'}-${index}`} className="mb-3 min-w-56 rounded-xl border border-slate-100 bg-slate-50 p-2"><div><strong>{po.fy || '-'}</strong> · {po.poNumber || '-'}</div><div className="mt-1 text-[10px] font-bold uppercase text-slate-400">{Array.isArray(po.services) ? po.services.map((service) => formatApprovalValue(service)).join(', ') : '-'}</div><PoProof row={po} /></div>) : <span className="font-semibold text-slate-400">No PO rows found</span>}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmount == null ? '-' : `₹${Number(po.poAmount).toLocaleString('en-IN')}`}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <div key={index}><strong>{po.quotationNumber || '-'}</strong>{po.quotationId && <small className="mt-1 block max-w-32 truncate text-slate-400" title={String(po.quotationId)}>{po.quotationId}</small>}</div>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
+                  return <tr key={id}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.length ? poRows.map((po, index) => <PoApprovalDetails key={`${po.poNumber || 'po'}-${index}`} row={po} />) : <span className="font-semibold text-slate-400">No PO rows found</span>}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmount == null ? '-' : `₹${Number(po.poAmount).toLocaleString('en-IN')}`}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <div key={index}><strong>{po.quotationNumber || '-'}</strong>{po.quotationId && <small className="mt-1 block max-w-32 truncate text-slate-400" title={String(po.quotationId)}>{po.quotationId}</small>}</div>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
                 })}
               </ApprovalTable>
             ) : activeTab === 'temporary' ? (

@@ -388,7 +388,7 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
     row.poApprovalStatus = 'PENDING';
     const service = (lead.serviceSelections || [])[index] || {};
     const sourceClientId = `${lead._id}:po:${row.assignedServiceId || index}`;
-    await PendingApproval.findOneAndUpdate(
+    const savedApproval = await PendingApproval.findOneAndUpdate(
       { type: 'purchase_order', source: 'crm', sourceClientId },
       { $setOnInsert: { type: 'purchase_order', source: 'crm', sourceClientId }, $set: {
         uniqueId: lead.leadCode || String(lead._id), clientName: lead.company || 'Lead', approvalStatus: 'PENDING',
@@ -399,6 +399,22 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
         actionBy: null, actionAt: null, remarks: ''
       } }, { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+    try {
+      const notificationUsers = await User.find({ $or: [
+        { role: { $in: ADMIN_ROLES }, isActive: { $ne: false } },
+        ...(actor?._id && mongoose.isValidObjectId(actor._id) ? [{ _id: actor._id }] : [])
+      ] }).select('name email role').lean();
+      const recipients = [...new Set([
+        ...notificationUsers.map((user) => user.email), actor?.email
+      ].map((email) => String(email || '').trim().toLowerCase()).filter(Boolean))];
+      const poRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
+      const poDetails = poRows.map((po) => `<li><strong>${escapeHtml(po.poNumber || 'PO')}</strong> · ${escapeHtml(po.fy || 'FY not specified')} · ₹${Number(po.poAmount || 0).toLocaleString('en-IN')}${po.poFileUrl ? ` · <a href="${escapeHtml(po.poFileUrl)}">View PO proof</a>` : ''}</li>`).join('');
+      const emailHtml = `<div style="font-family:Arial,sans-serif;color:#334155"><h2>New Purchase Order submitted</h2><p><strong>${escapeHtml(actor?.name || actor?.email || 'CRM User')}</strong> submitted Purchase Order details for <strong>${escapeHtml(lead.company || lead.leadCode)}</strong>.</p><ul>${poDetails}</ul><p>Please open Pending Approval → PO Approval to review it.</p></div>`;
+      await Promise.allSettled(recipients.map((email) => sendMail(email, `New PO Approval - ${lead.company || lead.leadCode}`, emailHtml, { branded: false })));
+    } catch (error) {
+      console.error('Unable to send new PO approval notifications', error.message);
+    }
+    return savedApproval;
   }));
   lead.markModified('assignments');
 }
@@ -1237,19 +1253,29 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
   const purchaseOrderApprovals = approvals.filter((approval) => approval.type === 'purchase_order');
   if (purchaseOrderApprovals.length) {
     const leadIds = [...new Set(purchaseOrderApprovals.map((approval) => String(approval.payload?.leadId || '')).filter(mongoose.isValidObjectId))];
-    const leads = await Lead.find({ _id: { $in: leadIds } }).populate('createdBy', 'name email').lean();
+    const leadCodes = [...new Set(purchaseOrderApprovals.flatMap((approval) => [approval.payload?.leadCode, approval.uniqueId]).map((value) => String(value || '').trim()).filter(Boolean))];
+    const companies = [...new Set(purchaseOrderApprovals.map((approval) => String(approval.clientName || '').trim()).filter(Boolean))];
+    const leadLookup = [];
+    if (leadIds.length) leadLookup.push({ _id: { $in: leadIds } });
+    if (leadCodes.length) leadLookup.push({ leadCode: { $in: leadCodes } });
+    if (companies.length) leadLookup.push({ company: { $in: companies } });
+    const leads = leadLookup.length ? await Lead.find({ $or: leadLookup }).populate('createdBy', 'name email').lean() : [];
     const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
-    const leadCodes = leads.map((lead) => lead.leadCode).filter(Boolean);
+    const leadByCode = new Map(leads.map((lead) => [String(lead.leadCode || '').toLowerCase(), lead]).filter(([code]) => code));
+    const leadByCompany = new Map(leads.map((lead) => [String(lead.company || '').toLowerCase(), lead]).filter(([company]) => company));
+    const matchedLeadCodes = leads.map((lead) => lead.leadCode).filter(Boolean);
     const quotations = await Quotation.find({ $or: [
       { leadRef: { $in: leadIds } }, { leadId: { $in: leadIds } },
-      { leadCode: { $in: leadCodes } }, { businessLeadCode: { $in: leadCodes } }
+      { leadCode: { $in: matchedLeadCodes } }, { businessLeadCode: { $in: matchedLeadCodes } }
     ] }).lean();
     const quoteForRow = (row, lead) => quotations.find((quote) => String(quote._id) === String(row.quotationId || ''))
       || quotations.find((quote) => quote.quotationNumber && quote.quotationNumber === row.quotationNumber)
       || quotations.find((quote) => [quote.leadRef, quote.leadId, quote.leadCode, quote.businessLeadCode].some((value) => [String(lead._id), lead.leadCode].includes(String(value || ''))));
     purchaseOrderApprovals.forEach((approval) => {
       const payload = approval.payload || {};
-      const lead = leadById.get(String(payload.leadId || ''));
+      const lead = leadById.get(String(payload.leadId || ''))
+        || leadByCode.get(String(payload.leadCode || approval.uniqueId || '').toLowerCase())
+        || leadByCompany.get(String(approval.clientName || '').toLowerCase());
       if (!lead) return;
       const assignmentIndex = Number(payload.assignmentIndex);
       const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];

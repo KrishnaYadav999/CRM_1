@@ -28,6 +28,9 @@ test('PO approval is persisted and restricted to Admin and Super Admin', () => {
   assert.match(controller, /poSubmittedByEmail/);
   assert.match(controller, /role: \{ \$in: ADMIN_ROLES \}/);
   assert.match(controller, /liveRows\.length \? liveRows : snapshotRows/);
+  assert.match(controller, /New Purchase Order submitted/);
+  assert.match(controller, /New PO Approval/);
+  assert.match(controller, /leadByCompany/);
 });
 
 test('Pending Approval exposes PO approve reject and revision actions', () => {
@@ -39,6 +42,9 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /purchaseOrderApprovalDecision/);
   assert.match(page, /View PO Proof/);
   assert.match(page, /Download ·/);
+  assert.match(page, /FY \/ Service Period/);
+  assert.match(page, /Business Category/);
+  assert.match(page, /Basic Amount/);
 });
 
 test('Super Admin home omits MIS tables and Home navigation omits Activity Logs', () => {
