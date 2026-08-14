@@ -1064,7 +1064,7 @@ export default function LeadGeneration() {
       : selectedQuotationItems.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
     const quoteRow = (item = matchingService, itemIndex = 0) => ({
       fy: item.servicesForYear || item.financialYear || item.firstAnnualReturnYearApplicable || matchingService.firstAnnualReturnYearApplicable || '',
-      poNumber: '', poAmount: latestQuotation?.pricingMode === 'combined' ? defaultAmount : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), poFileUrl: '', poFileName: '',
+      poNumber: '', poAmount: latestQuotation?.pricingMode === 'combined' ? defaultAmount : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), poFileUrl: '', poFileName: '', poFileMimeType: '', poFileSize: null, currency: 'INR', poReceivedDate: '',
       services: [item.servicesOffered || item.applicableService || matchingService.servicesOffered].filter(Boolean),
       quotationItemIndex: itemIndex,
       quotationId: latestQuotation?._id || latestQuotation?.id || '', quotationNumber: latestQuotation?.quotationNumber || '',
@@ -1086,7 +1086,7 @@ export default function LeadGeneration() {
     try {
       const uploaded = await uploadMedia(file, type === 'po' ? 'crm/leads/purchase-orders' : 'crm/leads/closure-approvals');
       setClosureDialog((current) => type === 'po'
-        ? { ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, poFileUrl: uploaded.secureUrl, poFileName: file.name } : row) }
+        ? { ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, poFileUrl: uploaded.secureUrl, poFileName: uploaded.name || file.name, poFileMimeType: uploaded.type || file.type || '', poFileSize: Number.isFinite(uploaded.bytes) ? uploaded.bytes : (Number.isFinite(uploaded.size) ? uploaded.size : null), poReceivedDate: row.poReceivedDate || new Date().toISOString(), currency: row.currency || 'INR' } : row) }
         : { ...current, approvalProofUrl: uploaded.secureUrl, approvalProofName: file.name });
     } catch (uploadError) {
       showToast(uploadError?.message || 'File upload failed.', 'error');

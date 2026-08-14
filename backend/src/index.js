@@ -17,6 +17,7 @@ const supportTicketRoutes = require('./routes/supportTickets');
 const internalTicketRoutes = require('./routes/internalTickets');
 const activityLogRoutes = require('./routes/activityLogs');
 const complianceIntegrationRoutes = require('./routes/complianceIntegration');
+const purchaseOrderRoutes = require('./routes/purchaseOrders');
 const healthReportAssignmentRoutes = require('./routes/healthReportAssignments');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
@@ -118,6 +119,7 @@ app.use('/api/support-tickets', supportTicketRoutes);
 app.use('/api/internal-tickets', internalTicketRoutes);
 app.use('/api/activity-logs', activityLogRoutes);
 app.use('/api/integrations/compliance', complianceIntegrationRoutes);
+app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/health-report-assignments', healthReportAssignmentRoutes);
 
 app.get('/', (req, res) => res.send({ ok: true, env: process.env.NODE_ENV }));
