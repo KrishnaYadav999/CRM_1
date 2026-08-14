@@ -57,6 +57,22 @@
     overflow-y: auto;
   }
 
+  /* Quotation document typography is intentionally denser than CRM tables. */
+  [data-quotation-pdf] table th {
+    font-size: 9px !important;
+    line-height: 1.25 !important;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  [data-quotation-pdf] table td {
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    white-space: normal;
+  }
+
   .overflow-auto,
   .overflow-x-auto,
   .lead-directory-scroll,

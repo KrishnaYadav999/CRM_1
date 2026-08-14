@@ -2801,7 +2801,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
               {combined && <div className="mt-5 px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
               <div className={`${combined ? '' : 'mt-5'} overflow-hidden border border-slate-950`}>
                 <table className="w-full table-fixed text-[10px]">
-                  <colgroup><col className="w-[13%]" /><col className="w-[18%]" /><col className="w-[20%]" /><col className="w-[14%]" /><col className="w-[16%]" /><col className="w-[7%]" /><col className="w-[12%]" /></colgroup>
+                  <colgroup><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[19%]" /><col className="w-[14%]" /><col className="w-[15%]" /><col className="w-[6%]" /><col className="w-[12%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
                       {['Business Category', 'Service Category', 'Service Period', 'Applicant Type', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
@@ -2810,8 +2810,8 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                   <tbody>
                     {items.map((item, index) => (
                       <tr key={index} className="font-black uppercase">
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.businessCategory || '-'}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{item.eprCategory || item.serviceCategory || '-'}</td>
+                        <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.businessCategory || '-'}</td>
+                        <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.eprCategory || item.serviceCategory || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{quotationServiceDateRange(item)}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{getQuotationApplicantType(item)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
@@ -2950,8 +2950,10 @@ function buildQuotationPrintHtml(quotation) {
       .value { font-weight: 400; }
       p { margin: 0 0 4px; }
       table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 4px; }
-      th { background: #f97316; color: white; border: 1px solid #020617; padding: 7px 6px; text-align: left; font-size: 9px; line-height: 1.15; font-weight: 900; text-transform: uppercase; }
-      td { background: #fff; border: 1px solid #020617; padding: 7px 6px; font-size: 9px; line-height: 1.2; font-weight: 700; text-transform: uppercase; }
+      th { background: #f97316; color: white; border: 1px solid #020617; padding: 7px 6px; text-align: left; font-size: 9px; line-height: 1.15; font-weight: 900; text-transform: uppercase; overflow-wrap: anywhere; }
+      td { background: #fff; border: 1px solid #020617; padding: 7px 6px; font-size: 9px; line-height: 1.2; font-weight: 700; text-transform: uppercase; overflow-wrap: anywhere; word-break: normal; }
+      table:first-of-type th:nth-child(1), table:first-of-type td:nth-child(1) { width: 16%; }
+      table:first-of-type th:nth-child(2), table:first-of-type td:nth-child(2) { width: 18%; }
       td.amount { font-weight: 800; }
       td.combined-amount { text-align: center; vertical-align: middle; font-size: 11px; }
       .center { text-align: center; }

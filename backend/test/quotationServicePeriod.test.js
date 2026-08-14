@@ -262,6 +262,18 @@ test('quotation download uses the client name and preserves each designed page b
   assert.doesNotMatch(page, /\.scope-page \.footer \{ margin-top: auto;/);
 });
 
+test('quotation preview keeps business and service categories inside separate cells', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  const density = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/14-desktop-density.css'), 'utf8');
+  assert.match(page, /<col className="w-\[16%\]" \/><col className="w-\[18%\]"/);
+  assert.match(page, /\[overflow-wrap:anywhere\]/);
+  assert.match(page, /overflow-wrap: anywhere; word-break: normal/);
+  assert.match(density, /\[data-quotation-pdf\] table th/);
+  assert.match(density, /font-size: 9px !important/);
+  assert.match(density, /\[data-quotation-pdf\] table td/);
+  assert.match(density, /font-size: 10px !important/);
+});
+
 test('quotation selects safely normalize object and string options before filtering', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /option && typeof option === 'object'/);
