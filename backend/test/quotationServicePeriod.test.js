@@ -262,6 +262,15 @@ test('quotation download uses the client name and preserves each designed page b
   assert.doesNotMatch(page, /\.scope-page \.footer \{ margin-top: auto;/);
 });
 
+test('quotation PDF capture bypasses desktop zoom and uses a high-resolution canvas', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /appRoot\.style\.zoom = '1'/);
+  assert.match(page, /documentRef\.current\.style\.width = '760px'/);
+  assert.match(page, /scale: 2\.5/);
+  assert.match(page, /appRoot\.style\.zoom = previousRootZoom/);
+  assert.match(page, /documentRef\.current\.style\.width = previousDocumentWidth/);
+});
+
 test('quotation preview keeps business and service categories inside separate cells', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   const density = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/14-desktop-density.css'), 'utf8');

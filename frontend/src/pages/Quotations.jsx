@@ -2694,37 +2694,53 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
       const margin = 5;
       const printableWidth = pageWidth - (margin * 2);
       const printableHeight = pageHeight - (margin * 2);
-      const sections = [...documentRef.current.children].filter((element) => element.tagName === 'SECTION');
-      const pages = sections.length ? sections : [documentRef.current];
-      for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
-        if (pageIndex > 0) pdf.addPage();
-        const pageElement = pages[pageIndex];
-        const previousStyles = { boxShadow: pageElement.style.boxShadow, minHeight: pageElement.style.minHeight };
-        pageElement.style.boxShadow = 'none';
-        pageElement.style.minHeight = '0';
-        let canvas;
-        try {
-          canvas = await html2canvas(pageElement, {
-            scale: 1.5,
-            useCORS: true,
-            backgroundColor: '#ffffff',
-            logging: false,
-            windowWidth: Math.max(window.innerWidth, 1200),
-            windowHeight: pageElement.scrollHeight,
-            onclone: sanitizePdfClone
-          });
-        } finally {
-          pageElement.style.boxShadow = previousStyles.boxShadow;
-          pageElement.style.minHeight = previousStyles.minHeight;
+      const appRoot = document.getElementById('root');
+      const previousRootZoom = appRoot?.style.zoom || '';
+      const previousDocumentWidth = documentRef.current.style.width;
+      try {
+        // The CRM workspace uses a compact desktop zoom. html2canvas inherits that
+        // zoom and produces compressed text unless the printable document is
+        // captured at its true CSS size.
+        if (appRoot) appRoot.style.zoom = '1';
+        documentRef.current.style.width = '760px';
+        await document.fonts?.ready;
+        await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+
+        const sections = [...documentRef.current.children].filter((element) => element.tagName === 'SECTION');
+        const pages = sections.length ? sections : [documentRef.current];
+        for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+          if (pageIndex > 0) pdf.addPage();
+          const pageElement = pages[pageIndex];
+          const previousStyles = { boxShadow: pageElement.style.boxShadow, minHeight: pageElement.style.minHeight };
+          pageElement.style.boxShadow = 'none';
+          pageElement.style.minHeight = '0';
+          let canvas;
+          try {
+            canvas = await html2canvas(pageElement, {
+              scale: 2.5,
+              useCORS: true,
+              backgroundColor: '#ffffff',
+              logging: false,
+              windowWidth: Math.max(window.innerWidth, 1200),
+              windowHeight: pageElement.scrollHeight,
+              onclone: sanitizePdfClone
+            });
+          } finally {
+            pageElement.style.boxShadow = previousStyles.boxShadow;
+            pageElement.style.minHeight = previousStyles.minHeight;
+          }
+          await paintLogoOnCanvas(canvas, pageElement);
+          const naturalHeight = (canvas.height / canvas.width) * printableWidth;
+          const renderedHeight = Math.min(printableHeight, naturalHeight);
+          const renderedWidth = naturalHeight > printableHeight
+            ? (canvas.width / canvas.height) * printableHeight
+            : printableWidth;
+          const offsetX = (pageWidth - renderedWidth) / 2;
+          pdf.addImage(canvas.toDataURL('image/jpeg', 0.94), 'JPEG', offsetX, margin, renderedWidth, renderedHeight, undefined, 'FAST');
         }
-        await paintLogoOnCanvas(canvas, pageElement);
-        const naturalHeight = (canvas.height / canvas.width) * printableWidth;
-        const renderedHeight = Math.min(printableHeight, naturalHeight);
-        const renderedWidth = naturalHeight > printableHeight
-          ? (canvas.width / canvas.height) * printableHeight
-          : printableWidth;
-        const offsetX = (pageWidth - renderedWidth) / 2;
-        pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', offsetX, margin, renderedWidth, renderedHeight, undefined, 'FAST');
+      } finally {
+        if (appRoot) appRoot.style.zoom = previousRootZoom;
+        documentRef.current.style.width = previousDocumentWidth;
       }
       const clientFileName = String(details.companyName || quotation.quotationNumber || 'quotation')
         .trim()
