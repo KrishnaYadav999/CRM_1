@@ -285,7 +285,6 @@ export default function Notifications({ mode = 'notifications' }) {
   async function saveNotification() {
     const finalTag = draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag;
     if (!draft.title.trim() || !draft.description.trim() || !finalTag) return setFormError('Title, description and tag are required.');
-    if (modalMode === 'create' && (!draft.attachmentName || !draft.attachmentUrl || !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(draft.attachmentName))) return setFormError('Announcement image is required. Please upload a valid image.');
     setSavingAnnouncement(true);
     setFormError('');
     const author = currentUser?.name || currentUser?.email || 'Current User';
@@ -584,7 +583,7 @@ export default function Notifications({ mode = 'notifications' }) {
                 <Field label="Announcement Image" required={modalMode === 'create'}>
                   <label className="notifications-upload">
                     <Upload className="h-4 w-4" />
-                    <span>Choose Image</span>
+                    <span>Choose Image (Optional)</span>
                     <input type="file" accept="image/*" onChange={handleAttachment} />
                   </label>
                   {draft.attachmentName && (
@@ -594,7 +593,7 @@ export default function Notifications({ mode = 'notifications' }) {
                       <button type="button" onClick={() => setDraft((current) => ({ ...current, attachmentName: '', attachmentUrl: '' }))}><Trash2 className="h-4 w-4" /></button>
                     </div>
                   )}
-                  <small>Upload a required announcement image up to 10MB.</small>
+                  <small>Optionally upload an announcement image up to 10MB.</small>
                 </Field>
               </div>
 

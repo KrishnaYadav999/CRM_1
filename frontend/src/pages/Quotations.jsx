@@ -1174,7 +1174,13 @@ export default function Quotations() {
   }
 
   function startNew(context = null) {
-    setQuotation(buildQuotationFromContext(context));
+    const nextQuotation = buildQuotationFromContext(context);
+    setQuotation(nextQuotation);
+    if (context && (context.leadId || context.leadCode || context.clientId)) {
+      const defaultName = String(currentUser?.name || '').trim();
+      setLeadIdentityError('');
+      setLeadIdentityPrompt({ applyToCurrent: true, leadId: context.leadId || context.clientId || '', fromName: defaultName, preparedByName: defaultName });
+    }
     setEditingId('');
     setNotice('');
     setError('');
@@ -1287,7 +1293,11 @@ export default function Quotations() {
       setLeadIdentityError('From Name and Prepared By Name are required.');
       return;
     }
-    selectLead(leadIdentityPrompt.leadId, { fromName, preparedByName });
+    if (leadIdentityPrompt.applyToCurrent) {
+      setQuotation((current) => ({ ...current, fromName, preparedByName }));
+    } else {
+      selectLead(leadIdentityPrompt.leadId, { fromName, preparedByName });
+    }
     setLeadIdentityPrompt(null);
     setLeadIdentityError('');
   }

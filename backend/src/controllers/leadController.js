@@ -377,6 +377,37 @@ function validateClosureAssignments(data = {}) {
   return '';
 }
 
+function buildPurchaseOrderEmail({ eyebrow, title, message, clientName, leadCode, rows = [], remarks = '', status = 'PENDING', actionUrl = '' }) {
+  const tone = status === 'APPROVED' ? '#059669' : status === 'REJECTED' ? '#dc2626' : status === 'REVISION_REQUIRED' ? '#ea580c' : '#2563eb';
+  const safeRows = rows.length ? rows : [{}];
+  const rowHtml = safeRows.map((po) => `<tr>
+    <td style="padding:12px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a">${escapeHtml(po.poNumber || '-')}</td>
+    <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#475569">${escapeHtml(po.fy || '-')}</td>
+    <td style="padding:12px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a">INR ${Number(po.poAmount || 0).toLocaleString('en-IN')}</td>
+    <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#475569">${escapeHtml(po.quotationNumber || '-')}</td>
+    <td style="padding:12px;border-bottom:1px solid #e2e8f0">${po.poFileUrl ? `<a href="${escapeHtml(po.poFileUrl)}" style="color:#2563eb;font-weight:700;text-decoration:none">View proof</a>` : '<span style="color:#94a3b8">Not attached</span>'}</td>
+  </tr>`).join('');
+  return `<div style="margin:0;padding:28px 12px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#334155">
+    <div style="max-width:720px;margin:0 auto;overflow:hidden;border:1px solid #dbe4ef;border-radius:18px;background:#ffffff;box-shadow:0 12px 34px rgba(15,23,42,.08)">
+      <div style="height:5px;background:${tone}"></div>
+      <div style="padding:28px 30px 20px;background:linear-gradient(135deg,#ffffff,#f8fafc)">
+        <div style="font-size:11px;font-weight:800;letter-spacing:1.6px;color:${tone};text-transform:uppercase">${escapeHtml(eyebrow)}</div>
+        <h1 style="margin:8px 0 10px;color:#0f172a;font-size:25px;line-height:1.25">${escapeHtml(title)}</h1>
+        <p style="margin:0;color:#475569;font-size:15px;line-height:1.7">${message}</p>
+      </div>
+      <div style="padding:0 30px 24px">
+        <div style="display:flex;margin-bottom:18px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;padding:15px">
+          <div><div style="font-size:10px;font-weight:800;letter-spacing:1px;color:#94a3b8;text-transform:uppercase">Company / Lead</div><div style="margin-top:5px;color:#0f172a;font-size:16px;font-weight:800">${escapeHtml(clientName || '-')}</div><div style="margin-top:3px;color:#64748b;font-size:12px">${escapeHtml(leadCode || '')}</div></div>
+        </div>
+        <div style="overflow:hidden;border:1px solid #e2e8f0;border-radius:12px"><table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc;color:#64748b;text-align:left"><th style="padding:11px 12px">PO Number</th><th style="padding:11px 12px">FY</th><th style="padding:11px 12px">PO Amount</th><th style="padding:11px 12px">Quotation</th><th style="padding:11px 12px">Proof</th></tr></thead><tbody>${rowHtml}</tbody></table></div>
+        ${remarks ? `<div style="margin-top:18px;border-left:4px solid ${tone};border-radius:8px;background:#f8fafc;padding:14px 16px"><div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase">Decision remarks</div><div style="margin-top:6px;color:#1e293b;font-size:14px;line-height:1.6">${escapeHtml(remarks)}</div></div>` : ''}
+        ${actionUrl ? `<div style="margin-top:22px;text-align:center"><a href="${escapeHtml(actionUrl)}" style="display:inline-block;border-radius:9px;background:${tone};padding:12px 20px;color:#fff;font-size:14px;font-weight:800;text-decoration:none">Open Pending Approval</a></div>` : ''}
+      </div>
+      <div style="border-top:1px solid #e2e8f0;background:#f8fafc;padding:15px 30px;color:#94a3b8;font-size:11px;text-align:center">AnantTattva CRM · Automated workflow notification</div>
+    </div>
+  </div>`;
+}
+
 async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
   const beforeRows = Array.isArray(beforeLead.assignments) ? beforeLead.assignments : [];
   const rows = Array.isArray(lead.assignments) ? lead.assignments : [];
@@ -408,8 +439,16 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
         ...notificationUsers.map((user) => user.email), actor?.email
       ].map((email) => String(email || '').trim().toLowerCase()).filter(Boolean))];
       const poRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
-      const poDetails = poRows.map((po) => `<li><strong>${escapeHtml(po.poNumber || 'PO')}</strong> · ${escapeHtml(po.fy || 'FY not specified')} · ₹${Number(po.poAmount || 0).toLocaleString('en-IN')}${po.poFileUrl ? ` · <a href="${escapeHtml(po.poFileUrl)}">View PO proof</a>` : ''}</li>`).join('');
-      const emailHtml = `<div style="font-family:Arial,sans-serif;color:#334155"><h2>New Purchase Order submitted</h2><p><strong>${escapeHtml(actor?.name || actor?.email || 'CRM User')}</strong> submitted Purchase Order details for <strong>${escapeHtml(lead.company || lead.leadCode)}</strong>.</p><ul>${poDetails}</ul><p>Please open Pending Approval → PO Approval to review it.</p></div>`;
+      const emailHtml = buildPurchaseOrderEmail({
+        eyebrow: 'New purchase order approval',
+        title: 'Purchase Order submitted for review',
+        message: `<strong>${escapeHtml(actor?.name || actor?.email || 'CRM User')}</strong> submitted PO details. Please review the values and record your decision.`,
+        clientName: lead.company || lead.leadCode,
+        leadCode: lead.leadCode,
+        rows: poRows,
+        status: 'PENDING',
+        actionUrl: `${String(process.env.FRONTEND_URL || 'https://crmananttattva.vercel.app').replace(/\/$/, '')}/pending-approval`
+      });
       await Promise.allSettled(recipients.map((email) => sendMail(email, `New PO Approval - ${lead.company || lead.leadCode}`, emailHtml, { branded: false })));
     } catch (error) {
       console.error('Unable to send new PO approval notifications', error.message);
@@ -945,7 +984,6 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
   const remarks = String(req.body.remarks || '').trim();
   if (!remarks) return res.status(400).json({ error: 'Decision remarks are required.' });
   const screenshotUrl = String(req.body.screenshotUrl || '').trim();
-  if (status === 'REVISION_REQUIRED' && !screenshotUrl) return res.status(400).json({ error: 'Upload a correction screenshot for Revision Required.' });
   const approval = await PendingApproval.findOne({ _id: req.params.id, type: 'purchase_order' });
   if (!approval) return res.status(404).json({ error: 'PO approval request not found.' });
   const lead = await Lead.findById(approval.payload?.leadId).populate('createdBy', 'name email');
@@ -974,7 +1012,20 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
     ...(approval.payload?.quotationCreatorEmails || [])
   ].map((email) => String(email || '').trim().toLowerCase()).filter(Boolean))];
   const verb = status === 'APPROVED' ? 'approved' : status === 'REJECTED' ? 'rejected' : 'marked for revision';
-  const html = `<div style="font-family:Arial,sans-serif;color:#334155"><h2>Purchase Order ${escapeHtml(verb)}</h2><p>The quotation and PO for <strong>${escapeHtml(lead.company || lead.leadCode)}</strong> were ${escapeHtml(verb)}.</p><p><strong>Remarks:</strong> ${escapeHtml(remarks)}</p>${screenshotUrl ? `<p><a href="${escapeHtml(screenshotUrl)}">View correction screenshot</a></p>` : ''}<p>Please revise the quotation and PO details when revision is required.</p></div>`;
+  const decisionRows = Array.isArray(approval.payload?.poYearRows) && approval.payload.poYearRows.length
+    ? approval.payload.poYearRows
+    : (lead.assignments[index].poYearRows || []);
+  const html = buildPurchaseOrderEmail({
+    eyebrow: `Purchase order ${verb}`,
+    title: status === 'APPROVED' ? 'Purchase Order approved successfully' : status === 'REJECTED' ? 'Purchase Order rejected' : 'Purchase Order revision required',
+    message: `The Purchase Order for <strong>${escapeHtml(lead.company || lead.leadCode)}</strong> was <strong>${escapeHtml(verb)}</strong>.`,
+    clientName: lead.company || lead.leadCode,
+    leadCode: lead.leadCode,
+    rows: decisionRows,
+    remarks,
+    status,
+    actionUrl: `${String(process.env.FRONTEND_URL || 'https://crmananttattva.vercel.app').replace(/\/$/, '')}/pending-approval`
+  });
   let screenshotAttachment = null;
   if (screenshotUrl) {
     try {

@@ -90,9 +90,6 @@ exports.createNotification = async (req, res) => {
   if (!title || !description) return res.status(400).json({ error: 'Title and description are required' });
   const attachmentName = String(req.body.attachmentName || '').trim();
   const attachmentUrl = String(req.body.attachmentUrl || '').trim();
-  if (!attachmentName || !attachmentUrl || !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(attachmentName)) {
-    return res.status(400).json({ error: 'Announcement image is required' });
-  }
 
   const item = await Notification.create({
     title,

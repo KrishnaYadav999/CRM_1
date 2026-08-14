@@ -7,14 +7,15 @@ function read(relativePath) {
   return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf8');
 }
 
-test('announcements require an image and email every active CRM user', () => {
+test('announcements allow an optional image and email every active CRM user', () => {
   const controller = read('../src/controllers/notificationController.js');
   const page = read('../../frontend/src/pages/Notifications.jsx');
-  assert.match(controller, /Announcement image is required/);
+  assert.doesNotMatch(controller, /Announcement image is required/);
   assert.match(controller, /User\.find\(\{ isActive: \{ \$ne: false \}/);
   assert.match(controller, /Promise\.allSettled\(users\.map/);
   assert.match(page, /Add Announcement/);
   assert.match(page, /accept="image\/\*"/);
+  assert.match(page, /Choose Image \(Optional\)/);
   assert.match(page, /Submit Announcement/);
 });
 

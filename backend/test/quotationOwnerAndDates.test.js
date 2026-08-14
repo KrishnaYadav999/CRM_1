@@ -19,6 +19,8 @@ test('lead selection asks for and persists quotation From and Prepared By names'
   assert.match(source, /From Name and Prepared By Name are required/);
   assert.match(source, /These names will appear in the quotation preview and downloaded PDF/);
   assert.match(source, /preparedByName: String\(identity\?\.preparedByName/);
+  assert.match(source, /applyToCurrent: true/);
+  assert.match(source, /leadIdentityPrompt\.applyToCurrent/);
   assert.match(model, /fromName: \{ type: String/);
   assert.match(model, /preparedByName: \{ type: String/);
   assert.match(controller, /fromName: cleanString\(body\.fromName\)/);

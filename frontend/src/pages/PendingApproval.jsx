@@ -96,7 +96,6 @@ function PoApprovalDetails({ row }) {
     <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-slate-950">{row?.poNumber || 'PO number unavailable'}</strong><span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black text-emerald-700">{row?.currency || 'INR'} {row?.poAmount == null ? '-' : Number(row.poAmount).toLocaleString('en-IN')}</span></div>
     <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-3">{details.map(([label, value]) => <div key={label}><small className="block text-[9px] font-black uppercase tracking-wide text-slate-400">{label}</small><span className="text-xs font-bold text-slate-700">{formatApprovalValue(value)}</span></div>)}</div>
     <div className="mt-3 text-[10px] font-bold uppercase text-slate-500">Services: {Array.isArray(row?.services) ? row.services.map((service) => formatApprovalValue(service)).join(', ') || '-' : '-'}</div>
-    <PoProof row={row} />
   </article>;
 }
 
@@ -146,6 +145,31 @@ function applyBulkQuotationOwners(quotations = [], leads = []) {
       userName: assignedName || creator || row.userName,
       leadGeneratedBy: creator || row.leadGeneratedBy,
       createdBy: creator || row.createdBy
+    };
+  });
+}
+
+function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
+  return approvals.map((approval) => {
+    if (approval.type !== 'purchase_order') return approval;
+    const payload = approval.payload || {};
+    const approvalLeadKeys = [payload.leadId, payload.leadCode].map((value) => String(value || '')).filter(Boolean);
+    const lead = leads.find((row) => [row._id, row.id, row.sourceLeadId, row.leadCode]
+      .some((value) => approvalLeadKeys.includes(String(value || ''))));
+    if (!lead) return approval;
+    const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+    const assignment = assignments.find((row) => payload.assignedServiceId && String(row?.assignedServiceId || '') === String(payload.assignedServiceId))
+      || assignments[Number(payload.assignmentIndex)]
+      || {};
+    const livePoRows = Array.isArray(assignment.poYearRows) ? assignment.poYearRows.filter((row) => row && (row.poNumber || row.poAmount || row.poFileUrl)) : [];
+    return {
+      ...approval,
+      payload: {
+        ...payload,
+        leadCode: payload.leadCode || lead.leadCode || '',
+        service: payload.service || (lead.serviceSelections || [])[Number(payload.assignmentIndex)] || {},
+        poYearRows: livePoRows.length ? livePoRows : (payload.poYearRows || [])
+      }
     };
   });
 }
@@ -344,7 +368,7 @@ export default function PendingApproval() {
       };
       setPendingClients(snapshot.pendingClients);
       setPendingQuotations(snapshot.pendingQuotations);
-      const leadApprovals = (duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : []).map((approval) => {
+      const leadApprovals = hydratePurchaseOrderApprovals(duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : [], crmLeads).map((approval) => {
         if (approval.type === 'lead_service') {
           const leadId = String(approval.payload?.leadId || '');
           const matchingLead = crmLeads.find((lead) => [lead._id, lead.id, lead.sourceLeadId, lead.leadCode]
@@ -510,7 +534,7 @@ export default function PendingApproval() {
   async function submitPoDecision(event) {
     event.preventDefault();
     const remarks = String(poDecision?.remarks || '').trim();
-    if (!poDecision?.row || !remarks || (poDecision.status === 'REVISION_REQUIRED' && !poDecision.screenshotUrl)) return;
+    if (!poDecision?.row || !remarks) return;
     const id = poDecision.row._id || poDecision.row.id;
     setSavingId(`po-${id}`);
     setError('');
@@ -893,11 +917,11 @@ export default function PendingApproval() {
             </div>
 
             {activeTab === 'po' ? (
-              <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Details', 'PO Amount', 'Quotation', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
+              <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Details', 'PO Amount', 'PO Proof', 'Quotation', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
                   const poRows = row.payload?.poYearRows || [];
-                  return <tr key={id}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.length ? poRows.map((po, index) => <PoApprovalDetails key={`${po.poNumber || 'po'}-${index}`} row={po} />) : <span className="font-semibold text-slate-400">No PO rows found</span>}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmount == null ? '-' : `₹${Number(po.poAmount).toLocaleString('en-IN')}`}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <div key={index}><strong>{po.quotationNumber || '-'}</strong>{po.quotationId && <small className="mt-1 block max-w-32 truncate text-slate-400" title={String(po.quotationId)}>{po.quotationId}</small>}</div>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
+                  return <tr key={id}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.length ? poRows.map((po, index) => <PoApprovalDetails key={`${po.poNumber || 'po'}-${index}`} row={po} />) : <span className="font-semibold text-slate-400">No PO rows found</span>}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmount == null ? '-' : `₹${Number(po.poAmount).toLocaleString('en-IN')}`}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <PoProof key={`${po.poFileUrl || 'proof'}-${index}`} row={po} />)}</Cell><Cell>{poRows.map((po, index) => <div key={index}><strong>{po.quotationNumber || '-'}</strong>{po.quotationId && <small className="mt-1 block max-w-32 truncate text-slate-400" title={String(po.quotationId)}>{po.quotationId}</small>}</div>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
                 })}
               </ApprovalTable>
             ) : activeTab === 'temporary' ? (
@@ -1134,7 +1158,7 @@ export default function PendingApproval() {
           </form>
         </div>;
       })()}
-      {poDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setPoDecision(null); }}><form onSubmit={submitPoDecision} className={`pending-decision-modal ${poDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)} className="pending-decision-close" aria-label="Close PO decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Purchase Order Approval</p><h2>{poDecision.status === 'APPROVED' ? 'Approve Purchase Order' : poDecision.status === 'REJECTED' ? 'Reject Purchase Order' : 'Request quotation and PO revision'}</h2><strong className="pending-decision-client">{poDecision.row.clientName}</strong><label className="pending-decision-field"><span>Decision remarks <b>*</b></span><textarea autoFocus required rows={6} value={poDecision.remarks} onChange={(event) => setPoDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Clearly explain this PO decision..." /></label>{poDecision.status === 'REVISION_REQUIRED' && <label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-orange-300 bg-orange-50 px-4 font-black text-orange-700"><FileCheck2 className="mr-2 h-5 w-5" />{poDecision.screenshotName || 'Upload correction screenshot (required)'}<input type="file" accept="image/*" className="sr-only" onChange={uploadPoDecisionScreenshot} /></label>}<div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || !poDecision.remarks.trim() || (poDecision.status === 'REVISION_REQUIRED' && !poDecision.screenshotUrl)}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Submit Decision</button></div></form></div>}
+      {poDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setPoDecision(null); }}><form onSubmit={submitPoDecision} className={`pending-decision-modal ${poDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)} className="pending-decision-close" aria-label="Close PO decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Purchase Order Approval</p><h2>{poDecision.status === 'APPROVED' ? 'Approve Purchase Order' : poDecision.status === 'REJECTED' ? 'Reject Purchase Order' : 'Request quotation and PO revision'}</h2><strong className="pending-decision-client">{poDecision.row.clientName}</strong><p className="pending-decision-help">No image or document is required. Add clear remarks and submit the decision.</p><label className="pending-decision-field"><span>Decision remarks <b>*</b></span><textarea autoFocus required rows={6} value={poDecision.remarks} onChange={(event) => setPoDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Clearly explain this PO decision..." /></label><div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || !poDecision.remarks.trim()}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Submit Decision</button></div></form></div>}
 
       {quotationDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setQuotationDecision(null); }}><form onSubmit={submitQuotationDecision} className={`pending-decision-modal ${quotationDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)} className="pending-decision-close" aria-label="Close quotation decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Quotation Decision</p><h2>{quotationDecision.status === 'APPROVED' ? 'Upload approval proof' : 'Reject quotation'}</h2><strong className="pending-decision-client">{quotationDecision.row.companyName || '-'}</strong>{quotationDecision.status === 'APPROVED' ? <><p className="pending-decision-help">Admin approval requires supporting proof. Super Admin can approve directly without this step.</p><label className="mt-4 flex min-h-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 font-black text-emerald-700"><FileCheck2 className="mr-2 h-5 w-5" />{quotationDecision.proofName || 'Please upload the approval proof'}<input type="file" accept="image/*,.pdf" className="sr-only" onChange={uploadQuotationDecisionProof} /></label><label className="pending-decision-field mt-4"><span>Approval note</span><textarea rows={4} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Add an optional approval note..." /></label></> : <label className="pending-decision-field"><span>Rejection reason <b>*</b></span><textarea autoFocus required rows={7} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Please explain why this quotation is being rejected..." /></label>}<div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || (quotationDecision.status === 'APPROVED' && !quotationDecision.proofUrl) || (quotationDecision.status === 'REJECTED' && !quotationDecision.remarks.trim())}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : quotationDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Confirm {quotationDecision.status === 'APPROVED' ? 'Approval' : 'Rejection'}</button></div></form></div>}
 
