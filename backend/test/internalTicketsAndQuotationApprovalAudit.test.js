@@ -34,5 +34,12 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(frontend, /onComposerKeyDown/);
   assert.match(frontend, /teams-app-rail/);
   assert.match(frontend, /teams-status-list/);
+  assert.match(frontend, /searchUsers/);
+  assert.match(frontend, /teams-emoji-picker/);
+  assert.match(frontend, /chatTab === 'shared'/);
+  assert.match(frontend, /appView === 'files'/);
+  assert.match(frontend, /appView === 'settings'/);
+  assert.match(frontend, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(frontend, /previewFile/);
   assert.match(model, /enum: \['Open', 'In Progress', 'Resolved', 'Closed'\]/);
 });

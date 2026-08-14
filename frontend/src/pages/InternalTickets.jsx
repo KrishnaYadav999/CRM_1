@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, Bell, CheckCircle2, ChevronDown, Circle, FileText, Folder, Loader2, MessageSquareText, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users, X } from 'lucide-react'
+import { Activity, CheckCircle2, Circle, Download, Eye, FileText, Folder, Loader2, MessageSquareText, Mic, MoreHorizontal, Paperclip, Phone, Plus, Search, Send, Settings, ShieldCheck, Smile, Users, Video, X } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
@@ -9,15 +9,19 @@ const STATUSES = ['Open', 'In Progress', 'Resolved', 'Closed']
 const emptyDraft = { subject: '', priority: 'Medium', participants: [], message: '', attachments: [] }
 const stamp = (value) => value ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'
 const initials = (value) => String(value || 'CRM User').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
+const fileUrl = (file) => String(file?.url || file?.secureUrl || '')
+const EMOJIS = ['😀', '😂', '😍', '👍', '👏', '🎉', '✅', '🙏', '🔥', '💯', '🤝', '📌']
 
-function AttachmentList({ items = [] }) {
+function AttachmentList({ items = [], onPreview }) {
   if (!items.length) return null
   return <div className="teams-attachments">{items.map((file, index) => {
     const image = String(file.type || '').startsWith('image/')
-    return <a key={`${file.url}-${index}`} href={file.url} target="_blank" rel="noreferrer" className="teams-attachment">
-      {image ? <img src={file.url} alt={file.name || 'Attachment'} /> : <span><FileText /></span>}
+    const url = fileUrl(file)
+    return <div key={`${url}-${index}`} className="teams-attachment">
+      {image ? <img src={url} alt={file.name || 'Attachment'} /> : <span><FileText /></span>}
       <div><strong>{file.name || 'Attachment'}</strong><small>{file.size ? `${Math.ceil(file.size / 1024)} KB` : 'Open attachment'}</small></div>
-    </a>
+      <button type="button" onClick={() => onPreview?.({ ...file, url })} title="Preview"><Eye /></button><a href={url} target="_blank" rel="noreferrer" download title="Download"><Download /></a>
+    </div>
   })}</div>
 }
 
@@ -55,7 +59,16 @@ export default function InternalTickets() {
   const [error, setError] = useState('')
   const [scope, setScope] = useState('mine')
   const [statusView, setStatusView] = useState('Open')
+  const [appView, setAppView] = useState('chat')
+  const [chatTab, setChatTab] = useState('chat')
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [previewFile, setPreviewFile] = useState(null)
+  const [callMode, setCallMode] = useState('')
+  const [callError, setCallError] = useState('')
+  const [compactMode, setCompactMode] = useState(false)
   const messageEndRef = useRef(null)
+  const localVideoRef = useRef(null)
+  const mediaStreamRef = useRef(null)
 
   async function load(nextScope = scope) {
     setLoading(true)
@@ -71,12 +84,25 @@ export default function InternalTickets() {
 
   useEffect(() => { load(scope) }, [scope])
   useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [selected?.messages?.length])
+  useEffect(() => () => mediaStreamRef.current?.getTracks().forEach((track) => track.stop()), [])
 
   const counts = useMemo(() => Object.fromEntries(STATUSES.map((status) => [status, tickets.filter((ticket) => ticket.status === status).length])), [tickets])
   const visible = useMemo(() => tickets.filter((ticket) => {
     const haystack = [ticket.ticketNumber, ticket.subject, ticket.createdBy?.name, ...(ticket.participants || []).map((user) => user.name)].join(' ').toLowerCase()
     return ticket.status === statusView && haystack.includes(search.trim().toLowerCase())
   }), [tickets, search, statusView])
+  const searchUsers = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (query.length < 2) return []
+    return users.filter((user) => [user.name, user.email, user.role].join(' ').toLowerCase().includes(query)).slice(0, 8)
+  }, [users, search])
+  const searchTickets = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (query.length < 2) return []
+    return tickets.filter((ticket) => [ticket.subject, ticket.ticketNumber, ticket.createdBy?.name].join(' ').toLowerCase().includes(query)).slice(0, 8)
+  }, [tickets, search])
+  const sharedFiles = useMemo(() => (selected?.messages || []).flatMap((message) => (message.attachments || []).map((file) => ({ ...file, sender: message.authorName, sentAt: message.createdAt }))), [selected])
+  const allFiles = useMemo(() => tickets.flatMap((ticket) => (ticket.messages || []).flatMap((message) => (message.attachments || []).map((file) => ({ ...file, ticketNumber: ticket.ticketNumber, subject: ticket.subject, sender: message.authorName, sentAt: message.createdAt })))), [tickets])
 
   async function upload(event, target) {
     const files = Array.from(event.target.files || []); event.target.value = ''
@@ -113,13 +139,23 @@ export default function InternalTickets() {
 
   function sendReply() { if (reply.trim() || replyFiles.length) update({ message: reply, attachments: replyFiles }) }
   function onComposerKeyDown(event) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendReply() } }
+  function openUserChat(user) { const id = String(user._id || user.id); setDraft({ ...emptyDraft, subject: user.name || user.email, participants: [id] }); setCreating(true); setSearch('') }
+  async function startCall(mode) {
+    setCallError(''); setCallMode(mode)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' })
+      mediaStreamRef.current = stream
+      setTimeout(() => { if (localVideoRef.current) localVideoRef.current.srcObject = stream }, 0)
+    } catch { setCallError('Microphone/camera permission was denied or no device is available.') }
+  }
+  function endCall() { mediaStreamRef.current?.getTracks().forEach((track) => track.stop()); mediaStreamRef.current = null; setCallMode(''); setCallError('') }
 
   return <DashboardShell currentUser={currentUser}>
     <div className="teams-page" aria-label="Internal Tickets & Team Chat">
-      <header className="teams-topbar"><div className="teams-product"><span><Users /></span><strong>Internal Teams</strong></div><div className="teams-global-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tickets, messages and people" /></div><div className="teams-profile"><Bell /><span className="teams-avatar">{initials(currentUser?.name)}</span><div><strong>{currentUser?.name || 'CRM User'}</strong><small>Available</small></div><ChevronDown /></div></header>
+      <header className="teams-topbar"><div className="teams-product"><span><Users /></span><strong>Internal Teams</strong></div><div className="teams-search-wrap"><div className="teams-global-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search users, tickets and messages" />{search && <button onClick={() => setSearch('')}><X /></button>}</div>{search.trim().length >= 2 && <div className="teams-search-results"><div className="teams-search-chips"><span>People</span><span>Messages</span><span>Files</span></div>{searchUsers.map((user) => <button key={user._id || user.id} onClick={() => openUserChat(user)}><span className="teams-avatar">{initials(user.name || user.email)}<i /></span><div><strong>{user.name || user.email}</strong><small>{user.role || 'CRM User'} · {user.email}</small></div><MessageSquareText /></button>)}{searchTickets.map((ticket) => <button key={ticket._id} onClick={() => { setSelected(ticket); setStatusView(ticket.status); setAppView('chat'); setSearch('') }}><span className="teams-search-ticket"><FileText /></span><div><strong>{ticket.subject}</strong><small>{ticket.ticketNumber} · {ticket.status}</small></div><Search /></button>)}{!searchUsers.length && !searchTickets.length && <p>No matching users or tickets found.</p>}</div>}</div></header>
       {error && <div className="teams-error">{error}<button onClick={() => setError('')}><X /></button></div>}
       <section className="teams-shell">
-        <nav className="teams-app-rail" aria-label="Internal collaboration navigation"><button title="Activity"><Activity /><span>Activity</span></button><button className="is-active" title="Chat"><MessageSquareText /><span>Chat</span></button><button title="Files"><Folder /><span>Files</span></button><button title="Settings"><Settings /><span>Settings</span></button></nav>
+        <nav className="teams-app-rail" aria-label="Internal collaboration navigation"><button className={appView === 'activity' ? 'is-active' : ''} onClick={() => setAppView('activity')} title="Activity"><Activity /><span>Activity</span></button><button className={appView === 'chat' ? 'is-active' : ''} onClick={() => setAppView('chat')} title="Chat"><MessageSquareText /><span>Chat</span></button><button className={appView === 'files' ? 'is-active' : ''} onClick={() => setAppView('files')} title="Files"><Folder /><span>Files</span></button><button className={appView === 'settings' ? 'is-active' : ''} onClick={() => setAppView('settings')} title="Settings"><Settings /><span>Settings</span></button></nav>
         <aside className="teams-sidebar">
           <div className="teams-sidebar-title"><div><small>Workspace</small><h2>Internal Tickets</h2></div><button onClick={() => setCreating(true)} title="New internal ticket"><Plus /></button></div>
           <div className="teams-scope-tabs"><button className={scope === 'mine' ? 'is-active' : ''} onClick={() => setScope('mine')}>My chats</button>{isAdmin && <button className={scope === 'all' ? 'is-active' : ''} onClick={() => setScope('all')}><ShieldCheck /> Oversight</button>}</div>
@@ -127,14 +163,16 @@ export default function InternalTickets() {
           <div className="teams-chat-heading"><span>Ticket chats</span><button onClick={() => load()} title="Refresh"><MoreHorizontal /></button></div>
           <div className="teams-conversation-list">{loading ? <div className="teams-loading"><Loader2 /></div> : visible.length ? visible.map((ticket) => <ConversationRow key={ticket._id} ticket={ticket} active={selected?._id === ticket._id} onSelect={() => setSelected(ticket)} />) : <div className="teams-list-empty">No {statusView.toLowerCase()} tickets found.</div>}</div>
         </aside>
-        <main className="teams-workspace">{!selected ? <EmptyConversation /> : <>
-          <header className="teams-chat-header"><span className="teams-avatar teams-avatar-lg">{initials(selected.subject)}<i /></span><div className="teams-chat-identity"><small>{selected.ticketNumber}</small><h2>{selected.subject}</h2><p><Users />{[selected.createdBy, ...(selected.participants || [])].map((user) => user?.name).filter(Boolean).join(', ')}</p></div><div className="teams-chat-actions"><StatusBadge status={selected.status} /><select aria-label="Ticket status" value={selected.status} onChange={(event) => update({ status: event.target.value })}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select><button title="More options"><MoreHorizontal /></button></div></header>
-          <div className="teams-chat-tabs"><button className="is-active">Chat</button><button>Shared</button><button>Details</button></div>
-          <div className="teams-messages"><div className="teams-date-divider"><span>Ticket conversation</span></div>{(selected.messages || []).map((message, index) => { const mine = String(message.author) === String(currentUser?._id || currentUser?.id); return <article key={message._id || index} className={`teams-message ${mine ? 'is-mine' : ''}`}>{!mine && <span className="teams-avatar">{initials(message.authorName)}</span>}<div className="teams-message-content"><header><strong>{message.authorName || 'CRM User'}</strong><time>{stamp(message.createdAt)}</time></header><div className="teams-message-bubble">{message.message && <p>{message.message}</p>}<AttachmentList items={message.attachments} /></div></div></article> })}<div ref={messageEndRef} /></div>
-          <footer className="teams-composer"><AttachmentList items={replyFiles} /><div className="teams-compose-box"><textarea value={reply} onChange={(event) => setReply(event.target.value)} onKeyDown={onComposerKeyDown} rows="2" placeholder={`Message ${selected.ticketNumber}`} /><div className="teams-compose-actions"><div><button title="Emoji"><Smile /></button><label title="Attach files"><input type="file" multiple onChange={(event) => upload(event, 'reply')} /><Paperclip /></label></div><button className="teams-send" disabled={saving || uploading || (!reply.trim() && !replyFiles.length)} onClick={sendReply}>{saving ? <Loader2 className="animate-spin" /> : <Send />}</button></div></div><small>Press Enter to send · Shift + Enter for a new line</small></footer>
+        <main className="teams-workspace">{appView === 'activity' ? <section className="teams-module-page"><header><Activity /><div><h2>Activity</h2><p>Recent ticket updates across your internal workspace.</p></div></header><div className="teams-activity-feed">{tickets.slice(0, 30).map((ticket) => <button key={ticket._id} onClick={() => { setSelected(ticket); setStatusView(ticket.status); setAppView('chat') }}><span className="teams-avatar">{initials(ticket.createdBy?.name)}</span><div><strong>{ticket.subject}</strong><p><b>{ticket.createdBy?.name || 'CRM User'}</b> updated {ticket.ticketNumber}</p><small>{stamp(ticket.lastMessageAt)}</small></div><StatusBadge status={ticket.status} /></button>)}</div></section> : appView === 'files' ? <section className="teams-module-page"><header><Folder /><div><h2>Files</h2><p>Every attachment shared in ticket conversations.</p></div></header><div className="teams-file-grid">{allFiles.length ? allFiles.map((file, index) => <div key={`${fileUrl(file)}-${index}`}><AttachmentList items={[file]} onPreview={setPreviewFile} /><p>{file.ticketNumber} · {file.subject}</p><small>{file.sender} · {stamp(file.sentAt)}</small></div>) : <div className="teams-module-empty">No files have been shared yet.</div>}</div></section> : appView === 'settings' ? <section className="teams-module-page teams-settings-page"><header><Settings /><div><h2>Settings</h2><p>Personalize your Internal Teams experience.</p></div></header><div className="teams-settings-card"><h3>Appearance</h3><label><span><strong>Compact conversation mode</strong><small>Reduce spacing to show more ticket chats.</small></span><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /></label><label><span><strong>Message notifications</strong><small>Show CRM notifications for new internal messages.</small></span><input type="checkbox" defaultChecked /></label><label><span><strong>Attachment previews</strong><small>Open supported images and PDFs inside the workspace.</small></span><input type="checkbox" defaultChecked /></label></div><div className="teams-settings-card"><h3>Privacy and access</h3><p>Only the ticket creator, selected participants, and authorized oversight users can access a conversation.</p><span><ShieldCheck /> Protected by CRM authentication</span></div></section> : !selected ? <EmptyConversation /> : <>
+          <header className="teams-chat-header"><span className="teams-avatar teams-avatar-lg">{initials(selected.subject)}<i /></span><div className="teams-chat-identity"><small>{selected.ticketNumber}</small><h2>{selected.subject}</h2><p><Users />{[selected.createdBy, ...(selected.participants || [])].map((user) => user?.name).filter(Boolean).join(', ')}</p></div><div className="teams-chat-actions"><button title="Audio call" onClick={() => startCall('audio')}><Phone /></button><button title="Video call" onClick={() => startCall('video')}><Video /></button><StatusBadge status={selected.status} /><select aria-label="Ticket status" value={selected.status} onChange={(event) => update({ status: event.target.value })}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select><button title="More options"><MoreHorizontal /></button></div></header>
+          <div className="teams-chat-tabs"><button className={chatTab === 'chat' ? 'is-active' : ''} onClick={() => setChatTab('chat')}>Chat</button><button className={chatTab === 'shared' ? 'is-active' : ''} onClick={() => setChatTab('shared')}>Shared</button><button className={chatTab === 'details' ? 'is-active' : ''} onClick={() => setChatTab('details')}>Details</button></div>
+          {chatTab === 'shared' ? <div className="teams-tab-panel"><h3>Shared files</h3><p>Documents and images shared in this ticket.</p><div className="teams-file-grid">{sharedFiles.length ? sharedFiles.map((file, index) => <div key={`${fileUrl(file)}-${index}`}><AttachmentList items={[file]} onPreview={setPreviewFile} /><small>{file.sender} · {stamp(file.sentAt)}</small></div>) : <div className="teams-module-empty">No files have been shared in this chat.</div>}</div></div> : chatTab === 'details' ? <div className="teams-tab-panel teams-details-panel"><h3>Ticket details</h3><dl><div><dt>Ticket number</dt><dd>{selected.ticketNumber}</dd></div><div><dt>Status</dt><dd><StatusBadge status={selected.status} /></dd></div><div><dt>Priority</dt><dd>{selected.priority}</dd></div><div><dt>Created by</dt><dd>{selected.createdBy?.name || '-'}</dd></div><div><dt>Created</dt><dd>{stamp(selected.createdAt)}</dd></div><div><dt>Last activity</dt><dd>{stamp(selected.lastMessageAt)}</dd></div></dl><h3>Participants</h3><div className="teams-participant-grid">{[selected.createdBy, ...(selected.participants || [])].filter(Boolean).map((user, index) => <div key={user._id || index}><span className="teams-avatar">{initials(user.name || user.email)}<i /></span><span><strong>{user.name || user.email}</strong><small>{user.role || 'CRM User'}</small></span></div>)}</div></div> : <><div className={`teams-messages ${compactMode ? 'is-compact' : ''}`}><div className="teams-date-divider"><span>Ticket conversation</span></div>{(selected.messages || []).map((message, index) => { const mine = String(message.author) === String(currentUser?._id || currentUser?.id); return <article key={message._id || index} className={`teams-message ${mine ? 'is-mine' : ''}`}>{!mine && <span className="teams-avatar">{initials(message.authorName)}</span>}<div className="teams-message-content"><header><strong>{message.authorName || 'CRM User'}</strong><time>{stamp(message.createdAt)}</time></header><div className="teams-message-bubble">{message.message && <p>{message.message}</p>}<AttachmentList items={message.attachments} onPreview={setPreviewFile} /></div></div></article> })}<div ref={messageEndRef} /></div>
+          <footer className="teams-composer"><AttachmentList items={replyFiles} onPreview={setPreviewFile} /><div className="teams-compose-box"><textarea value={reply} onChange={(event) => setReply(event.target.value)} onKeyDown={onComposerKeyDown} rows="2" placeholder={`Message ${selected.ticketNumber}`} /><div className="teams-compose-actions"><div className="teams-emoji-anchor"><button title="Emoji" onClick={() => setEmojiOpen((value) => !value)}><Smile /></button>{emojiOpen && <div className="teams-emoji-picker">{EMOJIS.map((emoji) => <button key={emoji} onClick={() => { setReply((value) => `${value}${emoji}`); setEmojiOpen(false) }}>{emoji}</button>)}</div>}<label title="Attach files"><input type="file" multiple onChange={(event) => upload(event, 'reply')} /><Paperclip /></label></div><button className="teams-send" disabled={saving || uploading || (!reply.trim() && !replyFiles.length)} onClick={sendReply}>{saving ? <Loader2 className="animate-spin" /> : <Send />}</button></div></div><small>Press Enter to send · Shift + Enter for a new line</small></footer></>}
         </>}</main>
       </section>
     </div>
     {creating && <div className="teams-modal-backdrop"><form onSubmit={create} className="teams-create-modal"><header><div><small>Internal collaboration</small><h2>New ticket chat</h2><p>Create a private workspace with selected participants.</p></div><button type="button" onClick={() => setCreating(false)}><X /></button></header><div className="teams-create-body"><label><span>Subject</span><input required value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} placeholder="What does your team need to discuss?" /></label><label><span>Priority</span><select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select></label><fieldset><legend>Select participants</legend><div>{users.map((user) => { const id = String(user._id || user.id); return <label key={id}><input type="checkbox" checked={draft.participants.includes(id)} onChange={(event) => setDraft((current) => ({ ...current, participants: event.target.checked ? [...current.participants, id] : current.participants.filter((value) => value !== id) }))} /><span className="teams-avatar">{initials(user.name || user.email)}</span><span>{user.name || user.email}</span></label> })}</div></fieldset><label><span>First message</span><textarea value={draft.message} onChange={(event) => setDraft({ ...draft, message: event.target.value })} rows="4" placeholder="Start the conversation..." /></label><label className="teams-upload"><input type="file" multiple onChange={(event) => upload(event, 'draft')} /><Paperclip />Attach files or images</label><AttachmentList items={draft.attachments} /></div><footer><button type="button" onClick={() => setCreating(false)}>Cancel</button><button disabled={saving || uploading}>{saving ? 'Creating...' : 'Create ticket chat'}</button></footer></form></div>}
+    {previewFile && <div className="teams-modal-backdrop"><div className="teams-preview-modal"><header><div><h2>{previewFile.name || 'Attachment preview'}</h2><small>{previewFile.type || 'Shared file'}</small></div><button onClick={() => setPreviewFile(null)}><X /></button></header><div>{String(previewFile.type || '').startsWith('image/') ? <img src={fileUrl(previewFile)} alt={previewFile.name || 'Attachment'} /> : String(previewFile.type || '').includes('pdf') ? <iframe src={fileUrl(previewFile)} title={previewFile.name || 'PDF preview'} /> : <div className="teams-preview-unsupported"><FileText /><p>Preview is not available for this file type.</p><a href={fileUrl(previewFile)} target="_blank" rel="noreferrer">Open or download file</a></div>}</div><footer><a href={fileUrl(previewFile)} target="_blank" rel="noreferrer" download><Download />Download</a></footer></div></div>}
+    {callMode && <div className="teams-modal-backdrop"><div className="teams-call-modal"><header><strong>{callMode === 'video' ? 'Video call' : 'Audio call'} · {selected?.subject}</strong><button onClick={endCall}><X /></button></header><div className="teams-call-stage">{callMode === 'video' ? <video ref={localVideoRef} autoPlay muted playsInline /> : <span className="teams-avatar teams-call-avatar">{initials(selected?.subject)}</span>}<h2>{callError || 'Device connected'}</h2><p>{callError ? 'Check browser permissions and try again.' : 'Your camera and microphone are ready. Live participant calling requires the recipient to join this ticket session.'}</p></div><footer><button className="teams-call-control"><Mic /></button><button className="teams-call-control"><Video /></button><button className="teams-call-end" onClick={endCall}><Phone /></button></footer></div></div>}
   </DashboardShell>
 }
