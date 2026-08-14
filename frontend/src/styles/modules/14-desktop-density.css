@@ -21,6 +21,42 @@
     zoom: var(--crm-desktop-scale);
   }
 
+  /* Internal Teams owns a viewport-height application shell. Compensate for
+     root zoom so it still fills the physical browser height without blank space. */
+  .teams-page {
+    min-height: calc(133.3334vh - 80px);
+  }
+
+  .teams-shell {
+    height: calc(133.3334vh - 136px);
+    min-height: 0;
+  }
+
+  .teams-sidebar,
+  .teams-workspace {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .teams-sidebar-title,
+  .teams-scope-tabs,
+  .teams-quick-title,
+  .teams-status-list,
+  .teams-chat-heading,
+  .teams-chat-header,
+  .teams-chat-tabs,
+  .teams-composer {
+    flex: 0 0 auto;
+  }
+
+  .teams-conversation-list,
+  .teams-messages,
+  .teams-tab-panel,
+  .teams-module-page {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
   .overflow-auto,
   .overflow-x-auto,
   .lead-directory-scroll,

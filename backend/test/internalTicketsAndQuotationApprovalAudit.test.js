@@ -66,6 +66,10 @@ test('desktop CRM uses a compact 100-percent browser density without changing pr
   assert.match(density, /overflow-x: auto/);
   assert.match(density, /scrollbar-gutter: stable/);
   assert.match(density, /overflow-x: auto !important/);
+  assert.match(density, /\.teams-shell/);
+  assert.match(density, /height: calc\(133\.3334vh - 136px\)/);
+  assert.match(density, /\.teams-chat-header/);
+  assert.match(density, /flex: 0 0 auto/);
   assert.match(density, /@media print/);
   assert.match(density, /zoom: 1 !important/);
 });
