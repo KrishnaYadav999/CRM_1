@@ -433,8 +433,20 @@ function plantUnitGroups(services = []) {
   });
 }
 
-function alignRowsToPlantUnits(services = [], savedRows = [], factory) {
+const DETAIL_ROW_STRUCTURAL_FIELDS = new Set(['_id', 'id', 'createdAt', 'updatedAt', 'assignedServiceId', 'plantUnit']);
+
+function hasDetailRowData(row = {}) {
+  return Object.entries(row || {}).some(([field, value]) => !DETAIL_ROW_STRUCTURAL_FIELDS.has(field) && String(value || '').trim());
+}
+
+function compactDetailRows(savedRows = []) {
   const rows = Array.isArray(savedRows) ? savedRows : [];
+  const hasPopulatedRow = rows.some(hasDetailRowData);
+  return hasPopulatedRow ? rows.filter(hasDetailRowData) : rows.slice(0, 1);
+}
+
+function alignRowsToPlantUnits(services = [], savedRows = [], factory) {
+  const rows = compactDetailRows(savedRows);
   const groups = plantUnitGroups(services);
   const activeUnits = new Set(groups.map((service) => String(service?.plantUnit || '').trim().toLowerCase()).filter(Boolean));
   const usedRows = new Set();
@@ -449,12 +461,22 @@ function alignRowsToPlantUnits(services = [], savedRows = [], factory) {
           && (!savedUnit || !activeUnits.has(savedUnit));
       });
     }
+    // Older drafts could save the actual first record as Unit 2 after a blank
+    // Unit 1 placeholder. Reuse that real record instead of generating another
+    // blank row and appending the saved details underneath it.
+    if (matchIndex < 0) {
+      matchIndex = rows.findIndex((row, index) => {
+        const savedUnit = String(row?.plantUnit || '').trim().toLowerCase();
+        return !usedRows.has(index) && hasDetailRowData(row) && (!savedUnit || !activeUnits.has(savedUnit));
+      });
+    }
     if (matchIndex >= 0) usedRows.add(matchIndex);
     const match = matchIndex >= 0 ? rows[matchIndex] : factory(service);
     return { ...match, assignedServiceId: service.assignedServiceId, plantUnit: unit };
   });
-  const additionalRows = rows.filter((_, index) => !usedRows.has(index));
-  return [...alignedRows, ...additionalRows];
+  const additionalRows = rows.filter((row, index) => !usedRows.has(index) && hasDetailRowData(row));
+  const result = [...alignedRows, ...additionalRows];
+  return result.length ? result : [factory({ plantUnit: 'Unit 1' })];
 }
 
 function nextPlantUnit(...rowGroups) {
@@ -2389,7 +2411,7 @@ export default function LeadGeneration() {
                       const citiesLoading = Boolean(row.state && locationLoading.cities[row.state]);
                       const rowFrozen = serviceOnlyMode && index < frozenAddressRowCount;
                       return <div className="lead-address-row" key={index}>
-                        <span className="lead-service-row-number" title={serviceRows[index]?.plantUnit || ''}>{index + 1}<small className="block text-[8px] text-teal-700">{serviceRows[index]?.plantUnit || ''}</small></span>
+                        <span className="lead-service-row-number" title={row.plantUnit || ''}>{index + 1}<small className="block text-[8px] text-teal-700">{row.plantUnit || ''}</small></span>
                         <input disabled={rowFrozen} className="form-input" value={row.addressLine1} onChange={(event) => updateAddressRow(index, 'addressLine1', event.target.value)} placeholder="Address line 1" />
                         <input disabled={rowFrozen} className="form-input" value={row.addressLine2} onChange={(event) => updateAddressRow(index, 'addressLine2', event.target.value)} placeholder="Address line 2" />
                         <input disabled={rowFrozen} className="form-input" value={row.addressLine3} onChange={(event) => updateAddressRow(index, 'addressLine3', event.target.value)} placeholder="Address line 3" />
@@ -2398,7 +2420,7 @@ export default function LeadGeneration() {
                         <div className="lead-service-select-cell"><SearchableSelect value={row.city} options={withCustomOptions('city', rowCities)} disabled={rowFrozen || !row.state || citiesLoading} onChange={(value) => updateAddressRow(index, 'city', value)} placeholder={!row.state ? 'State first' : citiesLoading ? 'Loading cities...' : 'Select city'} allowCustom={false} />{canManageServiceCatalog && !rowFrozen && row.state && <button type="button" onClick={() => openDropdownDialog({ field: 'city', label: 'City', scope: 'address', index, targetField: 'city' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add City</button>}</div>
                         <input disabled={rowFrozen} className="form-input" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={row.pinCode} onChange={(event) => updateAddressRow(index, 'pinCode', event.target.value)} placeholder="6-digit PIN" />
                         <input disabled={rowFrozen} className="form-input" value={row.website} onChange={(event) => updateAddressRow(index, 'website', event.target.value)} placeholder="https://" />
-                        <button type="button" disabled={rowFrozen || addressRows.length === 1} onClick={() => removeAddressRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
+                        <button type="button" disabled={(rowFrozen && hasDetailRowData(row)) || addressRows.length === 1} onClick={() => removeAddressRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
                       </div>;
                     })}
                   </div>
@@ -2426,7 +2448,7 @@ export default function LeadGeneration() {
                     <SearchableSelect disabled={rowFrozen} value={row.referredBy} options={[...new Set(staffOptions.map((item) => item.label))]} onChange={(value) => updateContactRow(index, 'referredBy', value)} placeholder="Select staff" />
                     <div className="lead-service-select-cell"><SearchableSelect disabled={rowFrozen} value={row.source} options={withCustomOptions('source', options.source)} onChange={(value) => updateContactRow(index, 'source', value)} placeholder="Select source" allowCustom={false} />{canManageServiceCatalog && !rowFrozen && <button type="button" onClick={() => openDropdownDialog({ field: 'source', label: 'Source', scope: 'contact', index, targetField: 'source' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add Source</button>}</div>
                     <div className="lead-contact-upload"><label className={rowFrozen ? 'pointer-events-none opacity-60' : ''}><Upload className="h-4 w-4" />{row.businessCardUrl ? 'Replace' : 'Upload'}<input disabled={rowFrozen} type="file" accept="image/*,.pdf" onChange={(event) => uploadContactBusinessCard(index, event)} className="sr-only" /></label>{row.businessCardUrl && <button type="button" onClick={() => window.open(row.businessCardUrl, '_blank', 'noopener,noreferrer')}><Eye className="h-4 w-4" />View</button>}</div>
-                    <button type="button" disabled={rowFrozen || contactRows.length === 1} onClick={() => removeContactRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
+                    <button type="button" disabled={(rowFrozen && hasDetailRowData(row)) || contactRows.length === 1} onClick={() => removeContactRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
                   </div>})}
                 </div>
               </fieldset>

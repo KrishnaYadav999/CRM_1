@@ -86,7 +86,16 @@ test('Add Address and Add Contact require confirmation and assign the next unit'
   assert.match(leadPage, /Yes, Add \{addRowConfirmation === 'address' \? 'Address' : 'Contact'\}/);
   assert.match(leadPage, /createAddressRow\(\{ plantUnit \}\)/);
   assert.match(leadPage, /createContactRow\(\{ plantUnit \}\)/);
-  assert.match(leadPage, /return \[\.\.\.alignedRows, \.\.\.additionalRows\]/);
+  assert.match(leadPage, /const result = \[\.\.\.alignedRows, \.\.\.additionalRows\]/);
+});
+
+test('frontend removes generated blank detail rows and remaps legacy saved rows', () => {
+  const leadPage = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  assert.match(leadPage, /function compactDetailRows\(savedRows = \[\]\)/);
+  assert.match(leadPage, /rows\.filter\(hasDetailRowData\)/);
+  assert.match(leadPage, /hasDetailRowData\(row\) && \(!savedUnit \|\| !activeUnits\.has\(savedUnit\)\)/);
+  assert.match(leadPage, /disabled=\{\(rowFrozen && hasDetailRowData\(row\)\) \|\| addressRows\.length === 1\}/);
+  assert.match(leadPage, /disabled=\{\(rowFrozen && hasDetailRowData\(row\)\) \|\| contactRows\.length === 1\}/);
 });
 
 test('backend keeps every newly added Address and Contact row for database storage', () => {
