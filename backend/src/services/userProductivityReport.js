@@ -99,7 +99,22 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
   }, new Map());
   const sessionsByUser = byUser(sessions, 'userId');
   const activitiesByUser = byUser(activities, 'userId');
-  const leadsByUser = byUser(leads, 'createdBy');
+  const normalizeIdentity = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const userByIdentity = new Map();
+  users.forEach((user) => {
+    [user._id, user.id, user.crmUserId, user.email, user.name].forEach((identity) => {
+      const key = normalizeIdentity(entityId(identity));
+      if (key && !userByIdentity.has(key)) userByIdentity.set(key, String(user._id));
+    });
+  });
+  const leadsByUser = leads.reduce((map, lead) => {
+    const ownerCandidates = [lead.createdBy, lead.createdByCrmUserId, lead.createdByEmail, lead.createdByName, lead.importedCreatedBy];
+    const ownerId = ownerCandidates.map((identity) => userByIdentity.get(normalizeIdentity(entityId(identity)))).find(Boolean);
+    if (!ownerId) return map;
+    if (!map.has(ownerId)) map.set(ownerId, []);
+    map.get(ownerId).push(lead);
+    return map;
+  }, new Map());
   const clientsByUser = byUser(clients, 'createdBy');
   const ticketByUser = new Map(ticketStats.map((item) => [String(item._id || ''), {
     total: Number(item.total) || 0, open: Number(item.open) || 0, resolved: Number(item.resolved) || 0
@@ -182,12 +197,12 @@ async function getUserProductivityReport({ from, to, requester }) {
   const activityUserFilter = isAdmin ? {} : { userId: { $in: scopedUserIds } };
   const ownerFilter = isAdmin ? {} : { createdBy: { $in: scopedUserIds } };
   const [users, sessions, activities, leads, clients, ticketStats] = await Promise.all([
-    reportQuery('users', User.find(userFilter).select('name email role team teamId managerId operationHeadId isActive lastLogin').lean()),
+    reportQuery('users', User.find(userFilter).select('name email crmUserId role team teamId managerId operationHeadId isActive lastLogin').lean()),
     reportQuery('sessions', UserSession.find({ ...activityUserFilter, loginAt: { $gte: period.start, $lte: period.end } })
       .select('userId loginAt lastActivityAt logoutAt activeSeconds activityCount presenceState ipAddress userAgent').sort({ loginAt: -1 }).limit(5000).maxTimeMS(15000).lean()),
     reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } })
       .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
-    reportQuery('leads', Lead.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy status closedBy closedAt createdAt').maxTimeMS(15000).lean()),
+    reportQuery('leads', Lead.find(ownerFilter).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
     reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data createdAt').maxTimeMS(20000).lean()),
     reportQuery('tickets', SupportTicket.aggregate([
       { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },

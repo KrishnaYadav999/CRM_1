@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import {
   Activity, ArrowUpDown, Building2, CalendarDays, CheckCircle2, Clock3, Download, Eye, FileSpreadsheet,
   Lightbulb, Loader2, Monitor, RefreshCw, RotateCcw, Search, ShieldAlert,
-  TicketCheck, Timer, UserCheck, Users, X, FileText
+  TicketCheck, Timer, UserCheck, Users, X, FileText, BarChart3
 } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import UserWorkDrilldown from '../components/dashboard/UserWorkDrilldown'
@@ -65,11 +65,12 @@ function fallbackCompletion(data = {}) {
 }
 
 function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = [], from, to }) {
-  const periodLeads = leads.filter((lead) => dateInReportRange(lead.createdAt, from, to))
   const periodClients = clients.filter((client) => dateInReportRange(client.createdAt, from, to))
+  const identity = (value) => String(entityId(value) || '').trim().toLowerCase().replace(/\s+/g, ' ')
   const rows = users.map((account) => {
     const id = entityId(account._id || account.id)
-    const ownedLeads = periodLeads.filter((lead) => entityId(lead.createdBy) === id)
+    const aliases = new Set([id, account.crmUserId, account.email, account.name].map(identity).filter(Boolean))
+    const ownedLeads = leads.filter((lead) => [lead.createdBy, lead.createdByCrmUserId, lead.createdByEmail, lead.createdByName, lead.importedCreatedBy].map(identity).some((value) => aliases.has(value)))
     const ownedClients = periodClients.filter((client) => entityId(client.createdBy) === id)
     const completion = ownedClients.map((client) => fallbackCompletion(client.data || {}))
     const clientFieldsFilled = completion.reduce((sum, item) => sum + item.filled, 0)
@@ -162,6 +163,19 @@ function MetricCard({ label, value, note, icon: Icon, tone, loading }) {
   </article>
 }
 
+function MisOverviewCard({ title, subtitle, icon: Icon, tone, metrics, loading }) {
+  const tones = {
+    emerald: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white text-emerald-700',
+    blue: 'border-blue-200 bg-gradient-to-br from-blue-50 to-white text-blue-700',
+    orange: 'border-orange-200 bg-gradient-to-br from-orange-50 to-white text-orange-600',
+    violet: 'border-violet-200 bg-gradient-to-br from-violet-50 to-white text-violet-700'
+  }
+  return <article className={`rounded-2xl border p-4 shadow-sm ${tones[tone]}`}>
+    <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white/80 shadow-sm"><Icon className="h-5 w-5" /></span><div><h2 className="font-black text-slate-950">{title}</h2><p className="text-[10px] font-bold text-slate-500">{subtitle}</p></div></div>
+    <div className="mt-4 grid grid-cols-2 gap-3">{metrics.map(([label, value]) => <div key={label} className="border-l border-current/20 pl-3"><small className="block text-[9px] font-black uppercase tracking-wider text-slate-500">{label}</small>{loading ? <div className="mt-2 h-5 w-14 animate-pulse rounded bg-slate-200" /> : <strong className="mt-1 block text-lg text-slate-950">{value}</strong>}</div>)}</div>
+  </article>
+}
+
 function SortHeading({ label, value, sort, onSort, align = 'left' }) {
   return <th className={`sticky top-0 z-10 bg-slate-50 px-3 py-3 ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'}`}><button type="button" onClick={() => onSort(value)} className="inline-flex items-center gap-1 whitespace-nowrap text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-emerald-700">{label}<ArrowUpDown className={`h-3 w-3 ${sort.key === value ? 'text-emerald-600' : 'text-slate-300'}`} /></button></th>
 }
@@ -185,10 +199,10 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [workReportUser, setWorkReportUser] = useState(null)
   const [quotations, setQuotations] = useState([])
 
-  async function loadProductivityReport() {
+  async function loadProductivityReport(timeout = 60000) {
     return api.get(API_ENDPOINTS.auth.userProductivityReport, {
       params: { from: appliedFilters.from, to: appliedFilters.to },
-      timeout: 30000
+      timeout
     })
   }
 
@@ -196,7 +210,12 @@ export default function SuperAdminDashboard({ misPage = false }) {
     setLoading(true)
     setError('')
     try {
-      const reportResult = await loadProductivityReport()
+      let reportResult
+      try { reportResult = await loadProductivityReport(60000) }
+      catch (firstError) {
+        if (firstError?.code !== 'ECONNABORTED' && firstError?.message !== 'Network Error') throw firstError
+        reportResult = await loadProductivityReport(90000)
+      }
       setReport(reportResult.data || reportResult)
     } catch (requestError) {
       if (misPage && currentUserIsAdmin) {
@@ -230,7 +249,12 @@ export default function SuperAdminDashboard({ misPage = false }) {
       return undefined
     }
     setError('')
-    const timer = window.setTimeout(() => setAppliedFilters({ ...draftFilters }), 200)
+    const timer = window.setTimeout(() => setAppliedFilters((current) => (
+      current.from === draftFilters.from && current.to === draftFilters.to
+        && current.search === draftFilters.search && current.role === draftFilters.role
+        && current.user === draftFilters.user && current.risk === draftFilters.risk
+        && current.status === draftFilters.status ? current : { ...draftFilters }
+    )), 200)
     return () => window.clearTimeout(timer)
   }, [draftFilters])
 
@@ -243,6 +267,9 @@ export default function SuperAdminDashboard({ misPage = false }) {
     : 'Complete MIS'
   const operationGroups = useMemo(() => buildOperationGroups(rows, misAccess.operationTeams), [rows, misAccess.operationTeams])
   const quotationMisRows = useMemo(() => [...quotations].sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0)), [quotations])
+  const salesTotals = useMemo(() => salesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [salesMisRows])
+  const operationTotals = useMemo(() => operationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, filled: 0, missing: 0 }), [operationGroups])
+  const quotationTotals = useMemo(() => ({ total: quotationMisRows.length, open: quotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: quotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [quotationMisRows])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
     const search = appliedFilters.search.trim().toLowerCase()
@@ -333,6 +360,13 @@ export default function SuperAdminDashboard({ misPage = false }) {
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">From Date<input type="date" value={draftFilters.from} onChange={(event) => setDraftFilters((current) => ({ ...current, from: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold normal-case" /></label>
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">To Date<input type="date" value={draftFilters.to} onChange={(event) => setDraftFilters((current) => ({ ...current, to: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold normal-case" /></label>
           </div>
+        </section>}
+
+        {misPage && <section className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+          <MisOverviewCard title="Sales MIS" subtitle="Complete lead ownership" icon={Users} tone="emerald" loading={loading} metrics={[["Total Leads", salesTotals.leads], ["Open Leads", salesTotals.open], ["Closed Leads", salesTotals.closed], ["Close Rate", `${salesTotals.leads ? ((salesTotals.closed / salesTotals.leads) * 100).toFixed(1) : 0}%`]]} />
+          <MisOverviewCard title="Operation MIS" subtitle="Client Master completion" icon={Building2} tone="blue" loading={loading} metrics={[["Clients", operationTotals.clients], ["Data Filled", operationTotals.filled], ["Data Missing", operationTotals.missing], ["Completion", `${operationTotals.filled + operationTotals.missing ? Math.round(operationTotals.filled / (operationTotals.filled + operationTotals.missing) * 100) : 0}%`]]} />
+          <MisOverviewCard title="Quotation MIS" subtitle="Commercial performance" icon={FileText} tone="orange" loading={loading} metrics={[["Total", quotationTotals.total], ["Open", quotationTotals.open], ["Converted", quotationTotals.converted], ["Conversion", `${quotationTotals.total ? ((quotationTotals.converted / quotationTotals.total) * 100).toFixed(1) : 0}%`]]} />
+          <MisOverviewCard title="Overall Summary" subtitle="Live CRM overview" icon={BarChart3} tone="violet" loading={loading} metrics={[["CRM Users", rows.length], ["Active Users", rows.filter((row) => row.active).length], ["Clients", operationTotals.clients], ["Quotations", quotationTotals.total]]} />
         </section>}
 
         <section className={`${misPage ? 'hidden' : ''} mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>

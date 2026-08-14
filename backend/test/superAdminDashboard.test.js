@@ -10,7 +10,8 @@ test('super admin dashboard uses live overview and audit data with date filters'
   assert.match(page, /params: \{ from: appliedFilters\.from, to: appliedFilters\.to \}/);
   assert.match(page, /timeZone: 'Asia\/Kolkata'/);
   assert.doesNotMatch(page, /return request\(\)/);
-  assert.match(page, /const reportResult = await loadProductivityReport\(\)/);
+  assert.match(page, /reportResult = await loadProductivityReport\(60000\)/);
+  assert.match(page, /reportResult = await loadProductivityReport\(90000\)/);
   assert.match(page, /Unable to load Quotation MIS/);
   assert.match(page, /function displayText\(value, fallback = '-'\)/);
   assert.match(page, /displayText\(row\.preparedBy \|\| row\.createdByName \|\| row\.createdBy\)/);
@@ -32,7 +33,9 @@ test('super admin dashboard exposes productivity, risk, reporting, and user-mana
   assert.match(page, /Generating PDF\.\.\./);
   assert.match(page, /Export Excel/);
   assert.doesNotMatch(page, /Apply Filters/);
-  assert.match(page, /setAppliedFilters\(\{ \.\.\.draftFilters \}\)/);
+  assert.match(page, /setAppliedFilters\(\(current\) =>/);
+  assert.match(page, /MisOverviewCard/);
+  assert.match(page, /Overall Summary/);
   assert.doesNotMatch(page, /Highest CRM Actions/);
   assert.doesNotMatch(page, /CRM Actions & Support Tickets/);
   assert.match(page, /Open User Management/);

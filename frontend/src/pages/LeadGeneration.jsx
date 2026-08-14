@@ -3391,10 +3391,10 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
 
         {error && <ToastMessage type="error">{error}</ToastMessage>}
 
-        <div className="grid gap-3 rounded-2xl border border-slate-100 bg-white/70 p-3 shadow-sm xl:grid-cols-[minmax(220px,1.1fr)_minmax(190px,0.9fr)_minmax(190px,0.9fr)_auto] xl:items-center">
+        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-950/5 xl:grid-cols-[minmax(260px,1.2fr)_minmax(180px,0.7fr)_minmax(220px,1fr)_auto] xl:items-center">
           <div className="relative min-w-0">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-12 w-full rounded-lg border border-slate-200 bg-white px-5 pr-12 text-base font-black text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100" />
-            <Search className="pointer-events-none absolute right-6 top-1/2 h-6 w-6 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search leads by ID, company, contact..." className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-12 pr-4 text-sm font-bold text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100" />
           </div>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="form-input min-h-12 rounded-lg xl:max-w-none">
             <option value="">All Status</option>
@@ -3410,8 +3410,8 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         </div>
 
         <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="lead-directory-scroll max-h-[520px] overflow-auto">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
+          <div className="lead-directory-scroll max-h-[680px] overflow-auto">
             <table className="crm-data-table w-full min-w-[2150px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
@@ -4777,8 +4777,8 @@ function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPa
   }
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <p className="font-black text-slate-600">Showing {showing} of {total} {label} <span className="ml-2">(Page {page} of {totalPages})</span></p>
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div><p className="font-black text-slate-800">Showing {showing} of {total} {label}</p><small className="font-bold text-slate-400">Page {page} of {totalPages}</small></div>
       <div className="flex flex-wrap items-center gap-3 font-black text-slate-600">
         <span>{start} - {end} of {total}</span>
         <form onSubmit={jumpToPage} className="inline-flex items-center gap-2">

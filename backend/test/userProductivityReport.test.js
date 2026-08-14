@@ -39,7 +39,7 @@ test('report service uses grouped ticket aggregation instead of per-user queries
   assert.match(source, /SupportTicket\.aggregate\(\[/);
   assert.match(source, /\$group:\s*\{/);
   assert.match(source, /_id: '\$createdBy'/);
-  assert.match(source, /createdAt: \{ \$gte: period\.start, \$lte: period\.end \}/);
+  assert.match(source, /Lead\.find\(ownerFilter\)/);
 });
 
 test('productivity report limits heavy telemetry queries and falls back per dataset', () => {
@@ -67,6 +67,21 @@ test('productivity rows include manager hierarchy and Client Master completion t
   assert.ok(member.clientFieldsFilled > 0);
   assert.ok(member.clientFieldsMissing > 0);
   assert.ok(member.clientCompletionPercentage > 0 && member.clientCompletionPercentage < 100);
+});
+
+test('Sales MIS counts complete lead ownership across legacy creator identities', () => {
+  const gaurav = { ...user('user-gaurav', 'Gaurav Chandra'), crmUserId: 'CRM-42', email: 'gaurav@example.com', role: 'sales' };
+  const leads = [
+    { createdBy: 'user-gaurav', status: 'Open' },
+    { createdByCrmUserId: 'CRM-42', status: 'Open' },
+    { createdByEmail: 'GAURAV@EXAMPLE.COM', closedAt: new Date() },
+    { createdByName: '  Gaurav   Chandra ', status: 'Closed' },
+    { importedCreatedBy: 'Gaurav Chandra', status: 'Open' }
+  ];
+  const report = buildUserProductivityReport({ users: [gaurav], sessions: [], activities: [], leads, clients: [], ticketStats: [], period: { from: '2026-08-08', to: '2026-08-14' } });
+  assert.equal(report.users[0].totalLeads, 5);
+  assert.equal(report.users[0].closedLeads, 2);
+  assert.equal(report.users[0].openLeads, 3);
 });
 
 test('company drill-down calculates section completion without exposing sensitive fields', () => {
