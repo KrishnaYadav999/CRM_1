@@ -3378,8 +3378,8 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
   }
 
   return (
-    <div className="px-4 py-6 sm:px-6 lg:px-8">
-      <div className="space-y-7">
+    <div className="lead-directory-page px-4 py-6 sm:px-6 lg:px-8">
+      <div className="space-y-4">
         {selectedMetric && (
           <MetricOutputCard
             stat={selectedMetric}
@@ -3391,7 +3391,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
 
         {error && <ToastMessage type="error">{error}</ToastMessage>}
 
-        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-950/5 xl:grid-cols-[minmax(260px,1.2fr)_minmax(180px,0.7fr)_minmax(220px,1fr)_auto] xl:items-center">
+        <div className="lead-directory-toolbar grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-950/5 xl:grid-cols-[minmax(320px,1.15fr)_minmax(210px,0.72fr)_minmax(280px,1fr)_auto] xl:items-center">
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search leads by ID, company, contact..." className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-12 pr-4 text-sm font-bold text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100" />
@@ -3410,25 +3410,17 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         </div>
 
         <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
+        <div className="lead-directory-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
           <div className="lead-directory-scroll max-h-[680px] overflow-auto">
-            <table className="crm-data-table w-full min-w-[2150px] table-fixed text-left text-sm">
+            <table className="crm-data-table lead-directory-table w-full min-w-[1740px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
                   {[
-                    ['Lead ID', 'w-[190px]'],
-                    ['Company', 'w-[170px]'],
-                    ['Applicant Type', 'w-[150px]'],
-                    ['Service Category', 'w-[170px]'],
-                    ['Contact Person', 'w-[170px]'],
-                    ['Mobile 1', 'w-[130px]'],
-                    ['Email', 'w-[210px]'],
-                    ['Assigned To', 'w-[150px]'],
-                    ['Assigned By', 'w-[150px]'],
-                    ['Created By', 'w-[150px]'],
-                    ['Status', 'w-[140px]'],
-                    ['Actions', 'w-[170px]']
-                  ].map(([header, width]) => <th key={header} className={`px-5 py-4 ${width}`}>{header}</th>)}
+                    ['Lead ID', 'w-[140px]'], ['Company', 'w-[170px]'], ['Applicant Type', 'w-[120px]'],
+                    ['Service Category', 'w-[160px]'], ['Contact Person', 'w-[170px]'], ['Mobile 1', 'w-[135px]'],
+                    ['Email', 'w-[215px]'], ['Assigned To', 'w-[145px]'], ['Assigned By', 'w-[145px]'],
+                    ['Created By', 'w-[145px]'], ['Status', 'w-[135px]'], ['Actions', 'w-[135px]']
+                  ].map(([header, width]) => <th key={header} className={`px-4 py-4 ${width}`}>{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -3436,18 +3428,18 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                   <tr><td colSpan={12} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : 'No leads found.'}</td></tr>
                 ) : visibleLeads.map((item) => (
                   <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
-                    <td className="lead-directory-id-cell px-5 py-4 font-black text-slate-900"><span title={displayLeadId(item)}>{displayLeadId(item)}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.company || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.piboCategory || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.eprCategory || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{item.contactPerson || '-'}</span></td>
-                    <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{item.mobileNo1 || '-'}</span></td>
-                    <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip normal-case">{item.emails || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-'}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{personLabel(item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-'))}</span></td>
-                    <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '-'}</span></td>
-                    <td className="px-5 py-4"><span className="rounded-lg bg-lime-50 px-3 py-1 text-xs font-black text-lime-700 ring-1 ring-lime-200">{item.status || 'Draft'}</span></td>
-                    <td className="px-5 py-4">
+                    <td className="lead-directory-id-cell px-4 py-4"><span title={displayLeadId(item)}>{displayLeadId(item)}</span></td>
+                    <td className="px-4 py-4 font-semibold uppercase text-slate-700"><span className="cell-clamp">{item.company || '-'}</span></td>
+                    <td className="px-4 py-4 text-slate-500"><span className="cell-clamp">{item.piboCategory || '-'}</span></td>
+                    <td className="px-4 py-4"><span className="lead-service-tag">{item.eprCategory || '-'}</span></td>
+                    <td className="px-4 py-4"><LeadPersonCell name={item.contactPerson} /></td>
+                    <td className="px-4 py-4"><span className="lead-contact-value"><Phone className="h-3.5 w-3.5" />{item.mobileNo1 || '-'}</span></td>
+                    <td className="px-4 py-4"><span className="lead-contact-value normal-case"><Mail className="h-3.5 w-3.5" />{item.emails || '-'}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-'}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{personLabel(item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-'))}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '-'}</span></td>
+                    <td className="px-4 py-4"><span className="lead-status-badge">{item.status || 'Draft'}</span></td>
+                    <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
                         {canEdit && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit in CRM"><Edit3 className="h-4 w-4" /></button>}
@@ -3465,11 +3457,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
             </table>
           </div>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-          <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="btn-lift min-h-11 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-600 disabled:cursor-not-allowed disabled:opacity-50">Previous</button>
-          <span className="rounded-lg border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-600">Page {page} of {totalPages}</span>
-          <button type="button" disabled={page === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="btn-lift min-h-11 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-600 disabled:cursor-not-allowed disabled:opacity-50">Next</button>
-        </div>
+        <LeadDirectoryPagination page={page} totalPages={totalPages} setPage={setPage} />
       </div>
     </div>
   );
@@ -4761,6 +4749,38 @@ function DirectoryMetric({ label, value, note }) {
   );
 }
 
+function LeadPersonCell({ name }) {
+  const label = String(name || '-').trim() || '-';
+  const initials = label === '-' ? '?' : label.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  return <span className="lead-person-cell"><span className="lead-person-avatar">{initials}</span><span className="cell-clamp">{label}</span></span>;
+}
+
+function LeadDirectoryPagination({ page, totalPages, setPage }) {
+  const pages = useMemo(() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+    const values = new Set([1, 2, totalPages - 1, totalPages, page - 1, page, page + 1]);
+    const sorted = [...values].filter((value) => value >= 1 && value <= totalPages).sort((a, b) => a - b);
+    return sorted.reduce((items, value, index) => {
+      if (index && value - sorted[index - 1] > 1) items.push(`gap-${value}`);
+      items.push(value);
+      return items;
+    }, []);
+  }, [page, totalPages]);
+
+  return (
+    <div className="lead-directory-pagination">
+      <span>Showing page {page} of {totalPages}</span>
+      <nav aria-label="Lead directory pagination">
+        <button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>‹</button>
+        {pages.map((item) => typeof item === 'string'
+          ? <span key={item} className="lead-pagination-gap">…</span>
+          : <button type="button" key={item} aria-current={item === page ? 'page' : undefined} className={item === page ? 'is-active' : ''} onClick={() => setPage(item)}>{item}</button>)}
+        <button type="button" aria-label="Next page" disabled={page === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>›</button>
+      </nav>
+    </div>
+  );
+}
+
 function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPage, page, setPage, totalPages }) {
   const start = total ? (page - 1) * rowsPerPage + 1 : 0;
   const end = total ? start + showing - 1 : 0;
@@ -4777,8 +4797,8 @@ function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPa
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="font-black text-slate-800">Showing {showing} of {total} {label}</p><small className="font-bold text-slate-400">Page {page} of {totalPages}</small></div>
+    <div className="lead-directory-summary flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3"><span className="lead-directory-summary-icon"><FileText className="h-5 w-5" /></span><div><p className="font-semibold text-slate-800">Showing {showing} of {total} {label}</p><small className="text-slate-400">Page {page} of {totalPages}</small></div></div>
       <div className="flex flex-wrap items-center gap-3 font-black text-slate-600">
         <span>{start} - {end} of {total}</span>
         <form onSubmit={jumpToPage} className="inline-flex items-center gap-2">
