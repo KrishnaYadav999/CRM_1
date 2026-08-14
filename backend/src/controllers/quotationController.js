@@ -165,6 +165,12 @@ function financialYearFromDate(value) {
 
 const EPR_CREDIT_YEAR_OPTIONS = new Set(['2022-23', '2023-24', '2024-25', '2025-26', '2026-27', '2027-28', '2028-29', '2029-30']);
 
+function isPwpEprCreditItem(item = {}) {
+  const businessCategory = cleanString(item.businessCategory).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const applicantType = cleanString(item.subApplicantType || item.piboCategory || item.applicantType).toLowerCase();
+  return businessCategory === 'eprcredit' && applicantType === 'pwp';
+}
+
 function isMeaningfulItem(item = {}) {
   return [
     item.industryType,
@@ -219,7 +225,8 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
       if (isEprCredit && !['KG', 'MT'].includes(unitLabel)) {
         throw new Error(`Quotation item ${index + 1}: UOM must be KG or MT for EPR Credit.`);
       }
-      if (isEprCredit && !annualReturnEprCreditYears.length) {
+      const pwpEprCredit = isPwpEprCreditItem({ ...existingItem, ...item, businessCategory });
+      if (isEprCredit && !pwpEprCredit && !annualReturnEprCreditYears.length) {
         throw new Error(`Quotation item ${index + 1}: select at least one Annual Return EPR Credit Year.`);
       }
       const annualReturnYears = [...new Set((Array.isArray(item.annualReturnYears) ? item.annualReturnYears : []).map(cleanString).filter(Boolean))];
@@ -261,7 +268,7 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         periodUnit,
         transitionPeriod: isEprCredit ? 'No' : transitionPeriod,
         annualReturnYears,
-        annualReturnEprCreditYears: isEprCredit ? annualReturnEprCreditYears : [],
+        annualReturnEprCreditYears: isEprCredit && !pwpEprCredit ? annualReturnEprCreditYears : [],
         servicesOffered: cleanString(item.servicesOffered),
         applicableService: cleanString(item.applicableService),
         serviceCategory: cleanString(item.serviceCategory),
@@ -318,6 +325,7 @@ async function validateQuotationPiboItems(items = []) {
 function validateQuotationItemDates(items = []) {
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index] || {};
+    if (String(item.businessCategory || '').toLowerCase().replace(/[^a-z0-9]+/g, '') === 'eprcredit') continue;
     if (!item.serviceStartDate) throw new Error(`Quotation item ${index + 1}: Service Start Date is required.`);
     if (!item.serviceEndDate) throw new Error(`Quotation item ${index + 1}: Service End Date is required.`);
     if (item.serviceEndDate < item.serviceStartDate) {
@@ -986,7 +994,8 @@ exports._test = {
   isQuotationAdmin,
   normalizeCompanyName,
   preserveTerminalApprovalStatus,
-  quotationAccessFilter
+  quotationAccessFilter,
+  validateQuotationItemDates
 };
 
 exports.listDropdownOptions = async (req, res) => {

@@ -118,6 +118,20 @@ test('EPR Credit years are required, validated, persisted, and cleared for consu
   assert.deepEqual(consultancy.items[0].annualReturnEprCreditYears, []);
 });
 
+test('PWP EPR Credit allows zero amount without dates or annual-return year mappings', () => {
+  const body = quotationController._test.cleanBody({
+    pricingMode: 'individual',
+    items: [{ businessCategory: 'EPR Credit', applicantType: 'PWP', piboCategory: 'PWP', unitLabel: 'KG', basicAmount: 0, serviceCategory: 'EPR - Plastic Waste' }]
+  });
+  assert.equal(body.items.length, 1);
+  assert.equal(body.items[0].basicAmount, 0);
+  assert.equal(body.items[0].serviceStartDate, '');
+  assert.equal(body.items[0].serviceEndDate, '');
+  assert.deepEqual(body.items[0].annualReturnYears, []);
+  assert.deepEqual(body.items[0].annualReturnEprCreditYears, []);
+  assert.doesNotThrow(() => quotationController._test.validateQuotationItemDates(body.items));
+});
+
 test('transition dates are system-derived and frozen against update payloads', () => {
   const existing = [{
     id: 'service-1', serviceCategory: 'EPR - Plastic Waste', servicePeriod: 1, periodUnit: 'annual',
@@ -183,6 +197,9 @@ test('quotation UI shares applicant fallback logic and conditionally renders EPR
   assert.match(page, /source\.subApplicantType \|\| source\.piboCategory \|\| item\.subApplicantType \|\| item\.piboCategory \|\| source\.applicantType/);
   assert.match(page, /financialYearNeedsEprCreditYears && <td[^>]*><QuoteYearMultiSelect/);
   assert.match(page, /Please select at least one Annual Return EPR Credit Year/);
+  assert.match(page, /function isPwpEprCreditItem\(item = \{\}\)/);
+  assert.match(page, /isPwpEprCreditItem\(item\) \? <span[^>]*>Not required<\/span>/);
+  assert.match(page, /String\(item\.basicAmount \?\? ''\)\.trim\(\) === '' \|\| Number\(item\.basicAmount\) < 0/);
   assert.match(page, /getQuotationApplicantType\(financialYearDraft\)/);
   assert.match(page, /quotationEprCreditYears\(item\)\.join\(', '\)/);
   assert.match(model, /annualReturnEprCreditYears:[\s\S]*2022-23[\s\S]*2029-30/);

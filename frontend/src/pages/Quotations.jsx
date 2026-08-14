@@ -202,6 +202,10 @@ function quotationAnnualReturnOrCreditYears(item = {}) {
   return [...new Set(years.map(String).filter(Boolean))];
 }
 
+function isPwpEprCreditItem(item = {}) {
+  return isEprCreditItem(item) && String(getQuotationApplicantType(item) || '').trim().toLowerCase() === 'pwp';
+}
+
 function quotationYearMappingHeader(items = []) {
   const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
   const consultancyItems = items.filter((item) => normalize(item.businessCategory) === 'eprconsultancy');
@@ -864,8 +868,9 @@ export default function Quotations() {
   const [financialYearItemIndex, setFinancialYearItemIndex] = useState(null);
   const [financialYearDraft, setFinancialYearDraft] = useState(null);
   const [financialYearError, setFinancialYearError] = useState('');
-  const financialYearNeedsEprData = requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
-  const financialYearNeedsEprCreditYears = isEprCreditItem(financialYearDraft || {});
+  const financialYearIsPwpEprCredit = isPwpEprCreditItem(financialYearDraft || {});
+  const financialYearNeedsEprData = !financialYearIsPwpEprCredit && requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
+  const financialYearNeedsEprCreditYears = isEprCreditItem(financialYearDraft || {}) && !financialYearIsPwpEprCredit;
   const financialYearDisplayEnd = financialYearDraft?.transitionPeriod === 'Yes'
     ? normalizeDateInputValue(financialYearDraft?.serviceEndDate)
     : serviceEndDateFrom(financialYearDraft?.serviceStartDate, financialYearDraft?.servicePeriod || 1, financialYearDraft?.periodUnit || 'annual');
@@ -1455,7 +1460,8 @@ export default function Quotations() {
   }
 
   function saveFinancialYearSelection() {
-    const eprYearRequired = requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
+    const pwpEprCredit = isPwpEprCreditItem(financialYearDraft || {});
+    const eprYearRequired = !pwpEprCredit && requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
     const validityPeriod = Math.max(1, Number(financialYearDraft?.validityPeriod) || 1);
     const annualReturnYears = financialYearDraft?.annualReturnYears || [];
     const annualReturnEprCreditYears = quotationEprCreditYears(financialYearDraft);
@@ -1467,7 +1473,7 @@ export default function Quotations() {
       setError(`You can select maximum ${validityPeriod} Annual Return year(s).`);
       return;
     }
-    if (isEprCreditItem(financialYearDraft) && !annualReturnEprCreditYears.length) {
+    if (isEprCreditItem(financialYearDraft) && !pwpEprCredit && !annualReturnEprCreditYears.length) {
       setFinancialYearError('Please select at least one Annual Return EPR Credit Year.');
       return;
     }
@@ -1488,7 +1494,7 @@ export default function Quotations() {
       periodUnit,
       transitionPeriod,
       annualReturnYears: sortedYears,
-      annualReturnEprCreditYears: isEprCreditItem(financialYearDraft) ? annualReturnEprCreditYears : [],
+      annualReturnEprCreditYears: isEprCreditItem(financialYearDraft) && !pwpEprCredit ? annualReturnEprCreditYears : [],
       financialYear,
       serviceCategory: financialYearDraft.serviceCategory || '',
       eprCategory: financialYearDraft.eprCategory || '',
@@ -1564,7 +1570,7 @@ export default function Quotations() {
       setError('Select UOM as KG or MT for the EPR Credit quotation item.');
       return;
     }
-    if (isEprCreditItem(draft) && !quotationEprCreditYears(draft).length) {
+    if (isEprCreditItem(draft) && !isPwpEprCreditItem(draft) && !quotationEprCreditYears(draft).length) {
       setError('Select at least one Annual Return EPR Credit Year for the EPR Credit quotation item.');
       return;
     }
@@ -1577,7 +1583,7 @@ export default function Quotations() {
     draft.servicesForYear = deriveFinancialYearFromDate(serviceStartDate);
     draft.unit = '1';
     draft.unitLabel = isEprCreditItem(draft) ? String(draft.unitLabel).trim().toUpperCase() : '';
-    draft.annualReturnEprCreditYears = isEprCreditItem(draft) ? quotationEprCreditYears(draft) : [];
+    draft.annualReturnEprCreditYears = isEprCreditItem(draft) && !isPwpEprCreditItem(draft) ? quotationEprCreditYears(draft) : [];
     delete draft.piboCategoryParent;
     setError('');
     setQuotation((current) => ({
@@ -1667,12 +1673,12 @@ export default function Quotations() {
       setError('Select Combined Price or Individual Price.');
       return;
     }
-    if (quotation.pricingMode === 'combined' && !(Number(quotation.combinedBasicAmount) > 0)) {
+    if (quotation.pricingMode === 'combined' && (String(quotation.combinedBasicAmount ?? '').trim() === '' || Number(quotation.combinedBasicAmount) < 0)) {
       setError('Enter a valid Combined Basic Amount.');
       return;
     }
     if (quotation.pricingMode === 'individual') {
-      const missingAmountIndex = quotation.items.findIndex((item) => !(Number(item.basicAmount) > 0));
+      const missingAmountIndex = quotation.items.findIndex((item) => String(item.basicAmount ?? '').trim() === '' || Number(item.basicAmount) < 0);
       if (missingAmountIndex >= 0) {
         setError(`Quotation item ${missingAmountIndex + 1}: enter a valid Basic Amount.`);
         return;
@@ -1683,7 +1689,7 @@ export default function Quotations() {
       setError(`Quotation item ${missingUomIndex + 1}: select UOM as KG or MT for EPR Credit.`);
       return;
     }
-    const missingEprCreditYearsIndex = quotation.items.findIndex((item) => isEprCreditItem(item) && !quotationEprCreditYears(item).length);
+    const missingEprCreditYearsIndex = quotation.items.findIndex((item) => isEprCreditItem(item) && !isPwpEprCreditItem(item) && !quotationEprCreditYears(item).length);
     if (missingEprCreditYearsIndex >= 0) {
       setError(`Quotation item ${missingEprCreditYearsIndex + 1}: select at least one Annual Return EPR Credit Year.`);
       return;
@@ -2073,7 +2079,7 @@ export default function Quotations() {
                       return (
                       <tr key={index} className="align-middle">
                         <td className="px-3 py-4 text-center font-black">{index + 1}</td>
-                        <td className="px-3 py-4"><button type="button" onClick={() => openFinancialYearModal(index)} className="min-w-40 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left font-black text-[#30737B] shadow-sm transition hover:border-teal-400 hover:bg-teal-100"><span className="block text-[10px] uppercase tracking-wider text-teal-600">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? 'Select EPR Data Year' : 'Select Service Period'}</span><span className="mt-0.5 block">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? (item.financialYear || 'Select EPR Data Year') : quotationServicePeriodDisplay(item)}</span></button></td>
+                        <td className="px-3 py-4">{isPwpEprCreditItem(item) ? <span className="inline-flex min-w-40 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-black text-slate-500">Not required</span> : <button type="button" onClick={() => openFinancialYearModal(index)} className="min-w-40 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left font-black text-[#30737B] shadow-sm transition hover:border-teal-400 hover:bg-teal-100"><span className="block text-[10px] uppercase tracking-wider text-teal-600">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? 'Select EPR Data Year' : 'Select Service Period'}</span><span className="mt-0.5 block">{requiresEprDataYear(item.eprCategory || item.serviceCategory) ? (item.financialYear || 'Select EPR Data Year') : quotationServicePeriodDisplay(item)}</span></button>}</td>
                         {editingItemIndex === index ? (
                           <>
                             {selectedLead ? <>
@@ -2098,7 +2104,7 @@ export default function Quotations() {
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
                                 <span className="grid w-10 place-items-center border-r border-slate-200 font-black text-slate-800">₹</span>
-                                <input type="number" value={String(readItemDraftValue(index, 'basicAmount', item.basicAmount || '') ?? '')} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
+                                <input type="number" min="0" value={String(readItemDraftValue(index, 'basicAmount', item.basicAmount ?? '') ?? '')} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
                               </div>
                             </td>}
                             {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="min-w-56 border-l border-slate-100 bg-emerald-50/60 px-3 py-4 align-middle"><label className="block text-[11px] font-black uppercase tracking-wider text-emerald-700">Combined Basic Amount</label><div className="mt-2 flex h-11 overflow-hidden rounded-lg border border-emerald-300 bg-white focus-within:ring-4 focus-within:ring-emerald-100"><span className="grid w-10 place-items-center border-r border-emerald-100 font-black">₹</span><input type="number" min="0" value={quotation.combinedBasicAmount ?? ''} onChange={(event) => setQuotation((current) => ({ ...current, combinedBasicAmount: event.target.value }))} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="50000" /></div></td>}
