@@ -1,0 +1,192 @@
+/* Enterprise typography system. Loaded last so every CRM module shares one hierarchy. */
+:root {
+  --crm-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --crm-text-body: 14px;
+  --crm-leading-body: 1.5;
+}
+
+html,
+body,
+#root,
+#root * {
+  font-family: var(--crm-font-sans) !important;
+}
+
+body {
+  font-size: var(--crm-text-body);
+  font-weight: 400;
+  line-height: var(--crm-leading-body);
+  color: #334155;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+.page-title {
+  font-size: clamp(24px, 2vw, 28px) !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -0.025em;
+}
+
+h2,
+.section-title {
+  font-size: clamp(18px, 1.5vw, 20px) !important;
+  font-weight: 600 !important;
+  line-height: 1.3 !important;
+  letter-spacing: -0.015em;
+}
+
+h3,
+h4,
+.card-title,
+.subheading {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+}
+
+p,
+.body-text {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+small,
+.helper-text {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+label,
+.form-label {
+  font-size: 13px;
+  font-weight: 500 !important;
+  line-height: 1.4;
+}
+
+button,
+[role="button"],
+.button-text {
+  font-size: 14px;
+  font-weight: 600 !important;
+  letter-spacing: 0;
+}
+
+input,
+select,
+textarea,
+.form-input {
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.45;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+  opacity: 1;
+}
+
+table {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+table th,
+.table-header {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1.35;
+  letter-spacing: 0.035em;
+}
+
+table td,
+.table-cell {
+  font-size: 13px !important;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+table td strong {
+  font-weight: 600 !important;
+}
+
+.kpi-value,
+.pending-hero-summary strong,
+[class*="metric"] strong {
+  font-size: clamp(24px, 2vw, 32px);
+  font-weight: 700 !important;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-label,
+.card-label {
+  font-size: 13px;
+  font-weight: 500 !important;
+}
+
+.pending-status,
+[class*="badge"],
+[class*="status-badge"] {
+  font-size: 11px;
+  font-weight: 600 !important;
+  line-height: 1.3;
+}
+
+.sidebar-nav-label,
+aside nav a,
+aside nav button {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+.sidebar-section-label,
+aside nav small {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em;
+}
+
+/* Existing JSX uses these utilities heavily. Normalize them to the 400–700 system. */
+.font-black,
+.font-extrabold {
+  font-weight: 700 !important;
+}
+
+.font-bold {
+  font-weight: 700 !important;
+}
+
+.font-semibold {
+  font-weight: 600 !important;
+}
+
+.font-medium {
+  font-weight: 500 !important;
+}
+
+.recharts-wrapper,
+.recharts-wrapper * {
+  font-family: var(--crm-font-sans) !important;
+}
+
+@media (max-width: 640px) {
+  body,
+  p,
+  .body-text,
+  button,
+  input,
+  select,
+  textarea {
+    font-size: 14px !important;
+  }
+
+  table th { font-size: 12px !important; }
+  table td { font-size: 13px !important; }
+}
