@@ -664,8 +664,7 @@ function clientMasterServiceFingerprint(service = {}) {
     service.subApplicantType || service.piboCategory,
     service.servicesOffered,
     service.applicableService,
-    service.plantUnit,
-    service.firstAnnualReturnYearApplicable || service.servicesForYear || service.financialYear
+    service.plantUnit
   ].map(normalize).join(':');
 }
 

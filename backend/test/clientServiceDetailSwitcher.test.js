@@ -28,5 +28,6 @@ test('Client Master service chooser removes business-identical duplicate service
   assert.match(page, /function uniqueClientMasterServices\(services = \[\]\)/);
   assert.match(page, /return uniqueClientMasterServices\(rows\)\.map/);
   assert.match(page, /service\.plantUnit/);
-  assert.match(page, /service\.firstAnnualReturnYearApplicable/);
+  const fingerprint = page.slice(page.indexOf('function clientMasterServiceFingerprint'), page.indexOf('function uniqueClientMasterServices'));
+  assert.doesNotMatch(fingerprint, /firstAnnualReturnYearApplicable|servicesForYear|financialYear/);
 });
