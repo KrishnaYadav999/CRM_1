@@ -1342,13 +1342,23 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         const snapshot = snapshotRows.find((row) => row.poNumber && row.poNumber === liveRow.poNumber) || snapshotRows[rowIndex] || {};
         const row = { ...snapshot, ...liveRow };
         const quotation = quoteForRow(row, lead);
+        const poAmount = Number(liveRow.poAmount) > 0 ? Number(liveRow.poAmount)
+          : Number(snapshot.poAmount) > 0 ? Number(snapshot.poAmount)
+            : Number(quotation?.grandTotal) || null;
+        const poFileUrl = String(liveRow.poFileUrl || liveRow.poProof?.url || snapshot.poFileUrl || snapshot.poProof?.url || '').trim();
+        const poFileName = String(liveRow.poFileName || liveRow.poProof?.fileName || snapshot.poFileName || snapshot.poProof?.fileName || '').trim();
+        const savedQuotationItems = Array.isArray(liveRow.quotationItems) && liveRow.quotationItems.length
+          ? liveRow.quotationItems
+          : Array.isArray(snapshot.quotationItems) && snapshot.quotationItems.length ? snapshot.quotationItems : [];
         return {
           ...row,
-          poAmount: Number(row.poAmount) > 0 ? Number(row.poAmount) : (Number(quotation?.grandTotal) || null),
+          poAmount,
+          poFileUrl,
+          poFileName,
           currency: row.currency || 'INR',
           quotationId: row.quotationId || (quotation?._id ? String(quotation._id) : ''),
           quotationNumber: row.quotationNumber || quotation?.quotationNumber || '',
-          quotationItems: Array.isArray(row.quotationItems) && row.quotationItems.length ? row.quotationItems : (quotation?.items || []),
+          quotationItems: savedQuotationItems.length ? savedQuotationItems : (quotation?.items || []),
           quotationBasicAmount: Number(quotation?.combinedBasicAmount) || Number(quotation?.subtotal) || Number(quotation?.grandTotal) || null,
           poFileMimeType: row.poFileMimeType || '',
           poFileSize: row.poFileSize ?? null
@@ -1378,6 +1388,12 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
     console.info('[PendingApproval:po-debug]', purchaseOrderApprovals.map((approval) => ({
       approvalId: String(approval._id),
       clientName: approval.clientName,
+      rows: (approval.payload?.poYearRows || []).map((row) => ({
+        poAmount: row.poAmount ?? null,
+        hasPoProof: Boolean(row.poFileUrl || row.poProof?.url),
+        quotationItems: Array.isArray(row.quotationItems) ? row.quotationItems.length : 0,
+        quotationBasicAmount: row.quotationBasicAmount ?? null
+      })),
       ...approval.poDebug
     })));
   }
