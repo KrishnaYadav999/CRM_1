@@ -52,6 +52,7 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /Basic Amount/);
   assert.match(page, /hydratePurchaseOrderApprovals/);
   assert.match(page, /'PO Proof'/);
+  assert.match(page, /Array\.isArray\(children\) && children\.some\(\(child\) => React\.isValidElement\(child\)\)/);
 });
 
 test('Super Admin home omits MIS tables and Home navigation omits Activity Logs', () => {

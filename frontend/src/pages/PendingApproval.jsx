@@ -936,7 +936,6 @@ export default function PendingApproval() {
                   const id = row._id || row.id;
                   const poRows = (row.payload?.poYearRows || []).map(normalizePoApprovalRow);
                   const renderKey = `${id}-${poRows.map((po) => `${po.poAmountValue || 0}:${po.basicAmountValue || 0}:${po.proofUrl}`).join('|')}`;
-                  console.info('[PendingApproval:po-row]', { approvalId: id, clientName: row.clientName, rows: poRows.map((po) => ({ poAmount: po.poAmountValue, hasPoProof: Boolean(po.proofUrl), basicAmount: po.basicAmountValue })) });
                   return <tr key={renderKey}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmountValue ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : '-'}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <PoProof key={`${po.proofUrl || 'proof'}-${index}`} row={po} />)}</Cell><Cell>{poRows.map((po, index) => <strong key={index} className="block text-slate-900">{po.basicAmountValue ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
                 })}
               </ApprovalTable>
@@ -1309,9 +1308,11 @@ function ApprovalTable({ title, columns, children, emptyText, page, totalPages, 
 }
 
 function Cell({ children, strong = false }) {
+  const hasRenderableElements = React.isValidElement(children)
+    || (Array.isArray(children) && children.some((child) => React.isValidElement(child)));
   return (
     <td className={strong ? 'pending-cell-strong' : ''}>
-      {React.isValidElement(children) ? children : formatApprovalValue(children)}
+      {hasRenderableElements ? children : formatApprovalValue(children)}
     </td>
   );
 }
