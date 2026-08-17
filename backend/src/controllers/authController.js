@@ -99,18 +99,14 @@ async function sendLoginOtp(user, otp, context = {}) {
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f3f7;margin:0;padding:28px 12px;">
           <tr>
             <td align="center">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:570px;border-radius:18px;background:#ffffff;box-shadow:0 10px 35px rgba(15,23,42,0.08);">
-                <tr>
-                  <td align="center" style="padding:38px 34px 34px;">
-                    <h1 style="margin:0;font-size:30px;line-height:1.25;color:#202938;">Your verification code</h1>
-                    <p style="margin:20px 0 0;font-size:16px;line-height:1.55;color:#374151;">Hi <strong style="color:#155eef;text-decoration:underline;">${escapeHtml(user.email)}</strong>,<br />Enter the code below to confirm it’s you and continue signing in to ${APP_NAME}.</p>
-                    <div style="margin:28px 0 24px;padding:28px 18px;border-radius:14px;background:#edf4ff;border:2px dashed #528bff;text-align:center;">
-                      <div style="font-size:42px;font-weight:800;letter-spacing:0.24em;color:#101828;">${otp}</div>
-                    </div>
-                    <p style="margin:0;font-size:14px;line-height:1.65;color:#4b5563;">For your security, never share this code with anyone. It expires in 10 minutes. If you didn’t request it, you can safely ignore this email—your account stays secure.</p>
-                  </td>
-                </tr>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:548px;background:#ffffff;border-collapse:separate;border-spacing:0;">
+                <tr><td align="center" style="padding:40px 34px 14px;font-size:11px;font-weight:700;letter-spacing:.04em;color:#087579;">AT CONNECT · SECURE VERIFICATION</td></tr>
+                <tr><td align="center" style="padding:8px 34px 0;"><h1 style="margin:0;font-size:30px;line-height:1.25;color:#202938;">Your verification code</h1></td></tr>
+                <tr><td align="center" style="padding:20px 34px 0;font-size:16px;line-height:1.45;color:#374151;">Hi <strong style="color:#0f5d46;text-decoration:underline;">${escapeHtml(user.email)}</strong>,<br />Enter the code below to confirm it&rsquo;s you and continue signing in to AT Connect.</td></tr>
+                <tr><td style="padding:28px 34px 0;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px dashed #42b99a;background:#eaf8f3;border-collapse:separate;"><tr><td align="center" style="padding:38px 18px;font-size:42px;line-height:1;font-weight:800;letter-spacing:10px;color:#0f5d46;">${otp}</td></tr></table></td></tr>
+                <tr><td align="center" style="padding:24px 40px 38px;font-size:14px;line-height:1.55;color:#374151;">This code expires in <strong>10 minutes</strong>. For your security, never share it with anyone.<br />If you didn&rsquo;t request it, you can safely ignore this email &mdash; your account stays secure.</td></tr>
               </table>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:548px;"><tr><td align="center" style="padding:16px 12px 0;font-size:11px;color:#94a3b8;">Automated security message from AT Connect.</td></tr></table>
             </td>
           </tr>
         </table>
