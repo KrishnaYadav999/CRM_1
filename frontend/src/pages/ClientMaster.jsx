@@ -654,6 +654,32 @@ function readAssignedServiceId(service = {}) {
   return String(service.assignedServiceId || service.serviceAssignmentId || service.assignmentId || '').trim();
 }
 
+function clientMasterServiceFingerprint(service = {}) {
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  return [
+    service.industryType,
+    service.businessCategory,
+    service.eprCategory || service.serviceCategory,
+    service.applicantType || service.piboParent || service.piboCategoryParent,
+    service.subApplicantType || service.piboCategory,
+    service.servicesOffered,
+    service.applicableService,
+    service.plantUnit,
+    service.firstAnnualReturnYearApplicable || service.servicesForYear || service.financialYear
+  ].map(normalize).join(':');
+}
+
+function uniqueClientMasterServices(services = []) {
+  const seen = new Set();
+  return services.filter((service, index) => {
+    const fingerprint = clientMasterServiceFingerprint(service);
+    const key = fingerprint.replace(/:/g, '') ? fingerprint : (readAssignedServiceId(service) || `service-${index}`);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
   const assignedServiceId = readAssignedServiceId(service);
   const scoped = data.cpcbDataByAssignedServiceId?.[assignedServiceId];
@@ -992,7 +1018,7 @@ export default function ClientMaster() {
     const rows = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
       ? lead.serviceSelections
       : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, applicantType: lead?.applicantType || lead?.piboParent, subApplicantType: lead?.subApplicantType, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
-    return rows.map((row, index) => {
+    return uniqueClientMasterServices(rows).map((row, index) => {
       const addressData = (lead.addresses || []).find((item) => row.plantUnit && item?.plantUnit === row.plantUnit)
         || (lead.addresses || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId)
         || (!row.plantUnit ? lead.addresses?.[index] : null)

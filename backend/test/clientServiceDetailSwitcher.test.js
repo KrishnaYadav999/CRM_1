@@ -22,3 +22,11 @@ test('legacy multi-service Client Master records remain separate and receive dro
   assert.match(page, /getClientServiceViewKey\(item\) === event\.target\.value/);
   assert.match(controller, /designation serviceSelections addresses contacts assignments/);
 });
+
+test('Client Master service chooser removes business-identical duplicate services', () => {
+  assert.match(page, /function clientMasterServiceFingerprint\(service = \{\}\)/);
+  assert.match(page, /function uniqueClientMasterServices\(services = \[\]\)/);
+  assert.match(page, /return uniqueClientMasterServices\(rows\)\.map/);
+  assert.match(page, /service\.plantUnit/);
+  assert.match(page, /service\.firstAnnualReturnYearApplicable/);
+});
