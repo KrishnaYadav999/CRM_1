@@ -578,6 +578,7 @@ export default function LeadGeneration() {
   const [royaltyClaiming, setRoyaltyClaiming] = useState(false);
   const [royaltyClaimed, setRoyaltyClaimed] = useState(false);
   const [closureDialog, setClosureDialog] = useState(null);
+  const [closureSaving, setClosureSaving] = useState(false);
   const [kickoffDialog, setKickoffDialog] = useState(null);
   const [closureUploading, setClosureUploading] = useState(false);
   const [serviceCatalog, setServiceCatalog] = useState([]);
@@ -1035,7 +1036,7 @@ export default function LeadGeneration() {
     }
   }
 
-  function updateAssignmentRow(index, field, value, extra = {}) {
+  function buildUpdatedAssignmentRows(index, field, value, extra = {}) {
     const user = staff.find((item) => [item._id, item.id, item.crmUserId, item.userId].filter(Boolean).some((id) => String(id) === String(value)));
     const next = assignmentRows.map((row) => ({ ...row }));
     next[index] = field === 'assignedTo'
@@ -1050,6 +1051,11 @@ export default function LeadGeneration() {
             ...(!value ? { assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '', poStatus: '', poYearRows: [], closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' } : {}),
             ...extra
           };
+    return next;
+  }
+
+  function updateAssignmentRow(index, field, value, extra = {}) {
+    const next = buildUpdatedAssignmentRows(index, field, value, extra);
     setLead((current) => ({
       ...current,
       assignments: next,
@@ -1115,18 +1121,43 @@ export default function LeadGeneration() {
     } finally { setClosureUploading(false); }
   }
 
-  function confirmLeadClosure() {
+  async function confirmLeadClosure() {
     if (!closureDialog?.choice) return showToast('Please select Yes or No.', 'warning');
+    let closurePatch;
     if (closureDialog.choice === 'yes') {
       const incomplete = closureDialog.poYearRows.some((row) => !row.fy || !row.poNumber.trim() || !(Number(row.poAmount) > 0) || !row.poFileUrl || !row.services.length);
       if (incomplete) return showToast('Complete FY Year, PO Number, PO Amount, PO Upload, and Services for every PO row.', 'warning');
-      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'received', poApprovalStatus: 'PENDING', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' });
+      closurePatch = { poStatus: 'received', poApprovalStatus: 'PENDING', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' };
     } else {
       if (!closureDialog.approvalProofUrl) return showToast('Upload Super Admin approval proof before closing without PO.', 'warning');
-      updateAssignmentRow(closureDialog.index, 'closedBy', closureDialog.value, { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), kickoffEmailConsent: '' });
+      closurePatch = { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), kickoffEmailConsent: '' };
     }
-    setClosureDialog(null);
-    showToast(closureDialog.choice === 'no' ? 'Special approval closure added. Submit to notify the user and Super Admin.' : 'PO details added. Submit the form to close this service.', 'success');
+    const nextAssignments = buildUpdatedAssignmentRows(closureDialog.index, 'closedBy', closureDialog.value, closurePatch);
+    if (!editingLeadId) return showToast('Save the lead before recording closure details.', 'warning');
+    setClosureSaving(true);
+    try {
+      const primaryAssignment = nextAssignments[0] || {};
+      const payload = buildLeadPayload(lead.workflowStatus || 'submitted', {
+        assignments: nextAssignments,
+        ...primaryAssignment,
+        assignedToCrmUserId: primaryAssignment.assignedTo,
+        assignedStaff: primaryAssignment.assignedStaff,
+        assignedStaffText: primaryAssignment.assignedStaffText,
+        assignedStaffEmail: primaryAssignment.assignedStaffEmail,
+        closedByCrmUserId: primaryAssignment.closedBy,
+        assignedBy: currentUser?.name || currentUser?.email || ''
+      });
+      const response = await api.put(API_ENDPOINTS.leads.detail(editingLeadId), payload);
+      const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
+      if (!savedLead || !Array.isArray(savedLead.assignments)) throw new Error('CRM did not return saved PO details.');
+      setLead((current) => ({ ...current, ...savedLead, assignments: savedLead.assignments }));
+      setClosureDialog(null);
+      showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database.', 'success');
+    } catch (saveError) {
+      showToast(saveError?.response?.data?.error || saveError.message || 'Unable to save PO details.', 'error');
+    } finally {
+      setClosureSaving(false);
+    }
   }
 
   function requestStaffAssignment(index, value) {
@@ -1721,13 +1752,14 @@ export default function LeadGeneration() {
     setHealthPromptOpen(true);
   }
 
-  function buildLeadPayload(workflowStatus) {
+  function buildLeadPayload(workflowStatus, overrides = {}) {
+    const payloadLead = { ...lead, ...overrides };
     const {
       assignedStaff: _legacyAssignedStaff,
       assignedStaffText: _legacyAssignedStaffText,
       assignedStaffEmail: _legacyAssignedStaffEmail,
       ...leadWithoutLegacyStaff
-    } = lead;
+    } = payloadLead;
     const primaryService = serviceRows[0] || {};
     const generatedForOwner = [...staff, ...(currentUser ? [currentUser] : [])].find((user) => [user?._id, user?.id, user?.crmUserId, user?.userId]
       .filter(Boolean).some((value) => String(value) === String(generatedForUserId || currentUser?._id || currentUser?.id || '')));
@@ -1737,8 +1769,8 @@ export default function LeadGeneration() {
     const actualCreatorId = currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.userId || '';
     const actualCreatorName = currentUser?.name || currentUser?.email || '';
     const actualCreatorEmail = currentUser?.email || '';
-    const submittedAt = workflowStatus === 'submitted' ? new Date().toISOString() : lead.submittedAt;
-    const formStartedAt = lead.formStartedAt || formStartedAtRef.current || new Date().toISOString();
+    const submittedAt = workflowStatus === 'submitted' ? new Date().toISOString() : payloadLead.submittedAt;
+    const formStartedAt = payloadLead.formStartedAt || formStartedAtRef.current || new Date().toISOString();
     return {
       ...leadWithoutLegacyStaff,
       generatedForUser: generatedForOwnerId,
@@ -1752,7 +1784,7 @@ export default function LeadGeneration() {
       })),
       addresses: addressRows,
       contacts: contactRows,
-      assignments: assignmentRows,
+      assignments: overrides.assignments || assignmentRows,
       addServicesMode: serviceOnlyMode,
       industryType: primaryService.industryType || lead.industryType || '',
       eprCategory: primaryService.eprCategory || lead.eprCategory || '',
@@ -1764,9 +1796,9 @@ export default function LeadGeneration() {
       firstAnnualReturnYearApplicable: primaryService.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable || '',
       workflowStatus,
       formStartedAt,
-      assignReachedAt: lead.assignReachedAt || '',
+      assignReachedAt: payloadLead.assignReachedAt || '',
       submittedAt,
-      fillDurationSeconds: workflowStatus === 'submitted' ? Math.max(0, Math.round((new Date(submittedAt).getTime() - new Date(formStartedAt).getTime()) / 1000)) : lead.fillDurationSeconds
+      fillDurationSeconds: workflowStatus === 'submitted' ? Math.max(0, Math.round((new Date(submittedAt).getTime() - new Date(formStartedAt).getTime()) / 1000)) : payloadLead.fillDurationSeconds
     };
   }
 
@@ -2612,7 +2644,7 @@ export default function LeadGeneration() {
               {closureDialog.choice === 'yes' && <div className="mt-6"><QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} /></div>}
               {closureDialog.choice === 'no' && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Close under special approval</h3><p className="mt-2 text-sm font-bold leading-6 text-amber-900">This service will be closed provisionally and the user and Super Admin will be notified by email. The PO must be uploaded within 10 minutes. If it is still missing after the deadline, only this service will reopen automatically; services with received POs will remain closed.</p><label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.approvalProofName || 'Upload Super Admin approval proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'approval')} /></label><p className="mt-2 text-xs font-bold text-amber-700">Accepted formats: image or PDF.</p></div>}
             </div>
-            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading} onClick={confirmLeadClosure} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : 'Confirm Lead Closure'}</button></footer>
+            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" disabled={closureSaving} onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black disabled:opacity-50">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading || closureSaving} onClick={confirmLeadClosure} className="rounded-xl bg-[#0f5d46] px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : closureSaving ? 'Saving PO...' : 'Confirm & Save Closure'}</button></footer>
           </section>
         </div>
       )}

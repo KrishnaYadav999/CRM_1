@@ -12,7 +12,9 @@ test('lead closure auto-fetches quotation fields and supports one or multiple PO
   assert.match(page, /Basic Amount \(INR\)/);
   assert.match(page, /Enter PO details against every quotation service/);
   assert.match(page, /quotation service row/);
-  assert.match(page, /Confirm Lead Closure/);
+  assert.match(page, /Confirm & Save Closure/);
+  assert.match(page, /Lead closed and PO details saved in the database/);
+  assert.match(page, /api\.put\(API_ENDPOINTS\.leads\.detail\(editingLeadId\), payload\)/);
 });
 
 test('PO approval is persisted and restricted to Admin and Super Admin', () => {
