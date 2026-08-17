@@ -229,7 +229,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
   return (
     <>
     <header className="crm-topbar fixed left-0 right-0 top-0 z-[60] border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-      <div className="flex min-h-16 items-center justify-between gap-4 px-4 sm:px-5 lg:px-6">
+      <div className="flex min-h-20 items-center justify-between gap-4 px-4 sm:px-5 lg:px-7">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
@@ -245,12 +245,12 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
             className="btn-lift flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1 transition hover:bg-teal-50"
             aria-label="Go to dashboard"
           >
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white p-1 shadow-md shadow-slate-950/5">
-              <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full object-contain" />
+            <span className="grid h-[68px] w-[68px] shrink-0 place-items-center overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-md shadow-slate-950/5">
+              <img src={brand.logoUrl} alt="Anant Tattva" className="h-full w-full scale-[1.28] object-contain" />
             </span>
             <span className="min-w-0 text-left">
-              <span className="block truncate text-lg font-black leading-tight text-orange-500">ANANTTATTVA</span>
-              <span className="hidden truncate text-xs font-bold tracking-[0.08em] text-slate-700 sm:block">{brand.name}</span>
+              <span className="block truncate text-xl font-black leading-tight text-orange-500">ANANTTATTVA</span>
+              <span className="hidden truncate text-sm font-bold tracking-[0.08em] text-slate-700 sm:block">{brand.name}</span>
             </span>
           </button>
         </div>

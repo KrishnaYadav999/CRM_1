@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Eye, FileCheck2, FileText, MapPin, Plus, Smartphone, Trash2, Upload, UserRound, UsersRound } from 'lucide-react';
+import { Building2, CheckCircle2, ChevronDown, Copy, Eye, FileCheck2, FileText, MapPin, Plus, Smartphone, Trash2, Upload, UserRound, UsersRound } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
 import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 import { mediaUrl, uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
@@ -7,7 +7,7 @@ import { mediaUrl, uploadMedia, uploadMediaBatch } from '../../services/mediaUpl
 function AddressTab({ client, setValue, copyRegisteredAddress, selectOptions }) {
   return (
     <Card title="Company Address Details">
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-6">
         <AddressPanel title="Registered Office Address" section="registeredAddress" data={client.registeredAddress} setValue={setValue} selectOptions={selectOptions} />
         <AddressPanel title="Communication Office Address" section="communicationAddress" data={client.communicationAddress} setValue={setValue} onCopy={copyRegisteredAddress} selectOptions={selectOptions} />
       </div>
@@ -16,19 +16,23 @@ function AddressTab({ client, setValue, copyRegisteredAddress, selectOptions }) 
 }
 
 function AddressPanel({ title, section, data, setValue, onCopy, selectOptions }) {
+  const isRegistered = section === 'registeredAddress';
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-      {onCopy && <label className="mb-3 inline-flex items-center gap-2 text-sm font-black text-slate-700"><input type="checkbox" className="h-4 w-4 accent-[#30737B]" onChange={(event) => onCopy(event.target.checked)} /> Same as Registered Address</label>}
-      <h3 className="text-xl font-black text-slate-950">{title}</h3>
-      <div className="mt-5 grid gap-4">
-        <Field required label="Address 1"><input className="form-input" value={data.address1 || ''} onChange={(event) => setValue(section, 'address1', event.target.value)} /></Field>
-        <Field label="Address 2"><input className="form-input" value={data.address2 || ''} onChange={(event) => setValue(section, 'address2', event.target.value)} /></Field>
-        <Field label="Address 3"><input className="form-input" value={data.address3 || ''} onChange={(event) => setValue(section, 'address3', event.target.value)} /></Field>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_34px_rgba(15,76,66,0.07)]">
+      <header className={`flex flex-wrap items-center justify-between gap-4 border-b px-5 py-4 ${isRegistered ? 'border-blue-100 bg-gradient-to-r from-blue-50 via-white to-cyan-50' : 'border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-teal-50'}`}>
+        <div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-xl ${isRegistered ? 'bg-blue-600 text-white' : 'bg-emerald-700 text-white'}`}>{isRegistered ? <Building2 className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}</span><div><h3 className="text-xl font-black text-slate-950">{title}</h3><p className="mt-1 text-xs font-bold text-slate-500">{isRegistered ? 'Official registered address used for company records.' : 'Primary address used for correspondence and deliveries.'}</p></div></div>
+        {onCopy && <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-800 shadow-sm hover:bg-emerald-50"><input type="checkbox" className="h-4 w-4 accent-emerald-700" onChange={(event) => onCopy(event.target.checked)} /><Copy className="h-4 w-4" /> Same as Registered Address</label>}
+      </header>
+      <div className="grid gap-5 p-5 lg:grid-cols-2">
+        <div className="lg:col-span-2"><Field required label="Address Line 1"><input className="form-input" value={data.address1 || ''} onChange={(event) => setValue(section, 'address1', event.target.value)} placeholder="Enter complete street address" /></Field></div>
+        <Field label="Address Line 2"><input className="form-input" value={data.address2 || ''} onChange={(event) => setValue(section, 'address2', event.target.value)} placeholder="Building, floor or landmark" /></Field>
+        <Field label="Address Line 3"><input className="form-input" value={data.address3 || ''} onChange={(event) => setValue(section, 'address3', event.target.value)} placeholder="Area or locality" /></Field>
         <SelectLike required label="State" value={data.state || ''} options={selectOptions.states} onChange={(value) => setValue(section, 'state', value)} />
         <SelectLike required label="City" value={data.city || ''} options={selectOptions.cities} placeholder={data.state ? 'Select or type city' : 'Select state first'} disabled={!data.state} onChange={(value) => setValue(section, 'city', value)} />
-        <Field required label="Pincode"><input className="form-input" value={data.pincode || ''} onChange={(event) => setValue(section, 'pincode', event.target.value)} /></Field>
+        <Field required label="Pincode"><input className="form-input" inputMode="numeric" value={data.pincode || ''} onChange={(event) => setValue(section, 'pincode', event.target.value)} placeholder="Enter 6-digit pincode" /></Field>
+        <div className="flex items-end"><div className="flex min-h-[50px] w-full items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 text-xs font-black text-emerald-800"><CheckCircle2 className="h-4 w-4" /> Required fields count toward completion progress.</div></div>
       </div>
-    </div>
+    </section>
   );
 }
 

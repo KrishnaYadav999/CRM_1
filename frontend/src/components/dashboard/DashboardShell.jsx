@@ -35,16 +35,16 @@ export default function DashboardShell({ currentUser, onOpenProfile, onLogout, c
   }
 
   return (
-    <main className="min-h-screen bg-[#eef7f5] pt-16 text-slate-900">
+    <main className="min-h-screen bg-[#eef7f5] pt-20 text-slate-900">
       <Topbar
         currentUser={currentUser}
         onOpenProfile={onOpenProfile}
         onOpenSidebar={() => setSidebarOpen(true)}
         onLogout={handleLogout}
       />
-      <div className="flex min-h-[calc(100vh-4rem)]">
+      <div className="flex min-h-[calc(100vh-5rem)]">
         <aside
-          className={`fixed bottom-0 left-0 top-16 z-40 w-[296px] border-r border-emerald-100 bg-white shadow-xl shadow-emerald-900/5 transition-all duration-300 ease-out lg:translate-x-0 ${
+          className={`fixed bottom-0 left-0 top-20 z-40 w-[296px] border-r border-emerald-100 bg-white shadow-xl shadow-emerald-900/5 transition-all duration-300 ease-out lg:translate-x-0 ${
             sidebarCollapsed ? 'lg:w-[84px]' : 'lg:w-[296px]'
           } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
         >
@@ -60,7 +60,7 @@ export default function DashboardShell({ currentUser, onOpenProfile, onLogout, c
         {sidebarOpen && (
           <button
             type="button"
-            className="fixed bottom-0 left-0 right-0 top-16 z-30 bg-slate-950/30 lg:hidden"
+            className="fixed bottom-0 left-0 right-0 top-20 z-30 bg-slate-950/30 lg:hidden"
             onClick={() => setSidebarOpen(false)}
             aria-label="Close navigation"
           />
