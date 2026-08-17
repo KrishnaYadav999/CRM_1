@@ -2677,6 +2677,10 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
   const canDownloadPdf = isAdminUser || isQuotationApproved;
   const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const scopeItems = (quotation.scopeOfWork || []).filter(Boolean);
+  const scopeItemsPerPage = 22;
+  const scopePages = scopeItems.length
+    ? Array.from({ length: Math.ceil(scopeItems.length / scopeItemsPerPage) }, (_, pageIndex) => scopeItems.slice(pageIndex * scopeItemsPerPage, (pageIndex + 1) * scopeItemsPerPage))
+    : [[]];
   const documentRef = useRef(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadError, setDownloadError] = useState('');
@@ -2937,25 +2941,31 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                 <p className="mt-5 text-[10px] font-black text-slate-950">This is a computer-generated quotation and does not require a signature.</p>
               </div>
             </section>
-            <section className="mt-6 flex min-h-[1020px] flex-col rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
-              <div className="border-b border-slate-950 pb-3">
-                <p className="text-lg font-black uppercase tracking-[0.18em] text-orange-500">Scope of Work</p>
-              </div>
-              <div className="mt-6 text-[11px] font-bold leading-6 text-slate-950">
-                <p className="font-black">Scope of Work:</p>
-                {scopeItems.length ? (
-                  <div className="mt-3 space-y-2">
-                    {scopeItems.map((item, index) => <div key={`${item}-${index}`} className="grid break-inside-avoid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-1"><span className="text-right font-black">{index + 1}.</span><span className="min-w-0 break-words">{item}</span></div>)}
-                  </div>
-                ) : (
-                  <p className="mt-3">No scope of work added.</p>
-                )}
-              </div>
-              <div className="mt-auto border-t border-slate-950 pt-3 text-center">
-                <p className="text-[10px] font-black text-slate-950">For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p>
-                <p className="mt-5 text-[10px] font-black text-slate-950">This is a computer-generated quotation and does not require a signature.</p>
-              </div>
-            </section>
+            {scopePages.map((pageItems, pageIndex) => (
+              <section key={`scope-page-${pageIndex}`} className="mt-6 flex min-h-[1020px] flex-col rounded-sm border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-950/15">
+                <div className="flex items-end justify-between border-b border-slate-950 pb-3">
+                  <p className="text-xl font-black uppercase tracking-[0.18em] text-orange-500">Scope of Work</p>
+                  {scopePages.length > 1 && <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Page {pageIndex + 1} of {scopePages.length}</p>}
+                </div>
+                <div className="mt-7 text-[12px] font-semibold leading-6 text-slate-950">
+                  <p className="mb-4 text-[13px] font-black">Scope of Work:</p>
+                  {pageItems.length ? (
+                    <div className="space-y-3">
+                      {pageItems.map((item, itemIndex) => {
+                        const scopeIndex = (pageIndex * scopeItemsPerPage) + itemIndex;
+                        return <div key={`${item}-${scopeIndex}`} className="grid break-inside-avoid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2"><span className="text-right font-black text-slate-700">{scopeIndex + 1}.</span><span className="min-w-0 break-words font-semibold">{item}</span></div>;
+                      })}
+                    </div>
+                  ) : (
+                    <p>No scope of work added.</p>
+                  )}
+                </div>
+                <div className="mt-auto border-t border-slate-950 pt-3 text-center">
+                  <p className="text-[10px] font-black text-slate-950">For more details please contact us on : info@ananttattva.com | +91 8169727341 / 9004005520</p>
+                  <p className="mt-4 text-[10px] font-black text-slate-950">This is a computer-generated quotation and does not require a signature.</p>
+                </div>
+              </section>
+            ))}
           </div>
         </div>
       </aside>
