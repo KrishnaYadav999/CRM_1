@@ -740,6 +740,7 @@ async function syncPendingApprovalRows(rows, type = 'client') {
 async function readStoredPendingApprovals() {
   const records = await PendingApproval.find({ approvalStatus: 'PENDING' })
     .sort({ createdAt: -1 })
+    .limit(1000)
     .lean();
 
   return {
@@ -778,96 +779,17 @@ exports.listClients = async (req, res) => {
 exports.listPendingApprovals = async (req, res) => {
   const startedAt = Date.now();
   const storedFallback = await readStoredPendingApprovals();
-  const [clientsResult, quotationsResult] = await Promise.allSettled([
-    Client.find()
-      .populate('selectedLead', 'leadCode company piboCategory eprCategory contactPerson mobileNo1 importedCreatedBy')
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 })
-      .lean(),
-    Quotation.find({ status: { $in: ['draft', 'submitted', 'sent'] } })
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 })
-      .lean()
-  ]);
-  const allClients = clientsResult.status === 'fulfilled' ? clientsResult.value : [];
-  const quotations = quotationsResult.status === 'fulfilled' ? quotationsResult.value : [];
-  const clients = allClients.filter((client) => {
-    const status = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
-    return status === 'PENDING' && client.data?.importMeta?.approvalOverride !== true;
-  });
-  const resolvedClientKeys = new Set();
-  allClients.forEach((client) => {
-    const status = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
-    if (status === 'PENDING') return;
-    const row = {
-      id: client._id,
-      uniqueId: client.data?.importMeta?.uniqueId || client.selectedLead?.leadCode || '',
-      clientName: readClientName(client)
-    };
-    getPendingClientKeys(row).forEach((key) => resolvedClientKeys.add(key));
-  });
-
-  const pendingClients = clients.map((client) => {
-    const parts = approvalDateParts(client.createdAt);
-    const approvalStatus = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
-    return {
-      id: client._id,
-      selectedLeadId: client.selectedLead?._id || client.selectedLead || client.data?.selectedLead || '',
-      source: 'crm',
-      uniqueId: client.data?.importMeta?.uniqueId || client.selectedLead?.leadCode || '',
-      clientName: readClientName(client),
-      approvalStatus,
-      piboCategory: client.data?.basic?.piboCategory || client.selectedLead?.piboCategory || '-',
-      eprCategory: client.data?.basic?.eprCategory || client.selectedLead?.eprCategory || '-',
-      createdBy: readCreatedBy(client),
-      requestDate: parts.date,
-      requestTime: parts.time
-    };
-  });
-
-  const clientQuotationRows = clients.filter(hasQuotationData).map((client) => {
-    const validation = client.data?.validation || {};
-    return {
-      id: client._id,
-      userName: readCreatedBy(client),
-      leadGeneratedBy: client.selectedLead?.importedCreatedBy || readCreatedBy(client),
-      companyName: readClientName(client),
-      contactPerson: client.data?.authorised?.name || client.selectedLead?.contactPerson || '-',
-      mobileNo1: client.data?.otp?.mobile || client.selectedLead?.mobileNo1 || '-',
-      quotationDate: validation.quotationDate || '-',
-      service: client.data?.basic?.servicesOffered || '-',
-      category: client.data?.basic?.eprCategory || client.selectedLead?.eprCategory || '-',
-      piboCategory: client.data?.basic?.piboCategory || client.selectedLead?.piboCategory || '-',
-      basicAmount: validation.basicAmount || validation.amount || '-',
-      approvalStatus: normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING',
-      approvalType: validation.quotationNumber ? 'UPDATE' : 'CREATE',
-      createdBy: readCreatedBy(client)
-    };
-  });
-  const quotationRows = quotations.map((quotation) => mapQuotationPendingApprovalRow(quotation, 'CREATE'));
-  const pendingQuotations = [...quotationRows, ...clientQuotationRows];
-
-  const pendingClientRows = pendingClients.filter((client) => (
-    !getPendingClientKeys(client).some((key) => resolvedClientKeys.has(key))
-  ));
-  const responseClients = pendingClientRows.length ? pendingClientRows : storedFallback.pendingClients;
-  const responseQuotations = pendingQuotations.length ? pendingQuotations : storedFallback.pendingQuotations;
-
-  backgroundSyncPendingApprovals(pendingClientRows, pendingQuotations);
-
   const requesterRole = normalizeRoleName(req.user?.role);
   const isAdministrativeReviewer = ['admin', 'superadmin'].includes(requesterRole);
   const isClientReviewer = isAdministrativeReviewer || requesterRole.includes('compliance');
 
   res.json({
     ok: true,
-    pendingClients: isClientReviewer ? responseClients : [],
-    pendingQuotations: isAdministrativeReviewer ? responseQuotations : [],
+    pendingClients: isClientReviewer ? storedFallback.pendingClients : [],
+    pendingQuotations: isAdministrativeReviewer ? storedFallback.pendingQuotations : [],
     debug: {
-      source: pendingClientRows.length || pendingQuotations.length ? 'live' : 'stored-fallback',
+      source: 'indexed-pending-approvals',
       ms: Date.now() - startedAt,
-      clientsQueryOk: clientsResult.status === 'fulfilled',
-      quotationsQueryOk: quotationsResult.status === 'fulfilled',
       storedClients: storedFallback.pendingClients.length,
       storedQuotations: storedFallback.pendingQuotations.length
     }

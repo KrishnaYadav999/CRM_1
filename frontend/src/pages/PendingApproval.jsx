@@ -334,22 +334,21 @@ export default function PendingApproval() {
         avatarUrl: cached.currentUser.avatarUrl || stored?.avatarUrl || stored?.avatar || stored?.profileImage || ''
       }));
       setLoading(false);
-    } else if (!options.silent && !currentUser) {
+    } else if (options.force || (!options.silent && !currentUser)) {
       setLoading(true);
     }
     setError('');
 
     try {
-      const [meResult, approvalsResult, leadsResult, duplicateResult] = await Promise.allSettled([
+      const [meResult, approvalsResult, duplicateResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.auth.me, authRequestConfig),
         api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig),
-        api.get(API_ENDPOINTS.leads.list, dataRequestConfig),
         api.get(API_ENDPOINTS.leads.duplicateApprovals, dataRequestConfig)
       ]);
 
       const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
       const approvalsResponse = approvalsResult.status === 'fulfilled' ? approvalsResult.value : null;
-      const crmLeads = leadsResult.status === 'fulfilled' ? (leadsResult.value.data?.leads || []) : [];
+      const crmLeads = [];
 
       if (meResponse?.data?.user) {
         setCurrentUser(meResponse.data.user);

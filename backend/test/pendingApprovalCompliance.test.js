@@ -19,8 +19,9 @@ test('pending approval shows only client review to compliance-family and adminis
   assert.match(page, /canApproveClients && <Metric[^\n]+Pending Clients/);
   assert.match(page, /!isComplianceApprovalView && <ApprovalTab/);
   assert.match(controller, /requesterRole\.includes\('compliance'\)/);
-  assert.match(controller, /pendingClients: isClientReviewer \? responseClients : \[\]/);
-  assert.match(controller, /pendingQuotations: isAdministrativeReviewer \? responseQuotations : \[\]/);
+  assert.match(controller, /pendingClients: isClientReviewer \? storedFallback\.pendingClients : \[\]/);
+  assert.match(controller, /pendingQuotations: isAdministrativeReviewer \? storedFallback\.pendingQuotations : \[\]/);
+  assert.match(controller, /source: 'indexed-pending-approvals'/);
 });
 
 test('custom compliance roles pass compliance-family authorization and sidebar visibility', () => {
