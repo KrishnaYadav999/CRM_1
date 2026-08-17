@@ -543,6 +543,8 @@ export default function LeadGeneration() {
     }
   }, [viewMode, activeTab, lead.formStartedAt, lead.assignReachedAt]);
   const [healthPromptOpen, setHealthPromptOpen] = useState(false);
+  const [introductionPromptOpen, setIntroductionPromptOpen] = useState(false);
+  const [introductionConsent, setIntroductionConsent] = useState(false);
   const [healthReportLead, setHealthReportLead] = useState(null);
   const [healthReport, setHealthReport] = useState(emptyComplianceHealthReport);
   const [healthReportSaving, setHealthReportSaving] = useState(false);
@@ -1749,7 +1751,7 @@ export default function LeadGeneration() {
       return;
     }
     setError('');
-    setHealthPromptOpen(true);
+    setIntroductionPromptOpen(true);
   }
 
   function buildLeadPayload(workflowStatus, overrides = {}) {
@@ -1817,11 +1819,12 @@ export default function LeadGeneration() {
     setError('');
     setNotice('');
     try {
-      const leadPayload = buildLeadPayload(workflowStatus);
+      const leadPayload = { ...buildLeadPayload(workflowStatus), ...(workflowStatus === 'submitted' ? { sendIntroductionEmail: introductionConsent } : {}) };
       const response = editingLeadId ? await api.put(API_ENDPOINTS.leads.detail(editingLeadId), leadPayload) : await api.post(API_ENDPOINTS.leads.create, leadPayload);
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('CRM did not return the saved lead.');
       setHealthPromptOpen(false);
+      setIntroductionConsent(false);
       if (openHealthReport) {
         setHealthReportLead(savedLead);
         setHealthReport(reportToDraft(savedLead.complianceHealthReport));
@@ -2712,6 +2715,14 @@ export default function LeadGeneration() {
               </label>
               <div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setSpecifyDialog(null)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700 hover:bg-slate-50">Cancel</button><button type="button" onClick={submitSpecification} disabled={!specifyNote.trim()} className="min-h-11 rounded-xl bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-50">Submit</button></div>
             </div>
+          </section>
+        </div>
+      )}
+      {introductionPromptOpen && (
+        <div className="fixed inset-0 z-[145] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="introduction-email-title">
+          <section className="w-full max-w-lg overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-2xl">
+            <div className="p-7 sm:p-8"><span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-[#0f5d46]"><Mail className="h-7 w-7" /></span><p className="mt-5 text-xs font-black uppercase tracking-[.18em] text-[#0f5d46]">Client Communication</p><h2 id="introduction-email-title" className="mt-2 text-2xl font-black text-slate-950">Send Introduction Email?</h2><p className="mt-3 text-sm font-semibold leading-6 text-slate-600">Would you like to send the AnantTattva introduction email to the client with this lead submission?</p><div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm font-bold leading-6 text-emerald-900">Choose <strong>Yes</strong> to submit the lead and send the introduction email. Choose <strong>No</strong> to submit without sending it.</div></div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50/70 p-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => { setIntroductionConsent(false); setIntroductionPromptOpen(false); setHealthPromptOpen(true); }} className="min-h-12 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700">No, Submit Without Email</button><button type="button" onClick={() => { setIntroductionConsent(true); setIntroductionPromptOpen(false); setHealthPromptOpen(true); }} className="min-h-12 rounded-xl bg-[#0f5d46] px-5 text-sm font-black text-white shadow-lg">Yes, Send Introduction Email</button></div>
           </section>
         </div>
       )}

@@ -30,37 +30,16 @@ const { ADMIN_ROLES } = require('../constants/roles');
 
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
-const INTRODUCTION_EMAIL_CLAIM_VERSION = 1;
-
-async function sendIntroductionOnce(lead, creator) {
+async function sendIntroductionWhenRequested(lead, creator) {
   if (lead.workflowStatus !== 'submitted') return { skipped: true, reason: 'not-submitted' };
-  // Claim delivery atomically before calling the mail provider. This prevents
-  // simultaneous saves or later edits from sending the introduction twice.
-  const claimed = await Lead.findOneAndUpdate({
-    _id: lead._id,
-    $and: [
-      { $or: [{ introductionEmailSentAt: { $exists: false } }, { introductionEmailSentAt: null }] },
-      { $or: [
-        { introductionEmailVersion: { $lte: 0 } },
-        { introductionEmailVersion: { $exists: false } }
-      ] }
-    ]
-  }, {
-    $set: { introductionEmailVersion: INTRODUCTION_EMAIL_CLAIM_VERSION }
-  }, { new: true });
-  if (!claimed) return { skipped: true, reason: 'already-claimed' };
-
   try {
-    const result = await sendLeadIntroductionEmail({ lead: claimed.toObject(), creator });
+    const result = await sendLeadIntroductionEmail({ lead: lead.toObject(), creator });
     if (result?.sent) {
-      claimed.introductionEmailSentAt = new Date();
-      await claimed.save();
+      await Lead.updateOne({ _id: lead._id }, { $set: { introductionEmailSentAt: new Date() }, $inc: { introductionEmailVersion: 1 } });
     }
     return result;
   } catch (error) {
-    // Keep the claim after a provider failure: later lead edits must never
-    // create a second introduction send attempt.
-    console.error('Lead introduction email failed after one-time claim', error);
+    console.error('Requested lead introduction email failed', error);
     return { skipped: true, reason: 'send-failed' };
   }
 }
@@ -856,7 +835,7 @@ exports.createLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    await sendIntroductionOnce(lead, req.user);
+    if (req.body?.sendIntroductionEmail === true) await sendIntroductionWhenRequested(lead, req.user);
     res.status(201).json({ ok: true, lead });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to save lead' });
@@ -886,7 +865,9 @@ exports.updateLead = async (req, res) => {
       }
     }
 
+    const sendIntroductionEmail = req.body?.sendIntroductionEmail === true;
     const data = cleanBody(req.body);
+    delete data.sendIntroductionEmail;
     const followUpChangedIndexes = changedFollowUpIndexes(beforeLead, data);
     if (followUpChangedIndexes.length) {
       data.followUpFlag = 'GREEN';
@@ -959,9 +940,7 @@ exports.updateLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    if (beforeLead.workflowStatus !== 'submitted' && lead.workflowStatus === 'submitted') {
-      await sendIntroductionOnce(lead, req.user);
-    }
+    if (sendIntroductionEmail && lead.workflowStatus === 'submitted') await sendIntroductionWhenRequested(lead, req.user);
     if (req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead: lead.toObject(), submittedPayload: req.body, actor: req.user }).catch((error) => console.error('Financial year notification failed', error));
       await notifyAdditionalLeadServices({

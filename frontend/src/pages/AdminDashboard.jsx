@@ -3247,6 +3247,12 @@ function rowAppliesToFinancialYear(row, financialYear) {
   return !row.annualYear || financialYearStart(row.annualYear) === selectedStart
 }
 
+function DashboardFilePreview({ file, onClose }) {
+  if (!file?.url) return null
+  const isPdf = /\.pdf(?:$|\?)/i.test(file.url) || /pdf/i.test(file.name || '')
+  return <div className="fixed inset-0 z-[150] grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Purchase order file preview" onClick={onClose}><section className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}><header className="flex items-center justify-between border-b bg-[#0f5d46] px-5 py-4 text-white"><div><p className="text-xs font-black uppercase tracking-wider text-emerald-100">Purchase Order Proof</p><h2 className="mt-1 font-black">{file.name || 'Uploaded file'}</h2></div><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 hover:bg-white/20" aria-label="Close file preview"><X className="h-5 w-5" /></button></header><div className="min-h-0 flex-1 bg-slate-100 p-3">{isPdf ? <iframe title="Purchase order PDF" src={file.url} className="h-full w-full rounded-xl bg-white" /> : <img src={file.url} alt={file.name || 'Purchase order proof'} className="h-full w-full rounded-xl object-contain" />}</div></section></div>
+}
+
 function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
   const availableYears = useMemo(() => {
     const years = new Set([currentFinancialYear()])
@@ -3263,6 +3269,7 @@ function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
   const [search, setSearch] = useState('')
   const [expandedUser, setExpandedUser] = useState('')
   const [expandedYear, setExpandedYear] = useState('')
+  const [previewFile, setPreviewFile] = useState(null)
   const selectedRows = useMemo(
     () => rows.filter((row) => rowAppliesToFinancialYear(row, financialYear)),
     [financialYear, rows]
@@ -3340,13 +3347,14 @@ function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
                     <thead className="bg-slate-100 text-xs uppercase tracking-wider text-slate-500"><tr>{['Financial Year', 'Total Clients', 'PO Received', 'PO Pending', 'Action'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
                     <tbody><tr className="border-t"><td className="px-4 py-4 font-black">{financialYear}</td><td className="px-4 py-4">{group.rows.length}</td><td className="px-4 py-4 font-black text-emerald-700">{received}</td><td className="px-4 py-4 font-black text-red-600">{group.rows.length - received}</td><td className="px-4 py-4"><button type="button" onClick={() => setExpandedYear(clientsOpen ? '' : yearKey)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-700">{clientsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}View Clients</button></td></tr></tbody>
                   </table>
-                  {clientsOpen && <div className="border-t border-slate-200 p-3"><div className="overflow-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1500px] text-left text-sm"><thead className="bg-[#0f5d46] text-[10px] uppercase tracking-wider text-white"><tr>{['Client Name', 'Lead Code', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number', 'Uploaded File'].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{group.rows.map((row) => <tr key={row.id} className="border-t"><td className="px-3 py-3 font-black">{row.companyName}</td><td className="px-3 py-3">{row.atplCode}</td><td className="px-3 py-3">{row.eprCategory}</td><td className="px-3 py-3 font-bold">{row.category}</td><td className="px-3 py-3">{row.subApplicantType}</td><td className="px-3 py-3">{financialYear}</td><td className="px-3 py-3"><button type="button" onClick={() => onOpenPo(row)} className={`rounded-full px-3 py-1 text-xs font-black ${row.hasPo ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{row.hasPo ? 'Received' : 'Pending'}</button></td><td className="px-3 py-3 font-bold">{row.poDetails?.poNo || '-'}</td><td className="px-3 py-3">{row.poDetails?.fileUrl ? <a className="font-black text-blue-600 hover:underline" href={row.poDetails.fileUrl} target="_blank" rel="noreferrer">View File</a> : '-'}</td></tr>)}</tbody></table></div></div>}
+                  {clientsOpen && <div className="border-t border-slate-200 p-3"><div className="overflow-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1500px] text-left text-sm"><thead className="bg-[#0f5d46] text-[10px] uppercase tracking-wider text-white"><tr>{['Client Name', 'Lead Code', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number', 'Uploaded File'].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{group.rows.map((row) => <tr key={row.id} className="border-t"><td className="px-3 py-3 font-black">{row.companyName}</td><td className="px-3 py-3">{row.atplCode}</td><td className="px-3 py-3">{row.eprCategory}</td><td className="px-3 py-3 font-bold">{row.category}</td><td className="px-3 py-3">{row.subApplicantType}</td><td className="px-3 py-3">{financialYear}</td><td className="px-3 py-3"><button type="button" onClick={() => onOpenPo(row)} className={`rounded-full px-3 py-1 text-xs font-black ${row.hasPo ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{row.hasPo ? 'Received' : 'Pending'}</button></td><td className="px-3 py-3 font-bold">{row.poDetails?.poNo || '-'}</td><td className="px-3 py-3">{row.poDetails?.fileUrl ? <button type="button" className="font-black text-blue-600 hover:underline" onClick={() => setPreviewFile({ url: row.poDetails.fileUrl, name: row.poDetails.fileName || `${row.companyName} PO` })}>View File</button> : '-'}</td></tr>)}</tbody></table></div></div>}
                 </div>
               </div>}
             </div>
           }) : <div className="p-12 text-center font-black text-slate-400">No PO status records match this filter.</div>}
         </div>
       </section>
+      <DashboardFilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
     </div>
   )
 }

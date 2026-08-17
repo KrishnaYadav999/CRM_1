@@ -70,15 +70,25 @@ test('lead introduction attaches both email-safe PDFs', () => {
   assert.ok(attachments.reduce((total, attachment) => total + attachment.content.length, 0) < 3 * 1024 * 1024);
 });
 
-test('lead controller atomically claims introduction delivery before sending', () => {
+test('lead controller sends introduction only when explicitly requested', () => {
   const controller = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/controllers/leadController.js'), 'utf8');
-  assert.match(controller, /findOneAndUpdate\(\{[\s\S]*introductionEmailVersion:[\s\S]*\$lte: 0/);
-  assert.match(controller, /introductionEmailSentAt: \{ \$exists: false \}/);
-  assert.match(controller, /already-claimed/);
+  assert.match(controller, /req\.body\?\.sendIntroductionEmail === true/);
+  assert.equal((controller.match(/await sendIntroductionWhenRequested\(lead, req\.user\)/g) || []).length, 2);
+  assert.doesNotMatch(controller, /already-claimed/);
 });
 
-test('lead updates send introduction only on the first draft-to-submitted transition', () => {
+test('each requested submitted save can send another introduction email', () => {
   const controller = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/controllers/leadController.js'), 'utf8');
-  assert.match(controller, /beforeLead\.workflowStatus !== 'submitted' && lead\.workflowStatus === 'submitted'/);
-  assert.equal((controller.match(/await sendIntroductionOnce\(lead, req\.user\)/g) || []).length, 2);
+  assert.match(controller, /\$inc: \{ introductionEmailVersion: 1 \}/);
+  assert.match(controller, /sendIntroductionEmail && lead\.workflowStatus === 'submitted'/);
+  assert.doesNotMatch(controller, /beforeLead\.workflowStatus !== 'submitted' && lead\.workflowStatus === 'submitted'/);
+});
+
+test('lead submit UI asks for introduction email consent every time', () => {
+  const page = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  assert.match(page, /Send Introduction Email\?/);
+  assert.match(page, /Yes, Send Introduction Email/);
+  assert.match(page, /No, Submit Without Email/);
+  assert.match(page, /sendIntroductionEmail: introductionConsent/);
+  assert.match(page, /setIntroductionPromptOpen\(true\)/);
 });
