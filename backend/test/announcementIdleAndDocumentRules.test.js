@@ -12,7 +12,11 @@ test('announcements allow an optional image and email every active CRM user', ()
   const page = read('../../frontend/src/pages/Notifications.jsx');
   assert.doesNotMatch(controller, /Announcement image is required/);
   assert.match(controller, /User\.find\(\{ isActive: \{ \$ne: false \}/);
-  assert.match(controller, /Promise\.allSettled\(users\.map/);
+  assert.match(controller, /ANNOUNCEMENT_EMAIL_CONCURRENCY/);
+  assert.match(controller, /attempt <= 3/);
+  assert.match(controller, /emailDelivery/);
+  assert.match(controller, /formatAnnouncementDescription/);
+  assert.match(controller, /join\('<br \/>'\)/);
   assert.match(page, /Add Announcement/);
   assert.match(page, /accept="image\/\*"/);
   assert.match(page, /Choose Image \(Optional\)/);
@@ -22,6 +26,10 @@ test('announcements allow an optional image and email every active CRM user', ()
   assert.match(controller, /Official CRM Announcement/);
   assert.match(controller, /ANANTTATTVA e-Connect/);
   assert.match(controller, /\^https:\\\/\\\//);
+  const contacts = read('../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx');
+  assert.match(contacts, /Authorised Person Details/);
+  assert.match(contacts, /Add Authorized Person/);
+  assert.match(contacts, /min-w-\[1450px\]/);
 });
 
 test('internal ticket email is claimed once per ticket, sender, and recipient', () => {

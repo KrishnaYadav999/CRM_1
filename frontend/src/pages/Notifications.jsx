@@ -343,6 +343,12 @@ export default function Notifications({ mode = 'notifications' }) {
       try {
         const response = await api.post(API_ENDPOINTS.notifications.create, localItem);
         persist([response.data?.notification || localItem, ...notifications]);
+        const delivery = response.data?.emailDelivery;
+        if (delivery && delivery.sent < delivery.recipientCount) {
+          setFormError(`Announcement saved, but email reached ${delivery.sent} of ${delivery.recipientCount} users. Please contact IT to check the mail service.`);
+          setSavingAnnouncement(false);
+          return;
+        }
       } catch (error) {
         setFormError(error?.response?.data?.error || 'Unable to create and email announcement.');
         setSavingAnnouncement(false);

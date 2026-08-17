@@ -559,6 +559,9 @@ function DocumentUploadSection({
 function ContactsTab({ client, setValue, setRoot }) {
   const additionalPeople = Array.isArray(client.authorisedPersons) ? client.authorisedPersons : [];
   function updateAdditional(index, field, value) { setRoot('authorisedPersons', additionalPeople.map((person, personIndex) => personIndex === index ? { ...person, [field]: value } : person)); }
+  const authorisedRows = [client.authorised || {}, ...additionalPeople];
+  const updateAuthorised = (index, field, value) => index === 0 ? setValue('authorised', field, value) : updateAdditional(index - 1, field, value);
+  const removeAuthorised = (index) => setRoot('authorisedPersons', additionalPeople.filter((_, personIndex) => personIndex !== index - 1));
   return (
     <>
       <Card title="OTP Contact">
@@ -568,29 +571,27 @@ function ContactsTab({ client, setValue, setRoot }) {
           <Field label="OTP Person Designation"><input className="form-input" value={client.otp.designation || ''} onChange={(event) => setValue('otp', 'designation', event.target.value)} /></Field>
         </div>
       </Card>
-      <PersonCard title="Authorised Person" section="authorised" client={client} setValue={setValue} includePan />
-      <div className="flex justify-end"><button type="button" onClick={() => setRoot('authorisedPersons', [...additionalPeople, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '', pan: '', panDocument: null }])} className="btn-lift inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-5 font-black text-white shadow-lg"><Plus className="h-4 w-4" /> Add Authorized Person</button></div>
-      {additionalPeople.map((person, index) => <PersonCard key={person.id || index} title={`Authorised Person ${index + 2}`} data={person} onChange={(field, value) => updateAdditional(index, field, value)} includePan onRemove={() => setRoot('authorisedPersons', additionalPeople.filter((_, personIndex) => personIndex !== index))} />)}
-      <PersonCard title="Coordinating Person" section="coordinating" client={client} setValue={setValue} />
+      <PeopleTable title="Authorised Person Details" rows={authorisedRows} includePan onAdd={() => setRoot('authorisedPersons', [...additionalPeople, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '', pan: '', panDocument: null }])} onUpdate={updateAuthorised} onRemove={removeAuthorised} />
+      <PeopleTable title="Coordinating Person Details" rows={[client.coordinating || {}]} onUpdate={(_, field, value) => setValue('coordinating', field, value)} />
     </>
   );
 }
 
-function PersonCard({ title, section, client, setValue, data: suppliedData, onChange, includePan, onRemove }) {
-  const data = suppliedData || client[section];
-  const update = (field, value) => onChange ? onChange(field, value) : setValue(section, field, value);
+function PeopleTable({ title, rows, includePan = false, onAdd, onUpdate, onRemove }) {
+  const columns = [['name', 'Name'], ['designation', 'Designation'], ['department', 'Department'], ['reporting', 'Reporting Person'], ['mobile', 'Mobile *'], ['email', 'Email *']];
   return (
     <Card title={title}>
-      {onRemove && <div className="mb-4 flex justify-end"><button type="button" onClick={onRemove} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600"><Trash2 className="h-4 w-4" /> Remove Person</button></div>}
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field label={`${title} Name`}><input className="form-input" value={data.name || ''} onChange={(event) => update('name', event.target.value)} /></Field>
-        <Field label={`${title} Designation`}><input className="form-input" value={data.designation || ''} onChange={(event) => update('designation', event.target.value)} /></Field>
-        <Field label={`Department of ${title.toLowerCase()}`}><input className="form-input" value={data.department || ''} onChange={(event) => update('department', event.target.value)} /></Field>
-        <Field label="Reporting Person Details"><input className="form-input" value={data.reporting || ''} onChange={(event) => update('reporting', event.target.value)} /></Field>
-        <Field required label={`${title} Mobile`}><input className="form-input" value={data.mobile || ''} onChange={(event) => update('mobile', event.target.value)} /></Field>
-        <Field required label={`${title} Email`}><input className="form-input" value={data.email || ''} onChange={(event) => update('email', event.target.value)} /></Field>
-        {includePan && <Field label={`${title} PAN Number`}><input className="form-input" value={data.pan || ''} onChange={(event) => update('pan', event.target.value)} /></Field>}
-        {includePan && <Field label={`${title} PAN Document`}><UploadButton value={data.panDocument} onChange={(value) => update('panDocument', value)} /></Field>}
+      {onAdd && <div className="mb-4 flex justify-end"><button type="button" onClick={onAdd} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-700 px-4 font-black text-white shadow-lg shadow-emerald-700/20"><Plus className="h-4 w-4" /> Add Authorized Person</button></div>}
+      <div className="overflow-x-auto rounded-2xl border border-slate-200">
+        <table className="w-full min-w-[1450px] text-left text-sm">
+          <thead className="bg-emerald-50 text-xs uppercase tracking-[0.08em] text-slate-600"><tr><th className="px-3 py-4">Sr.No</th>{columns.map(([, label]) => <th key={label} className="px-3 py-4">{label}</th>)}{includePan && <><th className="px-3 py-4">PAN Number</th><th className="px-3 py-4">PAN Document</th></>}{onRemove && <th className="px-3 py-4 text-center">Action</th>}</tr></thead>
+          <tbody className="divide-y divide-slate-100">{rows.map((person, index) => <tr key={person.id || index} className="odd:bg-white even:bg-orange-50/40">
+            <td className="px-3 py-4 text-center font-black text-slate-700">{index + 1}</td>
+            {columns.map(([field, label]) => <td key={field} className="px-3 py-3"><input type={field === 'email' ? 'email' : field === 'mobile' ? 'tel' : 'text'} aria-label={`${title} ${index + 1} ${label}`} className="form-input min-w-44" value={person[field] || ''} onChange={(event) => onUpdate(index, field, event.target.value)} /></td>)}
+            {includePan && <><td className="px-3 py-3"><input aria-label={`${title} ${index + 1} PAN Number`} className="form-input min-w-44 uppercase" value={person.pan || ''} onChange={(event) => onUpdate(index, 'pan', event.target.value)} /></td><td className="px-3 py-3"><div className="min-w-44"><UploadButton value={person.panDocument} onChange={(value) => onUpdate(index, 'panDocument', value)} /></div></td></>}
+            {onRemove && <td className="px-3 py-3 text-center">{index > 0 ? <button type="button" aria-label={`Remove authorised person ${index + 1}`} onClick={() => onRemove(index)} className="inline-flex rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button> : <span className="text-xs font-bold text-slate-400">Primary</span>}</td>}
+          </tr>)}</tbody>
+        </table>
       </div>
     </Card>
   );

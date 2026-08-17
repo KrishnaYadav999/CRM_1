@@ -39,17 +39,54 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
 }
 
+function formatAnnouncementDescription(value = '') {
+  return String(value)
+    .replace(/\r\n?/g, '\n')
+    .trim()
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p style="margin:0 0 16px;font-size:15px;line-height:1.75;color:#334155">${paragraph.split('\n').map((line) => escapeHtml(line)).join('<br />')}</p>`)
+    .join('');
+}
+
 async function emailAnnouncementToAllUsers(item) {
   const users = await User.find({ isActive: { $ne: false }, email: { $ne: '' } }).select('email name').lean();
+  const recipients = [...new Set(users
+    .map((user) => String(user.email || '').trim().toLowerCase())
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))];
   const imageUrl = String(item.attachmentUrl || '').trim();
   const published = new Intl.DateTimeFormat('en-IN', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Kolkata' }).format(item.createdAt || new Date());
   const image = /^https:\/\//i.test(imageUrl) ? `<tr><td style="padding:0 28px 26px"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.attachmentName || item.title)}" width="564" style="display:block;width:100%;max-width:564px;height:auto;max-height:520px;object-fit:contain;border:1px solid #e4ebe9;border-radius:12px;background:#f8faf9" /></td></tr>` : '';
-  const html = `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,Helvetica,sans-serif;color:#14213d"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6f8;padding:28px 12px"><tr><td align="center"><table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;background:#fff;border:1px solid #dfe7e5;border-radius:16px;overflow:hidden"><tr><td style="background:#0f6655;padding:24px 28px;color:#fff"><div style="font-size:11px;font-weight:700;letter-spacing:1.6px;color:#bde9df;text-transform:uppercase">ANANTTATTVA e-Connect</div><div style="font-size:13px;margin-top:7px;color:#e4f7f2">Official CRM Announcement</div></td></tr><tr><td style="padding:28px 28px 18px"><div style="display:inline-block;background:#fff3e8;color:#c65308;border-radius:999px;padding:6px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px">${escapeHtml(item.tag || 'General')}</div><h1 style="font-size:26px;line-height:1.25;margin:14px 0 10px;color:#102a25">${escapeHtml(item.title)}</h1><div style="font-size:12px;color:#718096">Published ${escapeHtml(published)} by ${escapeHtml(item.createdByName || 'CRM Team')}</div></td></tr><tr><td style="padding:0 28px 26px"><div style="font-size:15px;line-height:1.75;color:#334155;white-space:pre-wrap">${escapeHtml(item.description)}</div></td></tr>${image}<tr><td style="border-top:1px solid #e7eceb;padding:18px 28px;font-size:11px;line-height:1.5;color:#82908d">This is an official announcement from Ananttattva CRM. Please contact IT Support if you need assistance.</td></tr></table></td></tr></table></body></html>`;
-  const results = await Promise.allSettled(users.map((user) => sendMail(user.email, `CRM Announcement: ${item.title}`, html, { branded: false })));
+  const html = `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,Helvetica,sans-serif;color:#14213d"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6f8;padding:28px 12px"><tr><td align="center"><table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;width:100%;background:#fff;border:1px solid #dfe7e5;border-radius:16px;overflow:hidden"><tr><td style="background:#0f6655;padding:24px 28px;color:#fff"><div style="font-size:11px;font-weight:700;letter-spacing:1.6px;color:#bde9df;text-transform:uppercase">ANANTTATTVA e-Connect</div><div style="font-size:13px;margin-top:7px;color:#e4f7f2">Official CRM Announcement</div></td></tr><tr><td style="padding:28px 28px 18px"><div style="display:inline-block;background:#fff3e8;color:#c65308;border-radius:999px;padding:6px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px">${escapeHtml(item.tag || 'General')}</div><h1 style="font-size:26px;line-height:1.25;margin:14px 0 10px;color:#102a25">${escapeHtml(item.title)}</h1><div style="font-size:12px;color:#718096">Published ${escapeHtml(published)} by ${escapeHtml(item.createdByName || 'CRM Team')}</div></td></tr><tr><td style="padding:0 28px 10px">${formatAnnouncementDescription(item.description)}</td></tr>${image}<tr><td style="border-top:1px solid #e7eceb;padding:18px 28px;font-size:11px;line-height:1.5;color:#82908d">This is an official announcement from Ananttattva CRM. Please contact IT Support if you need assistance.</td></tr></table></td></tr></table></body></html>`;
+  const results = [];
+  const concurrency = Math.max(1, Math.min(Number(process.env.ANNOUNCEMENT_EMAIL_CONCURRENCY) || 3, 10));
+  let cursor = 0;
+
+  async function deliver() {
+    while (cursor < recipients.length) {
+      const email = recipients[cursor++];
+      let lastError;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await sendMail(email, `CRM Announcement: ${item.title}`, html, { branded: false });
+          results.push({ status: 'fulfilled', email });
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+        }
+      }
+      if (lastError) results.push({ status: 'rejected', email, reason: lastError });
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, recipients.length) }, () => deliver()));
+  const failures = results.filter((result) => result.status === 'rejected');
   return {
-    recipientCount: users.length,
+    recipientCount: recipients.length,
     emailSent: results.filter((result) => result.status === 'fulfilled').length,
-    emailFailed: results.filter((result) => result.status === 'rejected').length
+    emailFailed: failures.length,
+    emailErrors: failures.slice(0, 5).map((result) => ({ email: result.email, message: result.reason?.message || 'Email delivery failed' }))
   };
 }
 
@@ -116,10 +153,20 @@ exports.createNotification = async (req, res) => {
   item.markModified('metadata');
   await item.save();
 
-  res.status(201).json({ ok: true, notification: mapNotification(item) });
+  const delivery = item.metadata || {};
+  res.status(201).json({
+    ok: true,
+    notification: mapNotification(item),
+    emailDelivery: {
+      recipientCount: Number(delivery.recipientCount) || 0,
+      sent: Number(delivery.emailSent) || 0,
+      failed: typeof delivery.emailFailed === 'number' ? delivery.emailFailed : (delivery.emailFailed ? Number(delivery.recipientCount) || 0 : 0),
+      error: delivery.emailError || ''
+    }
+  });
 };
 
-exports.__test = { emailAnnouncementToAllUsers };
+exports.__test = { emailAnnouncementToAllUsers, formatAnnouncementDescription };
 
 exports.updateNotification = async (req, res) => {
   const title = String(req.body.title || '').trim();
