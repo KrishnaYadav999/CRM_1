@@ -30,6 +30,7 @@ const { ADMIN_ROLES } = require('../constants/roles');
 
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 async function sendIntroductionWhenRequested(lead, creator) {
   if (lead.workflowStatus !== 'submitted') return { skipped: true, reason: 'not-submitted' };
   try {
@@ -1289,16 +1290,19 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       return mongoose.isValidObjectId(sourceId) ? sourceId : '';
     };
     const leadIds = [...new Set(purchaseOrderApprovals.map(approvalLeadId).filter(Boolean))];
+    const legacyLeadIds = [...new Set(purchaseOrderApprovals.map((approval) => String(approval.sourceClientId || '').split(':po:')[0].trim()).filter((value) => value && !mongoose.isValidObjectId(value)))];
     const leadCodes = [...new Set(purchaseOrderApprovals.flatMap((approval) => [approval.payload?.leadCode, approval.uniqueId]).map((value) => String(value || '').trim()).filter(Boolean))];
     const companies = [...new Set(purchaseOrderApprovals.map((approval) => String(approval.clientName || '').trim()).filter(Boolean))];
     const leadLookup = [];
     if (leadIds.length) leadLookup.push({ _id: { $in: leadIds } });
+    if (legacyLeadIds.length) leadLookup.push({ sourceLeadId: { $in: legacyLeadIds } });
     if (leadCodes.length) leadLookup.push({ leadCode: { $in: leadCodes } });
-    if (companies.length) leadLookup.push({ company: { $in: companies } });
+    if (companies.length) leadLookup.push(...companies.map((company) => ({ company: { $regex: `^${escapeRegex(company)}$`, $options: 'i' } })));
     const leads = leadLookup.length ? await Lead.find({ $or: leadLookup }).populate('createdBy', 'name email').lean() : [];
     const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
     const leadByCode = new Map(leads.map((lead) => [String(lead.leadCode || '').toLowerCase(), lead]).filter(([code]) => code));
     const leadByCompany = new Map(leads.map((lead) => [String(lead.company || '').toLowerCase(), lead]).filter(([company]) => company));
+    const leadBySourceId = new Map(leads.map((lead) => [String(lead.sourceLeadId || ''), lead]).filter(([id]) => id));
     const matchedLeadCodes = leads.map((lead) => lead.leadCode).filter(Boolean);
     const quotations = await Quotation.find({ $or: [
       { leadRef: { $in: leadIds } }, { leadId: { $in: leadIds } },
@@ -1310,6 +1314,7 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
     purchaseOrderApprovals.forEach((approval) => {
       const payload = approval.payload || {};
       const lead = leadById.get(approvalLeadId(approval))
+        || leadBySourceId.get(String(approval.sourceClientId || '').split(':po:')[0].trim())
         || leadByCode.get(String(payload.leadCode || approval.uniqueId || '').toLowerCase())
         || leadByCompany.get(String(approval.clientName || '').toLowerCase());
       if (!lead) return;
@@ -1331,6 +1336,8 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
           currency: row.currency || 'INR',
           quotationId: row.quotationId || (quotation?._id ? String(quotation._id) : ''),
           quotationNumber: row.quotationNumber || quotation?.quotationNumber || '',
+          quotationItems: Array.isArray(row.quotationItems) && row.quotationItems.length ? row.quotationItems : (quotation?.items || []),
+          quotationBasicAmount: Number(quotation?.combinedBasicAmount) || Number(quotation?.subtotal) || Number(quotation?.grandTotal) || null,
           poFileMimeType: row.poFileMimeType || '',
           poFileSize: row.poFileSize ?? null
         };
