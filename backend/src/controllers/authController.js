@@ -34,6 +34,10 @@ function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function escapeHtml(value = '') {
+  return String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character]));
+}
+
 async function isAvailableRole(name) {
   return ROLES.includes(name) || Boolean(await Role.exists({ name }));
 }
@@ -91,31 +95,19 @@ async function sendLoginOtp(user, otp, context = {}) {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>${APP_NAME} Login OTP</title>
       </head>
-      <body style="margin:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;margin:0;padding:32px 12px;">
+      <body style="margin:0;background:#f1f3f7;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f3f7;margin:0;padding:28px 12px;">
           <tr>
             <td align="center">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;overflow:hidden;border-radius:18px;background:#ffffff;box-shadow:0 18px 50px rgba(15,23,42,0.12);">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:570px;border-radius:18px;background:#ffffff;box-shadow:0 10px 35px rgba(15,23,42,0.08);">
                 <tr>
-                  <td style="background:#0f766e;padding:26px 28px;color:#ffffff;">
-                    <div style="font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;opacity:0.86;">Secure Login</div>
-                    <div style="margin-top:8px;font-size:28px;font-weight:800;line-height:1.2;">${APP_NAME}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:32px 28px 30px;">
-                    <h1 style="margin:0;font-size:24px;line-height:1.3;color:#0f172a;">Your login OTP</h1>
-                    <p style="margin:12px 0 0;font-size:15px;line-height:1.7;color:#475569;">Use this one-time password to complete your CRM sign in. This code is valid for the next 10 minutes.</p>
-                    <div style="margin:26px 0;padding:20px;border-radius:16px;background:#ecfeff;border:1px solid #99f6e4;text-align:center;">
-                      <div style="font-size:12px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#0f766e;">OTP Code</div>
-                      <div style="margin-top:8px;font-size:38px;font-weight:800;letter-spacing:0.18em;color:#0f172a;">${otp}</div>
+                  <td align="center" style="padding:38px 34px 34px;">
+                    <h1 style="margin:0;font-size:30px;line-height:1.25;color:#202938;">Your verification code</h1>
+                    <p style="margin:20px 0 0;font-size:16px;line-height:1.55;color:#374151;">Hi <strong style="color:#155eef;text-decoration:underline;">${escapeHtml(user.email)}</strong>,<br />Enter the code below to confirm it’s you and continue signing in to ${APP_NAME}.</p>
+                    <div style="margin:28px 0 24px;padding:28px 18px;border-radius:14px;background:#edf4ff;border:2px dashed #528bff;text-align:center;">
+                      <div style="font-size:42px;font-weight:800;letter-spacing:0.24em;color:#101828;">${otp}</div>
                     </div>
-                    <p style="margin:0;font-size:14px;line-height:1.7;color:#64748b;">If you did not request this OTP, you can safely ignore this email. Do not share this code with anyone.</p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="border-top:1px solid #e2e8f0;padding:18px 28px;background:#f8fafc;color:#64748b;font-size:12px;line-height:1.6;">
-                    This is an automated security email from ${APP_NAME}.
+                    <p style="margin:0;font-size:14px;line-height:1.65;color:#4b5563;">For your security, never share this code with anyone. It expires in 10 minutes. If you didn’t request it, you can safely ignore this email—your account stays secure.</p>
                   </td>
                 </tr>
               </table>

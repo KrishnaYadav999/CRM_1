@@ -643,9 +643,11 @@ const emptyClient = {
   cpcbScreenshots: [],
   processDiagrams: [],
   otp: {},
+  otpContacts: [],
   authorised: {},
   authorisedPersons: [],
-  coordinating: {}
+  coordinating: {},
+  coordinatingPersons: []
 };
 
 function readAssignedServiceId(service = {}) {
@@ -674,9 +676,11 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
       address1: address.addressLine1 || '', address2: address.addressLine2 || '', address3: address.addressLine3 || '', state: address.state || '', city: address.city || '', pincode: address.pinCode || ''
     }),
     otp: scopedDetails?.otp || (allowLegacy ? data.otp : { mobile: contact.mobileNo1 || '', personName: contact.contactPerson || '', designation: contact.designation || '' }),
+    otpContacts: scopedDetails?.otpContacts || (allowLegacy && Array.isArray(data.otpContacts) ? data.otpContacts : []),
     authorised: scopedDetails?.authorised || (allowLegacy ? data.authorised : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
     authorisedPersons: scopedDetails?.authorisedPersons || (allowLegacy && Array.isArray(data.authorisedPersons) ? data.authorisedPersons : []),
     coordinating: scopedDetails?.coordinating || (allowLegacy ? data.coordinating : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
+    coordinatingPersons: scopedDetails?.coordinatingPersons || (allowLegacy && Array.isArray(data.coordinatingPersons) ? data.coordinatingPersons : []),
     cpcb: scoped
       ? { linkedToCommonPortal: '', ...(scoped.cpcb || scoped.details || {}) }
       : (allowLegacy ? { linkedToCommonPortal: '', ...(data.cpcb || {}) } : { linkedToCommonPortal: '' }),
@@ -1159,7 +1163,7 @@ export default function ClientMaster() {
           }
         : {};
       const localServiceDetails = sameLeadIsOpen && currentAssignmentId
-        ? { [currentAssignmentId]: { registeredAddress: client.registeredAddress, communicationAddress: client.communicationAddress, otp: client.otp, authorised: client.authorised, authorisedPersons: client.authorisedPersons, coordinating: client.coordinating } }
+        ? { [currentAssignmentId]: { registeredAddress: client.registeredAddress, communicationAddress: client.communicationAddress, otp: client.otp, otpContacts: client.otpContacts, authorised: client.authorised, authorisedPersons: client.authorisedPersons, coordinating: client.coordinating, coordinatingPersons: client.coordinatingPersons } }
         : {};
       const scopedData = activateAssignedService({
         ...existingDraft.data,
@@ -1530,9 +1534,11 @@ export default function ClientMaster() {
           registeredAddress: { ...(normalizedClient.registeredAddress || {}) },
           communicationAddress: { ...(normalizedClient.communicationAddress || {}) },
           otp: { ...(normalizedClient.otp || {}) },
+          otpContacts: Array.isArray(normalizedClient.otpContacts) ? normalizedClient.otpContacts : [],
           authorised: { ...(normalizedClient.authorised || {}) },
           authorisedPersons: Array.isArray(normalizedClient.authorisedPersons) ? normalizedClient.authorisedPersons : [],
           coordinating: { ...(normalizedClient.coordinating || {}) },
+          coordinatingPersons: Array.isArray(normalizedClient.coordinatingPersons) ? normalizedClient.coordinatingPersons : [],
           updatedAt: new Date().toISOString()
         }
       };

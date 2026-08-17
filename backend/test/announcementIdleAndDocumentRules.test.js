@@ -27,9 +27,11 @@ test('announcements allow an optional image and email every active CRM user', ()
   assert.match(controller, /ANANTTATTVA e-Connect/);
   assert.match(controller, /\^https:\\\/\\\//);
   const contacts = read('../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx');
-  assert.match(contacts, /Authorised Person Details/);
+  assert.match(contacts, /title="Authorised Person"/);
   assert.match(contacts, /Add Authorized Person/);
-  assert.match(contacts, /min-w-\[1450px\]/);
+  assert.match(contacts, /Add OTP Contact/);
+  assert.match(contacts, /Add Coordinating Person/);
+  assert.match(contacts, /min-w-\[760px\]/);
 });
 
 test('internal ticket email is claimed once per ticket, sender, and recipient', () => {

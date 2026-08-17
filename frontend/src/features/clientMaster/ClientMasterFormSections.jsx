@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Eye, FileCheck2, FileText, MapPin, Plus, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Eye, FileCheck2, FileText, MapPin, Plus, Smartphone, Trash2, Upload, UserRound, UsersRound } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
 import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 import { mediaUrl, uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
@@ -390,7 +390,7 @@ function CpcbTab({ client, setValue, selectOptions }) {
   const [showCeprPassword, setShowCeprPassword] = useState(false);
   const [showCpcbPassword, setShowCpcbPassword] = useState(false);
   return (
-    <Card title="CPCB Login Credential">
+    <Card title="CPCB Login Credentials">
       <div className="mb-6 rounded-2xl border border-teal-100 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
         <p className="text-sm font-black text-slate-900">Have you linked your CPCB account to the Common Portal?</p>
         <div className="mt-4 flex gap-3">
@@ -411,18 +411,20 @@ function CpcbTab({ client, setValue, selectOptions }) {
         </div>
       </div>
       {linked === 'Yes' && <div className="grid gap-5 md:grid-cols-2">
-        <SelectLike required label="CPCB Status" value={client.cpcb.status || ''} options={selectOptions.cpcbStatus} onChange={(value) => setValue('cpcb', 'status', value)} />
-        <Field label="Remark"><textarea className="form-input min-h-[92px] resize-y py-3" value={client.cpcb.remark || ''} onChange={(event) => setValue('cpcb', 'remark', event.target.value)} /></Field>
-        <Field label="CPCB Home page"><UploadButton value={client.cpcb.homePageFile} onChange={(value) => setValue('cpcb', 'homePageFile', value)} /></Field>
+        <div className="grid gap-5 md:col-span-2 md:grid-cols-[1.25fr_0.75fr_0.75fr]">
+          <SelectLike required label="CPCB Status" value={client.cpcb.status || ''} options={selectOptions.cpcbStatus} onChange={(value) => setValue('cpcb', 'status', value)} />
+          <Field label="Unit ID"><input className="form-input" value={client.cpcb.unitId || ''} onChange={(event) => setValue('cpcb', 'unitId', event.target.value)} placeholder="Enter Unit ID" /></Field>
+          <Field label="CPCB Home Page"><UploadButton value={client.cpcb.homePageFile} onChange={(value) => setValue('cpcb', 'homePageFile', value)} /></Field>
+        </div>
         <Field label="CPCB Registration Number"><input className="form-input" value={client.cpcb.registrationNumber || ''} onChange={(event) => setValue('cpcb', 'registrationNumber', event.target.value)} /></Field>
-          <Field label="Date of Application"><PremiumDatePicker value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
-          <Field label="Date of Application Approval"><PremiumDatePicker value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
         <Field label="Application Number"><input className="form-input" value={client.cpcb.applicationNumber || ''} onChange={(event) => setValue('cpcb', 'applicationNumber', event.target.value)} /></Field>
+        <Field label="Date of Application"><PremiumDatePicker value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
+        <Field label="Date of Application Approval"><PremiumDatePicker value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
         <Field label="CEPR User ID"><input className="form-input" value={client.cpcb.ceprUserId || ''} onChange={(event) => setValue('cpcb', 'ceprUserId', event.target.value)} /></Field>
         <PasswordField label="CEPR Password" value={client.cpcb.ceprPassword || ''} visible={showCeprPassword} onToggle={() => setShowCeprPassword((value) => !value)} onChange={(value) => setValue('cpcb', 'ceprPassword', value)} />
         <Field label="CPCB Login ID"><input className="form-input" value={client.cpcb.loginId || ''} onChange={(event) => setValue('cpcb', 'loginId', event.target.value)} /></Field>
         <PasswordField label="CPCB Login Password" value={client.cpcb.loginPassword || ''} visible={showCpcbPassword} onToggle={() => setShowCpcbPassword((value) => !value)} onChange={(value) => setValue('cpcb', 'loginPassword', value)} />
-        <Field label="Unit ID"><input className="form-input" value={client.cpcb.unitId || ''} onChange={(event) => setValue('cpcb', 'unitId', event.target.value)} placeholder="Enter Unit ID" /></Field>
+        <div className="md:col-span-2"><Field label="Remark"><textarea className="form-input min-h-[110px] resize-y py-3" value={client.cpcb.remark || ''} onChange={(event) => setValue('cpcb', 'remark', event.target.value)} placeholder="Enter Remark" /></Field></div>
       </div>}
       {linked === 'No' && (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
@@ -558,42 +560,45 @@ function DocumentUploadSection({
 
 function ContactsTab({ client, setValue, setRoot }) {
   const additionalPeople = Array.isArray(client.authorisedPersons) ? client.authorisedPersons : [];
+  const additionalOtpContacts = Array.isArray(client.otpContacts) ? client.otpContacts : [];
+  const additionalCoordinators = Array.isArray(client.coordinatingPersons) ? client.coordinatingPersons : [];
   function updateAdditional(index, field, value) { setRoot('authorisedPersons', additionalPeople.map((person, personIndex) => personIndex === index ? { ...person, [field]: value } : person)); }
   const authorisedRows = [client.authorised || {}, ...additionalPeople];
+  const otpRows = [client.otp || {}, ...additionalOtpContacts];
+  const coordinatingRows = [client.coordinating || {}, ...additionalCoordinators];
   const updateAuthorised = (index, field, value) => index === 0 ? setValue('authorised', field, value) : updateAdditional(index - 1, field, value);
-  const removeAuthorised = (index) => setRoot('authorisedPersons', additionalPeople.filter((_, personIndex) => personIndex !== index - 1));
+  const updateExtraRow = (root, rows, index, field, value) => setRoot(root, rows.map((person, personIndex) => personIndex === index - 1 ? { ...person, [field]: value } : person));
   return (
     <>
-      <Card title="OTP Contact">
-        <div className="grid gap-5 md:grid-cols-2">
-          <Field required label="OTP Enabled Mobile No"><input className="form-input" value={client.otp.mobile || ''} onChange={(event) => setValue('otp', 'mobile', event.target.value)} /></Field>
-          <Field label="OTP Person Name"><input className="form-input" value={client.otp.personName || ''} onChange={(event) => setValue('otp', 'personName', event.target.value)} /></Field>
-          <Field label="OTP Person Designation"><input className="form-input" value={client.otp.designation || ''} onChange={(event) => setValue('otp', 'designation', event.target.value)} /></Field>
-        </div>
-      </Card>
-      <PeopleTable title="Authorised Person Details" rows={authorisedRows} includePan onAdd={() => setRoot('authorisedPersons', [...additionalPeople, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '', pan: '', panDocument: null }])} onUpdate={updateAuthorised} onRemove={removeAuthorised} />
-      <PeopleTable title="Coordinating Person Details" rows={[client.coordinating || {}]} onUpdate={(_, field, value) => setValue('coordinating', field, value)} />
+      <ContactDetailsCard title="OTP Contact" icon={Smartphone} addLabel="Add OTP Contact" records={otpRows} fields={[['mobile', 'OTP Enabled Mobile No.'], ['personName', 'OTP Person Name'], ['designation', 'OTP Person Designation']]} onAdd={() => setRoot('otpContacts', [...additionalOtpContacts, { mobile: '', personName: '', designation: '' }])} onUpdate={(index, field, value) => index === 0 ? setValue('otp', field, value) : updateExtraRow('otpContacts', additionalOtpContacts, index, field, value)} onRemove={(index) => setRoot('otpContacts', additionalOtpContacts.filter((_, rowIndex) => rowIndex !== index - 1))} />
+      <ContactDetailsCard title="Authorised Person" icon={UserRound} addLabel="Add Authorised Person" records={authorisedRows} fields={[['name', 'Authorised Person Name'], ['designation', 'Authorised Person Designation'], ['department', 'Department of authorised person'], ['reporting', 'Reporting Person Details'], ['mobile', 'Authorised Person Mobile'], ['email', 'Authorised Person Email'], ['pan', 'Authorised Person PAN Number'], ['panDocument', 'Authorised Person PAN Document', 'upload']]} onAdd={() => setRoot('authorisedPersons', [...additionalPeople, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '', pan: '', panDocument: null }])} onUpdate={updateAuthorised} onRemove={(index) => setRoot('authorisedPersons', additionalPeople.filter((_, rowIndex) => rowIndex !== index - 1))} />
+      <ContactDetailsCard title="Coordinating Person" icon={UsersRound} addLabel="Add Coordinating Person" records={coordinatingRows} fields={[['name', 'Coordinating Person Name'], ['designation', 'Coordinating Person Designation'], ['department', 'Department of coordinating person'], ['reporting', 'Reporting Person Details'], ['mobile', 'Coordinating Person Mobile'], ['email', 'Coordinating Person Email']]} onAdd={() => setRoot('coordinatingPersons', [...additionalCoordinators, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '' }])} onUpdate={(index, field, value) => index === 0 ? setValue('coordinating', field, value) : updateExtraRow('coordinatingPersons', additionalCoordinators, index, field, value)} onRemove={(index) => setRoot('coordinatingPersons', additionalCoordinators.filter((_, rowIndex) => rowIndex !== index - 1))} />
     </>
   );
 }
 
-function PeopleTable({ title, rows, includePan = false, onAdd, onUpdate, onRemove }) {
-  const columns = [['name', 'Name'], ['designation', 'Designation'], ['department', 'Department'], ['reporting', 'Reporting Person'], ['mobile', 'Mobile *'], ['email', 'Email *']];
+function ContactDetailsCard({ title, icon: Icon, addLabel, records, fields, onAdd, onUpdate, onRemove }) {
+  const singleColumn = fields.length <= 3;
   return (
-    <Card title={title}>
-      {onAdd && <div className="mb-4 flex justify-end"><button type="button" onClick={onAdd} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-700 px-4 font-black text-white shadow-lg shadow-emerald-700/20"><Plus className="h-4 w-4" /> Add Authorized Person</button></div>}
-      <div className="overflow-x-auto rounded-2xl border border-slate-200">
-        <table className="w-full min-w-[1450px] text-left text-sm">
-          <thead className="bg-emerald-50 text-xs uppercase tracking-[0.08em] text-slate-600"><tr><th className="px-3 py-4">Sr.No</th>{columns.map(([, label]) => <th key={label} className="px-3 py-4">{label}</th>)}{includePan && <><th className="px-3 py-4">PAN Number</th><th className="px-3 py-4">PAN Document</th></>}{onRemove && <th className="px-3 py-4 text-center">Action</th>}</tr></thead>
-          <tbody className="divide-y divide-slate-100">{rows.map((person, index) => <tr key={person.id || index} className="odd:bg-white even:bg-orange-50/40">
-            <td className="px-3 py-4 text-center font-black text-slate-700">{index + 1}</td>
-            {columns.map(([field, label]) => <td key={field} className="px-3 py-3"><input type={field === 'email' ? 'email' : field === 'mobile' ? 'tel' : 'text'} aria-label={`${title} ${index + 1} ${label}`} className="form-input min-w-44" value={person[field] || ''} onChange={(event) => onUpdate(index, field, event.target.value)} /></td>)}
-            {includePan && <><td className="px-3 py-3"><input aria-label={`${title} ${index + 1} PAN Number`} className="form-input min-w-44 uppercase" value={person.pan || ''} onChange={(event) => onUpdate(index, 'pan', event.target.value)} /></td><td className="px-3 py-3"><div className="min-w-44"><UploadButton value={person.panDocument} onChange={(value) => onUpdate(index, 'panDocument', value)} /></div></td></>}
-            {onRemove && <td className="px-3 py-3 text-center">{index > 0 ? <button type="button" aria-label={`Remove authorised person ${index + 1}`} onClick={() => onRemove(index)} className="inline-flex rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button> : <span className="text-xs font-bold text-slate-400">Primary</span>}</td>}
-          </tr>)}</tbody>
-        </table>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3 text-[#087579]"><Icon className="h-7 w-7" /><h2 className="text-xl font-black">{title}</h2></div><button type="button" aria-label={title === 'Authorised Person' ? 'Add Authorized Person' : addLabel} onClick={onAdd} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#087579] to-[#00676b] px-4 font-black text-white shadow-md"><Plus className="h-4 w-4" /> {addLabel}</button></header>
+      <div className="grid gap-4">
+        {records.map((record, recordIndex) => <div key={record.id || recordIndex} className="overflow-hidden rounded-xl border border-slate-200">
+          {recordIndex > 0 && <div className="flex items-center justify-between bg-slate-50 px-4 py-2"><strong className="text-xs uppercase tracking-wider text-slate-500">{title} {recordIndex + 1}</strong><button type="button" onClick={() => onRemove(recordIndex)} className="inline-flex items-center gap-1 text-xs font-black text-red-600"><Trash2 className="h-4 w-4" /> Remove</button></div>}
+          <table className={`w-full table-fixed text-left text-sm ${singleColumn ? 'min-w-[520px]' : 'min-w-[760px]'}`}>
+            <thead className="bg-gradient-to-r from-[#087579] to-[#087f83] text-white"><tr><th className={singleColumn ? 'w-[30%] px-4 py-3' : 'w-1/4 px-4 py-3'}>Field</th><th className={singleColumn ? 'w-[70%] px-4 py-3' : 'w-1/4 px-4 py-3'}>Details</th>{!singleColumn && <><th className="w-1/4 px-4 py-3">Field</th><th className="w-1/4 px-4 py-3">Details</th></>}</tr></thead>
+            <tbody>{Array.from({ length: singleColumn ? fields.length : Math.ceil(fields.length / 2) }, (_, rowIndex) => {
+              if (singleColumn) {
+                const definition = fields[rowIndex];
+                return <tr key={definition[0]} className="border-t border-slate-200"><td className="bg-slate-50/70 px-4 py-3 font-bold text-slate-700">{definition[1]}</td><td className="px-3 py-2"><input type={definition[0] === 'mobile' ? 'tel' : 'text'} aria-label={`${title} ${recordIndex + 1} ${definition[1]}`} className="form-input min-h-10 border-0 bg-transparent px-1 shadow-none focus:ring-0" value={record[definition[0]] || ''} onChange={(event) => onUpdate(recordIndex, definition[0], event.target.value)} /></td></tr>;
+              }
+              const pairs = [fields[rowIndex * 2], fields[rowIndex * 2 + 1]];
+              return <tr key={rowIndex} className="border-t border-slate-200">{pairs.map((definition, pairIndex) => definition ? <React.Fragment key={definition[0]}><td className="bg-slate-50/70 px-4 py-3 font-bold text-slate-700">{definition[1]}</td><td className="px-3 py-2">{definition[2] === 'upload' ? <UploadButton value={record[definition[0]]} onChange={(value) => onUpdate(recordIndex, definition[0], value)} /> : <input type={definition[0] === 'email' ? 'email' : definition[0] === 'mobile' ? 'tel' : 'text'} aria-label={`${title} ${recordIndex + 1} ${definition[1]}`} className="form-input min-h-10 border-0 bg-transparent px-1 shadow-none focus:ring-0" value={record[definition[0]] || ''} onChange={(event) => onUpdate(recordIndex, definition[0], event.target.value)} />}</td></React.Fragment> : <React.Fragment key={`empty-${pairIndex}`}><td className="bg-slate-50/70 px-4 py-3" /><td className="px-3 py-2" /></React.Fragment>)}</tr>;
+            })}</tbody>
+          </table>
+        </div>)}
       </div>
-    </Card>
+    </section>
   );
 }
 
