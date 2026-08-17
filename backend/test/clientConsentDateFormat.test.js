@@ -13,6 +13,7 @@ test('CTE and CTO consent fields use full dates displayed as YYYY/MM/DD', () => 
     assert.match(sections, new RegExp(`key: '${key}'[^\\n]+type: 'date'`));
   }
   assert.match(sections, /displayFormat="yyyy\/mm\/dd"/);
-  assert.match(picker, /displayFormat === 'yyyy\/mm\/dd'/);
-  assert.match(picker, /dateKey\(selected\)\.replaceAll\('-', '\/'\)/);
+  assert.match(picker, /parseManualDate/);
+  assert.match(picker, /placeholder="YYYY\/MM\/DD"/);
+  assert.match(picker, /type YYYY\/MM\/DD/);
 });

@@ -31,7 +31,9 @@ test('announcements allow an optional image and email every active CRM user', ()
   assert.match(contacts, /Add Authorized Person/);
   assert.match(contacts, /Add OTP Contact/);
   assert.match(contacts, /Add Coordinating Person/);
-  assert.match(contacts, /min-w-\[760px\]/);
+  assert.match(contacts, /min-w-\[980px\]/);
+  assert.match(contacts, />Action<\/th>/);
+  assert.match(contacts, /Edit \$\{title\}/);
 });
 
 test('internal ticket email is claimed once per ticket, sender, and recipient', () => {

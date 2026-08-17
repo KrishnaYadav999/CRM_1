@@ -1583,8 +1583,21 @@ function getAnnualReturnDraftValue(row = {}, key = '') {
   return [key, ...(aliases[key] || [])].map((item) => draft[item]).find((value) => getPoValue(value)) || ''
 }
 
-function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []) {
+function getLeadPurchaseOrder(client = {}, quotations = [], leads = []) {
   const data = readClientData(client)
+  const matchIds = new Set([
+    client.selectedLead, client.leadId, client.sourceLeadId, data.selectedLead, data.importMeta?.leadId,
+    ...quotations.flatMap((quote) => [quote.leadRef, quote.leadId, quote.sourceLeadId, quote.businessLeadCode, quote.leadCode])
+  ].map((value) => normalizeKey(value?._id || value?.id || value)).filter(Boolean))
+  return leads.filter((lead) => [lead._id, lead.id, lead.leadCode].map(normalizeKey).some((id) => matchIds.has(id)))
+    .flatMap((lead) => (lead.assignments || []).flatMap((assignment) => (assignment.poYearRows || []).map((row) => ({ ...row, closedAt: assignment.closedAt || lead.closedAt || lead.updatedAt }))))
+    .filter((row) => getPoValue(row.poNumber, row.poFileUrl))
+    .sort((left, right) => new Date(right.poReceivedDate || right.updatedAt || right.closedAt || 0) - new Date(left.poReceivedDate || left.updatedAt || left.closedAt || 0))[0] || {}
+}
+
+function getCompliancePoDetails(client = {}, quotations = [], annualReturns = [], leads = []) {
+  const data = readClientData(client)
+  const leadPo = getLeadPurchaseOrder(client, quotations, leads)
   const quoteWithPo = quotations.find((quote) => getPoValue(
     quote.compliancePoNo,
     quote.compliancePoDate,
@@ -1610,6 +1623,7 @@ function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []
   )) || {}
   const purchaseOrder = quoteWithPo.purchaseOrder && typeof quoteWithPo.purchaseOrder === 'object' ? quoteWithPo.purchaseOrder : {}
   const poNo = getPoValue(
+    leadPo.poNumber,
     data.financials?.compliancePoNo,
     data.financials?.poNo,
     data.financials?.poNumber,
@@ -1625,6 +1639,7 @@ function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []
     getAnnualReturnDraftValue(annualWithPo, 'financials.compliancePoNo')
   )
   const poDate = getPoValue(
+    leadPo.poReceivedDate,
     data.financials?.compliancePoDate,
     data.financials?.poDate,
     data.validation?.poDate,
@@ -1637,6 +1652,7 @@ function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []
     getAnnualReturnDraftValue(annualWithPo, 'financials.compliancePoDate')
   )
   const poFile = getPoValue(
+    leadPo.poFileUrl && { url: leadPo.poFileUrl, name: leadPo.poFileName || 'Purchase order' },
     data.financials?.compliancePoFile,
     data.financials?.poDocument,
     data.validation?.poDocument,
@@ -1656,7 +1672,7 @@ function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []
     poFile,
     fileName: getFileDisplayValue(poFile),
     fileUrl: getFileUrl(poFile),
-    source: hasPo ? (annualWithPo._id ? 'Annual Return upload' : quoteWithPo._id || quoteWithPo.id ? 'Quotation / PO data' : 'Client Master') : '',
+    source: hasPo ? (leadPo.poNumber || leadPo.poFileUrl ? 'Lead purchase order' : annualWithPo._id ? 'Annual Return upload' : quoteWithPo._id || quoteWithPo.id ? 'Quotation / PO data' : 'Client Master') : '',
     hasPo
   }
 }
@@ -1743,7 +1759,7 @@ function dedupeOperationRows(rows = []) {
   return [...byKey.values()]
 }
 
-function buildOperationsRows({ clients = [], annualReturns = [], quotations = [], pendingClients = [], users = [] }) {
+function buildOperationsRows({ clients = [], annualReturns = [], quotations = [], pendingClients = [], users = [], leads = [] }) {
   const userByMatchKey = new Map()
   users.forEach((user) => getUserMatchKeys(user).forEach((key) => {
     if (!userByMatchKey.has(key)) userByMatchKey.set(key, user)
@@ -1820,7 +1836,7 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
     const annualYear = displayAnnualReturn?.annualYear || displayAnnualReturn?.year || getLatestAvailableAnnualYear(firstAnnualReturnYear)
     const annualDone = displayAnnualReturn ? getAnnualTabCompletedCount(displayAnnualReturn) : 0
     const compliancePending = clientAnnualReturns.some(isAnnualCompliancePending)
-    const poDetails = getCompliancePoDetails(client, clientQuotations, clientAnnualReturns)
+    const poDetails = getCompliancePoDetails(client, clientQuotations, clientAnnualReturns, leads)
     const pendingClient = [client._id, client.id, data.importMeta?.uniqueId]
       .map(normalizeKey).filter(Boolean)
       .map((key) => pendingClientById.get(key)).find(Boolean) || {}
@@ -4607,8 +4623,9 @@ export default function AdminDashboard() {
     quotations: isSalesDashboardView ? [] : quotations,
     pendingClients: isSalesDashboardView ? [] : pendingClients,
     users: isSalesDashboardView ? [] : users,
+    leads: isSalesDashboardView ? [] : leads,
     currentUser
-  }), [annualReturns, clients, currentUser, isSalesDashboardView, pendingClients, quotations, users])
+  }), [annualReturns, clients, currentUser, isSalesDashboardView, leads, pendingClients, quotations, users])
   const scopedOperationsRows = useMemo(
     () => getScopedOperationsRows(allOperationsRows, users, currentUser),
     [allOperationsRows, currentUser, users]

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, CheckCircle2, ChevronDown, Copy, Eye, FileCheck2, FileText, MapPin, Plus, Smartphone, Trash2, Upload, UserRound, UsersRound } from 'lucide-react';
+import { Building2, CheckCircle2, ChevronDown, Copy, Eye, FileCheck2, FileText, MapPin, Pencil, Plus, Smartphone, Trash2, Upload, UserRound, UsersRound } from 'lucide-react';
 import SearchableSelect from '../../components/form/SearchableSelect';
 import PremiumDatePicker from '../../components/form/PremiumDatePicker';
 import { mediaUrl, uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
@@ -582,25 +582,18 @@ function ContactsTab({ client, setValue, setRoot }) {
 }
 
 function ContactDetailsCard({ title, icon: Icon, addLabel, records, fields, onAdd, onUpdate, onRemove }) {
-  const singleColumn = fields.length <= 3;
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3 text-[#087579]"><Icon className="h-7 w-7" /><h2 className="text-xl font-black">{title}</h2></div><button type="button" aria-label={title === 'Authorised Person' ? 'Add Authorized Person' : addLabel} onClick={onAdd} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#087579] to-[#00676b] px-4 font-black text-white shadow-md"><Plus className="h-4 w-4" /> {addLabel}</button></header>
-      <div className="grid gap-4">
-        {records.map((record, recordIndex) => <div key={record.id || recordIndex} className="overflow-hidden rounded-xl border border-slate-200">
-          {recordIndex > 0 && <div className="flex items-center justify-between bg-slate-50 px-4 py-2"><strong className="text-xs uppercase tracking-wider text-slate-500">{title} {recordIndex + 1}</strong><button type="button" onClick={() => onRemove(recordIndex)} className="inline-flex items-center gap-1 text-xs font-black text-red-600"><Trash2 className="h-4 w-4" /> Remove</button></div>}
-          <table className={`w-full table-fixed text-left text-sm ${singleColumn ? 'min-w-[520px]' : 'min-w-[760px]'}`}>
-            <thead className="bg-gradient-to-r from-[#087579] to-[#087f83] text-white"><tr><th className={singleColumn ? 'w-[30%] px-4 py-3' : 'w-1/4 px-4 py-3'}>Field</th><th className={singleColumn ? 'w-[70%] px-4 py-3' : 'w-1/4 px-4 py-3'}>Details</th>{!singleColumn && <><th className="w-1/4 px-4 py-3">Field</th><th className="w-1/4 px-4 py-3">Details</th></>}</tr></thead>
-            <tbody>{Array.from({ length: singleColumn ? fields.length : Math.ceil(fields.length / 2) }, (_, rowIndex) => {
-              if (singleColumn) {
-                const definition = fields[rowIndex];
-                return <tr key={definition[0]} className="border-t border-slate-200"><td className="bg-slate-50/70 px-4 py-3 font-bold text-slate-700">{definition[1]}</td><td className="px-3 py-2"><input type={definition[0] === 'mobile' ? 'tel' : 'text'} aria-label={`${title} ${recordIndex + 1} ${definition[1]}`} className="form-input min-h-10 border-0 bg-transparent px-1 shadow-none focus:ring-0" value={record[definition[0]] || ''} onChange={(event) => onUpdate(recordIndex, definition[0], event.target.value)} /></td></tr>;
-              }
-              const pairs = [fields[rowIndex * 2], fields[rowIndex * 2 + 1]];
-              return <tr key={rowIndex} className="border-t border-slate-200">{pairs.map((definition, pairIndex) => definition ? <React.Fragment key={definition[0]}><td className="bg-slate-50/70 px-4 py-3 font-bold text-slate-700">{definition[1]}</td><td className="px-3 py-2">{definition[2] === 'upload' ? <UploadButton value={record[definition[0]]} onChange={(value) => onUpdate(recordIndex, definition[0], value)} /> : <input type={definition[0] === 'email' ? 'email' : definition[0] === 'mobile' ? 'tel' : 'text'} aria-label={`${title} ${recordIndex + 1} ${definition[1]}`} className="form-input min-h-10 border-0 bg-transparent px-1 shadow-none focus:ring-0" value={record[definition[0]] || ''} onChange={(event) => onUpdate(recordIndex, definition[0], event.target.value)} />}</td></React.Fragment> : <React.Fragment key={`empty-${pairIndex}`}><td className="bg-slate-50/70 px-4 py-3" /><td className="px-3 py-2" /></React.Fragment>)}</tr>;
-            })}</tbody>
-          </table>
-        </div>)}
+      <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full min-w-[980px] text-left text-sm">
+          <thead className="bg-gradient-to-r from-[#075f56] via-[#087579] to-[#096b64] text-white"><tr><th className="w-14 px-4 py-3">#</th>{fields.map(([, label]) => <th key={label} className="px-4 py-3">{label}</th>)}<th className="w-28 px-4 py-3 text-center">Action</th></tr></thead>
+          <tbody>{records.map((record, recordIndex) => <tr key={record.id || recordIndex} className="border-t border-slate-200 transition hover:bg-emerald-50/40">
+            <td className="px-4 py-3 font-black text-slate-500">{recordIndex + 1}</td>
+            {fields.map((definition) => <td key={definition[0]} className="px-3 py-2">{definition[2] === 'upload' ? <UploadButton value={record[definition[0]]} onChange={(value) => onUpdate(recordIndex, definition[0], value)} /> : <input type={definition[0] === 'email' ? 'email' : definition[0] === 'mobile' ? 'tel' : 'text'} aria-label={`${title} ${recordIndex + 1} ${definition[1]}`} className="form-input min-h-10 min-w-36 bg-white" value={record[definition[0]] || ''} onChange={(event) => onUpdate(recordIndex, definition[0], event.target.value)} />}</td>)}
+            <td className="px-3 py-2"><div className="flex justify-center gap-2"><button type="button" aria-label={`Edit ${title} ${recordIndex + 1}`} onClick={(event) => event.currentTarget.closest('tr')?.querySelector('input')?.focus()} className="grid h-9 w-9 place-items-center rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50"><Pencil className="h-4 w-4" /></button>{recordIndex > 0 && <button type="button" aria-label={`Remove ${title} ${recordIndex + 1}`} onClick={() => onRemove(recordIndex)} className="grid h-9 w-9 place-items-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}</div></td>
+          </tr>)}</tbody>
+        </table>
       </div>
     </section>
   );
