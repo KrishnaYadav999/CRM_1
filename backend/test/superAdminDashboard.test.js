@@ -45,6 +45,16 @@ test('super admin dashboard exposes productivity, risk, reporting, and user-mana
   assert.match(page, /Latest access/);
 });
 
+test('sales dashboard reads applicant and sub applicant types from lead service rows', () => {
+  const dashboard = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/AdminDashboard.jsx'), 'utf8');
+  assert.match(dashboard, /Array\.isArray\(lead\.serviceSelections\).*lead\.serviceSelections\.length/s);
+  assert.match(dashboard, /service\.applicantType \|\| service\.piboParent/);
+  assert.match(dashboard, /service\.subApplicantType \|\| service\.piboCategory/);
+  assert.match(dashboard, />\s*Applicant Type\s*<\/button>/);
+  assert.match(dashboard, />\s*Sub Applicant Type\s*<\/button>/);
+  assert.doesNotMatch(dashboard, /analytics\.pibo/);
+});
+
 test('professional exports share the filtered report rows and use a landscape table', () => {
   const exportsSource = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/utils/productivityReportExports.js'), 'utf8');
   assert.match(exportsSource, /User Activity & Productivity Report/);

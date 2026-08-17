@@ -3428,10 +3428,10 @@ function SalesAnalyticsBars({ title, subtitle, rows = [], tone = 'teal', delay =
 }
 
 function SalesMixAnalytics({ analytics, total }) {
-  const [applicantTypeView, setApplicantTypeView] = useState('pibo')
-  const applicantTypeConfig = applicantTypeView === 'services'
-    ? { title: 'Services Offered', subtitle: 'Solution portfolio', rows: analytics.services, tone: 'teal' }
-    : { title: 'PIBO Category', subtitle: 'Compliance segments', rows: analytics.pibo, tone: 'violet' }
+  const [applicantTypeView, setApplicantTypeView] = useState('applicant')
+  const applicantTypeConfig = applicantTypeView === 'subApplicant'
+    ? { title: 'Sub Applicant Type', subtitle: 'Lead service subcategories', rows: analytics.subApplicantTypes, tone: 'teal' }
+    : { title: 'Applicant Type', subtitle: 'Lead service applicant groups', rows: analytics.applicantTypes, tone: 'violet' }
 
   return (
     <section className="sales-mix-section">
@@ -3446,21 +3446,21 @@ function SalesMixAnalytics({ analytics, total }) {
             <div className="sales-applicant-type-tabs" role="tablist" aria-label="Applicant type analytics">
               <button
                 type="button"
-                className={applicantTypeView === 'pibo' ? 'active' : ''}
-                onClick={() => setApplicantTypeView('pibo')}
+                className={applicantTypeView === 'applicant' ? 'active' : ''}
+                onClick={() => setApplicantTypeView('applicant')}
                 role="tab"
-                aria-selected={applicantTypeView === 'pibo'}
+                aria-selected={applicantTypeView === 'applicant'}
               >
-                PIBO Category
+                Applicant Type
               </button>
               <button
                 type="button"
-                className={applicantTypeView === 'services' ? 'active' : ''}
-                onClick={() => setApplicantTypeView('services')}
+                className={applicantTypeView === 'subApplicant' ? 'active' : ''}
+                onClick={() => setApplicantTypeView('subApplicant')}
                 role="tab"
-                aria-selected={applicantTypeView === 'services'}
+                aria-selected={applicantTypeView === 'subApplicant'}
               >
-                Services Offered
+                Sub Applicant Type
               </button>
             </div>
           </div>
@@ -3587,12 +3587,27 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       if (remainder) shown.push(['Others', remainder])
       return shown.map(([label, value]) => ({ label, value }))
     }
+    const serviceRows = scopedLeads.flatMap((lead) => (
+      Array.isArray(lead.serviceSelections) && lead.serviceSelections.length
+        ? lead.serviceSelections.map((service) => ({ lead, service: service || {} }))
+        : [{ lead, service: lead }]
+    ))
+    const serviceDistribution = (getValue) => {
+      const counts = new Map()
+      serviceRows.forEach(({ lead, service }) => {
+        const label = String(getValue(service, lead) || '').trim() || 'Not specified'
+        counts.set(label, (counts.get(label) || 0) + 1)
+      })
+      return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([label, value]) => ({ label, value }))
+    }
     return {
       industries: distribution(scopedLeads, ['industry', 'industryType', 'businessType', 'sector', 'companyIndustry']),
-      pibo: distribution(scopedLeads, ['piboCategory', 'piboType', 'category', 'leadDetails.piboCategory']),
+      applicantTypes: serviceDistribution((service, lead) => service.applicantType || service.piboParent || service.piboCategoryParent || lead.applicantType || lead.piboParent || lead.piboCategoryParent),
+      subApplicantTypes: serviceDistribution((service, lead) => service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory),
       states: distribution(scopedLeads, ['state', 'address.state', 'registeredState', 'companyState', 'location.state']),
       workload: distribution(scopedLeads, ['assignedToName', 'ownerName', 'createdByName', 'referredBy', 'assignedTo.name'], 8),
-      services: distribution(scopedLeads, ['serviceOffered', 'services', 'eprCategory', 'serviceCategory', 'leadDetails.eprCategory'])
     }
   }, [scopedLeads])
 
