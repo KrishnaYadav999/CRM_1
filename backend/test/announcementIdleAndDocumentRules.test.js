@@ -17,6 +17,22 @@ test('announcements allow an optional image and email every active CRM user', ()
   assert.match(page, /accept="image\/\*"/);
   assert.match(page, /Choose Image \(Optional\)/);
   assert.match(page, /Submit Announcement/);
+  assert.match(controller, /Official CRM Announcement/);
+  assert.match(controller, /ANANTTATTVA e-Connect/);
+  assert.match(controller, /\^https:\\\/\\\//);
+});
+
+test('internal ticket email is claimed once per ticket, sender, and recipient', () => {
+  const controller = read('../src/controllers/internalTicketController.js');
+  const delivery = read('../src/models/InternalTicketEmailDelivery.js');
+  const service = read('../src/services/internalTicketEmails.js');
+  assert.match(controller, /notifyFirstMessage/);
+  assert.match(delivery, /\{ ticket: 1, sender: 1, recipient: 1 \}/);
+  assert.match(delivery, /unique: true/);
+  assert.match(delivery, /enum: \['sending', 'sent', 'failed'\]/);
+  assert.match(service, /error\?\.code === 11000/);
+  assert.match(service, /Promise\.allSettled/);
+  assert.match(service, /This notification is sent only for the first message/);
 });
 
 test('CRM automatically logs out and audits users after thirty idle minutes', () => {

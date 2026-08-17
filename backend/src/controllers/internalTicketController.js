@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const InternalTicket = require('../models/InternalTicket');
+const { notifyFirstMessage } = require('../services/internalTicketEmails');
 
 const STATUSES = ['Open', 'In Progress', 'Resolved', 'Closed'];
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
@@ -77,6 +78,8 @@ exports.create = async (req, res) => {
     participants: participantIds, messages: [{ message, author: req.user._id, authorName: req.user.name || req.user.email, authorRole: req.user.role, attachments }]
   });
   const saved = await InternalTicket.findById(ticket._id).populate('createdBy participants', 'name email role avatarUrl').lean();
+  await notifyFirstMessage({ ticket, sender: req.user, message, attachments })
+    .catch((error) => console.error(`Internal ticket ${ticket.ticketNumber} first-message email failed`, error.message));
   res.status(201).json({ ok: true, ticket: saved });
 };
 
@@ -94,6 +97,10 @@ exports.update = async (req, res) => {
   if (!message && !attachments.length && !req.body.status) return res.status(400).json({ error: 'Add a message, attachment, or status update.' });
   ticket.lastMessageAt = new Date();
   await ticket.save();
+  if (message || attachments.length) {
+    await notifyFirstMessage({ ticket, sender: req.user, message, attachments })
+      .catch((error) => console.error(`Internal ticket ${ticket.ticketNumber} first-message email failed`, error.message));
+  }
   const saved = await InternalTicket.findById(ticket._id).populate('createdBy participants', 'name email role avatarUrl').lean();
   res.json({ ok: true, ticket: saved });
 };
