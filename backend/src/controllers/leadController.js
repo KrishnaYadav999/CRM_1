@@ -1313,10 +1313,21 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       || quotations.find((quote) => [quote.leadRef, quote.leadId, quote.leadCode, quote.businessLeadCode].some((value) => [String(lead._id), lead.leadCode].includes(String(value || ''))));
     purchaseOrderApprovals.forEach((approval) => {
       const payload = approval.payload || {};
+      const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows
+        : Array.isArray(payload.poRows) ? payload.poRows
+          : Array.isArray(payload.purchaseOrders) ? payload.purchaseOrders : [];
       const lead = leadById.get(approvalLeadId(approval))
         || leadBySourceId.get(String(approval.sourceClientId || '').split(':po:')[0].trim())
         || leadByCode.get(String(payload.leadCode || approval.uniqueId || '').toLowerCase())
         || leadByCompany.get(String(approval.clientName || '').toLowerCase());
+      approval.poDebug = {
+        approvalRows: snapshotRows.length,
+        leadMatched: Boolean(lead),
+        assignmentMatched: false,
+        leadRows: 0,
+        quotationMatched: false,
+        lookup: approvalLeadId(approval) ? 'object-id' : (String(approval.sourceClientId || '').split(':po:')[0] || 'company')
+      };
       if (!lead) return;
       const assignmentIndex = Number(payload.assignmentIndex);
       const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
@@ -1324,8 +1335,9 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         || assignments.find((row) => payload.assignedServiceId && String(row.assignedServiceId || '') === String(payload.assignedServiceId) && row.poYearRows?.length)
         || assignments.find((row) => Array.isArray(row.poYearRows) && row.poYearRows.length)
         || null;
-      const liveRows = Array.isArray(assignment?.poYearRows) ? assignment.poYearRows : [];
-      const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
+      const liveRows = Array.isArray(assignment?.poYearRows) ? assignment.poYearRows
+        : Array.isArray(assignment?.poRows) ? assignment.poRows
+          : Array.isArray(assignment?.purchaseOrders) ? assignment.purchaseOrders : [];
       const poYearRows = (liveRows.length ? liveRows : snapshotRows).map((liveRow, rowIndex) => {
         const snapshot = snapshotRows.find((row) => row.poNumber && row.poNumber === liveRow.poNumber) || snapshotRows[rowIndex] || {};
         const row = { ...snapshot, ...liveRow };
@@ -1343,6 +1355,12 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         };
       });
       const resolvedIndex = assignments.indexOf(assignment);
+      approval.poDebug = {
+        ...approval.poDebug,
+        assignmentMatched: Boolean(assignment),
+        leadRows: liveRows.length,
+        quotationMatched: poYearRows.some((row) => Boolean(row.quotationId || row.quotationNumber || row.quotationItems?.length))
+      };
       const service = (lead.serviceSelections || []).find((row) => payload.assignedServiceId && String(row.assignedServiceId || '') === String(payload.assignedServiceId))
         || lead.serviceSelections?.[resolvedIndex >= 0 ? resolvedIndex : assignmentIndex]
         || payload.service
@@ -1357,6 +1375,11 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         leadCreatorEmail: payload.leadCreatorEmail || lead.createdBy?.email || lead.createdByEmail || ''
       };
     });
+    console.info('[PendingApproval:po-debug]', purchaseOrderApprovals.map((approval) => ({
+      approvalId: String(approval._id),
+      clientName: approval.clientName,
+      ...approval.poDebug
+    })));
   }
   res.json({ ok: true, approvals });
 };
