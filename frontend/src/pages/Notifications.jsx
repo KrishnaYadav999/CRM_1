@@ -580,7 +580,7 @@ export default function Notifications({ mode = 'notifications' }) {
                   <input type="checkbox" checked={Boolean(draft.pinned)} onChange={(event) => setDraft((current) => ({ ...current, pinned: event.target.checked }))} />
                   <span><Pin className="h-4 w-4" /> Pin this notification on top</span>
                 </label>
-                <Field label="Announcement Image" required={modalMode === 'create'}>
+                <Field label="Announcement Image (Optional)">
                   <label className="notifications-upload">
                     <Upload className="h-4 w-4" />
                     <span>Choose Image (Optional)</span>
@@ -599,7 +599,7 @@ export default function Notifications({ mode = 'notifications' }) {
 
               <div className="notifications-modal-actions">
                 <button type="button" onClick={() => setModalMode('')}>Cancel</button>
-                <button type="button" disabled={savingAnnouncement || !draft.title.trim() || !draft.description.trim() || !(draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag) || (modalMode === 'create' && !draft.attachmentUrl)} onClick={saveNotification}>{savingAnnouncement ? 'Sending...' : 'Submit Announcement'}</button>
+                <button type="button" disabled={savingAnnouncement || !draft.title.trim() || !draft.description.trim() || !(draft.tag === CUSTOM_TAG_VALUE ? draft.customTag.trim() : draft.tag)} onClick={saveNotification}>{savingAnnouncement ? 'Sending...' : 'Submit Announcement'}</button>
               </div>
             </section>
           </div>

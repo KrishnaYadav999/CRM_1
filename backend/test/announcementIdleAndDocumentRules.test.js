@@ -16,6 +16,8 @@ test('announcements allow an optional image and email every active CRM user', ()
   assert.match(page, /Add Announcement/);
   assert.match(page, /accept="image\/\*"/);
   assert.match(page, /Choose Image \(Optional\)/);
+  assert.match(page, /Field label="Announcement Image \(Optional\)"/);
+  assert.doesNotMatch(page, /modalMode === 'create' && !draft\.attachmentUrl/);
   assert.match(page, /Submit Announcement/);
   assert.match(controller, /Official CRM Announcement/);
   assert.match(controller, /ANANTTATTVA e-Connect/);
