@@ -245,8 +245,14 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
             className="btn-lift flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1 transition hover:bg-teal-50"
             aria-label="Go to dashboard"
           >
-            <span className="flex h-[68px] w-[210px] shrink-0 items-center rounded-2xl border border-orange-100 bg-white px-3 shadow-md shadow-slate-950/5 sm:w-[250px]">
-              <img src={brand.logoUrl} alt="Anant Tattva e-Connect" className="h-[54px] w-full object-contain object-left" />
+            <span className="flex h-16 shrink-0 items-center gap-3 rounded-2xl border border-orange-100 bg-white px-3.5 pr-5 shadow-md shadow-slate-950/5">
+              <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white">
+                <img src={brand.logoUrl} alt="Anant Tattva logo" className="h-11 w-11 object-contain" />
+              </span>
+              <span className="min-w-0 text-left leading-none">
+                <strong className="block whitespace-nowrap text-lg font-black tracking-wide text-orange-600">ANANTTATTVA</strong>
+                <small className="mt-1.5 block whitespace-nowrap text-xs font-black tracking-[.08em] text-slate-700">e-Connect</small>
+              </span>
             </span>
           </button>
         </div>

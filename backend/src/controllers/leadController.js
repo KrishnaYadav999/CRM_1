@@ -1282,7 +1282,13 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
   const approvals = await PendingApproval.find(query).populate('actionBy', 'name email').sort({ createdAt: -1 }).lean();
   const purchaseOrderApprovals = approvals.filter((approval) => approval.type === 'purchase_order');
   if (purchaseOrderApprovals.length) {
-    const leadIds = [...new Set(purchaseOrderApprovals.map((approval) => String(approval.payload?.leadId || '')).filter(mongoose.isValidObjectId))];
+    const approvalLeadId = (approval) => {
+      const payloadId = String(approval.payload?.leadId || '').trim();
+      if (mongoose.isValidObjectId(payloadId)) return payloadId;
+      const sourceId = String(approval.sourceClientId || '').split(':po:')[0].trim();
+      return mongoose.isValidObjectId(sourceId) ? sourceId : '';
+    };
+    const leadIds = [...new Set(purchaseOrderApprovals.map(approvalLeadId).filter(Boolean))];
     const leadCodes = [...new Set(purchaseOrderApprovals.flatMap((approval) => [approval.payload?.leadCode, approval.uniqueId]).map((value) => String(value || '').trim()).filter(Boolean))];
     const companies = [...new Set(purchaseOrderApprovals.map((approval) => String(approval.clientName || '').trim()).filter(Boolean))];
     const leadLookup = [];
@@ -1303,7 +1309,7 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       || quotations.find((quote) => [quote.leadRef, quote.leadId, quote.leadCode, quote.businessLeadCode].some((value) => [String(lead._id), lead.leadCode].includes(String(value || ''))));
     purchaseOrderApprovals.forEach((approval) => {
       const payload = approval.payload || {};
-      const lead = leadById.get(String(payload.leadId || ''))
+      const lead = leadById.get(approvalLeadId(approval))
         || leadByCode.get(String(payload.leadCode || approval.uniqueId || '').toLowerCase())
         || leadByCompany.get(String(approval.clientName || '').toLowerCase());
       if (!lead) return;
@@ -1336,6 +1342,7 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         || {};
       approval.payload = {
         ...payload,
+        leadId: payload.leadId || String(lead._id),
         leadCode: payload.leadCode || lead.leadCode || '',
         service,
         poYearRows,

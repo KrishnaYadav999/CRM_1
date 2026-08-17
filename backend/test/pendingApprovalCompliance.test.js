@@ -24,6 +24,12 @@ test('pending approval shows only client review to compliance-family and adminis
   assert.match(controller, /source: 'indexed-pending-approvals'/);
 });
 
+test('legacy purchase order approvals recover the lead id from their source key', () => {
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
+  assert.match(controller, /sourceClientId \|\| ''\)\.split\(':po:'\)\[0\]/);
+  assert.match(controller, /leadById\.get\(approvalLeadId\(approval\)\)/);
+});
+
 test('custom compliance roles pass compliance-family authorization and sidebar visibility', () => {
   const middleware = fs.readFileSync(path.resolve(__dirname, '../src/middleware/auth.js'), 'utf8');
   const sidebar = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/components/dashboard/Sidebar.jsx'), 'utf8');
