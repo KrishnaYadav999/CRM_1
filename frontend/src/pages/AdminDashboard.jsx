@@ -3428,10 +3428,10 @@ function SalesAnalyticsBars({ title, subtitle, rows = [], tone = 'teal', delay =
 }
 
 function SalesMixAnalytics({ analytics, total }) {
-  const [applicantTypeView, setApplicantTypeView] = useState('applicant')
-  const applicantTypeConfig = applicantTypeView === 'subApplicant'
-    ? { title: 'Sub Applicant Type', subtitle: 'Lead service subcategories', rows: analytics.subApplicantTypes, tone: 'teal' }
-    : { title: 'Applicant Type', subtitle: 'Lead service applicant groups', rows: analytics.applicantTypes, tone: 'violet' }
+  const [applicantTypeView, setApplicantTypeView] = useState('pibo')
+  const applicantTypeConfig = applicantTypeView === 'services'
+    ? { title: 'Services Offered', subtitle: 'Lead service portfolio', rows: analytics.services, tone: 'teal' }
+    : { title: 'PIBO Category', subtitle: 'Sub applicant type distribution', rows: analytics.subApplicantTypes, tone: 'violet' }
 
   return (
     <section className="sales-mix-section">
@@ -3446,21 +3446,21 @@ function SalesMixAnalytics({ analytics, total }) {
             <div className="sales-applicant-type-tabs" role="tablist" aria-label="Applicant type analytics">
               <button
                 type="button"
-                className={applicantTypeView === 'applicant' ? 'active' : ''}
-                onClick={() => setApplicantTypeView('applicant')}
+                className={applicantTypeView === 'pibo' ? 'active' : ''}
+                onClick={() => setApplicantTypeView('pibo')}
                 role="tab"
-                aria-selected={applicantTypeView === 'applicant'}
+                aria-selected={applicantTypeView === 'pibo'}
               >
-                Applicant Type
+                PIBO Category
               </button>
               <button
                 type="button"
-                className={applicantTypeView === 'subApplicant' ? 'active' : ''}
-                onClick={() => setApplicantTypeView('subApplicant')}
+                className={applicantTypeView === 'services' ? 'active' : ''}
+                onClick={() => setApplicantTypeView('services')}
                 role="tab"
-                aria-selected={applicantTypeView === 'subApplicant'}
+                aria-selected={applicantTypeView === 'services'}
               >
-                Sub Applicant Type
+                Services Offered
               </button>
             </div>
           </div>
@@ -3604,8 +3604,8 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
     }
     return {
       industries: distribution(scopedLeads, ['industry', 'industryType', 'businessType', 'sector', 'companyIndustry']),
-      applicantTypes: serviceDistribution((service, lead) => service.applicantType || service.piboParent || service.piboCategoryParent || lead.applicantType || lead.piboParent || lead.piboCategoryParent),
       subApplicantTypes: serviceDistribution((service, lead) => service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory),
+      services: serviceDistribution((service, lead) => service.servicesOffered || service.serviceOffered || service.applicableService || service.eprCategory || lead.servicesOffered || lead.serviceOffered || lead.applicableService || lead.eprCategory),
       states: distribution(scopedLeads, ['state', 'address.state', 'registeredState', 'companyState', 'location.state']),
       workload: distribution(scopedLeads, ['assignedToName', 'ownerName', 'createdByName', 'referredBy', 'assignedTo.name'], 8),
     }

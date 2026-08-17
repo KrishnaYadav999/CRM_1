@@ -45,14 +45,15 @@ test('super admin dashboard exposes productivity, risk, reporting, and user-mana
   assert.match(page, /Latest access/);
 });
 
-test('sales dashboard reads applicant and sub applicant types from lead service rows', () => {
+test('sales dashboard shows sub applicant details under PIBO and preserves services offered', () => {
   const dashboard = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/AdminDashboard.jsx'), 'utf8');
   assert.match(dashboard, /Array\.isArray\(lead\.serviceSelections\).*lead\.serviceSelections\.length/s);
-  assert.match(dashboard, /service\.applicantType \|\| service\.piboParent/);
   assert.match(dashboard, /service\.subApplicantType \|\| service\.piboCategory/);
-  assert.match(dashboard, />\s*Applicant Type\s*<\/button>/);
-  assert.match(dashboard, />\s*Sub Applicant Type\s*<\/button>/);
-  assert.doesNotMatch(dashboard, /analytics\.pibo/);
+  assert.match(dashboard, /service\.servicesOffered \|\| service\.serviceOffered \|\| service\.applicableService/);
+  assert.match(dashboard, />\s*PIBO Category\s*<\/button>/);
+  assert.match(dashboard, />\s*Services Offered\s*<\/button>/);
+  assert.match(dashboard, /rows: analytics\.subApplicantTypes/);
+  assert.doesNotMatch(dashboard, /rows: analytics\.applicantTypes/);
 });
 
 test('professional exports share the filtered report rows and use a landscape table', () => {
