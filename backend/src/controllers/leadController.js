@@ -32,16 +32,30 @@ const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1',
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
 const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 async function sendIntroductionWhenRequested(lead, creator) {
-  if (lead.workflowStatus !== 'submitted') return { skipped: true, reason: 'not-submitted' };
+  const requestedAt = new Date();
+  if (lead.workflowStatus !== 'submitted') {
+    const result = { requested: true, sent: false, status: 'skipped', reason: 'not-submitted' };
+    await Lead.updateOne({ _id: lead._id }, { $set: { introductionEmailLastRequestedAt: requestedAt, introductionEmailLastStatus: 'skipped', introductionEmailLastError: result.reason } });
+    return result;
+  }
   try {
     const result = await sendLeadIntroductionEmail({ lead: lead.toObject(), creator });
     if (result?.sent) {
-      await Lead.updateOne({ _id: lead._id }, { $set: { introductionEmailSentAt: new Date() }, $inc: { introductionEmailVersion: 1 } });
+      const sentAt = new Date();
+      await Lead.updateOne({ _id: lead._id }, {
+        $set: { introductionEmailSentAt: sentAt, introductionEmailLastRequestedAt: requestedAt, introductionEmailLastStatus: 'sent', introductionEmailLastError: '' },
+        $inc: { introductionEmailVersion: 1 }
+      });
+      return { ...result, requested: true, status: 'sent', sentAt };
     }
-    return result;
+    const reason = result?.reason || 'send-skipped';
+    await Lead.updateOne({ _id: lead._id }, { $set: { introductionEmailLastRequestedAt: requestedAt, introductionEmailLastStatus: 'skipped', introductionEmailLastError: reason } });
+    return { ...result, requested: true, sent: false, status: 'skipped', reason };
   } catch (error) {
     console.error('Requested lead introduction email failed', error);
-    return { skipped: true, reason: 'send-failed' };
+    const failure = String(error?.message || 'Mail provider rejected the request').slice(0, 500);
+    await Lead.updateOne({ _id: lead._id }, { $set: { introductionEmailLastRequestedAt: requestedAt, introductionEmailLastStatus: 'failed', introductionEmailLastError: failure } }).catch(() => null);
+    return { requested: true, sent: false, status: 'failed', reason: 'send-failed', message: 'The mail provider could not send the introduction email. Please retry the lead submission.' };
   }
 }
 
@@ -837,8 +851,10 @@ exports.createLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    if (req.body?.sendIntroductionEmail === true) await sendIntroductionWhenRequested(lead, req.user);
-    res.status(201).json({ ok: true, lead });
+    const introductionEmail = req.body?.sendIntroductionEmail === true
+      ? await sendIntroductionWhenRequested(lead, req.user)
+      : { requested: false, sent: false, status: 'not-requested' };
+    res.status(201).json({ ok: true, lead, introductionEmail });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to save lead' });
   }
@@ -942,7 +958,9 @@ exports.updateLead = async (req, res) => {
     if (managerId) {
       await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
     }
-    if (sendIntroductionEmail && lead.workflowStatus === 'submitted') await sendIntroductionWhenRequested(lead, req.user);
+    const introductionEmail = sendIntroductionEmail && lead.workflowStatus === 'submitted'
+      ? await sendIntroductionWhenRequested(lead, req.user)
+      : { requested: sendIntroductionEmail, sent: false, status: sendIntroductionEmail ? 'skipped' : 'not-requested', reason: sendIntroductionEmail ? 'not-submitted' : undefined };
     if (req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead: lead.toObject(), submittedPayload: req.body, actor: req.user }).catch((error) => console.error('Financial year notification failed', error));
       await notifyAdditionalLeadServices({
@@ -953,7 +971,7 @@ exports.updateLead = async (req, res) => {
     }
     const changedFields = Object.keys(data).filter((key) => key !== 'followUpHistory');
     await LeadActivity.create({ lead: lead._id, type: 'lead_updated', title: 'Lead updated', description: changedFields.length ? `Updated ${changedFields.join(', ')}` : 'Lead details updated', actor: req.user?._id, metadata: { changedFields } });
-    res.json({ ok: true, lead });
+    res.json({ ok: true, lead, introductionEmail });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to update lead' });
   }

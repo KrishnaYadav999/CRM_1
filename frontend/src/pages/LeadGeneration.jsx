@@ -1819,10 +1819,19 @@ export default function LeadGeneration() {
     setError('');
     setNotice('');
     try {
-      const leadPayload = { ...buildLeadPayload(workflowStatus), ...(workflowStatus === 'submitted' ? { sendIntroductionEmail: introductionConsent } : {}) };
+      const introductionRequested = workflowStatus === 'submitted' && introductionConsent;
+      const leadPayload = { ...buildLeadPayload(workflowStatus), ...(workflowStatus === 'submitted' ? { sendIntroductionEmail: introductionRequested } : {}) };
       const response = editingLeadId ? await api.put(API_ENDPOINTS.leads.detail(editingLeadId), leadPayload) : await api.post(API_ENDPOINTS.leads.create, leadPayload);
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || typeof savedLead !== 'object') throw new Error('CRM did not return the saved lead.');
+      const introductionResult = response.data?.introductionEmail || null;
+      const introductionSent = Boolean(introductionRequested && introductionResult?.sent);
+      const introductionFailed = Boolean(introductionRequested && !introductionSent);
+      const introductionMessage = introductionSent
+        ? ` Introduction email sent to ${Number(introductionResult?.recipients?.length || 0)} client recipient(s).`
+        : introductionFailed
+          ? ` Lead was saved, but the introduction email was not sent${introductionResult?.reason === 'no-lead-email-recipients' ? ' because no valid client email address was found.' : '. Please retry the submission.'}`
+          : '';
       setHealthPromptOpen(false);
       setIntroductionConsent(false);
       if (openHealthReport) {
@@ -1830,12 +1839,13 @@ export default function LeadGeneration() {
         setHealthReport(reportToDraft(savedLead.complianceHealthReport));
         setHealthReportError('');
         setHealthAssignmentOpen(false);
-        setNotice('Lead submitted. Complete the Compliance Health Report details before selecting a Manager.');
-        showToast('Lead submitted. Please complete the Compliance Health Report.', 'success');
+        setNotice(`Lead submitted.${introductionMessage} Complete the Compliance Health Report details before selecting a Manager.`);
+        showToast(introductionFailed ? introductionMessage.trim() : `Lead submitted.${introductionMessage} Please complete the Compliance Health Report.`, introductionFailed ? 'error' : 'success');
         return savedLead;
       }
-      setNotice(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.');
-      showToast(workflowStatus === 'submitted' ? 'Lead submitted successfully.' : 'Lead draft saved successfully.', 'success');
+      const successMessage = workflowStatus === 'submitted' ? `Lead submitted successfully.${introductionMessage}` : 'Lead draft saved successfully.';
+      setNotice(successMessage);
+      showToast(introductionFailed ? introductionMessage.trim() : successMessage, introductionFailed ? 'error' : 'success');
       if (workflowStatus === 'submitted') { setLead(emptyLead); formStartedAtRef.current = ''; }
       setEditingLeadId('');
       setActiveTab('basic');

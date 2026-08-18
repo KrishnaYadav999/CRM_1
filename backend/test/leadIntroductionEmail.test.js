@@ -88,6 +88,9 @@ test('lead controller sends introduction only when explicitly requested', () => 
   const controller = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/controllers/leadController.js'), 'utf8');
   assert.match(controller, /req\.body\?\.sendIntroductionEmail === true/);
   assert.equal((controller.match(/await sendIntroductionWhenRequested\(lead, req\.user\)/g) || []).length, 2);
+  assert.match(controller, /introductionEmailLastStatus: 'failed'/);
+  assert.match(controller, /res\.status\(201\)\.json\(\{ ok: true, lead, introductionEmail \}\)/);
+  assert.match(controller, /res\.json\(\{ ok: true, lead, introductionEmail \}\)/);
   assert.doesNotMatch(controller, /already-claimed/);
 });
 
@@ -103,6 +106,9 @@ test('lead submit UI asks for introduction email consent every time', () => {
   assert.match(page, /Send Introduction Email\?/);
   assert.match(page, /Yes, Send Introduction Email/);
   assert.match(page, /No, Submit Without Email/);
-  assert.match(page, /sendIntroductionEmail: introductionConsent/);
+  assert.match(page, /sendIntroductionEmail: introductionRequested/);
   assert.match(page, /setIntroductionPromptOpen\(true\)/);
+  assert.match(page, /introductionResult\?\.sent/);
+  assert.match(page, /Introduction email sent to/);
+  assert.match(page, /introduction email was not sent/);
 });
