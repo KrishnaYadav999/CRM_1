@@ -662,6 +662,17 @@ function readAssignedServiceId(service = {}) {
   return String(service.assignedServiceId || service.serviceAssignmentId || service.assignmentId || '').trim();
 }
 
+function getClientRecordAssignedServiceIds(item = {}) {
+  const data = readClientData(item);
+  // IDs on a populated Lead describe every service on that lead; they are not
+  // identities of this individual Client Master document.
+  return [...new Set([
+    item.assignedServiceId,
+    data.assignedServiceId,
+    data.selectedLeadSnapshot?.assignedServiceId
+  ].map(normalizeDraftKey).filter(Boolean))];
+}
+
 function clientMasterServiceFingerprint(service = {}) {
   const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   return [
@@ -1274,14 +1285,7 @@ export default function ClientMaster() {
     ].map(normalizeDraftKey).filter(Boolean);
     const matchedClient = clients.find((item) => {
       const data = readClientData(item);
-      const itemAssignedServiceCandidates = [
-        item.assignedServiceId,
-        data.assignedServiceId,
-        data.selectedLeadSnapshot?.assignedServiceId,
-        typeof item.selectedLead === 'object' && item.selectedLead?.serviceSelections
-          ? item.selectedLead.serviceSelections.map((s) => s.assignedServiceId || s.serviceAssignmentId || s.assignmentId || '').filter(Boolean)
-          : []
-      ].flat().map(normalizeDraftKey).filter(Boolean);
+      const itemAssignedServiceCandidates = getClientRecordAssignedServiceIds(item);
       const itemHasMatchingServiceId = itemAssignedServiceCandidates.some((candidate) => candidate && candidate === assignedServiceId);
       if (assignedServiceId) {
         if (itemHasMatchingServiceId) {

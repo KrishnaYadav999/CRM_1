@@ -33,6 +33,12 @@ test('legacy multi-service Client Master records remain separate and receive dro
   assert.match(controller, /designation serviceSelections addresses contacts assignments/);
 });
 
+test('Add Client draft lookup never treats populated Lead service ids as record identity', () => {
+  const lookup = page.slice(page.indexOf('function findClientDraftForLead'), page.indexOf('function handleLeadSelect'));
+  assert.match(lookup, /getClientRecordAssignedServiceIds\(item\)/);
+  assert.doesNotMatch(lookup, /item\.selectedLead\.serviceSelections/);
+});
+
 test('Client Master service chooser removes business-identical duplicate services', () => {
   assert.match(page, /function clientMasterServiceFingerprint\(service = \{\}\)/);
   assert.match(page, /function uniqueClientMasterServices\(services = \[\]\)/);

@@ -9,9 +9,44 @@ const helperSource = page.slice(
   page.indexOf('function readAssignedServiceId'),
   page.indexOf('export default function ClientMaster')
 );
-const context = { result: null };
-vm.runInNewContext(`${helperSource}\nresult = activateAssignedService;`, context);
-const activateAssignedService = context.result;
+const context = {
+  result: null,
+  readClientData: (item) => item?.data || {},
+  normalizeDraftKey: (value) => String(value || '').trim().toLowerCase()
+};
+vm.runInNewContext(`${helperSource}\nresult = { activateAssignedService, getClientRecordAssignedServiceIds };`, context);
+const { activateAssignedService, getClientRecordAssignedServiceIds } = context.result;
+
+test('Add Client search ignores service ids belonging to the populated Lead', () => {
+  const record = {
+    assignedServiceId: '',
+    selectedLead: {
+      _id: '6a7427653e6eb1b90295f6d0',
+      serviceSelections: [
+        { assignedServiceId: 'service-brand-owner' },
+        { assignedServiceId: 'service-importer' }
+      ]
+    },
+    data: {
+      basic: { piboCategory: 'Brand Owner' },
+      selectedLeadSnapshot: { piboCategory: 'Brand Owner' }
+    }
+  };
+
+  assert.equal(getClientRecordAssignedServiceIds(record).length, 0);
+});
+
+test('Add Client search retains only the individual Client Master assignment', () => {
+  const record = {
+    assignedServiceId: 'service-importer',
+    selectedLead: {
+      serviceSelections: [{ assignedServiceId: 'service-brand-owner' }]
+    },
+    data: { assignedServiceId: 'service-importer' }
+  };
+
+  assert.equal(getClientRecordAssignedServiceIds(record).join(','), 'service-importer');
+});
 
 test('ADF Foods Brand Owner and Importer resolve independent CPCB credentials', () => {
   const leadId = '6a7427653e6eb1b90295f6d0';
