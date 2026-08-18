@@ -46,9 +46,23 @@ test('lead introduction uses an inline email-safe PNG logo', () => {
   assert.equal(logo.content.subarray(1, 4).toString(), 'PNG');
 });
 
-test('lead introduction CC contains only the original generator and never admins', () => {
-  assert.deepEqual(getIntroductionCc('Creator@Example.com', ['client@example.com']), ['creator@example.com']);
-  assert.deepEqual(getIntroductionCc('client@example.com', ['client@example.com']), []);
+test('lead introduction CC contains the original generator and every unique Super Admin', () => {
+  assert.deepEqual(
+    getIntroductionCc(
+      'Creator@Example.com',
+      ['client@example.com', 'existing-admin@example.com'],
+      ['SuperAdmin@Example.com', 'creator@example.com', 'existing-admin@example.com', 'invalid']
+    ),
+    ['creator@example.com', 'superadmin@example.com']
+  );
+  assert.deepEqual(getIntroductionCc('client@example.com', ['client@example.com'], []), []);
+});
+
+test('lead introduction queries active Super Admin recipients for CC', () => {
+  const service = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/services/leadIntroductionEmail.js'), 'utf8');
+  assert.match(service, /role: 'superadmin'/);
+  assert.match(service, /isActive: \{ \$ne: false \}/);
+  assert.match(service, /superAdmins\.map\(\(user\) => user\.email\)/);
 });
 
 test('lead introduction is addressed to unique customer contact emails', () => {

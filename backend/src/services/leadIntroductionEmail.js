@@ -86,9 +86,12 @@ function getLeadEmailRecipients(lead = {}) {
     .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))];
 }
 
-function getIntroductionCc(creatorEmail, recipients = []) {
-  const email = String(creatorEmail || '').trim().toLowerCase();
-  return email && !recipients.includes(email) ? [email] : [];
+function getIntroductionCc(creatorEmail, recipients = [], superAdminEmails = []) {
+  const recipientSet = new Set(recipients.map((email) => String(email || '').trim().toLowerCase()));
+  return [...new Set([creatorEmail, ...superAdminEmails]
+    .map((email) => String(email || '').trim().toLowerCase())
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))]
+    .filter((email) => !recipientSet.has(email));
 }
 
 async function sendLeadIntroductionEmail({ lead, creator }) {
@@ -97,10 +100,13 @@ async function sendLeadIntroductionEmail({ lead, creator }) {
   const originalCreator = lead?.createdBy
     ? await User.findById(lead.createdBy).select('email').lean().catch(() => null)
     : null;
+  const superAdmins = await User.find({
+    role: 'superadmin',
+    isActive: { $ne: false },
+    email: { $nin: ['', null] }
+  }).select('email').lean();
   const creatorEmail = String(originalCreator?.email || lead?.createdByEmail || creator?.email || '').trim().toLowerCase();
-  // Only the person who originally generated the lead is copied. Admin and
-  // Super Admin addresses are intentionally excluded from introduction mail.
-  const cc = getIntroductionCc(creatorEmail, recipients);
+  const cc = getIntroductionCc(creatorEmail, recipients, superAdmins.map((user) => user.email));
   const content = buildLeadIntroductionEmail(lead);
   await sendMail(recipients, content.subject, content.html, {
     branded: false,
