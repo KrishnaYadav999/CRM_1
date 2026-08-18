@@ -16,11 +16,13 @@ test('Other User lead ownership is persisted separately from the actual creator'
   assert.match(controller, /populate\('generatedForUser', 'name email'\)/);
 });
 
-test('Lead staff filter matches current, generated-for, assignment and legacy owner identities', () => {
+test('Lead staff filter uses Sales MIS creator ownership with assignment fallback', () => {
   const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
   assert.match(controller, /populate\('generatedForUser', 'name email crmUserId'\)/);
   assert.match(page, /function leadStaffIdentityTokens/);
+  assert.match(page, /const creatorTokens = personIdentityTokens/);
+  assert.match(page, /if \(creatorTokens\.length\) return creatorTokens/);
   assert.match(page, /item\.generatedForUser, item\.generatedForName, item\.generatedForEmail/);
   assert.match(page, /Array\.isArray\(item\.assignments\)/);
   assert.match(page, /Array\.isArray\(item\.serviceSelections\)/);

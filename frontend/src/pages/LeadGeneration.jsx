@@ -4909,26 +4909,26 @@ function personIdentityTokens(...values) {
 }
 
 function leadStaffIdentityTokens(item = {}) {
-  const tokens = personIdentityTokens(
+  const creatorTokens = personIdentityTokens(
+    item.createdBy, item.createdByCrmUserId, item.createdByName, item.createdByEmail, item.importedCreatedBy
+  );
+  if (creatorTokens.length) return creatorTokens;
+
+  const fallbackTokens = personIdentityTokens(
     item.assignedTo, item.assignedToText, item.assignedToEmail,
     item.assignedStaff, item.assignedStaffText, item.assignedStaffEmail,
     item.generatedForUser, item.generatedForName, item.generatedForEmail
   );
   (Array.isArray(item.assignments) ? item.assignments : []).forEach((assignment) => {
-    tokens.push(...personIdentityTokens(
+    fallbackTokens.push(...personIdentityTokens(
       assignment.assignedTo, assignment.assignedToText, assignment.assignedToEmail,
       assignment.assignedStaff, assignment.assignedStaffText, assignment.assignedStaffEmail
     ));
   });
   (Array.isArray(item.serviceSelections) ? item.serviceSelections : []).forEach((service) => {
-    tokens.push(...personIdentityTokens(service.createdByCrmUserId, service.createdByName, service.createdByEmail));
+    fallbackTokens.push(...personIdentityTokens(service.createdByCrmUserId, service.createdByName, service.createdByEmail));
   });
-  if (!tokens.length) {
-    tokens.push(...personIdentityTokens(
-      item.createdBy, item.createdByCrmUserId, item.createdByName, item.createdByEmail, item.importedCreatedBy
-    ));
-  }
-  return [...new Set(tokens)];
+  return [...new Set(fallbackTokens)];
 }
 
 function compareLeadCode(a, b) {
