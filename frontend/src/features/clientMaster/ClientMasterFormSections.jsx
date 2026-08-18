@@ -115,8 +115,7 @@ function TableInput({ value, onChange, placeholder = '', type = 'text', options 
         <PremiumDatePicker
           value={value || ''}
           onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder || 'YYYY/MM/DD'}
-          displayFormat="yyyy/mm/dd"
+          placeholder={placeholder || 'DD/MM/YYYY'}
         />
       </div>
     );
@@ -338,8 +337,8 @@ function CteTab({ client, setValue, selectOptions }) {
               columns={[
                 { key: 'cteConsentNo', label: 'CTE Consent No.', placeholder: 'Enter consent no.' },
                 { key: 'cteCategory', label: 'CTE Category', placeholder: 'Enter category' },
-                { key: 'cteIssuedDate', label: 'CTE Issued Year', placeholder: 'YYYY/MM/DD', type: 'date' },
-                { key: 'cteValidDate', label: 'CTE Valid Upto', placeholder: 'YYYY/MM/DD', type: 'date' },
+                { key: 'cteIssuedDate', label: 'CTE Issued Year', placeholder: 'DD/MM/YYYY', type: 'date' },
+                { key: 'cteValidDate', label: 'CTE Valid Upto', placeholder: 'DD/MM/YYYY', type: 'date' },
                 { key: 'plantLocation', label: 'Plant Location', placeholder: 'Enter location' },
                 { key: 'cteDocument', label: 'CTE Document Upload', type: 'file' }
               ]}
@@ -364,8 +363,8 @@ function CteTab({ client, setValue, selectOptions }) {
               plants={plants}
               columns={[
                 { key: 'ctoOrderNo', label: 'CTO/CCA Consent Order No.', placeholder: 'Enter order no.' },
-                { key: 'ctoIssueDate', label: 'CTO/CCA Date of Issue', placeholder: 'YYYY/MM/DD', type: 'date' },
-                { key: 'ctoValidDate', label: 'CTO/CCA Valid Upto', placeholder: 'YYYY/MM/DD', type: 'date' },
+                { key: 'ctoIssueDate', label: 'CTO/CCA Date of Issue', placeholder: 'DD/MM/YYYY', type: 'date' },
+                { key: 'ctoValidDate', label: 'CTO/CCA Valid Upto', placeholder: 'DD/MM/YYYY', type: 'date' },
                 { key: 'ctoDocument', label: 'CTO/CCA Document Upload', type: 'file' }
               ]}
               onPlantChange={updatePlant}

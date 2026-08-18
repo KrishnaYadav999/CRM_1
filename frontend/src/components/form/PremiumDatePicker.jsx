@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-const DISPLAY_FORMATTER = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 const MONTHS = Array.from({ length: 12 }, (_, month) => new Intl.DateTimeFormat('en-IN', { month: 'long' }).format(new Date(2000, month, 1)));
 
 function parseDate(value) {
@@ -21,23 +20,29 @@ function dateKey(date) {
 }
 
 function parseManualDate(value) {
-  const match = String(value || '').trim().match(/^(\d{4})[\/-](\d{2})[\/-](\d{2})$/);
+  const match = String(value || '').trim().match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
   if (!match) return null;
-  const [, year, month, day] = match;
+  const [, day, month, year] = match;
   const date = parseDate(`${year}-${month}-${day}`);
   return date && dateKey(date) === `${year}-${month}-${day}` ? date : null;
 }
 
-export default function PremiumDatePicker({ value = '', onChange, disabled = false, readOnly = false, className = '', placeholder = 'Select date', min, max, displayFormat = 'default', 'aria-label': ariaLabel }) {
+function manualDateValue(value) {
+  const date = parseDate(value);
+  if (!date) return '';
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+export default function PremiumDatePicker({ value = '', onChange, disabled = false, readOnly = false, className = '', placeholder = 'Select date', min, max, 'aria-label': ariaLabel }) {
   const selected = parseDate(value);
   const [open, setOpen] = useState(false);
-  const [manualValue, setManualValue] = useState(value ? value.replaceAll('-', '/') : '');
+  const [manualValue, setManualValue] = useState(manualDateValue(value));
   const [viewDate, setViewDate] = useState(selected || new Date());
   const [position, setPosition] = useState({ top: 0, left: 0, width: 320 });
   const triggerRef = useRef(null);
   const popupRef = useRef(null);
 
-  useEffect(() => { if (selected) setViewDate(selected); setManualValue(value ? value.replaceAll('-', '/') : ''); }, [value]);
+  useEffect(() => { if (selected) setViewDate(selected); setManualValue(manualDateValue(value)); }, [value]);
   useEffect(() => {
     if (!open) return undefined;
     const close = (event) => {
@@ -85,9 +90,9 @@ export default function PremiumDatePicker({ value = '', onChange, disabled = fal
   const commitManualValue = () => {
     if (!manualValue.trim()) { onChange?.({ target: { value: '' } }); return; }
     const date = parseManualDate(manualValue);
-    if (!date) { setManualValue(value ? value.replaceAll('-', '/') : ''); return; }
+    if (!date) { setManualValue(manualDateValue(value)); return; }
     const key = dateKey(date);
-    if ((min && key < min) || (max && key > max)) { setManualValue(value ? value.replaceAll('-', '/') : ''); return; }
+    if ((min && key < min) || (max && key > max)) { setManualValue(manualDateValue(value)); return; }
     onChange?.({ target: { value: key } });
   };
 
@@ -137,7 +142,7 @@ export default function PremiumDatePicker({ value = '', onChange, disabled = fal
   return <>
     <div ref={triggerRef} aria-expanded={open} className={`premium-date-trigger ${value ? 'has-value' : ''} ${disabled ? 'is-disabled' : ''} ${className}`.trim()}>
       <button type="button" className="premium-date-trigger__icon" aria-label={`Open ${ariaLabel || placeholder} calendar`} disabled={disabled || readOnly} onClick={() => setOpen((current) => !current)}><CalendarDays /></button>
-      <label className="premium-date-trigger__copy"><small>{value ? 'Selected date' : 'Date'} · type YYYY/MM/DD</small><input aria-label={ariaLabel || placeholder} inputMode="numeric" placeholder="YYYY/MM/DD" value={manualValue} disabled={disabled} readOnly={readOnly} onChange={(event) => setManualValue(event.target.value.replace(/[^\d/-]/g, '').slice(0, 10))} onBlur={commitManualValue} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commitManualValue(); event.currentTarget.blur(); } }} /></label>
+      <label className="premium-date-trigger__copy"><small>{value ? 'Selected date' : 'Date'} · type DD/MM/YYYY</small><input aria-label={ariaLabel || placeholder} inputMode="numeric" placeholder="DD/MM/YYYY" value={manualValue} disabled={disabled} readOnly={readOnly} onChange={(event) => setManualValue(event.target.value.replace(/[^\d/-]/g, '').slice(0, 10))} onBlur={commitManualValue} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commitManualValue(); event.currentTarget.blur(); } }} /></label>
       <button type="button" className="premium-date-trigger__chevron" aria-label="Toggle calendar" disabled={disabled || readOnly} onClick={() => setOpen((current) => !current)}><ChevronRight className={open ? 'is-open' : ''} /></button>
     </div>
     {popup}
