@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { analyzeClientMasterData, buildUserProductivityReport, clientSectionAnalysis, productivityScore } = require('../src/services/userProductivityReport');
+const { analyzeClientMasterData, buildUserProductivityReport, clientSectionAnalysis, getClientApplicantIdentity, productivityScore } = require('../src/services/userProductivityReport');
 
 function user(id, name) {
   return { _id: id, name, email: `${name.toLowerCase()}@example.com`, role: 'operation', isActive: true, lastLogin: new Date('2026-08-08T04:30:00.000Z') };
@@ -137,9 +137,28 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   assert.match(page, /Next Action/);
   assert.match(page, /Owner/);
   assert.match(page, /Client Master Analysis/);
+  assert.match(page, /Applicant:/);
+  assert.match(page, /Sub-applicant:/);
+  assert.match(page, /\["all","draft","submitted"\]/);
   assert.match(page, /Filled vs Missing Data/);
   assert.match(page, /Section-wise Completion/);
   assert.match(page, /Manager Team/);
+});
+
+test('Client Master rows resolve applicant identity from current and legacy records', () => {
+  const current = getClientApplicantIdentity({
+    client: { assignedServiceId: 'svc-brand', data: { basic: { piboCategory: 'Brand Owner' }, selectedLeadSnapshot: { assignedServiceId: 'svc-brand' } } },
+    lead: { applicantType: 'PIBO', serviceSelections: [
+      { assignedServiceId: 'svc-import', applicantType: 'PIBO', subApplicantType: 'Importer' },
+      { assignedServiceId: 'svc-brand', applicantType: 'PIBO', subApplicantType: 'Brand Owner' }
+    ] }
+  });
+  assert.deepEqual(current, { applicantType: 'PIBO', subApplicantType: 'Brand Owner' });
+
+  const legacy = getClientApplicantIdentity({
+    client: { data: { basic: { piboCategory: 'Importer' }, selectedLeadSnapshot: { piboParent: 'PIBO' } } }
+  });
+  assert.deepEqual(legacy, { applicantType: 'PIBO', subApplicantType: 'Importer' });
 });
 
 test('full company analysis covers every Client Master section and respects applicability', () => {

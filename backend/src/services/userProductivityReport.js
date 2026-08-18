@@ -245,6 +245,22 @@ function companyNameFor({ lead, client }) {
   return client?.data?.basic?.clientLegalName || client?.data?.basic?.tradeName || lead?.company || 'Unnamed Company';
 }
 
+function getClientApplicantIdentity({ client = {}, lead = {} } = {}) {
+  const data = client.data || {};
+  const snapshot = data.selectedLeadSnapshot || {};
+  const services = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
+  const assignedServiceId = String(client.assignedServiceId || data.assignedServiceId || snapshot.assignedServiceId || '').trim();
+  const basicSubApplicant = String(data.basic?.piboCategory || '').trim().toLowerCase();
+  const service = services.find((item) => assignedServiceId && String(item.assignedServiceId || item.serviceAssignmentId || item.id || '').trim() === assignedServiceId)
+    || services.find((item) => basicSubApplicant && String(item.subApplicantType || item.piboCategory || '').trim().toLowerCase() === basicSubApplicant)
+    || (services.length === 1 ? services[0] : {});
+  const firstText = (...values) => String(values.find((value) => String(value || '').trim()) || '').trim();
+  return {
+    applicantType: firstText(snapshot.applicantType, snapshot.piboParent, service.applicantType, service.piboParent, data.basic?.applicantType, client.applicantType, lead.applicantType),
+    subApplicantType: firstText(snapshot.subApplicantType, snapshot.piboCategory, data.basic?.piboCategory, service.subApplicantType, service.piboCategory, client.subApplicantType, client.piboCategory, lead.subApplicantType, lead.piboCategory)
+  };
+}
+
 function analyzeClientMasterData(data = {}) {
   const entries = [];
   const filled = (value) => Array.isArray(value) ? value.length > 0 : value && typeof value === 'object' ? Boolean(value.url || value.secureUrl || value.dataUrl || value.path || value.publicId || value.name || value.fileName) : value !== undefined && value !== null && String(value).trim() !== '';
@@ -283,8 +299,8 @@ async function getUserWorkReport({ userId, from, to }) {
   const teamUsers = /manager/i.test(String(user.role || '')) ? await User.find({ managerId: userId, isActive: { $ne: false } }).select('name email role team').sort({ name: 1 }).lean() : [];
   const teamIds = teamUsers.map((member) => member._id);
   const [leads, clients] = await Promise.all([
-    Lead.find({ createdBy: userId, createdAt }).select('leadCode company companyIdentity status workflowStatus serviceSelections servicesOffered eprCategory applicantType assignments nextFollowUpDate nextFollowUpTime followUpRemarks followUpPriority followUpFlag followUpHistory closedBy closedByText closedAt createdByName createdAt updatedAt').sort({ createdAt: -1 }).lean(),
-    Client.find({ createdBy: userId, createdAt }).select('selectedLead assignedServiceId companyIdentity data workflowStatus adminControls createdAt updatedAt').sort({ updatedAt: -1 }).lean()
+    Lead.find({ createdBy: userId, createdAt }).select('leadCode company companyIdentity status workflowStatus serviceSelections servicesOffered eprCategory applicantType subApplicantType piboCategory assignments nextFollowUpDate nextFollowUpTime followUpRemarks followUpPriority followUpFlag followUpHistory closedBy closedByText closedAt createdByName createdAt updatedAt').sort({ createdAt: -1 }).lean(),
+    Client.find({ createdBy: userId, createdAt }).select('selectedLead assignedServiceId companyIdentity applicantType subApplicantType piboCategory data workflowStatus adminControls createdAt updatedAt').sort({ updatedAt: -1 }).lean()
   ]);
   const [teamLeads, teamClients] = teamIds.length ? await Promise.all([
     Lead.find({ createdBy: { $in: teamIds }, createdAt }).select('createdBy closedBy closedByText closedAt status').lean(),
@@ -301,11 +317,12 @@ async function getUserWorkReport({ userId, from, to }) {
   const latestClients = [...new Map([...clients].sort((left, right) => new Date(left.updatedAt || left.createdAt || 0) - new Date(right.updatedAt || right.createdAt || 0)).map((client) => [`${String(client.selectedLead || client._id)}:${String(client.assignedServiceId || client.data?.assignedServiceId || '')}`, client])).values()];
   const clientRows = latestClients.map((client) => {
     const lead = leadById.get(String(client.selectedLead || ''));
+    const applicantIdentity = getClientApplicantIdentity({ client, lead });
     const required = analyzeClientMasterData(client.data || {});
     const sections = required.sections;
     const filled = required.filledCount;
     const total = required.totalCount;
-    return { id: client._id, leadId: client.selectedLead, leadCode: lead?.leadCode || '', company: companyNameFor({ lead, client }), status: client.workflowStatus,
+    return { id: client._id, leadId: client.selectedLead, leadCode: lead?.leadCode || '', company: companyNameFor({ lead, client }), status: client.workflowStatus, ...applicantIdentity,
       approvalStatus: client.adminControls?.approvalStatus || '', createdAt: client.createdAt, updatedAt: client.updatedAt,
       analysis: { filled, missing: Math.max(0, total - filled), total, percentage: total ? Math.round((filled / total) * 100) : 0, filledFields: required.filledFields, missingFields: required.missingFields, sections } };
   });
@@ -343,4 +360,4 @@ async function getUserWorkReport({ userId, from, to }) {
     completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows, teamMembers };
 }
 
-module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange };
+module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange, getClientApplicantIdentity };
