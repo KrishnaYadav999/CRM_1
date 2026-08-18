@@ -19,6 +19,7 @@ import {
   ArrowLeft,
   ArrowUpRight,
   BarChart3,
+  Building2,
   BriefcaseBusiness,
   CalendarDays,
   CheckCircle2,
@@ -63,6 +64,7 @@ import { adminRoles, defaultUserForm, roleLabels, roles as defaultRoles } from '
 import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
+import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
 const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v3'
@@ -470,10 +472,20 @@ function buildRedFlagHistory(item = {}, stage = {}) {
 
 function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Missed Action Audit' }) {
   const [selected, setSelected] = useState(null)
+  const [page, setPage] = useState(1)
+  const pageSize = 5
   const rows = useMemo(() => items
     .map((item) => ({ item, stage: getRedFlagStage(item) }))
     .filter((row) => row.stage)
     .sort((a, b) => b.stage.rank - a.stage.rank || getFollowUpDueAt(a.item) - getFollowUpDueAt(b.item)), [items])
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const pagedRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize)
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages))
+  }, [totalPages])
+
   const counts = rows.reduce((result, row) => {
     result[row.stage.key] = (result[row.stage.key] || 0) + 1
     return result
@@ -495,7 +507,7 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
           <table>
             <thead><tr><th>Stage</th><th>Lead / Follow-up</th><th>Assigned User</th><th>Due At</th><th>No-action Reason</th><th>History</th></tr></thead>
             <tbody>
-              {rows.length ? rows.map(({ item, stage }, index) => {
+              {rows.length ? pagedRows.map(({ item, stage }, index) => {
                 const assignee = resolveFollowUpAssignee(item, users)
                 return (
                   <tr key={item.id || item._id || index}>
@@ -511,6 +523,19 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
             </tbody>
           </table>
         </div>
+        {rows.length > pageSize && (
+          <div className="red-flag-pagination">
+            <div className="red-flag-pagination-meta">
+              <strong>{rows.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, rows.length)}</strong>
+              <span>of {rows.length} entries</span>
+            </div>
+            <div className="red-flag-pagination-center">Page {safePage} of {totalPages}</div>
+            <div className="red-flag-pagination-actions">
+              <button type="button" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+              <button type="button" disabled={safePage === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+            </div>
+          </div>
+        )}
       </section>
       <AnimatePresence>
         {selected && (
@@ -2152,6 +2177,104 @@ function getClientDataCompleteness(client = {}) {
     missingFields: checks.filter((item) => !item.filled).map((item) => item.label)
     , filledFields: checks.filter((item) => item.filled).map((item) => item.label)
   }
+}
+
+function OperationMisSection({ rows = [], users = [], teams = [], onOpenFullMis }) {
+  const [query, setQuery] = useState('')
+  const [expandedTeams, setExpandedTeams] = useState(() => new Set())
+  const [downloading, setDownloading] = useState(false)
+
+  const groups = useMemo(() => {
+    const userRows = users.map((user) => {
+      const matchKeys = new Set(getUserMatchKeys(user))
+      const ownedRows = rows.filter((row) => getOperationRowUserKeys(row).some((key) => matchKeys.has(key)))
+      const completion = ownedRows.map((row) => getClientDataCompleteness(row.client))
+      const filled = completion.reduce((sum, item) => sum + item.filled, 0)
+      const total = completion.reduce((sum, item) => sum + item.totalFields, 0)
+      return {
+        id: getUserId(user), name: getUserName(user), email: user.email || '', role: normalizeKey(user.role),
+        clientMasters: ownedRows.length, clientFieldsFilled: filled, clientFieldsMissing: Math.max(0, total - filled),
+        clientCompletionPercentage: percent(filled, total)
+      }
+    })
+    const byId = new Map(userRows.map((row) => [String(row.id), row]))
+    const configured = teams.map((team, index) => {
+      const managerId = String(team.manager?._id || team.manager?.id || team.manager || '')
+      const manager = byId.get(managerId) || null
+      const memberIds = new Set((team.members || []).map((entry) => String(entry?._id || entry?.id || entry)))
+      const members = userRows.filter((row) => memberIds.has(String(row.id)) && String(row.id) !== managerId)
+      const people = [...(manager ? [manager] : []), ...members]
+      const filled = people.reduce((sum, row) => sum + row.clientFieldsFilled, 0)
+      const missing = people.reduce((sum, row) => sum + row.clientFieldsMissing, 0)
+      return { id: String(team._id || team.id || index), name: team.name || `Team ${index + 1}`, manager, members,
+        clientMasters: people.reduce((sum, row) => sum + row.clientMasters, 0), filled, missing, percentage: percent(filled, filled + missing) }
+    })
+    if (configured.length) return configured
+    const managers = userRows.filter((row) => row.role === 'manager')
+    return managers.map((manager, index) => {
+      const source = users.find((user) => String(getUserId(user)) === String(manager.id)) || {}
+      const members = userRows.filter((row) => {
+        const member = users.find((user) => String(getUserId(user)) === String(row.id)) || {}
+        return row.id !== manager.id && userBelongsToManager(member, source)
+      })
+      const people = [manager, ...members]
+      const filled = people.reduce((sum, row) => sum + row.clientFieldsFilled, 0)
+      const missing = people.reduce((sum, row) => sum + row.clientFieldsMissing, 0)
+      return { id: String(manager.id || index), name: manager.name ? `${manager.name}'s Team` : `Team ${index + 1}`, manager, members,
+        clientMasters: people.reduce((sum, row) => sum + row.clientMasters, 0), filled, missing, percentage: percent(filled, filled + missing) }
+    })
+  }, [rows, teams, users])
+
+  const visibleGroups = useMemo(() => {
+    const search = normalizeKey(query)
+    if (!search) return groups
+    return groups.map((group) => ({ ...group, members: group.members.filter((row) => normalizeKey(`${row.name} ${row.email}`).includes(search)) }))
+      .filter((group) => normalizeKey(group.name).includes(search) || normalizeKey(`${group.manager?.name} ${group.manager?.email}`).includes(search) || group.members.length)
+  }, [groups, query])
+  const totals = groups.reduce((sum, group) => ({ clients: sum.clients + group.clientMasters, filled: sum.filled + group.filled, missing: sum.missing + group.missing }), { clients: 0, filled: 0, missing: 0 })
+  const totalCompletion = percent(totals.filled, totals.filled + totals.missing)
+
+  const toggleTeam = (id) => setExpandedTeams((current) => {
+    const next = new Set(current)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      await downloadOperationMisPdf({ groups, period: { from: today, to: today } })
+    } finally { setDownloading(false) }
+  }
+
+  return <section className="operation-mis-card">
+    <header className="operation-mis-header">
+      <div className="operation-mis-heading"><span><Building2 /></span><div><small>Team hierarchy MIS</small><h2>Operation MIS</h2><p>Team → Manager → Users · Client Master data completion analysis</p></div></div>
+      <div className="operation-mis-actions">
+        <label><Search className="h-4 w-4" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search team or user" /></label>
+        <button type="button" onClick={handleDownload} disabled={downloading}><Download className="h-4 w-4" />{downloading ? 'Generating...' : 'Download PDF'}</button>
+        <button type="button" className="primary" onClick={onOpenFullMis}>Full MIS <ArrowUpRight className="h-4 w-4" /></button>
+      </div>
+    </header>
+    <div className="operation-mis-summary">
+      <article><span>Operation teams</span><strong>{groups.length}</strong><small>Configured hierarchy</small></article>
+      <article><span>Client masters</span><strong>{totals.clients}</strong><small>Assigned records</small></article>
+      <article className="filled"><span>Data filled</span><strong>{totals.filled.toLocaleString('en-IN')}</strong><small>Critical fields complete</small></article>
+      <article className="missing"><span>Data missing</span><strong>{totals.missing.toLocaleString('en-IN')}</strong><small>Needs team action</small></article>
+      <article className="completion"><span>Overall completion</span><strong>{totalCompletion}%</strong><div><i style={{ width: `${totalCompletion}%` }} /></div></article>
+    </div>
+    <div className="operation-mis-table-wrap"><table className="operation-mis-table"><thead><tr><th>Team / User</th><th>Level</th><th>Reports to</th><th>Client masters</th><th>Data filled</th><th>Data missing</th><th>Completion</th></tr></thead><tbody>
+      {visibleGroups.flatMap((group) => {
+        const expanded = expandedTeams.has(group.id) || Boolean(query)
+        const people = [...(group.manager ? [group.manager] : []), ...group.members]
+        const teamRow = <tr key={`team-${group.id}`} className="team-row"><td><button type="button" onClick={() => toggleTeam(group.id)} aria-expanded={expanded}><ChevronRight className={expanded ? 'expanded' : ''} /><Building2 /> <strong>{group.name}</strong></button></td><td><em>Team total</em></td><td>{group.manager?.name || 'Not assigned'}</td><td>{group.clientMasters}</td><td>{group.filled.toLocaleString('en-IN')}</td><td>{group.missing.toLocaleString('en-IN')}</td><td><div className="mis-progress"><i style={{ width: `${group.percentage}%` }} /><strong>{group.percentage}%</strong></div></td></tr>
+        const userRows = expanded ? people.map((row) => <tr key={`${group.id}-${row.id}`}><td><div className="mis-user"><span>{row.name?.slice(0, 1).toUpperCase() || 'U'}</span><div><strong>{row.name}</strong><small>{row.email || 'No email'}</small></div></div></td><td><em className={row === group.manager ? 'manager' : 'user'}>{row === group.manager ? 'Manager' : 'User'}</em></td><td>{row === group.manager ? '—' : group.manager?.name || 'Not assigned'}</td><td>{row.clientMasters}</td><td>{row.clientFieldsFilled.toLocaleString('en-IN')}</td><td>{row.clientFieldsMissing.toLocaleString('en-IN')}</td><td><div className="mis-progress user"><i style={{ width: `${row.clientCompletionPercentage}%` }} /><strong>{row.clientCompletionPercentage}%</strong></div></td></tr>) : []
+        return [teamRow, ...userRows]
+      })}
+      {!visibleGroups.length && <tr><td colSpan="7" className="operation-mis-empty">No matching Operations team or user found.</td></tr>}
+    </tbody></table></div>
+    <footer><span><i /> Live Client Master quality view</span><small>Click a team row to view manager and users</small></footer>
+  </section>
 }
 
 function getPiboTypes(value = '') {
@@ -5215,7 +5338,12 @@ export default function AdminDashboard() {
                 onRefresh={() => loadDashboard({ force: true })}
                 onOpenPo={openPoDetails}
               />
-              <RedFlagAuditSection items={operationsFollowUps} users={users} title="Operations Red Flag & Missed Actions" />
+              <OperationMisSection
+                rows={scopedOperationsRows}
+                users={users}
+                teams={teams}
+                onOpenFullMis={() => navigate('/mis')}
+              />
               <div className="operations-hero" style={{ display: 'none' }}>
                 <div className="flex min-w-0 items-center gap-4">
                   <span className="operations-hero-icon"><Activity className="h-6 w-6" /></span>

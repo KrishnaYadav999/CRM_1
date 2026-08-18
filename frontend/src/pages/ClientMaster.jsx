@@ -1853,11 +1853,8 @@ export default function ClientMaster() {
                     className={`client-progress-tab ${active ? 'client-progress-tab-active' : ''} ${complete ? 'client-progress-tab-complete' : ''}`}
                     style={{ '--tab-progress': `${tab.percent}%` }}
                   >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{tab.label}</span>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${active ? 'bg-white/15 text-white' : complete ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-[#30737B]'}`}>
-                      {tab.percent}%
-                    </span>
+                    <span className="client-progress-tab-icon"><Icon className="h-5 w-5" /></span>
+                    <span className="client-progress-tab-copy"><strong>{tab.label}</strong><small>{tab.percent}%</small></span>
                     <span className="client-progress-tab-fill" aria-hidden="true" />
                   </button>
                 );
