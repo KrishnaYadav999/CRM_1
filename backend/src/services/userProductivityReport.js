@@ -205,7 +205,7 @@ async function getUserProductivityReport({ from, to, requester }) {
     reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } })
       .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
     reportQuery('leads', Lead.find(ownerFilter).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
-    reportQuery('clients', Client.find({ ...ownerFilter, workflowStatus: 'submitted', createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus createdAt').maxTimeMS(20000).lean()),
+    reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus createdAt').maxTimeMS(20000).lean()),
     reportQuery('tickets', SupportTicket.aggregate([
       { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },
       { $group: {

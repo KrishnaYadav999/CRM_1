@@ -6604,8 +6604,9 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 @media (max-width: 1180px) { .operation-mis-header { align-items: flex-start; flex-direction: column; }.operation-mis-actions { width: 100%; flex-wrap: wrap; }.operation-mis-actions label { width: min(100%,340px); }.operation-mis-summary { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width: 640px) { .operation-mis-card { margin-top: 16px; border-radius: 16px; }.operation-mis-header { padding: 15px; }.operation-mis-heading p { line-height: 1.5; }.operation-mis-actions label { width: 100%; }.operation-mis-actions button { flex: 1; }.operation-mis-summary { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 12px; }.operation-mis-summary .completion { grid-column: 1/-1; }.operation-mis-card > footer { align-items: flex-start; flex-direction: column; } }
 
-/* Client Master drill-down: filled and required information read top-to-bottom. */
-section:has(> article.border-emerald-200):has(> article.border-orange-200){display:flex!important;flex-direction:column!important}
+/* MIS overview: four cards form a balanced 2 x 2 matrix on tablet/desktop. */
+.mis-overview-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}
+@media(max-width:767px){.mis-overview-grid{grid-template-columns:1fr!important}}
 .red-flag-modal header h2 { margin: 4px 0; color: #0f172a; font-size: 22px; font-weight: 900; }
 .red-flag-modal header p { margin: 0; color: #64748b; font-size: 12px; font-weight: 700; }
 .red-flag-modal header button { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: #fff; color: #64748b; box-shadow: 0 3px 12px rgba(15,23,42,.1); }

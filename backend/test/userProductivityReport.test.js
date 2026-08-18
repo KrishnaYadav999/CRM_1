@@ -69,6 +69,31 @@ test('productivity rows include manager hierarchy and Client Master completion t
   assert.ok(member.clientCompletionPercentage > 0 && member.clientCompletionPercentage < 100);
 });
 
+test('Operation MIS includes draft and submitted Client Masters as separate totals', () => {
+  const report = buildUserProductivityReport({
+    users: [user('operation-1', 'Operation User')],
+    sessions: [], activities: [], leads: [], ticketStats: [],
+    clients: [
+      { createdBy: 'operation-1', workflowStatus: 'draft', data: {} },
+      { createdBy: 'operation-1', workflowStatus: 'draft', data: {} },
+      { createdBy: 'operation-1', workflowStatus: 'submitted', data: {} }
+    ],
+    period: { from: '2026-08-01', to: '2026-08-18' }, now: new Date('2026-08-18T06:00:00.000Z')
+  });
+  const operation = report.users[0];
+  assert.equal(operation.clientMasters, 3);
+  assert.equal(operation.draftClients, 2);
+  assert.equal(operation.submittedClients, 1);
+});
+
+test('Operation MIS database query does not exclude draft Client Masters', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/userProductivityReport.js'), 'utf8');
+  assert.match(source, /Client\.find\(\{ \.\.\.ownerFilter, createdAt:/);
+  assert.doesNotMatch(source, /Client\.find\(\{ \.\.\.ownerFilter, workflowStatus: 'submitted'/);
+});
+
 test('Sales MIS counts complete lead ownership across legacy creator identities', () => {
   const gaurav = { ...user('user-gaurav', 'Gaurav Chandra'), crmUserId: 'CRM-42', email: 'gaurav@example.com', role: 'sales' };
   const leads = [
