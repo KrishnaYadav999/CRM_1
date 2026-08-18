@@ -24,7 +24,7 @@ test('announcements allow an optional image and email every active CRM user', ()
   assert.doesNotMatch(page, /modalMode === 'create' && !draft\.attachmentUrl/);
   assert.match(page, /Submit Announcement/);
   assert.match(controller, /Official CRM Announcement/);
-  assert.match(controller, /ANANTTATTVA e-Connect/);
+  assert.match(controller, /ANANTTATTVA CRM/);
   assert.match(controller, /\^https:\\\/\\\//);
   const contacts = read('../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx');
   assert.match(contacts, /title="Authorised Person"/);

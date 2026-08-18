@@ -251,7 +251,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
               </span>
               <span className="min-w-0 text-left leading-none">
                 <strong className="block whitespace-nowrap text-lg font-black tracking-wide text-orange-600">ANANTTATTVA</strong>
-                <small className="mt-1.5 block whitespace-nowrap text-xs font-black tracking-[.08em] text-slate-700">e-Connect</small>
+                <small className="mt-1.5 block whitespace-nowrap text-xs font-black tracking-[.08em] text-slate-700">CRM</small>
               </span>
             </span>
           </button>
