@@ -570,19 +570,27 @@ function getRelatedClientServices(clients = [], selectedClient = null) {
     service.eprCategory,
     service.servicesOffered
   ].map(normalize).filter(Boolean).join(':');
-  const clientFingerprint = (item = {}) => {
-    const data = readClientData(item);
-    return [data.basic?.piboCategory, data.basic?.eprCategory, data.basic?.servicesOffered].map(normalize).filter(Boolean).join(':');
-  };
-
   return services.map((service, index) => {
     const assignedServiceId = readAssignedServiceId(service);
-    const matched = clientRows.find((item) => {
+    const exactMatches = clientRows.filter((item) => {
       const data = readClientData(item);
       const itemServiceId = String(item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
-      return (assignedServiceId && itemServiceId === assignedServiceId) || clientFingerprint(item) === serviceFingerprint(service);
+      return Boolean(assignedServiceId && itemServiceId && itemServiceId === assignedServiceId);
     });
-    const source = matched || selectedClient;
+    const legacyMatches = exactMatches.length ? [] : clientRows.filter((item) => {
+      const data = readClientData(item);
+      const itemServiceId = String(item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
+      return !itemServiceId && legacyServiceFingerprintCompatible({
+        ...data.selectedLeadSnapshot,
+        eprCategory: data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory,
+        subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory,
+        servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered
+      }, service);
+    });
+    const matched = exactMatches[0] || (legacyMatches.length === 1 ? legacyMatches[0] : null);
+    // An unpersisted lead service must not inherit another service's Client
+    // Master document merely because both services belong to the same lead.
+    const source = matched || { selectedLead: populatedLead, data: {} };
     const sourceData = readClientData(source);
     const activeData = activateAssignedService(sourceData, service, services.length);
     return {
@@ -761,7 +769,6 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
   const useFallback = (scoped, hasScoped, hasData, dataFallback, leadFallback) => {
     if (scoped && hasScoped) return scoped;
     if (allowLegacy && hasData) return dataFallback;
-    if (hasData) return dataFallback;
     return leadFallback;
   };
   const servicePibo = String(service.subApplicantType || service.piboCategory || '').trim();
@@ -793,7 +800,7 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
     ),
     otpContacts: scopedDetails?.otpContacts && Array.isArray(scopedDetails.otpContacts) && scopedDetails.otpContacts.length
       ? scopedDetails.otpContacts
-      : (Array.isArray(data.otpContacts) && data.otpContacts.length ? data.otpContacts : []),
+      : (allowLegacy && Array.isArray(data.otpContacts) && data.otpContacts.length ? data.otpContacts : []),
     authorised: useFallback(
       scopedDetails?.authorised,
       hasScopedAuth,
@@ -803,7 +810,7 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
     ),
     authorisedPersons: scopedDetails?.authorisedPersons && Array.isArray(scopedDetails.authorisedPersons) && scopedDetails.authorisedPersons.length
       ? scopedDetails.authorisedPersons
-      : (Array.isArray(data.authorisedPersons) && data.authorisedPersons.length ? data.authorisedPersons : []),
+      : (allowLegacy && Array.isArray(data.authorisedPersons) && data.authorisedPersons.length ? data.authorisedPersons : []),
     coordinating: useFallback(
       scopedDetails?.coordinating,
       hasScopedCoord,
@@ -813,17 +820,17 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
     ),
     coordinatingPersons: scopedDetails?.coordinatingPersons && Array.isArray(scopedDetails.coordinatingPersons) && scopedDetails.coordinatingPersons.length
       ? scopedDetails.coordinatingPersons
-      : (Array.isArray(data.coordinatingPersons) && data.coordinatingPersons.length ? data.coordinatingPersons : []),
+      : (allowLegacy && Array.isArray(data.coordinatingPersons) && data.coordinatingPersons.length ? data.coordinatingPersons : []),
     cpcb: hasScopedCpcb
       ? { linkedToCommonPortal: '', ...(scoped.cpcb || scoped.details || {}) }
-      : hasDataCpcb
+      : allowLegacy && hasDataCpcb
         ? { linkedToCommonPortal: '', ...(data.cpcb || {}) }
-        : (allowLegacy ? { linkedToCommonPortal: '', ...(data.cpcb || {}) } : { linkedToCommonPortal: '' }),
+        : { linkedToCommonPortal: '' },
     cpcbScreenshots: hasScopedScreenshots
       ? (Array.isArray(scoped.cpcbScreenshots) ? scoped.cpcbScreenshots : (Array.isArray(scoped.documents) ? scoped.documents : []))
-      : hasDataScreenshots
+      : allowLegacy && hasDataScreenshots
         ? data.cpcbScreenshots
-        : (allowLegacy && Array.isArray(data.cpcbScreenshots) ? data.cpcbScreenshots : []),
+        : [],
     basic: {
       ...(data.basic || {}),
       clientLegalName: String(data.basic?.clientLegalName || '').trim() || String(data.companyOverview?.companyName || '').trim(),
@@ -845,12 +852,14 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
       businessCategory: service.businessCategory || (data.selectedLeadSnapshot?.businessCategory ?? ''),
       applicantType: service.applicantType || (data.selectedLeadSnapshot?.applicantType ?? '')
     },
-    compliance: data.compliance || {},
-    msmeRows: Array.isArray(data.msmeRows) ? data.msmeRows : [],
-    cte: data.cte || { numberOfPlantsLocations: '', plantWiseDetails: [] },
-    companyOverview: data.companyOverview || {},
-    cpcbScreenshotFiles: Array.isArray(data.cpcbScreenshots) ? data.cpcbScreenshots : [],
-    processDiagrams: Array.isArray(data.processDiagrams) ? data.processDiagrams : []
+    compliance: allowLegacy ? (data.compliance || {}) : {},
+    msmeRows: allowLegacy && Array.isArray(data.msmeRows) ? data.msmeRows : [],
+    cte: allowLegacy ? (data.cte || { numberOfPlantsLocations: '', plantWiseDetails: [] }) : { numberOfPlantsLocations: '', plantWiseDetails: [] },
+    companyOverview: allowLegacy ? (data.companyOverview || {}) : {},
+    cpcbScreenshotFiles: hasScopedScreenshots
+      ? (Array.isArray(scoped.cpcbScreenshots) ? scoped.cpcbScreenshots : (Array.isArray(scoped.documents) ? scoped.documents : []))
+      : (allowLegacy && Array.isArray(data.cpcbScreenshots) ? data.cpcbScreenshots : []),
+    processDiagrams: allowLegacy && Array.isArray(data.processDiagrams) ? data.processDiagrams : []
   };
 }
 
@@ -959,6 +968,7 @@ export default function ClientMaster() {
   const [client, setClient] = useState(emptyClient);
   const [editingClientId, setEditingClientId] = useState('');
   const [viewClient, setViewClient] = useState(null);
+  const [viewLoading, setViewLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('companyOverview');
   const [viewMode, setViewMode] = useState('list');
   const [pendingLeadServices, setPendingLeadServices] = useState(null);
@@ -973,6 +983,7 @@ export default function ClientMaster() {
   const navigate = useNavigate();
   const location = useLocation();
   const pendingApprovalLeadHandled = useRef('');
+  const clientRecordRequestRef = useRef(0);
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
 
@@ -1035,7 +1046,7 @@ export default function ClientMaster() {
         annualYears: getSavedAnnualYearLabels(readClientData(matchedClient))
       });
       setViewMode('list');
-      setViewClient(matchedClient);
+      openClientView(matchedClient);
       return;
     }
     const normalizedRouteKey = normalizeAnnualClientKey(decodeURIComponent(routeClientKey));
@@ -1585,10 +1596,49 @@ export default function ClientMaster() {
     setViewMode('form');
   }
 
-  function openClientEdit(item) {
+  async function fetchExactClientMaster(item, requestId) {
+    const clientMasterId = String(item?._id || item?.id || '').trim();
+    if (!/^[a-f\d]{24}$/i.test(clientMasterId)) return item;
+    const itemData = readClientData(item);
+    const assignedServiceId = String(item?.assignedServiceId || itemData.assignedServiceId || itemData.selectedLeadSnapshot?.assignedServiceId || '').trim();
+    const response = await api.get(API_ENDPOINTS.clients.detail(clientMasterId), {
+      params: assignedServiceId ? { assignedServiceId } : undefined
+    });
+    if (requestId !== clientRecordRequestRef.current) return null;
+    const exactClient = response.data?.client || response.data?.data?.client || response.data?.data;
+    if (!exactClient || typeof exactClient !== 'object') return exactClient;
+    const exactData = readClientData(exactClient);
+    const storedAssignedServiceId = String(exactClient.assignedServiceId || exactData.assignedServiceId || exactData.selectedLeadSnapshot?.assignedServiceId || '').trim();
+    return {
+      ...exactClient,
+      _serviceViewKey: item?._serviceViewKey || assignedServiceId || storedAssignedServiceId || clientMasterId,
+      activeAssignedServiceId: assignedServiceId || storedAssignedServiceId,
+      assignedServiceId: storedAssignedServiceId || assignedServiceId
+    };
+  }
+
+  async function openClientView(item) {
+    const requestId = ++clientRecordRequestRef.current;
+    setViewClient(null);
+    setViewLoading(true);
+    setError('');
+    try {
+      const exactClient = await fetchExactClientMaster(item, requestId);
+      if (requestId !== clientRecordRequestRef.current || !exactClient) return;
+      setViewClient(exactClient);
+    } catch (err) {
+      if (requestId === clientRecordRequestRef.current) {
+        setError(err?.response?.data?.error || 'Unable to load the selected Client Master record.');
+      }
+    } finally {
+      if (requestId === clientRecordRequestRef.current) setViewLoading(false);
+    }
+  }
+
+  function applyClientEdit(item) {
     const savedData = readClientData(item);
     const idValue = String(item._id || item.id || '').trim();
-    const assignedServiceId = readAssignedServiceId(savedData);
+    const assignedServiceId = String(item.assignedServiceId || readAssignedServiceId(savedData)).trim();
     setClient({
       ...emptyClient,
       ...activateAssignedService(savedData, {
@@ -1611,6 +1661,24 @@ export default function ClientMaster() {
     setError('');
     setNotice('Client Master opened for editing.');
     setViewMode('form');
+  }
+
+  async function openClientEdit(item) {
+    const requestId = ++clientRecordRequestRef.current;
+    setViewClient(null);
+    setViewLoading(true);
+    setError('');
+    try {
+      const exactClient = await fetchExactClientMaster(item, requestId);
+      if (requestId !== clientRecordRequestRef.current || !exactClient) return;
+      applyClientEdit(exactClient);
+    } catch (err) {
+      if (requestId === clientRecordRequestRef.current) {
+        setError(err?.response?.data?.error || 'Unable to load the selected Client Master record for editing.');
+      }
+    } finally {
+      if (requestId === clientRecordRequestRef.current) setViewLoading(false);
+    }
   }
 
   function openClientTab(tabId) {
@@ -1961,7 +2029,9 @@ export default function ClientMaster() {
   }
 
   function closeViewClient() {
+    clientRecordRequestRef.current += 1;
     setViewClient(null);
+    setViewLoading(false);
     if (routeClientKey) navigate('/sales/client-master', { replace: true });
   }
 
@@ -1978,11 +2048,15 @@ export default function ClientMaster() {
   if (viewMode === 'list') {
     return (
       <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
-        {viewClient ? (
+        {viewLoading ? (
+          <div className="grid min-h-[calc(100vh-64px)] place-items-center bg-[#f3f8f6] px-4">
+            <div className="rounded-xl border border-slate-200 bg-white px-6 py-5 text-sm font-black text-[#30737B] shadow-sm">Loading Client Master...</div>
+          </div>
+        ) : viewClient ? (
           <ClientViewModal
             client={viewClient}
             serviceClients={getRelatedClientServices(clients, viewClient)}
-            onServiceChange={setViewClient}
+            onServiceChange={openClientView}
             quotations={quotations}
             proformaInvoices={proformaInvoices}
             staff={staff}
@@ -2001,7 +2075,7 @@ export default function ClientMaster() {
             loading={loading}
             error={error}
             onRefresh={loadPage}
-            onView={setViewClient}
+            onView={openClientView}
             onEdit={openClientEdit}
             canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
             onCreate={openClientForm}

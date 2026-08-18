@@ -328,6 +328,18 @@ function readClientAssignedServiceId(body = {}, data = {}) {
   return String(body.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
 }
 
+function validateClientMasterIdentity(client, { assignedServiceId = '', selectedLead = '' } = {}) {
+  const storedAssignedServiceId = readClientAssignedServiceId(client, client?.data || {});
+  if (assignedServiceId && storedAssignedServiceId && String(assignedServiceId) !== storedAssignedServiceId) {
+    return 'Assigned service does not match this Client Master record';
+  }
+  const storedSelectedLead = String(client?.selectedLead?._id || client?.selectedLead || '').trim();
+  if (selectedLead && storedSelectedLead && String(selectedLead) !== storedSelectedLead) {
+    return 'Selected lead does not match this Client Master record';
+  }
+  return '';
+}
+
 function mergeAssignedServiceCpcbData(existingData = {}, incomingData = {}) {
   return {
     ...incomingData,
@@ -782,6 +794,27 @@ exports.listClients = async (req, res) => {
   res.json({ ok: true, clients });
 };
 
+exports.getClient = async (req, res) => {
+  const clientId = String(req.params.id || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(clientId)) {
+    return res.status(400).json({ error: 'Invalid Client Master ID' });
+  }
+
+  const scope = await getVisibleUserScope(req.user);
+  const client = await Client.findOne({
+    _id: clientId,
+    ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo'])
+  })
+    .populate('selectedLead', 'leadCode company status emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
+    .populate('adminControls.assignedTo', 'name email role avatarUrl');
+
+  if (!client) return res.status(404).json({ error: 'Client Master record not found' });
+  const requestedAssignedServiceId = String(req.query.assignedServiceId || '').trim();
+  const identityError = validateClientMasterIdentity(client, { assignedServiceId: requestedAssignedServiceId });
+  if (identityError) return res.status(409).json({ error: identityError });
+  return res.json({ ok: true, client });
+};
+
 exports.listPendingApprovals = async (req, res) => {
   const startedAt = Date.now();
   const storedFallback = await readStoredPendingApprovals();
@@ -962,6 +995,9 @@ exports.updateClient = async (req, res) => {
 
   const client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
+
+  const identityError = validateClientMasterIdentity(client, { assignedServiceId, selectedLead });
+  if (identityError) return res.status(409).json({ error: identityError });
 
   const canApproveClient = CLIENT_APPROVAL_ROLES.includes(String(req.user?.role || '').trim().toLowerCase());
   const existingApprovalStatus = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
@@ -1384,5 +1420,6 @@ exports.approveAllPendingClients = async (req, res) => {
 
 exports.__test = {
   buildClientApprovalPayload,
-  mergeAssignedServiceCpcbData
+  mergeAssignedServiceCpcbData,
+  validateClientMasterIdentity
 };

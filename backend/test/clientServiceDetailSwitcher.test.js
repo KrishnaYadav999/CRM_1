@@ -11,6 +11,16 @@ test('Client Master detail can switch between records for multiple assigned serv
   assert.match(page, /View Assigned Service/);
   assert.match(page, /onServiceChange\?\.\(selected\)/);
   assert.match(page, /getClientServiceOptionLabel\(item, index\)/);
+  assert.match(page, /api\.get\(API_ENDPOINTS\.clients\.detail\(clientMasterId\)/);
+  assert.match(page, /requestId !== clientRecordRequestRef\.current/);
+  assert.match(page, /onServiceChange=\{openClientView\}/);
+});
+
+test('service resolver never falls through to generic CPCB data for a mismatched assignment', () => {
+  const resolver = page.slice(page.indexOf('function activateAssignedService'), page.indexOf('export default function ClientMaster'));
+  assert.match(resolver, /allowLegacy && hasDataCpcb/);
+  assert.match(resolver, /allowLegacy && hasDataScreenshots/);
+  assert.doesNotMatch(resolver, /if \(hasData\) return dataFallback/);
 });
 
 test('legacy multi-service Client Master records remain separate and receive dropdown options from the lead', () => {

@@ -11,6 +11,7 @@ router.patch('/pending-approvals/clients/approve-all', requireAuth, requireRoles
 router.post('/bulk', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.bulkCreateClients);
 router.post('/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.bulkUpdateClientYears);
 router.post('/', requireAuth, clientCtrl.createClient);
+router.get('/:id', requireAuth, clientCtrl.getClient);
 router.get('/:id/compliance-review', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.getReview);
 router.put('/:id/compliance-review/sections/:sectionKey', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.updateSection);
 router.post('/:id/compliance-review/decision', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.completeReview);

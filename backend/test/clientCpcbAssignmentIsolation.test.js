@@ -47,3 +47,31 @@ test('deleting a Service B document cannot delete a Service A document', () => {
   assert.deepEqual(saved.cpcbDataByAssignedServiceId[serviceA].cpcbScreenshots, existing.cpcbDataByAssignedServiceId[serviceA].cpcbScreenshots);
   assert.deepEqual(saved.cpcbDataByAssignedServiceId[serviceB].cpcbScreenshots, incoming.cpcbDataByAssignedServiceId[serviceB].cpcbScreenshots);
 });
+
+test('an exact Client Master cannot be updated with another assigned service identity', () => {
+  const record = {
+    selectedLead: '6a7427653e6eb1b90295f6d0',
+    assignedServiceId: 'service-brand-owner',
+    data: {}
+  };
+
+  assert.equal(__test.validateClientMasterIdentity(record, {
+    selectedLead: '6a7427653e6eb1b90295f6d0',
+    assignedServiceId: 'service-brand-owner'
+  }), '');
+  assert.equal(__test.validateClientMasterIdentity(record, {
+    assignedServiceId: 'service-importer'
+  }), 'Assigned service does not match this Client Master record');
+});
+
+test('a legacy record may acquire an assigned service id without changing its lead', () => {
+  const record = {
+    selectedLead: '6a7427653e6eb1b90295f6d0',
+    data: { basic: { piboCategory: 'Brand Owner' } }
+  };
+
+  assert.equal(__test.validateClientMasterIdentity(record, {
+    selectedLead: '6a7427653e6eb1b90295f6d0',
+    assignedServiceId: 'service-brand-owner'
+  }), '');
+});
