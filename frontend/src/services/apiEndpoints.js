@@ -44,6 +44,7 @@ const API_ENDPOINTS = {
   },
   clients: {
     list: '/clients',
+    catalog: '/clients/discovery/catalog',
     create: '/clients',
     bulk: '/clients/bulk',
     bulkUpdateYears: '/clients/years/bulk',

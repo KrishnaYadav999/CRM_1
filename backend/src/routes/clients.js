@@ -6,6 +6,7 @@ const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES, CLIENT_APPROVAL_ROLES } = require('../constants/roles');
 
 router.get('/', requireAuth, clientCtrl.listClients);
+router.get('/discovery/catalog', requireAuth, clientCtrl.listClientMasterCatalog);
 router.get('/pending-approvals', requireAuth, clientCtrl.listPendingApprovals);
 router.patch('/pending-approvals/clients/approve-all', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), clientCtrl.approveAllPendingClients);
 router.post('/bulk', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.bulkCreateClients);

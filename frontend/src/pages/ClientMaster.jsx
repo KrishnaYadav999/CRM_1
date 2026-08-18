@@ -662,6 +662,50 @@ function readAssignedServiceId(service = {}) {
   return String(service.assignedServiceId || service.serviceAssignmentId || service.assignmentId || '').trim();
 }
 
+function normalizeClientMasterSearchValue(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function buildSearchableClientMasterLeads(leads = [], clientMasters = []) {
+  const sourceLeads = (Array.isArray(leads) ? leads : []).map((lead) => ({ ...lead, _clientMasterServices: [] }));
+  const companyCounts = new Map();
+  sourceLeads.forEach((lead) => {
+    const company = normalizeClientMasterSearchValue(lead.company || lead.companyName || lead.clientName);
+    if (company) companyCounts.set(company, (companyCounts.get(company) || 0) + 1);
+  });
+
+  const unmatched = [];
+  (Array.isArray(clientMasters) ? clientMasters : []).forEach((master) => {
+    const masterIds = [master.selectedLead, master.leadCode].map(normalizeClientMasterSearchValue).filter(Boolean);
+    const masterCompany = normalizeClientMasterSearchValue(master.companyName);
+    const match = sourceLeads.find((lead) => {
+      const stableLeadIds = [lead._id, lead.id, lead.sourceLeadId, lead.leadCode, lead.uniqueId, lead.leadId]
+        .map(normalizeClientMasterSearchValue).filter(Boolean);
+      if (masterIds.some((id) => stableLeadIds.includes(id))) return true;
+      const leadCompany = normalizeClientMasterSearchValue(lead.company || lead.companyName || lead.clientName);
+      return Boolean(masterCompany && leadCompany === masterCompany && companyCounts.get(masterCompany) === 1);
+    });
+    if (match) match._clientMasterServices.push(master);
+    else unmatched.push(master);
+  });
+
+  const legacyGroups = new Map();
+  unmatched.forEach((master) => {
+    const key = normalizeClientMasterSearchValue(master.selectedLead || master.leadCode || master.companyName || master.clientMasterId);
+    if (!key) return;
+    const group = legacyGroups.get(key) || {
+      _id: master.selectedLead || `client-master:${master.clientMasterId}`,
+      sourceLeadId: master.selectedLead || '',
+      leadCode: master.leadCode || '',
+      company: master.companyName || 'Existing Client Master',
+      _clientMasterServices: []
+    };
+    group._clientMasterServices.push(master);
+    legacyGroups.set(key, group);
+  });
+  return [...sourceLeads, ...legacyGroups.values()];
+}
+
 function getClientRecordAssignedServiceIds(item = {}) {
   const data = readClientData(item);
   // IDs on a populated Lead describe every service on that lead; they are not
@@ -719,7 +763,9 @@ function uniqueClientMasterServices(services = []) {
   const seen = new Set();
   return services.filter((service, index) => {
     const fingerprint = clientMasterServiceFingerprint(service);
-    const key = fingerprint.replace(/:/g, '') ? fingerprint : (readAssignedServiceId(service) || `service-${index}`);
+    const key = service.clientMasterId
+      ? `client-master:${service.clientMasterId}`
+      : (readAssignedServiceId(service) || (fingerprint.replace(/:/g, '') ? fingerprint : `service-${index}`));
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -971,6 +1017,7 @@ export default function ClientMaster() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [leads, setLeads] = useState([]);
   const [clients, setClients] = useState([]);
+  const [clientMasterCatalog, setClientMasterCatalog] = useState([]);
   const [totalClientCount, setTotalClientCount] = useState(0);
   const [annualReturnRecords, setAnnualReturnRecords] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -1011,10 +1058,14 @@ export default function ClientMaster() {
     return { ...summary, percent: summary.total ? Math.round((summary.filled / summary.total) * 100) : 0 };
   }, [tabProgress]);
   const isFirstStepReady = Boolean(String(client.companyOverview?.companyName || client.basic?.clientLegalName || client.basic?.tradeName || '').trim());
-  const leadOptions = useMemo(() => leads.map((lead, index) => ({
+  const searchableLeads = useMemo(
+    () => buildSearchableClientMasterLeads(leads, clientMasterCatalog),
+    [leads, clientMasterCatalog]
+  );
+  const leadOptions = useMemo(() => searchableLeads.map((lead, index) => ({
     value: getLeadSelectValue(lead),
     label: `${getLeadDisplayCode(lead, index)} - ${lead.company || 'Untitled lead'} - ${getVisibleServiceRows(lead, currentUser).map((row) => row.industryType).filter(Boolean).join(' / ') || lead.status || 'Draft'}`
-  })), [leads, currentUser]);
+  })), [searchableLeads, currentUser]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
 
   useEffect(() => {
@@ -1175,9 +1226,27 @@ export default function ClientMaster() {
   }
 
   function getVisibleServiceRows(lead) {
-    const rows = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
+    let rows = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
       ? lead.serviceSelections
       : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, applicantType: lead?.applicantType || lead?.piboParent, subApplicantType: lead?.subApplicantType, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
+    const storedServices = Array.isArray(lead?._clientMasterServices)
+      ? lead._clientMasterServices.map((row) => ({
+          ...row,
+          subApplicantType: row.piboCategory,
+          serviceCategory: row.eprCategory,
+          _existingClientMaster: true
+        }))
+      : [];
+    const storedAssignmentIds = new Set(storedServices.map(readAssignedServiceId).filter(Boolean));
+    const currentServices = uniqueClientMasterServices(rows).filter((row) => {
+      const assignedServiceId = readAssignedServiceId(row);
+      if (assignedServiceId && storedAssignmentIds.has(assignedServiceId)) return false;
+      const representedByLegacyRecord = storedServices.some((stored) => (
+        !readAssignedServiceId(stored) && legacyServiceFingerprintCompatible(stored, row)
+      ));
+      return !representedByLegacyRecord;
+    });
+    rows = [...storedServices, ...currentServices];
     return uniqueClientMasterServices(rows).map((row, index) => {
       const addressData = (lead.addresses || []).find((item) => row.plantUnit && item?.plantUnit === row.plantUnit)
         || (lead.addresses || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId)
@@ -1214,12 +1283,19 @@ export default function ClientMaster() {
         setStaff(staffList);
       }
 
-      const [crmClientsResult, crmLeadsResult] = await Promise.allSettled([api.get(API_ENDPOINTS.clients.list), api.get(API_ENDPOINTS.leads.list)]);
+      const [crmClientsResult, crmLeadsResult, catalogResult] = await Promise.allSettled([
+        api.get(API_ENDPOINTS.clients.list),
+        api.get(API_ENDPOINTS.leads.list),
+        api.get(API_ENDPOINTS.clients.catalog)
+      ]);
       const crmClients = crmClientsResult.status === 'fulfilled'
         ? (crmClientsResult.value.data.clients || [])
         : [];
       const crmLeads = crmLeadsResult.status === 'fulfilled'
         ? (crmLeadsResult.value.data.leads || [])
+        : [];
+      const catalog = catalogResult.status === 'fulfilled'
+        ? (catalogResult.value.data.clientMasters || [])
         : [];
       if (crmClientsResult.status === 'rejected') {
         throw new Error(
@@ -1240,6 +1316,7 @@ export default function ClientMaster() {
         setClients(visibleClients);
       }
       setLeads(crmLeads);
+      setClientMasterCatalog(catalog);
       try {
         const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);
         setQuotations(quotationsResponse.data.quotations || []);
@@ -1255,6 +1332,7 @@ export default function ClientMaster() {
     } catch (err) {
       setError(err?.response?.data?.error || err?.message || 'Unable to fetch client master data.');
       setLeads([]);
+      setClientMasterCatalog([]);
       setClients([]);
       setTotalClientCount(0);
       setQuotations([]);
@@ -1355,7 +1433,7 @@ export default function ClientMaster() {
   }
 
   async function handleLeadSelect(value, selectedService = null) {
-    const baseLead = findLeadByValue(leads, value);
+    const baseLead = findLeadByValue(searchableLeads, value);
     if (!baseLead) {
       clientRecordRequestRef.current += 1;
       setClient({ ...emptyClient, selectedLead: value });
@@ -1380,7 +1458,15 @@ export default function ClientMaster() {
     setEditingClientId('');
     setNotice('Loading selected Client Master...');
     setError('');
-    const existingDraft = findClientDraftForLead(selectedLead, leadValue);
+    const existingDraft = service.clientMasterId
+      ? {
+          id: String(service.clientMasterId),
+          record: { _id: service.clientMasterId, assignedServiceId: service.assignedServiceId || '' },
+          workflowStatus: service.workflowStatus || 'draft',
+          adminControls: {},
+          data: { selectedLead: leadValue }
+        }
+      : findClientDraftForLead(selectedLead, leadValue);
     if (existingDraft?.data) {
       let exactDraft = existingDraft;
       try {
@@ -1613,7 +1699,7 @@ export default function ClientMaster() {
   }
 
   async function fetchExactClientMaster(item, requestId) {
-    const clientMasterId = String(item?._id || item?.id || '').trim();
+    const clientMasterId = String(item?.clientMasterId || item?._id || item?.id || '').trim();
     if (!/^[a-f\d]{24}$/i.test(clientMasterId)) return item;
     const itemData = readClientData(item);
     const assignedServiceId = String(item?.assignedServiceId || itemData.assignedServiceId || itemData.selectedLeadSnapshot?.assignedServiceId || '').trim();
@@ -1623,10 +1709,12 @@ export default function ClientMaster() {
     if (requestId !== clientRecordRequestRef.current) return null;
     const exactClient = response.data?.client || response.data?.data?.client || response.data?.data;
     if (!exactClient || typeof exactClient !== 'object') return exactClient;
+    const resolvedData = response.data?.resolvedData;
     const exactData = readClientData(exactClient);
     const storedAssignedServiceId = String(exactClient.assignedServiceId || exactData.assignedServiceId || exactData.selectedLeadSnapshot?.assignedServiceId || '').trim();
     return {
       ...exactClient,
+      ...(resolvedData && typeof resolvedData === 'object' ? { data: resolvedData } : {}),
       _serviceViewKey: item?._serviceViewKey || assignedServiceId || storedAssignedServiceId || clientMasterId,
       activeAssignedServiceId: assignedServiceId || storedAssignedServiceId,
       assignedServiceId: storedAssignedServiceId || assignedServiceId
@@ -1916,41 +2004,45 @@ export default function ClientMaster() {
         }
       };
       const assignedServiceId = String(normalizedClient.assignedServiceId || normalizedClient.selectedLeadSnapshot?.assignedServiceId || '').trim();
-      if (!assignedServiceId) {
+      if (!assignedServiceId && !editingClientId) {
         setError('The selected service has no assignedServiceId. Reload the page and select the service again.');
         return;
       }
-      normalizedClient.assignedServiceId = assignedServiceId;
-      normalizedClient.selectedLeadSnapshot = { ...(normalizedClient.selectedLeadSnapshot || {}), assignedServiceId };
+      if (assignedServiceId) {
+        normalizedClient.assignedServiceId = assignedServiceId;
+        normalizedClient.selectedLeadSnapshot = { ...(normalizedClient.selectedLeadSnapshot || {}), assignedServiceId };
+      }
       normalizedClient.cpcbScreenshots = (normalizedClient.cpcbScreenshots || []).map((document) => ({
         ...document,
         documentId: document.documentId || document.id || crypto.randomUUID(),
-        assignedServiceId
+        ...(assignedServiceId ? { assignedServiceId } : {})
       }));
-      normalizedClient.cpcbDataByAssignedServiceId = {
-        ...(normalizedClient.cpcbDataByAssignedServiceId || {}),
-        [assignedServiceId]: {
-          assignedServiceId,
-          cpcb: { ...(normalizedClient.cpcb || {}) },
-          cpcbScreenshots: normalizedClient.cpcbScreenshots,
-          updatedAt: new Date().toISOString()
-        }
-      };
-      normalizedClient.serviceDetailsByAssignedServiceId = {
-        ...(normalizedClient.serviceDetailsByAssignedServiceId || {}),
-        [assignedServiceId]: {
-          assignedServiceId,
-          registeredAddress: { ...(normalizedClient.registeredAddress || {}) },
-          communicationAddress: { ...(normalizedClient.communicationAddress || {}) },
-          otp: { ...(normalizedClient.otp || {}) },
-          otpContacts: Array.isArray(normalizedClient.otpContacts) ? normalizedClient.otpContacts : [],
-          authorised: { ...(normalizedClient.authorised || {}) },
-          authorisedPersons: Array.isArray(normalizedClient.authorisedPersons) ? normalizedClient.authorisedPersons : [],
-          coordinating: { ...(normalizedClient.coordinating || {}) },
-          coordinatingPersons: Array.isArray(normalizedClient.coordinatingPersons) ? normalizedClient.coordinatingPersons : [],
-          updatedAt: new Date().toISOString()
-        }
-      };
+      if (assignedServiceId) {
+        normalizedClient.cpcbDataByAssignedServiceId = {
+          ...(normalizedClient.cpcbDataByAssignedServiceId || {}),
+          [assignedServiceId]: {
+            assignedServiceId,
+            cpcb: { ...(normalizedClient.cpcb || {}) },
+            cpcbScreenshots: normalizedClient.cpcbScreenshots,
+            updatedAt: new Date().toISOString()
+          }
+        };
+        normalizedClient.serviceDetailsByAssignedServiceId = {
+          ...(normalizedClient.serviceDetailsByAssignedServiceId || {}),
+          [assignedServiceId]: {
+            assignedServiceId,
+            registeredAddress: { ...(normalizedClient.registeredAddress || {}) },
+            communicationAddress: { ...(normalizedClient.communicationAddress || {}) },
+            otp: { ...(normalizedClient.otp || {}) },
+            otpContacts: Array.isArray(normalizedClient.otpContacts) ? normalizedClient.otpContacts : [],
+            authorised: { ...(normalizedClient.authorised || {}) },
+            authorisedPersons: Array.isArray(normalizedClient.authorisedPersons) ? normalizedClient.authorisedPersons : [],
+            coordinating: { ...(normalizedClient.coordinating || {}) },
+            coordinatingPersons: Array.isArray(normalizedClient.coordinatingPersons) ? normalizedClient.coordinatingPersons : [],
+            updatedAt: new Date().toISOString()
+          }
+        };
+      }
       if (workflowStatus === 'submitted' && overallProgress.percent < 60) {
         setError(`To submit Client Master, please complete at least 60% of the data. Current completion is ${overallProgress.percent}%.`);
         return;
@@ -2164,7 +2256,7 @@ export default function ClientMaster() {
                     const applicantType = service.applicantType || service.piboParent || service.piboCategoryParent || '-';
                     const subApplicantType = service.subApplicantType || service.piboCategory || 'Not applicable';
                     return (
-                    <button key={readAssignedServiceId(service)} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
+                    <button key={service.clientMasterId || readAssignedServiceId(service) || clientMasterServiceFingerprint(service)} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
                       <strong className="block text-base font-black text-slate-950">{service.eprCategory || `Service ${index + 1}`} · {applicantType}</strong>
                       <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
                       {service.applicableService && <span className="mt-1 block rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">Applicable: {service.applicableService}</span>}

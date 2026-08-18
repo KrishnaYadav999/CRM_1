@@ -12,6 +12,7 @@ const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { CLIENT_APPROVAL_ROLES } = require('../constants/roles');
 const { analyzeClientMasterData } = require('../services/userProductivityReport');
+const { normalizeClientMaster, resolveClientMasterData } = require('../services/clientMasterResolver');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -794,6 +795,24 @@ exports.listClients = async (req, res) => {
   res.json({ ok: true, clients });
 };
 
+exports.listClientMasterCatalog = async (req, res) => {
+  const scope = await getVisibleUserScope(req.user);
+  const records = await Client.find({
+    ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo'])
+  })
+    .populate('selectedLead', 'leadCode company')
+    .sort({ updatedAt: -1 });
+  const clientMasters = records.map(normalizeClientMaster).filter((item) => item.clientMasterId);
+  console.info('[ClientMaster discovery]', {
+    userId: String(req.user?._id || ''),
+    count: clientMasters.length,
+    records: clientMasters.map(({ clientMasterId, selectedLead, assignedServiceId, legacy }) => ({
+      clientMasterId, selectedLead, assignedServiceId: assignedServiceId || null, legacy
+    }))
+  });
+  return res.json({ ok: true, clientMasters });
+};
+
 exports.getClient = async (req, res) => {
   const clientId = String(req.params.id || '').trim();
   if (!mongoose.Types.ObjectId.isValid(clientId)) {
@@ -812,7 +831,12 @@ exports.getClient = async (req, res) => {
   const requestedAssignedServiceId = String(req.query.assignedServiceId || '').trim();
   const identityError = validateClientMasterIdentity(client, { assignedServiceId: requestedAssignedServiceId });
   if (identityError) return res.status(409).json({ error: identityError });
-  return res.json({ ok: true, client });
+  return res.json({
+    ok: true,
+    client,
+    identity: normalizeClientMaster(client),
+    resolvedData: resolveClientMasterData(client, requestedAssignedServiceId)
+  });
 };
 
 exports.listPendingApprovals = async (req, res) => {
@@ -983,10 +1007,6 @@ exports.updateClient = async (req, res) => {
   const selectedLead = readSelectedLeadId(req.body.selectedLead);
   const assignedServiceId = readClientAssignedServiceId(req.body, data);
 
-  if (!assignedServiceId) {
-    return res.status(400).json({ error: 'Assigned service is required to save Client Master data' });
-  }
-
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });
   }
@@ -995,8 +1015,9 @@ exports.updateClient = async (req, res) => {
 
   const client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
+  const effectiveAssignedServiceId = assignedServiceId || readClientAssignedServiceId(client, client.data || {});
 
-  const identityError = validateClientMasterIdentity(client, { assignedServiceId, selectedLead });
+  const identityError = validateClientMasterIdentity(client, { assignedServiceId: effectiveAssignedServiceId, selectedLead });
   if (identityError) return res.status(409).json({ error: identityError });
 
   const canApproveClient = CLIENT_APPROVAL_ROLES.includes(String(req.user?.role || '').trim().toLowerCase());
@@ -1004,8 +1025,8 @@ exports.updateClient = async (req, res) => {
   const requestedApprovalStatus = normalizeApprovalStatus(adminControls.approvalStatus) || existingApprovalStatus;
   adminControls.approvalStatus = canApproveClient ? requestedApprovalStatus : existingApprovalStatus;
 
-  client.selectedLead = selectedLead;
-  client.assignedServiceId = assignedServiceId;
+  if (selectedLead) client.selectedLead = selectedLead;
+  if (effectiveAssignedServiceId) client.assignedServiceId = effectiveAssignedServiceId;
   client.adminControls = adminControls;
   const existingData = isPlainObject(client.data) ? client.data : {};
   client.data = mergeAssignedServiceCpcbData(existingData, data);
@@ -1421,5 +1442,7 @@ exports.approveAllPendingClients = async (req, res) => {
 exports.__test = {
   buildClientApprovalPayload,
   mergeAssignedServiceCpcbData,
-  validateClientMasterIdentity
+  validateClientMasterIdentity,
+  normalizeClientMaster,
+  resolveClientMasterData
 };
