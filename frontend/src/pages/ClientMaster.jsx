@@ -1018,6 +1018,7 @@ export default function ClientMaster() {
   const [leads, setLeads] = useState([]);
   const [clients, setClients] = useState([]);
   const [clientMasterCatalog, setClientMasterCatalog] = useState([]);
+  const [clientSearchLoading, setClientSearchLoading] = useState(true);
   const [totalClientCount, setTotalClientCount] = useState(0);
   const [annualReturnRecords, setAnnualReturnRecords] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -1271,6 +1272,7 @@ export default function ClientMaster() {
   async function loadPage() {
     const pageLoadId = ++pageLoadRequestRef.current;
     setLoading(true);
+    setClientSearchLoading(true);
     setError('');
     try {
       const meRequest = api.get(API_ENDPOINTS.auth.me);
@@ -1298,29 +1300,41 @@ export default function ClientMaster() {
       setClients(visibleClients);
       setLoading(false);
 
-      // These datasets support detail/annual tabs but are not required to draw
-      // the directory. Load them after the table is usable so a slow secondary
-      // endpoint cannot keep the whole Client Master page in skeleton state.
+      // Lead and Client Master discovery are high priority for Add Client and
+      // must never wait for the much heavier history/report endpoints.
       void Promise.allSettled([
-        api.get(API_ENDPOINTS.auth.users),
         api.get(API_ENDPOINTS.leads.list),
-        api.get(API_ENDPOINTS.clients.catalog),
-        api.get(API_ENDPOINTS.annualReturns.list),
-        api.get(API_ENDPOINTS.quotations.list),
-        api.get(API_ENDPOINTS.proformaInvoices.list)
-      ]).then(([usersResult, leadsResult, catalogResult, annualResult, quotationsResult, proformaResult]) => {
+        api.get(API_ENDPOINTS.clients.catalog)
+      ]).then(([leadsResult, catalogResult]) => {
         if (pageLoadId !== pageLoadRequestRef.current) return;
         const crmLeads = leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [];
         const catalog = catalogResult.status === 'fulfilled' ? (catalogResult.value.data.clientMasters || []) : [];
+        setLeads(crmLeads);
+        setClientMasterCatalog(catalog);
+        setClients((current) => enrichClientsFromLeads(current, crmLeads));
+        setClientSearchLoading(false);
+        if (leadsResult.status === 'rejected' && catalogResult.status === 'rejected') {
+          setError('Existing client search data could not be loaded. Please use Refresh and try again.');
+        }
+      });
+
+      void api.get(API_ENDPOINTS.auth.users).then((usersResponse) => {
+        if (pageLoadId === pageLoadRequestRef.current) setStaff(usersResponse.data.users || []);
+      }).catch(() => {});
+
+      // History/report datasets load independently after the directory is
+      // usable; none of them can hold back Lead search options.
+      void Promise.allSettled([
+        api.get(API_ENDPOINTS.annualReturns.list),
+        api.get(API_ENDPOINTS.quotations.list),
+        api.get(API_ENDPOINTS.proformaInvoices.list)
+      ]).then(([annualResult, quotationsResult, proformaResult]) => {
+        if (pageLoadId !== pageLoadRequestRef.current) return;
         const annualRows = annualResult.status === 'fulfilled'
           ? (annualResult.value.data.annualReturns || [])
           : [];
-        const enrichedClients = enrichClientsFromLeads(directoryClients, crmLeads);
-        setStaff(usersResult.status === 'fulfilled' ? (usersResult.value.data.users || []) : [me]);
-        setLeads(crmLeads);
-        setClientMasterCatalog(catalog);
         setAnnualReturnRecords(annualRows);
-        setClients(hydrateClientsWithAnnualReturns(enrichedClients, annualRows));
+        setClients((current) => hydrateClientsWithAnnualReturns(current, annualRows));
         setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
         setProformaInvoices(proformaResult.status === 'fulfilled' ? (proformaResult.value.data.proformaInvoices || []) : []);
       });
@@ -1329,6 +1343,7 @@ export default function ClientMaster() {
       setError(err?.response?.data?.error || err?.message || 'Unable to fetch client master data.');
       setLeads([]);
       setClientMasterCatalog([]);
+      setClientSearchLoading(false);
       setClients([]);
       setTotalClientCount(0);
       setQuotations([]);
@@ -2235,7 +2250,13 @@ export default function ClientMaster() {
 
           <Card title="Select Lead" className="mt-6">
             <Field required label="Choose Existing Lead">
-              <SearchableSelect value={client.selectedLead} options={leadOptions} onChange={handleLeadSelect} placeholder="Search and select a lead" />
+              <SearchableSelect
+                value={client.selectedLead}
+                options={leadOptions}
+                onChange={handleLeadSelect}
+                disabled={clientSearchLoading}
+                placeholder={clientSearchLoading ? 'Loading existing clients...' : 'Search and select a lead'}
+              />
             </Field>
           </Card>
 

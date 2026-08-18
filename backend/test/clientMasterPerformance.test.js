@@ -29,6 +29,13 @@ test('Client Master directory renders before secondary history APIs finish', () 
   assert.ok(loader.indexOf('setLoading(false)') < loader.indexOf('api.get(API_ENDPOINTS.auth.users)'));
   assert.ok(loader.indexOf('setLoading(false)') < loader.indexOf('api.get(API_ENDPOINTS.leads.list)'));
   assert.ok(loader.indexOf('setLoading(false)') < loader.indexOf('api.get(API_ENDPOINTS.clients.catalog)'));
+  const searchBatch = loader.slice(
+    loader.indexOf('api.get(API_ENDPOINTS.leads.list)'),
+    loader.indexOf('void api.get(API_ENDPOINTS.auth.users)')
+  );
+  assert.match(searchBatch, /API_ENDPOINTS\.clients\.catalog/);
+  assert.doesNotMatch(searchBatch, /annualReturns|quotations|proformaInvoices/);
+  assert.match(loader, /setClientSearchLoading\(false\)/);
 });
 
 test('Client directory query excludes heavy files and only populates lead summary fields', () => {
