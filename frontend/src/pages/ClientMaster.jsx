@@ -199,6 +199,11 @@ function countRows(rows = [], fields = []) {
   }, { filled: 0, total: 0 });
 }
 
+function countOptionalRows(rows = [], fields = []) {
+  if (!Array.isArray(rows) || rows.length === 0) return { filled: 0, total: 0 };
+  return countRows(rows, fields);
+}
+
 function addProgressParts(...parts) {
   return parts.reduce((summary, part) => ({
     filled: summary.filled + part.filled,
@@ -235,7 +240,9 @@ function buildClientTabProgress(client = {}) {
     ),
     contacts: addProgressParts(
       countFields(client, tabProgressFields.contacts),
-      countRows(client.authorisedPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email', 'pan', 'panDocument'])
+      countOptionalRows(client.otpContacts, ['mobile', 'personName', 'designation']),
+      countOptionalRows(client.authorisedPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email', 'pan', 'panDocument']),
+      countOptionalRows(client.coordinatingPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email'])
     )
   };
 

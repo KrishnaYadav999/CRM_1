@@ -29,10 +29,16 @@ test('Client Master approval status is limited to Compliance, Admin and Super Ad
 });
 
 test('Authorized Person supports multiple cards and CPCB passwords can be viewed', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
   const sections = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx'), 'utf8');
   assert.match(sections, /Add Authorized Person/);
   assert.match(sections, /authorisedPersons/);
   assert.match(sections, /function PasswordField/);
   assert.match(sections, /View \$\{label\}/);
   assert.match(sections, /showCeprPassword/);
+  assert.match(page, /function countOptionalRows/);
+  assert.match(page, /rows\.length === 0\) return \{ filled: 0, total: 0 \}/);
+  assert.match(page, /countOptionalRows\(client\.otpContacts/);
+  assert.match(page, /countOptionalRows\(client\.authorisedPersons/);
+  assert.match(page, /countOptionalRows\(client\.coordinatingPersons/);
 });
