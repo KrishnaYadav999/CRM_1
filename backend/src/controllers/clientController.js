@@ -743,8 +743,13 @@ async function readStoredPendingApprovals() {
     .limit(1000)
     .lean();
 
+  const clientRecords = records.filter((record) => record.type === 'client');
+  const sourceClientIds = clientRecords.map((record) => record.sourceClientId).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
+  const submittedClients = await Client.find({ _id: { $in: sourceClientIds }, workflowStatus: 'submitted' }).select('_id').lean();
+  const submittedIds = new Set(submittedClients.map((client) => String(client._id)));
+
   return {
-    pendingClients: records.filter((record) => record.type === 'client').map(mapPendingApprovalRecord),
+    pendingClients: clientRecords.filter((record) => submittedIds.has(String(record.sourceClientId))).map(mapPendingApprovalRecord),
     pendingQuotations: records.filter((record) => record.type === 'quotation').map(mapPendingApprovalRecord)
   };
 }
@@ -765,6 +770,7 @@ function backgroundSyncPendingApprovals(clientRows = [], quotationRows = []) {
 exports.listClients = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
   const clients = await Client.find({
+    workflowStatus: 'submitted',
     'data.importMeta.approvalOverride': { $ne: true },
     ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
       'data.importMeta.assignedTo'
@@ -833,7 +839,7 @@ exports.createClient = async (req, res) => {
   client.markModified('data');
   await client.save();
 
-  await queueCreatedClientApproval(client, req.user);
+  if (workflowStatus === 'submitted') await queueCreatedClientApproval(client, req.user);
 
   res.status(201).json({ ok: true, client });
 };
@@ -858,7 +864,7 @@ async function createClientRecord(row, userId) {
     workflowStatus,
     createdBy: userId
   });
-  await queueCreatedClientApproval(client, row.createdByUser);
+  if (workflowStatus === 'submitted') await queueCreatedClientApproval(client, row.createdByUser);
   return client;
 }
 
@@ -970,6 +976,8 @@ exports.updateClient = async (req, res) => {
   client.workflowStatus = workflowStatus;
   client.markModified('data');
   await client.save();
+
+  if (workflowStatus === 'submitted') await queueCreatedClientApproval(client, req.user);
 
   if (canApproveClient && requestedApprovalStatus !== 'PENDING' && requestedApprovalStatus !== existingApprovalStatus) {
     const actionAt = new Date();

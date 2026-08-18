@@ -205,7 +205,7 @@ async function getUserProductivityReport({ from, to, requester }) {
     reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } })
       .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
     reportQuery('leads', Lead.find(ownerFilter).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
-    reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus createdAt').maxTimeMS(20000).lean()),
+    reportQuery('clients', Client.find({ ...ownerFilter, workflowStatus: 'submitted', createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus createdAt').maxTimeMS(20000).lean()),
     reportQuery('tickets', SupportTicket.aggregate([
       { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },
       { $group: {
@@ -284,7 +284,7 @@ async function getUserWorkReport({ userId, from, to }) {
   const teamIds = teamUsers.map((member) => member._id);
   const [leads, clients] = await Promise.all([
     Lead.find({ createdBy: userId, createdAt }).select('leadCode company companyIdentity status workflowStatus serviceSelections servicesOffered eprCategory applicantType assignments nextFollowUpDate nextFollowUpTime followUpRemarks followUpPriority followUpFlag followUpHistory closedBy closedByText closedAt createdByName createdAt updatedAt').sort({ createdAt: -1 }).lean(),
-    Client.find({ createdBy: userId, createdAt }).select('selectedLead companyIdentity data workflowStatus adminControls createdAt updatedAt').sort({ createdAt: -1 }).lean()
+    Client.find({ createdBy: userId, createdAt }).select('selectedLead assignedServiceId companyIdentity data workflowStatus adminControls createdAt updatedAt').sort({ updatedAt: -1 }).lean()
   ]);
   const [teamLeads, teamClients] = teamIds.length ? await Promise.all([
     Lead.find({ createdBy: { $in: teamIds }, createdAt }).select('createdBy closedBy closedByText closedAt status').lean(),
@@ -298,7 +298,8 @@ async function getUserWorkReport({ userId, from, to }) {
     return { id: member._id, name: member.name || member.email, email: member.email, role: member.role, team: member.team, totalLeads: memberLeads.length, openLeads: memberLeads.length - closedLeads, closedLeads, clientMasters: memberClients.length, submittedClients: memberClients.filter((client) => client.workflowStatus === 'submitted').length, averageCompletion: completion.length ? Math.round(completion.reduce((sum, value) => sum + value, 0) / completion.length) : 0 };
   });
   const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
-  const clientRows = clients.map((client) => {
+  const latestClients = [...new Map([...clients].sort((left, right) => new Date(left.updatedAt || left.createdAt || 0) - new Date(right.updatedAt || right.createdAt || 0)).map((client) => [`${String(client.selectedLead || client._id)}:${String(client.assignedServiceId || client.data?.assignedServiceId || '')}`, client])).values()];
+  const clientRows = latestClients.map((client) => {
     const lead = leadById.get(String(client.selectedLead || ''));
     const required = analyzeClientMasterData(client.data || {});
     const sections = required.sections;
@@ -338,7 +339,7 @@ async function getUserWorkReport({ userId, from, to }) {
   });
   const averageCompletion = clientRows.length ? Math.round(clientRows.reduce((sum, row) => sum + row.analysis.percentage, 0) / clientRows.length) : 0;
   return { period: { from: period.from, to: period.to }, user, summary: { leads: leadRows.length, openLeads: leadRows.filter((lead) => lead.status === 'Open').length, closedLeads: leadRows.filter((lead) => lead.status === 'Closed').length, submittedLeads: leads.filter((lead) => lead.workflowStatus === 'submitted').length,
-    clientMasters: clientRows.length, submittedClients: clients.filter((client) => client.workflowStatus === 'submitted').length, averageCompletion,
+    clientMasters: clientRows.length, submittedClients: clientRows.filter((client) => client.status === 'submitted').length, averageCompletion,
     completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows, teamMembers };
 }
 
