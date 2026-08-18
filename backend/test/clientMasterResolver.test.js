@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const mongoose = require('mongoose');
 
 const {
   normalizeClientMaster,
@@ -91,4 +92,15 @@ test('Mongoose ObjectId-like selectedLead values normalize to strings', () => {
   const selectedLead = { toHexString: () => '100000000000000000000012' };
   const result = normalizeClientMaster({ _id: '000000000000000000000012', selectedLead, data: {} });
   assert.equal(result.selectedLead, '100000000000000000000012');
+});
+
+test('real Mongoose ObjectIds normalize without following the recursive id getter', () => {
+  const selectedLead = new mongoose.Types.ObjectId('100000000000000000000013');
+  const result = normalizeClientMaster({
+    _id: new mongoose.Types.ObjectId('000000000000000000000013'),
+    selectedLead,
+    data: {}
+  });
+  assert.equal(result.clientMasterId, '000000000000000000000013');
+  assert.equal(result.selectedLead, '100000000000000000000013');
 });

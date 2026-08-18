@@ -1018,7 +1018,9 @@ export default function ClientMaster() {
   const [leads, setLeads] = useState([]);
   const [clients, setClients] = useState([]);
   const [clientMasterCatalog, setClientMasterCatalog] = useState([]);
-  const [clientSearchLoading, setClientSearchLoading] = useState(true);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState('');
+  const [remoteClientOptions, setRemoteClientOptions] = useState([]);
   const [totalClientCount, setTotalClientCount] = useState(0);
   const [annualReturnRecords, setAnnualReturnRecords] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -1064,10 +1066,10 @@ export default function ClientMaster() {
     () => buildSearchableClientMasterLeads(leads, clientMasterCatalog),
     [leads, clientMasterCatalog]
   );
-  const leadOptions = useMemo(() => searchableLeads.map((lead, index) => ({
-    value: getLeadSelectValue(lead),
-    label: `${getLeadDisplayCode(lead, index)} - ${lead.company || 'Untitled lead'} - ${getVisibleServiceRows(lead, currentUser).map((row) => row.industryType).filter(Boolean).join(' / ') || lead.status || 'Draft'}`
-  })), [searchableLeads, currentUser]);
+  const leadOptions = useMemo(() => remoteClientOptions.map((item) => ({
+    value: item.selectionKey,
+    label: `${item.leadCode || 'Client'} - ${item.companyName || 'Untitled client'}${item.clientMasterCount ? ` - ${item.clientMasterCount} service${item.clientMasterCount === 1 ? '' : 's'}` : ''}`
+  })), [remoteClientOptions]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
 
   useEffect(() => {
@@ -1075,12 +1077,51 @@ export default function ClientMaster() {
   }, []);
 
   useEffect(() => {
-    if (loading || !leads.length || !location.state?.fromPendingApproval) return;
+    const query = clientSearchQuery.trim();
+    if (query.length < 2) {
+      setClientSearchLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setClientSearchLoading(true);
+      try {
+        const response = await api.get(API_ENDPOINTS.clients.discoverySearch, {
+          params: { q: query, limit: 20 },
+          signal: controller.signal
+        });
+        setRemoteClientOptions(response.data.items || []);
+      } catch (err) {
+        if (err?.code !== 'ERR_CANCELED' && err?.name !== 'CanceledError') {
+          setRemoteClientOptions([]);
+          setError(err?.response?.data?.error || 'Unable to search existing clients.');
+        }
+      } finally {
+        if (!controller.signal.aborted) setClientSearchLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [clientSearchQuery]);
+
+  useEffect(() => {
+    if (loading || !location.state?.fromPendingApproval) return;
     const requestedLead = String(location.state.selectedLeadId || '').trim();
     const requestedCompany = String(location.state.companyName || '').trim().toLowerCase();
     const matchingLead = findLeadByValue(leads, requestedLead)
       || leads.find((lead) => String(lead.company || lead.companyName || lead.clientName || '').trim().toLowerCase() === requestedCompany);
-    if (!matchingLead) return;
+    if (!matchingLead) {
+      if (!requestedLead || pendingApprovalLeadHandled.current === requestedLead) return;
+      pendingApprovalLeadHandled.current = requestedLead;
+      setViewMode('form');
+      handleRemoteCompanySelect(requestedLead);
+      navigate('/sales/client-master', { replace: true, state: null });
+      return;
+    }
     const leadValue = getLeadSelectValue(matchingLead);
     if (!leadValue || pendingApprovalLeadHandled.current === leadValue) return;
     pendingApprovalLeadHandled.current = leadValue;
@@ -1272,7 +1313,6 @@ export default function ClientMaster() {
   async function loadPage() {
     const pageLoadId = ++pageLoadRequestRef.current;
     setLoading(true);
-    setClientSearchLoading(true);
     setError('');
     try {
       const meRequest = api.get(API_ENDPOINTS.auth.me);
@@ -1300,24 +1340,6 @@ export default function ClientMaster() {
       setClients(visibleClients);
       setLoading(false);
 
-      // Lead and Client Master discovery are high priority for Add Client and
-      // must never wait for the much heavier history/report endpoints.
-      void Promise.allSettled([
-        api.get(API_ENDPOINTS.leads.list),
-        api.get(API_ENDPOINTS.clients.catalog)
-      ]).then(([leadsResult, catalogResult]) => {
-        if (pageLoadId !== pageLoadRequestRef.current) return;
-        const crmLeads = leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [];
-        const catalog = catalogResult.status === 'fulfilled' ? (catalogResult.value.data.clientMasters || []) : [];
-        setLeads(crmLeads);
-        setClientMasterCatalog(catalog);
-        setClients((current) => enrichClientsFromLeads(current, crmLeads));
-        setClientSearchLoading(false);
-        if (leadsResult.status === 'rejected' && catalogResult.status === 'rejected') {
-          setError('Existing client search data could not be loaded. Please use Refresh and try again.');
-        }
-      });
-
       void api.get(API_ENDPOINTS.auth.users).then((usersResponse) => {
         if (pageLoadId === pageLoadRequestRef.current) setStaff(usersResponse.data.users || []);
       }).catch(() => {});
@@ -1343,6 +1365,7 @@ export default function ClientMaster() {
       setError(err?.response?.data?.error || err?.message || 'Unable to fetch client master data.');
       setLeads([]);
       setClientMasterCatalog([]);
+      setRemoteClientOptions([]);
       setClientSearchLoading(false);
       setClients([]);
       setTotalClientCount(0);
@@ -1443,8 +1466,54 @@ export default function ClientMaster() {
     return cachedDraft;
   }
 
-  async function handleLeadSelect(value, selectedService = null) {
-    const baseLead = findLeadByValue(searchableLeads, value);
+  async function handleRemoteCompanySelect(selectionKey) {
+    if (!selectionKey) {
+      clientRecordRequestRef.current += 1;
+      setClient(emptyClient);
+      setEditingClientId('');
+      setPendingLeadServices(null);
+      return;
+    }
+
+    const lookupId = ++clientRecordRequestRef.current;
+    setClient({ ...emptyClient, selectedLead: selectionKey });
+    setEditingClientId('');
+    setPendingLeadServices(null);
+    setNotice('Loading available services...');
+    setError('');
+    try {
+      const response = await api.get(API_ENDPOINTS.clients.discoveryServices, {
+        params: { identity: selectionKey }
+      });
+      if (lookupId !== clientRecordRequestRef.current) return;
+      const selectedOption = remoteClientOptions.find((item) => item.selectionKey === selectionKey);
+      const services = response.data.services || [];
+      const fetchedLead = response.data.lead || null;
+      if (!fetchedLead && !services.length) {
+        setNotice('');
+        setError('No Client Master details were found for the selected company.');
+        return;
+      }
+      const baseLead = {
+        ...(fetchedLead || {}),
+        _id: fetchedLead?._id || selectedOption?.leadId || selectionKey,
+        sourceLeadId: fetchedLead?.sourceLeadId || selectedOption?.leadId || '',
+        leadCode: fetchedLead?.leadCode || selectedOption?.leadCode || '',
+        company: fetchedLead?.company || selectedOption?.companyName || services[0]?.companyName || '',
+        _clientMasterServices: services
+      };
+      setLeads([baseLead]);
+      setClientMasterCatalog(services);
+      await handleLeadSelect(getLeadSelectValue(baseLead), null, baseLead);
+    } catch (err) {
+      if (lookupId !== clientRecordRequestRef.current) return;
+      setNotice('');
+      setError(err?.response?.data?.error || 'Existing Client Master/service options could not be loaded.');
+    }
+  }
+
+  async function handleLeadSelect(value, selectedService = null, baseLeadOverride = null) {
+    const baseLead = baseLeadOverride || findLeadByValue(searchableLeads, value);
     if (!baseLead) {
       clientRecordRequestRef.current += 1;
       setClient({ ...emptyClient, selectedLead: value });
@@ -1902,8 +1971,14 @@ export default function ClientMaster() {
         setNotice(`${yearRows.length} annual return year row${yearRows.length === 1 ? '' : 's'} loaded. Click Import Drafts to update matched clients.`);
         return;
       }
+      let importLeads = leads;
+      if (!importLeads.length) {
+        const leadsResponse = await api.get(API_ENDPOINTS.leads.list);
+        importLeads = leadsResponse.data.leads || [];
+        setLeads(importLeads);
+      }
       const parsed = rows
-        .map((row) => mapExcelRowToClient(row, staff, leads))
+        .map((row) => mapExcelRowToClient(row, staff, importLeads))
         .filter((row) => Object.values(row.data || {}).some((value) => JSON.stringify(value || '').replace(/["{}[\],:]/g, '').trim() !== ''));
 
       if (!parsed.length) {
@@ -2253,9 +2328,16 @@ export default function ClientMaster() {
               <SearchableSelect
                 value={client.selectedLead}
                 options={leadOptions}
-                onChange={handleLeadSelect}
-                disabled={clientSearchLoading}
-                placeholder={clientSearchLoading ? 'Loading existing clients...' : 'Search and select a lead'}
+                onChange={handleRemoteCompanySelect}
+                remoteSearch
+                onSearchQuery={setClientSearchQuery}
+                loading={clientSearchLoading}
+                minimumSearchCharacters={2}
+                allowCustom={false}
+                placeholder="Search an existing client"
+                loadingMessage="Searching clients..."
+                noResultsMessage="No matching clients found"
+                promptMessage="Type at least 2 characters to search"
               />
             </Field>
           </Card>

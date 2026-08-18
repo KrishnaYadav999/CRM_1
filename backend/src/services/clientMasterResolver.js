@@ -9,9 +9,9 @@ function plainRecord(record = {}) {
 function stringId(value) {
   if (!value) return '';
   if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (typeof value.toHexString === 'function') return String(value.toHexString()).trim();
   const nested = value._id || value.id || value.leadId;
   if (nested) return stringId(nested);
-  if (typeof value.toHexString === 'function') return String(value.toHexString()).trim();
   const serialized = String(value).trim();
   return serialized === '[object Object]' ? '' : serialized;
 }

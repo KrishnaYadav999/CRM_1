@@ -27,15 +27,40 @@ test('Client Master directory renders before secondary history APIs finish', () 
   assert.match(loader, /pageLoadId !== pageLoadRequestRef\.current/);
   assert.match(loader, /setClients\(visibleClients\)/);
   assert.ok(loader.indexOf('setLoading(false)') < loader.indexOf('api.get(API_ENDPOINTS.auth.users)'));
-  assert.ok(loader.indexOf('setLoading(false)') < loader.indexOf('api.get(API_ENDPOINTS.leads.list)'));
-  assert.ok(loader.indexOf('setLoading(false)') < loader.indexOf('api.get(API_ENDPOINTS.clients.catalog)'));
-  const searchBatch = loader.slice(
-    loader.indexOf('api.get(API_ENDPOINTS.leads.list)'),
-    loader.indexOf('void api.get(API_ENDPOINTS.auth.users)')
+  assert.doesNotMatch(loader, /API_ENDPOINTS\.leads\.list/);
+  assert.doesNotMatch(loader, /API_ENDPOINTS\.clients\.catalog/);
+});
+
+test('Add Client uses bounded debounced server-side discovery', () => {
+  assert.match(page, /clientSearchQuery\.trim\(\)/);
+  assert.match(page, /query\.length < 2/);
+  assert.match(page, /window\.setTimeout\(async \(\) => \{/);
+  assert.match(page, /\}, 400\)/);
+  assert.match(page, /AbortController/);
+  assert.match(page, /API_ENDPOINTS\.clients\.discoverySearch/);
+  assert.match(page, /params: \{ q: query, limit: 20 \}/);
+  assert.match(page, /API_ENDPOINTS\.clients\.discoveryServices/);
+  assert.match(page, /await handleLeadSelect\(getLeadSelectValue\(baseLead\), null, baseLead\)/);
+});
+
+test('Server discovery is projected, capped, and supports legacy and modern Client Master shapes', () => {
+  const search = controller.slice(
+    controller.indexOf('exports.searchClientMasterCompanies'),
+    controller.indexOf('exports.listClientMasterServices')
   );
-  assert.match(searchBatch, /API_ENDPOINTS\.clients\.catalog/);
-  assert.doesNotMatch(searchBatch, /annualReturns|quotations|proformaInvoices/);
-  assert.match(loader, /setClientSearchLoading\(false\)/);
+  const services = controller.slice(
+    controller.indexOf('exports.listClientMasterServices'),
+    controller.indexOf('exports.getClient')
+  );
+  assert.match(search, /query\.length < 2/);
+  assert.match(search, /Math\.min\(30/);
+  assert.match(search, /\.select\('_id leadCode sourceLeadId company companyIdentity'\)/);
+  assert.match(search, /\.limit\(limit\)/);
+  assert.doesNotMatch(search, /serviceSelections addresses contacts assignments/);
+  assert.match(services, /Client\.collection\.find/);
+  assert.match(services, /selectedLead: \{ \$in: candidates \}/);
+  assert.match(services, /'data\.selectedLead': \{ \$in: candidates \}/);
+  assert.match(services, /records\.map\(normalizeClientMaster\)/);
 });
 
 test('Client directory query excludes heavy files and only populates lead summary fields', () => {

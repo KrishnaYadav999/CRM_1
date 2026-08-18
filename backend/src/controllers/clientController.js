@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Client = require('../models/Client');
+const Lead = require('../models/Lead');
 const Quotation = require('../models/Quotation');
 const AnnualReturn = require('../models/AnnualReturn');
 const PendingApproval = require('../models/PendingApproval');
@@ -13,6 +14,7 @@ const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope')
 const { CLIENT_APPROVAL_ROLES } = require('../constants/roles');
 const { analyzeClientMasterData } = require('../services/userProductivityReport');
 const { normalizeClientMaster, resolveClientMasterData } = require('../services/clientMasterResolver');
+const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -834,6 +836,165 @@ exports.listClientMasterCatalog = async (req, res) => {
     ms: Date.now() - startedAt
   });
   return res.json({ ok: true, clientMasters });
+};
+
+function escapeSearchRegex(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function clientDiscoveryProjection() {
+  return [
+    '_id', 'selectedLead', 'assignedServiceId', 'workflowStatus',
+    'data.selectedLead', 'data.assignedServiceId', 'data.selectedLeadSnapshot',
+    'data.basic.clientLegalName', 'data.basic.tradeName', 'data.basic.piboCategory',
+    'data.basic.eprCategory', 'data.basic.servicesOffered', 'data.basic.plantUnit',
+    'data.basic.companyIndustry', 'data.companyOverview.companyName',
+    'data.importMeta.companyName', 'data.importMeta.leadNumber', 'data.importMeta.uniqueId',
+    'companyIdentity', 'companyName', 'clientLegalName', 'tradeName', 'piboCategory',
+    'eprCategory', 'servicesOffered', 'plantUnit', 'industryType', 'applicantType'
+  ].join(' ');
+}
+
+exports.searchClientMasterCompanies = async (req, res) => {
+  const startedAt = Date.now();
+  const query = String(req.query.q || '').trim();
+  const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 20));
+  if (query.length < 2) return res.json({ ok: true, items: [], count: 0, queryMs: 0 });
+
+  const normalizedCompany = normalizeCompanyIdentity(query);
+  const rawRegex = new RegExp(escapeSearchRegex(query), 'i');
+  const identityRegex = new RegExp(escapeSearchRegex(normalizedCompany), 'i');
+  const leadFilter = { $or: [
+    { companyIdentity: identityRegex },
+    { company: rawRegex },
+    { leadCode: rawRegex },
+    { sourceLeadId: rawRegex }
+  ] };
+  const clientFilter = { $or: [
+    { companyIdentity: identityRegex },
+    { 'data.basic.clientLegalName': rawRegex },
+    { 'data.basic.tradeName': rawRegex },
+    { 'data.companyOverview.companyName': rawRegex },
+    { 'data.importMeta.companyName': rawRegex },
+    { 'data.importMeta.leadNumber': rawRegex },
+    { 'data.importMeta.uniqueId': rawRegex },
+    { 'data.selectedLeadSnapshot.leadCode': rawRegex }
+  ] };
+
+  const [leads, clientRecords] = await Promise.all([
+    Lead.find(leadFilter)
+      .select('_id leadCode sourceLeadId company companyIdentity')
+      .limit(limit)
+      .lean(),
+    Client.find(clientFilter)
+      .select(clientDiscoveryProjection())
+      .limit(limit * 2)
+      .lean()
+  ]);
+
+  const items = new Map();
+  leads.forEach((lead) => {
+    const leadId = String(lead._id || '');
+    items.set(`lead:${leadId}`, {
+      selectionKey: leadId,
+      leadId,
+      clientMasterId: null,
+      companyName: String(lead.company || '').trim(),
+      leadCode: String(lead.leadCode || lead.sourceLeadId || '').trim(),
+      clientMasterIds: new Set()
+    });
+  });
+
+  clientRecords.map(normalizeClientMaster).forEach((master) => {
+    if (!master.clientMasterId) return;
+    const masterCompany = normalizeCompanyIdentity(master.companyName);
+    const existing = [...items.values()].find((item) => (
+      (master.selectedLead && master.selectedLead === item.leadId)
+      || (master.leadCode && item.leadCode && master.leadCode.toLowerCase() === item.leadCode.toLowerCase())
+      || (masterCompany && masterCompany === normalizeCompanyIdentity(item.companyName))
+    ));
+    const item = existing || {
+      selectionKey: `client:${master.clientMasterId}`,
+      leadId: master.selectedLead || null,
+      clientMasterId: master.clientMasterId,
+      companyName: master.companyName || 'Existing Client Master',
+      leadCode: master.leadCode || '',
+      clientMasterIds: new Set()
+    };
+    item.clientMasterIds.add(master.clientMasterId);
+    if (!existing) items.set(`client:${master.clientMasterId}`, item);
+  });
+
+  const responseItems = [...items.values()]
+    .sort((left, right) => left.companyName.localeCompare(right.companyName))
+    .slice(0, limit)
+    .map((item) => ({
+    selectionKey: item.selectionKey,
+    leadId: item.leadId,
+    clientMasterId: item.clientMasterId,
+    companyName: item.companyName,
+    leadCode: item.leadCode,
+    clientMasterCount: item.clientMasterIds.size
+    }));
+  return res.json({ ok: true, items: responseItems, count: responseItems.length, queryMs: Date.now() - startedAt });
+};
+
+exports.listClientMasterServices = async (req, res) => {
+  const identity = String(req.query.identity || req.query.leadId || req.query.clientMasterId || '').trim();
+  if (!identity) return res.status(400).json({ error: 'Client or Lead identity is required' });
+
+  const explicitClientId = identity.startsWith('client:') ? identity.slice(7) : String(req.query.clientMasterId || '').trim();
+  const baseClient = mongoose.Types.ObjectId.isValid(explicitClientId)
+    ? await Client.findById(explicitClientId).select(clientDiscoveryProjection()).lean()
+    : null;
+  const baseIdentity = baseClient ? normalizeClientMaster(baseClient) : null;
+  const leadId = String(baseIdentity?.selectedLead || (mongoose.Types.ObjectId.isValid(identity) && !explicitClientId ? identity : '')).trim();
+  const lead = mongoose.Types.ObjectId.isValid(leadId) ? await Lead.findById(leadId).lean() : null;
+  const leadCode = String(lead?.leadCode || lead?.sourceLeadId || baseIdentity?.leadCode || '').trim();
+  const companyName = String(lead?.company || baseIdentity?.companyName || '').trim();
+  const candidates = [];
+  if (leadId) {
+    candidates.push(leadId);
+    if (mongoose.Types.ObjectId.isValid(leadId)) candidates.push(new mongoose.Types.ObjectId(leadId));
+  }
+  const relatedFilters = [];
+  if (candidates.length) {
+    relatedFilters.push(
+      { selectedLead: { $in: candidates } },
+      { 'data.selectedLead': { $in: candidates } },
+      { 'data.selectedLeadSnapshot.id': { $in: candidates } },
+      { 'data.selectedLeadSnapshot.sourceLeadId': { $in: candidates } }
+    );
+  }
+  if (leadCode) {
+    const exactCode = new RegExp(`^${escapeSearchRegex(leadCode)}$`, 'i');
+    relatedFilters.push(
+      { 'data.selectedLeadSnapshot.leadCode': exactCode },
+      { 'data.importMeta.leadNumber': exactCode },
+      { 'data.importMeta.uniqueId': exactCode }
+    );
+  }
+  const companyIdentity = normalizeCompanyIdentity(companyName);
+  if (companyIdentity) relatedFilters.push({ companyIdentity });
+  if (explicitClientId && mongoose.Types.ObjectId.isValid(explicitClientId)) {
+    relatedFilters.push({ _id: new mongoose.Types.ObjectId(explicitClientId) });
+  }
+
+  const records = relatedFilters.length
+    ? await Client.collection.find({ $or: relatedFilters }, { projection: {
+        _id: 1, selectedLead: 1, assignedServiceId: 1, workflowStatus: 1,
+        'data.selectedLead': 1, 'data.assignedServiceId': 1, 'data.selectedLeadSnapshot': 1,
+        'data.basic.clientLegalName': 1, 'data.basic.tradeName': 1, 'data.basic.piboCategory': 1,
+        'data.basic.eprCategory': 1, 'data.basic.servicesOffered': 1, 'data.basic.plantUnit': 1,
+        'data.basic.companyIndustry': 1, 'data.companyOverview.companyName': 1,
+        'data.importMeta.companyName': 1, 'data.importMeta.leadNumber': 1, 'data.importMeta.uniqueId': 1,
+        companyIdentity: 1, companyName: 1, clientLegalName: 1, tradeName: 1,
+        piboCategory: 1, eprCategory: 1, servicesOffered: 1, plantUnit: 1,
+        industryType: 1, applicantType: 1
+      } }).sort({ updatedAt: -1 }).toArray()
+    : [];
+  const services = records.map(normalizeClientMaster).filter((item) => item.clientMasterId);
+  return res.json({ ok: true, lead, services, count: services.length });
 };
 
 exports.getClient = async (req, res) => {
