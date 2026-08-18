@@ -59,6 +59,7 @@ test('internal tickets have isolated database API, participants, chat, and attac
 test('desktop CRM uses a compact 100-percent browser density without changing print or mobile', () => {
   const main = read('frontend/src/main.jsx');
   const density = read('frontend/src/styles/modules/14-desktop-density.css');
+  const authLayout = read('frontend/src/components/AuthLayout.jsx');
   assert.match(main, /14-desktop-density\.css/);
   assert.match(density, /--crm-desktop-scale: 0\.75/);
   assert.match(density, /min-width: 1100px/);
@@ -68,6 +69,10 @@ test('desktop CRM uses a compact 100-percent browser density without changing pr
   assert.match(density, /overflow-x: auto !important/);
   assert.match(density, /\.teams-shell/);
   assert.match(density, /height: calc\(133\.3334vh - 136px\)/);
+  assert.match(authLayout, /auth-page/);
+  assert.match(authLayout, /auth-page-grid/);
+  assert.match(density, /\.auth-page,\s*\.auth-page-grid\s*\{\s*min-height: 133\.3334dvh/s);
+  assert.match(density, /\.auth-page-grid\s*\{\s*height: auto/s);
   assert.match(density, /\.teams-chat-header/);
   assert.match(density, /flex: 0 0 auto/);
   assert.match(density, /@media print/);

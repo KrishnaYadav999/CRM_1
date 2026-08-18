@@ -21,6 +21,18 @@
     zoom: var(--crm-desktop-scale);
   }
 
+  /* The root is rendered at 75% desktop density. Authentication pages need a
+     reciprocal viewport height so their backgrounds reach the physical bottom
+     of the browser instead of leaving the final quarter blank. */
+  .auth-page,
+  .auth-page-grid {
+    min-height: 133.3334dvh;
+  }
+
+  .auth-page-grid {
+    height: auto;
+  }
+
   /* Internal Teams owns a viewport-height application shell. Compensate for
      root zoom so it still fills the physical browser height without blank space. */
   .teams-page {

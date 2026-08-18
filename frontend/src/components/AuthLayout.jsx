@@ -21,8 +21,8 @@ export default function AuthLayout({ eyebrow, title, subtitle, children }) {
   }, [])
 
   return (
-    <main className="min-h-[100dvh] overflow-hidden bg-[#f7faf8] text-slate-950">
-      <div className="grid min-h-[100dvh] lg:h-[100dvh] lg:grid-cols-[1.08fr_0.92fr]">
+    <main className="auth-page min-h-[100dvh] overflow-hidden bg-[#f7faf8] text-slate-950">
+      <div className="auth-page-grid grid min-h-[100dvh] lg:h-[100dvh] lg:grid-cols-[1.08fr_0.92fr]">
         <section ref={visualRef} className="relative hidden min-h-0 overflow-hidden bg-[#f5fbf8] px-8 py-6 lg:block">
           <div className="relative z-10 flex h-full flex-col">
             <div className="flex items-center gap-5">
