@@ -1042,6 +1042,7 @@ export default function ClientMaster() {
   const location = useLocation();
   const pendingApprovalLeadHandled = useRef('');
   const clientRecordRequestRef = useRef(0);
+  const pageLoadRequestRef = useRef(0);
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
 
@@ -1268,34 +1269,20 @@ export default function ClientMaster() {
   }
 
   async function loadPage() {
+    const pageLoadId = ++pageLoadRequestRef.current;
     setLoading(true);
+    setError('');
     try {
-      const meResponse = await api.get(API_ENDPOINTS.auth.me);
+      const meRequest = api.get(API_ENDPOINTS.auth.me);
+      const clientsRequest = api.get(API_ENDPOINTS.clients.list);
+      const [meResult, crmClientsResult] = await Promise.allSettled([meRequest, clientsRequest]);
+      if (meResult.status === 'rejected') throw meResult.reason;
+      const meResponse = meResult.value;
       const me = meResponse.data.user;
       setCurrentUser(me);
-      let staffList = [];
-      try {
-        const usersResponse = await api.get(API_ENDPOINTS.auth.users);
-        staffList = usersResponse.data.users || [];
-        setStaff(staffList);
-      } catch {
-        staffList = [meResponse.data.user];
-        setStaff(staffList);
-      }
-
-      const [crmClientsResult, crmLeadsResult, catalogResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.clients.list),
-        api.get(API_ENDPOINTS.leads.list),
-        api.get(API_ENDPOINTS.clients.catalog)
-      ]);
+      setStaff([me]);
       const crmClients = crmClientsResult.status === 'fulfilled'
         ? (crmClientsResult.value.data.clients || [])
-        : [];
-      const crmLeads = crmLeadsResult.status === 'fulfilled'
-        ? (crmLeadsResult.value.data.leads || [])
-        : [];
-      const catalog = catalogResult.status === 'fulfilled'
-        ? (catalogResult.value.data.clientMasters || [])
         : [];
       if (crmClientsResult.status === 'rejected') {
         throw new Error(
@@ -1304,32 +1291,41 @@ export default function ClientMaster() {
           || 'Unable to fetch saved clients.'
         );
       }
-      const visibleClients = enrichClientsFromLeads(getClientMasterRows(crmClients, []), crmLeads);
+      if (pageLoadId !== pageLoadRequestRef.current) return;
+      const directoryClients = getClientMasterRows(crmClients, []);
+      const visibleClients = enrichClientsFromLeads(directoryClients, []);
       setTotalClientCount(visibleClients.length);
-      try {
-        const annualReturnsResponse = await api.get(API_ENDPOINTS.annualReturns.list);
-        const annualRows = annualReturnsResponse.data.annualReturns || [];
+      setClients(visibleClients);
+      setLoading(false);
+
+      // These datasets support detail/annual tabs but are not required to draw
+      // the directory. Load them after the table is usable so a slow secondary
+      // endpoint cannot keep the whole Client Master page in skeleton state.
+      void Promise.allSettled([
+        api.get(API_ENDPOINTS.auth.users),
+        api.get(API_ENDPOINTS.leads.list),
+        api.get(API_ENDPOINTS.clients.catalog),
+        api.get(API_ENDPOINTS.annualReturns.list),
+        api.get(API_ENDPOINTS.quotations.list),
+        api.get(API_ENDPOINTS.proformaInvoices.list)
+      ]).then(([usersResult, leadsResult, catalogResult, annualResult, quotationsResult, proformaResult]) => {
+        if (pageLoadId !== pageLoadRequestRef.current) return;
+        const crmLeads = leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [];
+        const catalog = catalogResult.status === 'fulfilled' ? (catalogResult.value.data.clientMasters || []) : [];
+        const annualRows = annualResult.status === 'fulfilled'
+          ? (annualResult.value.data.annualReturns || [])
+          : [];
+        const enrichedClients = enrichClientsFromLeads(directoryClients, crmLeads);
+        setStaff(usersResult.status === 'fulfilled' ? (usersResult.value.data.users || []) : [me]);
+        setLeads(crmLeads);
+        setClientMasterCatalog(catalog);
         setAnnualReturnRecords(annualRows);
-        setClients(hydrateClientsWithAnnualReturns(visibleClients, annualRows));
-      } catch {
-        setAnnualReturnRecords([]);
-        setClients(visibleClients);
-      }
-      setLeads(crmLeads);
-      setClientMasterCatalog(catalog);
-      try {
-        const quotationsResponse = await api.get(API_ENDPOINTS.quotations.list);
-        setQuotations(quotationsResponse.data.quotations || []);
-      } catch {
-        setQuotations([]);
-      }
-      try {
-        const proformaResponse = await api.get(API_ENDPOINTS.proformaInvoices.list);
-        setProformaInvoices(proformaResponse.data.proformaInvoices || []);
-      } catch {
-        setProformaInvoices([]);
-      }
+        setClients(hydrateClientsWithAnnualReturns(enrichedClients, annualRows));
+        setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
+        setProformaInvoices(proformaResult.status === 'fulfilled' ? (proformaResult.value.data.proformaInvoices || []) : []);
+      });
     } catch (err) {
+      if (pageLoadId !== pageLoadRequestRef.current) return;
       setError(err?.response?.data?.error || err?.message || 'Unable to fetch client master data.');
       setLeads([]);
       setClientMasterCatalog([]);
@@ -1338,7 +1334,7 @@ export default function ClientMaster() {
       setQuotations([]);
       setProformaInvoices([]);
     } finally {
-      setLoading(false);
+      if (pageLoadId === pageLoadRequestRef.current) setLoading(false);
     }
   }
 

@@ -789,26 +789,49 @@ exports.listClients = async (req, res) => {
       'data.importMeta.assignedTo'
     ])
   })
-    .populate('selectedLead', 'leadCode company status emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
+    .select([
+      '-data.companyOverview.productImage',
+      '-data.cpcbScreenshots', '-data.processDiagrams',
+      '-data.cpcbDataByAssignedServiceId', '-data.serviceDetailsByAssignedServiceId',
+      '-data.annualReturn', '-data.financials',
+      '-data.compliance.gstFile', '-data.compliance.cinFile', '-data.compliance.panFile',
+      '-data.compliance.factoryLicenseFile', '-data.compliance.eprCertificateFile',
+      '-data.compliance.iecFile', '-data.compliance.dicDcssiFile',
+      '-data.msmeRows.file', '-data.cte.plantWiseDetails.cteDocument',
+      '-data.cte.plantWiseDetails.ctoDocument', '-data.authorised.panDocument',
+      '-data.authorisedPersons.panDocument'
+    ].join(' '))
+    .populate('selectedLead', 'leadCode company status')
     .populate('adminControls.assignedTo', 'name email role avatarUrl')
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
   res.json({ ok: true, clients });
 };
 
 exports.listClientMasterCatalog = async (req, res) => {
+  const startedAt = Date.now();
   const scope = await getVisibleUserScope(req.user);
   const records = await Client.find({
     ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo'])
   })
+    .select([
+      '_id', 'selectedLead', 'assignedServiceId', 'workflowStatus',
+      'data.selectedLead', 'data.assignedServiceId', 'data.selectedLeadSnapshot',
+      'data.basic.clientLegalName', 'data.basic.tradeName', 'data.basic.piboCategory',
+      'data.basic.eprCategory', 'data.basic.servicesOffered', 'data.basic.plantUnit',
+      'data.basic.companyIndustry', 'data.companyOverview.companyName',
+      'data.importMeta.companyName', 'data.importMeta.leadNumber', 'data.importMeta.uniqueId',
+      'companyName', 'clientLegalName', 'tradeName', 'piboCategory', 'eprCategory',
+      'servicesOffered', 'plantUnit', 'industryType', 'applicantType'
+    ].join(' '))
     .populate('selectedLead', 'leadCode company')
-    .sort({ updatedAt: -1 });
+    .sort({ updatedAt: -1 })
+    .lean();
   const clientMasters = records.map(normalizeClientMaster).filter((item) => item.clientMasterId);
   console.info('[ClientMaster discovery]', {
     userId: String(req.user?._id || ''),
     count: clientMasters.length,
-    records: clientMasters.map(({ clientMasterId, selectedLead, assignedServiceId, legacy }) => ({
-      clientMasterId, selectedLead, assignedServiceId: assignedServiceId || null, legacy
-    }))
+    ms: Date.now() - startedAt
   });
   return res.json({ ok: true, clientMasters });
 };
