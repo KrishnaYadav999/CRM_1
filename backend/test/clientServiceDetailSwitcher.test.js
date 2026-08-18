@@ -36,7 +36,23 @@ test('legacy multi-service Client Master records remain separate and receive dro
 test('Add Client draft lookup never treats populated Lead service ids as record identity', () => {
   const lookup = page.slice(page.indexOf('function findClientDraftForLead'), page.indexOf('function handleLeadSelect'));
   assert.match(lookup, /getClientRecordAssignedServiceIds\(item\)/);
+  assert.match(lookup, /record: matchedClient/);
   assert.doesNotMatch(lookup, /item\.selectedLead\.serviceSelections/);
+});
+
+test('Add Client clears stale form state and reloads the exact Client Master id', () => {
+  const handler = page.slice(page.indexOf('async function handleLeadSelect'), page.indexOf('function setAdmin'));
+  assert.match(handler, /setClient\(\{ \.\.\.emptyClient, selectedLead: leadValue \}\)/);
+  assert.match(handler, /fetchExactClientMaster\(\{/);
+  assert.match(handler, /existingDraft\.record/);
+  assert.match(handler, /requestId !== clientRecordRequestRef\.current/);
+  assert.match(handler, /setEditingClientId\(String\(exactDraft\.id/);
+  assert.doesNotMatch(handler, /localAssignmentData|localServiceDetails/);
+});
+
+test('new-client defaults are calculated after service identity is initialized', () => {
+  const handler = page.slice(page.indexOf('async function handleLeadSelect'), page.indexOf('function setAdmin'));
+  assert.ok(handler.indexOf('const currentServicePibo') < handler.indexOf('const samePibo'));
 });
 
 test('Client Master service chooser removes business-identical duplicate services', () => {

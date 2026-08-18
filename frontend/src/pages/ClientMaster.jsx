@@ -1336,6 +1336,7 @@ export default function ClientMaster() {
       const idValue = String(matchedClient._id || matchedClient.id || '').trim();
       return {
         id: idValue,
+        record: matchedClient,
         workflowStatus: matchedClient.workflowStatus || 'draft',
         adminControls: { ...emptyClient.adminControls, ...(matchedClient.adminControls || {}) },
         data: { ...emptyClient, ...readClientData(matchedClient), selectedLead: leadValue || matchedClient.selectedLead || '' }
@@ -1353,56 +1354,67 @@ export default function ClientMaster() {
     return cachedDraft;
   }
 
-  function handleLeadSelect(value, selectedService = null) {
+  async function handleLeadSelect(value, selectedService = null) {
     const baseLead = findLeadByValue(leads, value);
     if (!baseLead) {
-      setRoot('selectedLead', value);
+      clientRecordRequestRef.current += 1;
+      setClient({ ...emptyClient, selectedLead: value });
+      setEditingClientId('');
       return;
     }
     const visibleServices = getVisibleServiceRows(baseLead);
     if (!selectedService && visibleServices.length > 1) {
+      clientRecordRequestRef.current += 1;
+      setClient({ ...emptyClient, selectedLead: value });
+      setEditingClientId('');
+      setNotice('');
+      setError('');
       setPendingLeadServices({ lead: baseLead, value, services: visibleServices });
       return;
     }
     const service = selectedService || visibleServices[0] || {};
     const selectedLead = { ...baseLead, ...service };
     const leadValue = getLeadSelectValue(selectedLead);
+    const requestId = ++clientRecordRequestRef.current;
+    setClient({ ...emptyClient, selectedLead: leadValue });
+    setEditingClientId('');
+    setNotice('Loading selected Client Master...');
+    setError('');
     const existingDraft = findClientDraftForLead(selectedLead, leadValue);
     if (existingDraft?.data) {
-      const currentAssignmentId = String(client.assignedServiceId || client.selectedLeadSnapshot?.assignedServiceId || '').trim();
-      const sameLeadIsOpen = normalizeDraftKey(client.selectedLead) === normalizeDraftKey(leadValue);
-      const localAssignmentData = sameLeadIsOpen && currentAssignmentId
-        ? {
-            [currentAssignmentId]: {
-              assignedServiceId: currentAssignmentId,
-              cpcb: { ...(client.cpcb || {}) },
-              cpcbScreenshots: Array.isArray(client.cpcbScreenshots) ? client.cpcbScreenshots : []
-            }
-          }
-        : {};
-      const localServiceDetails = sameLeadIsOpen && currentAssignmentId
-        ? { [currentAssignmentId]: { registeredAddress: client.registeredAddress, communicationAddress: client.communicationAddress, otp: client.otp, otpContacts: client.otpContacts, authorised: client.authorised, authorisedPersons: client.authorisedPersons, coordinating: client.coordinating, coordinatingPersons: client.coordinatingPersons } }
-        : {};
-      const scopedData = activateAssignedService({
-        ...existingDraft.data,
-        cpcbDataByAssignedServiceId: {
-          ...(existingDraft.data.cpcbDataByAssignedServiceId || {}),
-          ...(client.cpcbDataByAssignedServiceId || {}),
-          ...localAssignmentData
-        },
-        serviceDetailsByAssignedServiceId: {
-          ...(existingDraft.data.serviceDetailsByAssignedServiceId || {}),
-          ...(client.serviceDetailsByAssignedServiceId || {}),
-          ...localServiceDetails
+      let exactDraft = existingDraft;
+      try {
+        const exactRecord = await fetchExactClientMaster({
+          ...(existingDraft.record || {}),
+          assignedServiceId: readAssignedServiceId(service) || existingDraft.record?.assignedServiceId || ''
+        }, requestId);
+        if (requestId !== clientRecordRequestRef.current) return;
+        if (exactRecord) {
+          exactDraft = {
+            ...existingDraft,
+            id: String(exactRecord._id || exactRecord.id || existingDraft.id || '').trim(),
+            record: exactRecord,
+            adminControls: { ...emptyClient.adminControls, ...(exactRecord.adminControls || {}) },
+            data: { ...emptyClient, ...readClientData(exactRecord), selectedLead: leadValue }
+          };
         }
+      } catch (err) {
+        if (requestId !== clientRecordRequestRef.current) return;
+        setNotice('');
+        setError(err?.response?.data?.error || 'Unable to load the selected Client Master record.');
+        return;
+      }
+      const scopedData = activateAssignedService({
+        ...exactDraft.data
       }, service, visibleServices.length);
+      if (requestId !== clientRecordRequestRef.current) return;
       setClient({
         ...emptyClient,
         ...scopedData,
         selectedLead: leadValue,
-        adminControls: { ...emptyClient.adminControls, ...(existingDraft.adminControls || existingDraft.data.adminControls || {}) }
+        adminControls: { ...emptyClient.adminControls, ...(exactDraft.adminControls || exactDraft.data.adminControls || {}) }
       });
-      setEditingClientId(String(existingDraft.id || '').trim());
+      setEditingClientId(String(exactDraft.id || '').trim());
       setNotice('Saved draft loaded. Continue from where you left.');
       setError('');
       return;
@@ -1412,6 +1424,13 @@ export default function ClientMaster() {
     const email = String(selectedLead.emails || selectedLead.email || '').split(/[,\s;]+/).find(Boolean) || '';
     const serviceAddress = selectedLead.addressData || {};
     const serviceContact = selectedLead.contactData || {};
+    const currentServicePibo = String((service && (service.subApplicantType || service.piboCategory)) || selectedLead.piboCategory || '').trim();
+    const currentServiceEpr = String((service && service.eprCategory) || selectedLead.eprCategory || '').trim();
+    const currentServiceOffered = String((service && (service.servicesOffered || service.serviceName)) || selectedLead.servicesOffered || '').trim();
+    const currentServiceIndustry = String((service && service.industryType) || selectedLead.industryType || '').trim();
+    const currentServicePlantUnit = String((service && service.plantUnit) || selectedLead.plantUnit || '').trim();
+    const currentServiceApplicantType = String((service && service.applicantType) || selectedLead.applicantType || '').trim();
+    const currentServiceBusiness = String((service && service.businessCategory) || selectedLead.businessCategory || '').trim();
     const sharedSearchKeys = [
       leadValue,
       selectedLead?._id,
@@ -1460,13 +1479,6 @@ export default function ClientMaster() {
     const baseCte = { numberOfPlantsLocations: '', plantWiseDetails: [] };
     const baseMsme = [];
     const baseCpcb = { linkedToCommonPortal: '' };
-    const currentServicePibo = String((service && (service.subApplicantType || service.piboCategory)) || selectedLead.piboCategory || '').trim();
-    const currentServiceEpr = String((service && service.eprCategory) || selectedLead.eprCategory || '').trim();
-    const currentServiceOffered = String((service && (service.servicesOffered || service.serviceName)) || selectedLead.servicesOffered || '').trim();
-    const currentServiceIndustry = String((service && service.industryType) || selectedLead.industryType || '').trim();
-    const currentServicePlantUnit = String((service && service.plantUnit) || selectedLead.plantUnit || '').trim();
-    const currentServiceApplicantType = String((service && service.applicantType) || selectedLead.applicantType || '').trim();
-    const currentServiceBusiness = String((service && service.businessCategory) || selectedLead.businessCategory || '').trim();
     const pickExistingSafe = (obj, defaults = {}, serviceSpecificKeys = []) => {
       if (!obj || typeof obj !== 'object') return defaults;
       const out = { ...defaults };
