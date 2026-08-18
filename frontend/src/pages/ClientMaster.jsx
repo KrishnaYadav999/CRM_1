@@ -724,6 +724,9 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
     if (hasData) return dataFallback;
     return leadFallback;
   };
+  const servicePibo = String(service.subApplicantType || service.piboCategory || '').trim();
+  const serviceEpr = String(service.eprCategory || '').trim();
+  const serviceOffered = String(service.servicesOffered || service.serviceName || '').trim();
   return {
     ...data,
     assignedServiceId,
@@ -784,7 +787,23 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
     basic: {
       ...(data.basic || {}),
       clientLegalName: String(data.basic?.clientLegalName || '').trim() || String(data.companyOverview?.companyName || '').trim(),
-      tradeName: String(data.basic?.tradeName || '').trim() || String(data.companyOverview?.companyName || '').trim()
+      tradeName: String(data.basic?.tradeName || '').trim() || String(data.companyOverview?.companyName || '').trim(),
+      piboCategory: servicePibo || (data.basic?.piboCategory ?? ''),
+      eprCategory: serviceEpr || (data.basic?.eprCategory ?? ''),
+      servicesOffered: serviceOffered || (data.basic?.servicesOffered ?? '')
+    },
+    selectedLeadSnapshot: {
+      ...(data.selectedLeadSnapshot || {}),
+      assignedServiceId,
+      piboCategory: servicePibo || (data.selectedLeadSnapshot?.piboCategory ?? ''),
+      subApplicantType: servicePibo || (data.selectedLeadSnapshot?.subApplicantType ?? ''),
+      eprCategory: serviceEpr || (data.selectedLeadSnapshot?.eprCategory ?? ''),
+      serviceCategory: serviceEpr || (data.selectedLeadSnapshot?.serviceCategory ?? ''),
+      servicesOffered: serviceOffered || (data.selectedLeadSnapshot?.servicesOffered ?? ''),
+      industryType: service.industryType || (data.selectedLeadSnapshot?.industryType ?? ''),
+      plantUnit: service.plantUnit || (data.selectedLeadSnapshot?.plantUnit ?? ''),
+      businessCategory: service.businessCategory || (data.selectedLeadSnapshot?.businessCategory ?? ''),
+      applicantType: service.applicantType || (data.selectedLeadSnapshot?.applicantType ?? '')
     },
     compliance: data.compliance || {},
     msmeRows: Array.isArray(data.msmeRows) ? data.msmeRows : [],
@@ -1208,27 +1227,31 @@ export default function ClientMaster() {
         item.assignedServiceId,
         data.assignedServiceId,
         data.selectedLeadSnapshot?.assignedServiceId,
-        item.assignedServiceId ? item.assignedServiceId : '',
         typeof item.selectedLead === 'object' && item.selectedLead?.serviceSelections
           ? item.selectedLead.serviceSelections.map((s) => s.assignedServiceId || s.serviceAssignmentId || s.assignmentId || '').filter(Boolean)
           : []
-      ].flat().map(normalizeDraftKey);
+      ].flat().map(normalizeDraftKey).filter(Boolean);
+      const itemHasMatchingServiceId = itemAssignedServiceCandidates.some((candidate) => candidate && candidate === assignedServiceId);
       if (assignedServiceId) {
-        const itemHasMatchingServiceId = itemAssignedServiceCandidates.some((candidate) => candidate && candidate === assignedServiceId);
-        const legacyServiceFingerprint = clientMasterServiceFingerprint(selectedLead);
-        const itemHasLegacyMatch = [
-          clientMasterServiceFingerprint({
-            industryType: data.selectedLeadSnapshot?.industryType,
-            businessCategory: data.selectedLeadSnapshot?.businessCategory,
-            eprCategory: data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.selectedLeadSnapshot?.serviceCategory,
-            applicantType: data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || data.selectedLeadSnapshot?.piboCategoryParent,
-            subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory,
-            servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered,
-            applicableService: data.selectedLeadSnapshot?.applicableService,
-            plantUnit: data.selectedLeadSnapshot?.plantUnit
-          })
-        ].some((fp) => fp === legacyServiceFingerprint);
-        if (!itemHasMatchingServiceId && !itemHasLegacyMatch) return false;
+        if (itemHasMatchingServiceId) {
+        } else if (itemAssignedServiceCandidates.length) {
+          return false;
+        } else {
+          const legacyServiceFingerprint = clientMasterServiceFingerprint(selectedLead);
+          const itemHasLegacyMatch = [
+            clientMasterServiceFingerprint({
+              industryType: data.selectedLeadSnapshot?.industryType,
+              businessCategory: data.selectedLeadSnapshot?.businessCategory,
+              eprCategory: data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.selectedLeadSnapshot?.serviceCategory,
+              applicantType: data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || data.selectedLeadSnapshot?.piboCategoryParent,
+              subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory,
+              servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered,
+              applicableService: data.selectedLeadSnapshot?.applicableService,
+              plantUnit: data.selectedLeadSnapshot?.plantUnit
+            })
+          ].some((fp) => fp === legacyServiceFingerprint);
+          if (!itemHasLegacyMatch) return false;
+        }
       }
       const itemKeys = [
         item.selectedLead,
@@ -1360,14 +1383,29 @@ export default function ClientMaster() {
       return compKeys.some((k) => sharedSearchKeys.includes(k));
     });
     const mergeCompanyData = companyLevelSource ? readClientData(companyLevelSource) : null;
-    const pickExisting = (obj, defaults = {}) => {
+    const baseBasic = { ...emptyClient.basic };
+    const baseCompliance = { ...emptyClient.compliance };
+    const baseCompanyOverview = { ...emptyClient.companyOverview };
+    const baseCte = { numberOfPlantsLocations: '', plantWiseDetails: [] };
+    const baseMsme = [];
+    const baseCpcb = { linkedToCommonPortal: '' };
+    const currentServicePibo = String((service && (service.subApplicantType || service.piboCategory)) || selectedLead.piboCategory || '').trim();
+    const currentServiceEpr = String((service && service.eprCategory) || selectedLead.eprCategory || '').trim();
+    const currentServiceOffered = String((service && (service.servicesOffered || service.serviceName)) || selectedLead.servicesOffered || '').trim();
+    const currentServiceIndustry = String((service && service.industryType) || selectedLead.industryType || '').trim();
+    const currentServicePlantUnit = String((service && service.plantUnit) || selectedLead.plantUnit || '').trim();
+    const currentServiceApplicantType = String((service && service.applicantType) || selectedLead.applicantType || '').trim();
+    const currentServiceBusiness = String((service && service.businessCategory) || selectedLead.businessCategory || '').trim();
+    const pickExistingSafe = (obj, defaults = {}, serviceSpecificKeys = []) => {
       if (!obj || typeof obj !== 'object') return defaults;
       const out = { ...defaults };
+      const forbidden = new Set(serviceSpecificKeys.map((k) => String(k).toLowerCase()));
       Object.keys(obj).forEach((k) => {
+        if (forbidden.has(String(k).toLowerCase())) return;
         if (obj[k] !== null && obj[k] !== undefined && obj[k] !== '') {
           if (Array.isArray(obj[k]) && obj[k].length > 0) out[k] = obj[k];
           else if (typeof obj[k] === 'object' && !Array.isArray(obj[k])) {
-            out[k] = pickExisting(obj[k], defaults[k] || {});
+            out[k] = pickExistingSafe(obj[k], defaults[k] || {}, []);
           } else if (typeof obj[k] !== 'object') {
             out[k] = obj[k];
           }
@@ -1375,32 +1413,32 @@ export default function ClientMaster() {
       });
       return out;
     };
-    const baseBasic = { ...emptyClient.basic };
-    const baseCompliance = { ...emptyClient.compliance };
-    const baseCompanyOverview = { ...emptyClient.companyOverview };
-    const baseCte = { numberOfPlantsLocations: '', plantWiseDetails: [] };
-    const baseMsme = [];
-    const baseCpcb = { linkedToCommonPortal: '' };
     const mergedBasic = mergeCompanyData
       ? {
           ...baseBasic,
-          ...pickExisting(mergeCompanyData.basic || {}, baseBasic),
+          ...pickExistingSafe(mergeCompanyData.basic || {}, baseBasic, ['piboCategory', 'eprCategory', 'servicesOffered']),
           clientLegalName: mergeCompanyData.basic?.clientLegalName || company || '',
           tradeName: mergeCompanyData.basic?.tradeName || company || '',
-          piboCategory: selectedLead.piboCategory || '',
-          eprCategory: selectedLead.eprCategory || ''
+          piboCategory: currentServicePibo,
+          eprCategory: currentServiceEpr,
+          servicesOffered: currentServiceOffered,
+          companyIndustry: currentServiceIndustry || mergeCompanyData.basic?.companyIndustry || '',
+          plantUnit: currentServicePlantUnit || mergeCompanyData.basic?.plantUnit || ''
         }
       : {
           ...baseBasic,
           clientLegalName: company || '',
           tradeName: company || '',
-          piboCategory: selectedLead.piboCategory || '',
-          eprCategory: selectedLead.eprCategory || ''
+          piboCategory: currentServicePibo,
+          eprCategory: currentServiceEpr,
+          servicesOffered: currentServiceOffered,
+          companyIndustry: currentServiceIndustry,
+          plantUnit: currentServicePlantUnit
         };
     const mergedCompanyOverview = mergeCompanyData
       ? {
           ...baseCompanyOverview,
-          ...pickExisting(mergeCompanyData.companyOverview || {}, baseCompanyOverview),
+          ...pickExistingSafe(mergeCompanyData.companyOverview || {}, baseCompanyOverview, []),
           companyName: mergeCompanyData.companyOverview?.companyName || company || '',
           productName: mergeCompanyData.companyOverview?.productName || selectedLead.productName || '',
           productManufacturer: mergeCompanyData.companyOverview?.productManufacturer || selectedLead.productManufacturer || '',
@@ -1414,16 +1452,10 @@ export default function ClientMaster() {
           category: [],
           numberOfEmployees: selectedLead.numberOfEmployees || ''
         };
-    const mergedCompliance = mergeCompanyData ? pickExisting(mergeCompanyData.compliance || {}, baseCompliance) : baseCompliance;
-    const mergedCte = mergeCompanyData && Object.keys(mergeCompanyData.cte || {}).length
-      ? { ...baseCte, ...pickExisting(mergeCompanyData.cte || {}, baseCte) }
-      : baseCte;
-    const mergedMsme = mergeCompanyData && Array.isArray(mergeCompanyData.msmeRows) && mergeCompanyData.msmeRows.length
-      ? mergeCompanyData.msmeRows
-      : baseMsme;
-    const mergedCpcb = mergeCompanyData && Object.keys(mergeCompanyData.cpcb || {}).length > 1
-      ? pickExisting(mergeCompanyData.cpcb || {}, baseCpcb)
-      : baseCpcb;
+    const mergedCompliance = mergeCompanyData ? pickExistingSafe(mergeCompanyData.compliance || {}, baseCompliance, ['factoryLicense', 'factoryLicenseNumber', 'factoryLicenseDate', 'eprCertificate', 'eprCertificateNumber', 'eprCertificateDate']) : baseCompliance;
+    const mergedCte = baseCte;
+    const mergedMsme = baseMsme;
+    const mergedCpcb = baseCpcb;
 
     setClient({
       ...emptyClient,
@@ -1447,11 +1479,15 @@ export default function ClientMaster() {
         sourceLeadId: selectedLead.sourceLeadId || '',
         leadCode,
         company,
-        piboCategory: selectedLead.piboCategory || '',
-        eprCategory: selectedLead.eprCategory || '',
-        industryType: selectedLead.industryType || '',
-        servicesOffered: selectedLead.servicesOffered || '',
-        plantUnit: selectedLead.plantUnit || '',
+        piboCategory: currentServicePibo,
+        subApplicantType: currentServicePibo,
+        eprCategory: currentServiceEpr,
+        serviceCategory: currentServiceEpr,
+        industryType: currentServiceIndustry,
+        servicesOffered: currentServiceOffered,
+        plantUnit: currentServicePlantUnit,
+        businessCategory: currentServiceBusiness,
+        applicantType: currentServiceApplicantType,
         contactPerson: selectedLead.contactPerson || '',
         mobileNo1: selectedLead.mobileNo1 || '',
         email,
