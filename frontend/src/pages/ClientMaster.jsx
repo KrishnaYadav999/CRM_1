@@ -668,6 +668,34 @@ function clientMasterServiceFingerprint(service = {}) {
   ].map(normalize).join(':');
 }
 
+function legacyServiceFingerprintCompatible(lhsRaw, rhsRaw) {
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const build = (svc = {}) => [
+    normalize(svc.industryType),
+    normalize(svc.businessCategory),
+    normalize(svc.eprCategory || svc.serviceCategory),
+    normalize(svc.applicantType || svc.piboParent || svc.piboCategoryParent),
+    normalize(svc.subApplicantType || svc.piboCategory),
+    normalize(svc.servicesOffered),
+    normalize(svc.applicableService),
+    normalize(svc.plantUnit)
+  ];
+  const lhs = build(lhsRaw);
+  const rhs = build(rhsRaw);
+  const piboIndex = 4;
+  const servicesOfferedIndex = 5;
+  const industryIndex = 0;
+  const eprIndex = 2;
+  const applicantIndex = 3;
+  const plantIndex = 7;
+  if (lhs[piboIndex] && rhs[piboIndex] && lhs[piboIndex] !== rhs[piboIndex]) return false;
+  if (lhs[eprIndex] && rhs[eprIndex] && lhs[eprIndex] !== rhs[eprIndex]) return false;
+  if (lhs[applicantIndex] && rhs[applicantIndex] && lhs[applicantIndex] !== rhs[applicantIndex]) return false;
+  if (lhs[industryIndex] && rhs[industryIndex] && lhs[industryIndex] !== rhs[industryIndex]) return false;
+  if (lhs[plantIndex] && rhs[plantIndex] && lhs[plantIndex] !== rhs[plantIndex]) return false;
+  return true;
+}
+
 function uniqueClientMasterServices(services = []) {
   const seen = new Set();
   return services.filter((service, index) => {
@@ -690,7 +718,19 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
   const contact = service.contactData || {};
   const allowLegacy = savedAssignmentId
     ? String(savedAssignmentId).trim().toLowerCase() === String(assignedServiceId).trim().toLowerCase()
-    : serviceCount === 1 || (legacyServiceName && legacyServiceName.toLowerCase() === selectedServiceName.toLowerCase());
+    : (serviceCount === 1
+        || (legacyServiceName && legacyServiceName.toLowerCase() === selectedServiceName.toLowerCase())
+        || legacyServiceFingerprintCompatible(data.selectedLeadSnapshot || {}, service)
+        || legacyServiceFingerprintCompatible({
+            industryType: data.selectedLeadSnapshot?.industryType,
+            businessCategory: data.selectedLeadSnapshot?.businessCategory,
+            eprCategory: data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory,
+            applicantType: data.selectedLeadSnapshot?.applicantType,
+            subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.piboCategory,
+            servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered,
+            applicableService: data.selectedLeadSnapshot?.applicableService,
+            plantUnit: data.selectedLeadSnapshot?.plantUnit
+          }, service));
   const hasScopedAddress = scopedDetails?.registeredAddress &&
     (String(scopedDetails.registeredAddress.address1 || '').trim() || String(scopedDetails.registeredAddress.state || '').trim() || String(scopedDetails.registeredAddress.city || '').trim());
   const hasScopedCommunication = scopedDetails?.communicationAddress &&
@@ -1237,19 +1277,26 @@ export default function ClientMaster() {
         } else if (itemAssignedServiceCandidates.length) {
           return false;
         } else {
-          const legacyServiceFingerprint = clientMasterServiceFingerprint(selectedLead);
-          const itemHasLegacyMatch = [
-            clientMasterServiceFingerprint({
-              industryType: data.selectedLeadSnapshot?.industryType,
-              businessCategory: data.selectedLeadSnapshot?.businessCategory,
-              eprCategory: data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.selectedLeadSnapshot?.serviceCategory,
-              applicantType: data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || data.selectedLeadSnapshot?.piboCategoryParent,
-              subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory,
-              servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered,
-              applicableService: data.selectedLeadSnapshot?.applicableService,
-              plantUnit: data.selectedLeadSnapshot?.plantUnit
-            })
-          ].some((fp) => fp === legacyServiceFingerprint);
+          const legacyCandidateServiceFields = {
+            industryType: data.selectedLeadSnapshot?.industryType,
+            businessCategory: data.selectedLeadSnapshot?.businessCategory,
+            eprCategory: data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.selectedLeadSnapshot?.serviceCategory,
+            applicantType: data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || data.selectedLeadSnapshot?.piboCategoryParent,
+            subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory,
+            servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered,
+            applicableService: data.selectedLeadSnapshot?.applicableService,
+            plantUnit: data.selectedLeadSnapshot?.plantUnit
+          };
+          const itemHasLegacyMatch = legacyServiceFingerprintCompatible(legacyCandidateServiceFields, {
+            industryType: selectedLead.industryType,
+            businessCategory: selectedLead.businessCategory,
+            eprCategory: selectedLead.eprCategory,
+            applicantType: selectedLead.applicantType,
+            subApplicantType: selectedLead.subApplicantType || selectedLead.piboCategory,
+            servicesOffered: selectedLead.servicesOffered,
+            applicableService: selectedLead.applicableService,
+            plantUnit: selectedLead.plantUnit
+          });
           if (!itemHasLegacyMatch) return false;
         }
       }
@@ -1361,7 +1408,7 @@ export default function ClientMaster() {
       company,
       company?.toLowerCase?.()
     ].map(normalizeDraftKey).filter(Boolean);
-    const companyLevelSource = clients.find((item) => {
+    const matchesSameCompany = (item) => {
       const d = readClientData(item);
       const compKeys = [
         item.selectedLead,
@@ -1381,7 +1428,16 @@ export default function ClientMaster() {
         String(d.companyOverview?.companyName || '').toLowerCase()
       ].map(normalizeDraftKey).filter(Boolean);
       return compKeys.some((k) => sharedSearchKeys.includes(k));
-    });
+    };
+    const samePibo = String(currentServicePibo || '').trim().toLowerCase();
+    const sameCompanyMatches = clients.filter(matchesSameCompany);
+    const companyLevelSource = samePibo
+      ? sameCompanyMatches.find((item) => {
+          const d = readClientData(item);
+          const pibo = String(d.basic?.piboCategory || d.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
+          return pibo === samePibo;
+        }) || sameCompanyMatches[0]
+      : sameCompanyMatches[0];
     const mergeCompanyData = companyLevelSource ? readClientData(companyLevelSource) : null;
     const baseBasic = { ...emptyClient.basic };
     const baseCompliance = { ...emptyClient.compliance };
@@ -2440,6 +2496,21 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
         ],
         svcCpcb: svcData.cpcb || {},
         svcCpcbDocs: svcData.cpcbScreenshots || [],
+        svcCpcbRows: [
+          ['Linked to Common Portal', (svcData.cpcb || {}).linkedToCommonPortal, ShieldCheck],
+          ['CPCB Registration No', (svcData.cpcb || {}).registrationNumber, ShieldCheck],
+          ['CPCB Application No', (svcData.cpcb || {}).applicationNumber, FileText],
+          ['CPCB Status', (svcData.cpcb || {}).status, CheckCircle2],
+          ['CEPR User ID', (svcData.cpcb || {}).ceprUserId, KeyRound],
+          ['CEPR Password', (svcData.cpcb || {}).ceprPassword, KeyRound],
+          ['Portal Login ID', (svcData.cpcb || {}).loginId, UserRound],
+          ['Portal Login Password', (svcData.cpcb || {}).loginPassword, KeyRound],
+          ['CPCB Unit ID', (svcData.cpcb || {}).unitId, FileText],
+          ['CPCB Application Date', (svcData.cpcb || {}).applicationDate, CalendarDays],
+          ['CPCB Approval Date', (svcData.cpcb || {}).approvalDate, CalendarDays],
+          ['CPCB Remark', (svcData.cpcb || {}).remark, ClipboardList]
+        ].filter(([, v]) => String(v || '').trim() !== ''),
+        svcCpcbFileCount: Array.isArray(svcData.cpcbScreenshots) ? svcData.cpcbScreenshots.length : 0,
         svcProgress: 0,
         isSelected: selectedServiceKey && String(selectedServiceKey) === String(getClientServiceViewKey(svc))
       };
@@ -2776,6 +2847,23 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                                         ))}
                                       </DetailSheet>
                                     </div>
+                                    {svcBlock.svcCpcbRows.length > 0 && (
+                                      <div>
+                                        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                                          <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">CPCB / EPR Portal Credentials</p>
+                                          {svcBlock.svcCpcbFileCount > 0 && (
+                                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black uppercase border ${svcBlock.palette.badge}`}>
+                                              <Images className="h-3 w-3" /> {svcBlock.svcCpcbFileCount} Screenshot{svcBlock.svcCpcbFileCount === 1 ? '' : 's'}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <DetailSheet columns={1}>
+                                          {svcBlock.svcCpcbRows.map(([label, value, Icon, actionUrl]) => (
+                                            <DetailValue key={`${svcBlock.viewKey}-cpcb-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} />
+                                          ))}
+                                        </DetailSheet>
+                                      </div>
+                                    )}
                                     {hasMultipleServices && svcBlock.isSelected === false && (
                                       <button
                                         type="button"
