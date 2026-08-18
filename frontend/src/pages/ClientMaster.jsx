@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Building2, Briefcase, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, Factory, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Package, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Tag, Trash2, Upload, UserRound, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -689,29 +689,109 @@ function activateAssignedService(data = {}, service = {}, serviceCount = 1) {
   const address = service.addressData || {};
   const contact = service.contactData || {};
   const allowLegacy = savedAssignmentId
-    ? savedAssignmentId === assignedServiceId
-    : serviceCount === 1 || (legacyServiceName && legacyServiceName === selectedServiceName);
+    ? String(savedAssignmentId).trim().toLowerCase() === String(assignedServiceId).trim().toLowerCase()
+    : serviceCount === 1 || (legacyServiceName && legacyServiceName.toLowerCase() === selectedServiceName.toLowerCase());
+  const hasScopedAddress = scopedDetails?.registeredAddress &&
+    (String(scopedDetails.registeredAddress.address1 || '').trim() || String(scopedDetails.registeredAddress.state || '').trim() || String(scopedDetails.registeredAddress.city || '').trim());
+  const hasScopedCommunication = scopedDetails?.communicationAddress &&
+    (String(scopedDetails.communicationAddress.address1 || '').trim() || String(scopedDetails.communicationAddress.state || '').trim() || String(scopedDetails.communicationAddress.city || '').trim());
+  const hasScopedOtp = scopedDetails?.otp && (String(scopedDetails.otp.mobile || '').trim() || String(scopedDetails.otp.personName || '').trim());
+  const hasScopedAuth = scopedDetails?.authorised &&
+    (String(scopedDetails.authorised.name || '').trim() || String(scopedDetails.authorised.email || '').trim() || String(scopedDetails.authorised.mobile || '').trim());
+  const hasScopedCoord = scopedDetails?.coordinating &&
+    (String(scopedDetails.coordinating.name || '').trim() || String(scopedDetails.coordinating.email || '').trim() || String(scopedDetails.coordinating.mobile || '').trim());
+  const hasScopedCpcb = scoped?.cpcb || scoped?.details
+    ? Object.keys(scoped.cpcb || scoped.details || {}).length > 0
+    : false;
+  const hasScopedScreenshots = scoped && (
+    (Array.isArray(scoped.cpcbScreenshots) && scoped.cpcbScreenshots.length > 0) ||
+    (Array.isArray(scoped.documents) && scoped.documents.length > 0)
+  );
+  const hasDataAddress = data.registeredAddress &&
+    (String(data.registeredAddress.address1 || '').trim() || String(data.registeredAddress.state || '').trim() || String(data.registeredAddress.city || '').trim());
+  const hasDataCommunication = data.communicationAddress &&
+    (String(data.communicationAddress.address1 || '').trim() || String(data.communicationAddress.state || '').trim() || String(data.communicationAddress.city || '').trim());
+  const hasDataOtp = data.otp && (String(data.otp.mobile || '').trim() || String(data.otp.personName || '').trim());
+  const hasDataAuth = data.authorised &&
+    (String(data.authorised.name || '').trim() || String(data.authorised.email || '').trim() || String(data.authorised.mobile || '').trim());
+  const hasDataCoord = data.coordinating &&
+    (String(data.coordinating.name || '').trim() || String(data.coordinating.email || '').trim() || String(data.coordinating.mobile || '').trim());
+  const hasDataCpcb = data.cpcb ? Object.keys(data.cpcb).filter((k) => k !== 'linkedToCommonPortal').length > 0 : false;
+  const hasDataScreenshots = Array.isArray(data.cpcbScreenshots) && data.cpcbScreenshots.length > 0;
+  const useFallback = (scoped, hasScoped, hasData, dataFallback, leadFallback) => {
+    if (scoped && hasScoped) return scoped;
+    if (allowLegacy && hasData) return dataFallback;
+    if (hasData) return dataFallback;
+    return leadFallback;
+  };
   return {
     ...data,
     assignedServiceId,
-    registeredAddress: scopedDetails?.registeredAddress || (allowLegacy ? data.registeredAddress : {
-      address1: address.addressLine1 || '', address2: address.addressLine2 || '', address3: address.addressLine3 || '', state: address.state || '', city: address.city || '', pincode: address.pinCode || ''
-    }),
-    communicationAddress: scopedDetails?.communicationAddress || (allowLegacy ? data.communicationAddress : {
-      address1: address.addressLine1 || '', address2: address.addressLine2 || '', address3: address.addressLine3 || '', state: address.state || '', city: address.city || '', pincode: address.pinCode || ''
-    }),
-    otp: scopedDetails?.otp || (allowLegacy ? data.otp : { mobile: contact.mobileNo1 || '', personName: contact.contactPerson || '', designation: contact.designation || '' }),
-    otpContacts: scopedDetails?.otpContacts || (allowLegacy && Array.isArray(data.otpContacts) ? data.otpContacts : []),
-    authorised: scopedDetails?.authorised || (allowLegacy ? data.authorised : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
-    authorisedPersons: scopedDetails?.authorisedPersons || (allowLegacy && Array.isArray(data.authorisedPersons) ? data.authorisedPersons : []),
-    coordinating: scopedDetails?.coordinating || (allowLegacy ? data.coordinating : { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }),
-    coordinatingPersons: scopedDetails?.coordinatingPersons || (allowLegacy && Array.isArray(data.coordinatingPersons) ? data.coordinatingPersons : []),
-    cpcb: scoped
+    registeredAddress: useFallback(
+      scopedDetails?.registeredAddress,
+      hasScopedAddress,
+      hasDataAddress,
+      data.registeredAddress || {},
+      { address1: address.addressLine1 || '', address2: address.addressLine2 || '', address3: address.addressLine3 || '', state: address.state || '', city: address.city || '', pincode: address.pinCode || '' }
+    ),
+    communicationAddress: useFallback(
+      scopedDetails?.communicationAddress,
+      hasScopedCommunication,
+      hasDataCommunication,
+      data.communicationAddress || {},
+      { address1: address.addressLine1 || '', address2: address.addressLine2 || '', address3: address.addressLine3 || '', state: address.state || '', city: address.city || '', pincode: address.pinCode || '' }
+    ),
+    otp: useFallback(
+      scopedDetails?.otp,
+      hasScopedOtp,
+      hasDataOtp,
+      data.otp || {},
+      { mobile: contact.mobileNo1 || '', personName: contact.contactPerson || '', designation: contact.designation || '' }
+    ),
+    otpContacts: scopedDetails?.otpContacts && Array.isArray(scopedDetails.otpContacts) && scopedDetails.otpContacts.length
+      ? scopedDetails.otpContacts
+      : (Array.isArray(data.otpContacts) && data.otpContacts.length ? data.otpContacts : []),
+    authorised: useFallback(
+      scopedDetails?.authorised,
+      hasScopedAuth,
+      hasDataAuth,
+      data.authorised || {},
+      { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }
+    ),
+    authorisedPersons: scopedDetails?.authorisedPersons && Array.isArray(scopedDetails.authorisedPersons) && scopedDetails.authorisedPersons.length
+      ? scopedDetails.authorisedPersons
+      : (Array.isArray(data.authorisedPersons) && data.authorisedPersons.length ? data.authorisedPersons : []),
+    coordinating: useFallback(
+      scopedDetails?.coordinating,
+      hasScopedCoord,
+      hasDataCoord,
+      data.coordinating || {},
+      { name: contact.contactPerson || '', designation: contact.designation || '', mobile: contact.mobileNo1 || '', email: contact.emails || '' }
+    ),
+    coordinatingPersons: scopedDetails?.coordinatingPersons && Array.isArray(scopedDetails.coordinatingPersons) && scopedDetails.coordinatingPersons.length
+      ? scopedDetails.coordinatingPersons
+      : (Array.isArray(data.coordinatingPersons) && data.coordinatingPersons.length ? data.coordinatingPersons : []),
+    cpcb: hasScopedCpcb
       ? { linkedToCommonPortal: '', ...(scoped.cpcb || scoped.details || {}) }
-      : (allowLegacy ? { linkedToCommonPortal: '', ...(data.cpcb || {}) } : { linkedToCommonPortal: '' }),
-    cpcbScreenshots: scoped
+      : hasDataCpcb
+        ? { linkedToCommonPortal: '', ...(data.cpcb || {}) }
+        : (allowLegacy ? { linkedToCommonPortal: '', ...(data.cpcb || {}) } : { linkedToCommonPortal: '' }),
+    cpcbScreenshots: hasScopedScreenshots
       ? (Array.isArray(scoped.cpcbScreenshots) ? scoped.cpcbScreenshots : (Array.isArray(scoped.documents) ? scoped.documents : []))
-      : (allowLegacy && Array.isArray(data.cpcbScreenshots) ? data.cpcbScreenshots : [])
+      : hasDataScreenshots
+        ? data.cpcbScreenshots
+        : (allowLegacy && Array.isArray(data.cpcbScreenshots) ? data.cpcbScreenshots : []),
+    basic: {
+      ...(data.basic || {}),
+      clientLegalName: String(data.basic?.clientLegalName || '').trim() || String(data.companyOverview?.companyName || '').trim(),
+      tradeName: String(data.basic?.tradeName || '').trim() || String(data.companyOverview?.companyName || '').trim()
+    },
+    compliance: data.compliance || {},
+    msmeRows: Array.isArray(data.msmeRows) ? data.msmeRows : [],
+    cte: data.cte || { numberOfPlantsLocations: '', plantWiseDetails: [] },
+    companyOverview: data.companyOverview || {},
+    cpcbScreenshotFiles: Array.isArray(data.cpcbScreenshots) ? data.cpcbScreenshots : [],
+    processDiagrams: Array.isArray(data.processDiagrams) ? data.processDiagrams : []
   };
 }
 
@@ -1112,7 +1192,7 @@ export default function ClientMaster() {
   }
 
   function findClientDraftForLead(selectedLead, leadValue) {
-    const assignedServiceId = readAssignedServiceId(selectedLead);
+    const assignedServiceId = normalizeDraftKey(readAssignedServiceId(selectedLead));
     const strongLeadKeys = [
       leadValue,
       selectedLead?._id,
@@ -1124,8 +1204,32 @@ export default function ClientMaster() {
     ].map(normalizeDraftKey).filter(Boolean);
     const matchedClient = clients.find((item) => {
       const data = readClientData(item);
-      const itemAssignedServiceId = String(item.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
-      if (assignedServiceId && itemAssignedServiceId !== assignedServiceId) return false;
+      const itemAssignedServiceCandidates = [
+        item.assignedServiceId,
+        data.assignedServiceId,
+        data.selectedLeadSnapshot?.assignedServiceId,
+        item.assignedServiceId ? item.assignedServiceId : '',
+        typeof item.selectedLead === 'object' && item.selectedLead?.serviceSelections
+          ? item.selectedLead.serviceSelections.map((s) => s.assignedServiceId || s.serviceAssignmentId || s.assignmentId || '').filter(Boolean)
+          : []
+      ].flat().map(normalizeDraftKey);
+      if (assignedServiceId) {
+        const itemHasMatchingServiceId = itemAssignedServiceCandidates.some((candidate) => candidate && candidate === assignedServiceId);
+        const legacyServiceFingerprint = clientMasterServiceFingerprint(selectedLead);
+        const itemHasLegacyMatch = [
+          clientMasterServiceFingerprint({
+            industryType: data.selectedLeadSnapshot?.industryType,
+            businessCategory: data.selectedLeadSnapshot?.businessCategory,
+            eprCategory: data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.selectedLeadSnapshot?.serviceCategory,
+            applicantType: data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || data.selectedLeadSnapshot?.piboCategoryParent,
+            subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory,
+            servicesOffered: data.basic?.servicesOffered || data.selectedLeadSnapshot?.servicesOffered,
+            applicableService: data.selectedLeadSnapshot?.applicableService,
+            plantUnit: data.selectedLeadSnapshot?.plantUnit
+          })
+        ].some((fp) => fp === legacyServiceFingerprint);
+        if (!itemHasMatchingServiceId && !itemHasLegacyMatch) return false;
+      }
       const itemKeys = [
         item.selectedLead,
         typeof item.selectedLead === 'object' ? item.selectedLead?._id : '',
@@ -1135,14 +1239,18 @@ export default function ClientMaster() {
         data.selectedLeadSnapshot?.sourceLeadId,
         data.selectedLeadSnapshot?.leadCode,
         data.importMeta?.leadNumber,
-        data.importMeta?.uniqueId
+        data.importMeta?.uniqueId,
+        data.basic?.clientLegalName,
+        data.basic?.tradeName,
+        data.companyOverview?.companyName
       ].map(normalizeDraftKey).filter(Boolean);
       if (!itemKeys.some((key) => strongLeadKeys.includes(key))) return false;
       return true;
     });
     if (matchedClient) {
+      const idValue = String(matchedClient._id || matchedClient.id || '').trim();
       return {
-        id: matchedClient._id || matchedClient.id || '',
+        id: idValue,
         workflowStatus: matchedClient.workflowStatus || 'draft',
         adminControls: { ...emptyClient.adminControls, ...(matchedClient.adminControls || {}) },
         data: { ...emptyClient, ...readClientData(matchedClient), selectedLead: leadValue || matchedClient.selectedLead || '' }
@@ -1209,7 +1317,7 @@ export default function ClientMaster() {
         selectedLead: leadValue,
         adminControls: { ...emptyClient.adminControls, ...(existingDraft.adminControls || existingDraft.data.adminControls || {}) }
       });
-      setEditingClientId(existingDraft.id || '');
+      setEditingClientId(String(existingDraft.id || '').trim());
       setNotice('Saved draft loaded. Continue from where you left.');
       setError('');
       return;
@@ -1219,17 +1327,112 @@ export default function ClientMaster() {
     const email = String(selectedLead.emails || selectedLead.email || '').split(/[,\s;]+/).find(Boolean) || '';
     const serviceAddress = selectedLead.addressData || {};
     const serviceContact = selectedLead.contactData || {};
+    const sharedSearchKeys = [
+      leadValue,
+      selectedLead?._id,
+      selectedLead?.id,
+      selectedLead?.sourceLeadId,
+      selectedLead?.leadCode,
+      selectedLead?.uniqueId,
+      selectedLead?.leadId,
+      company,
+      company?.toLowerCase?.()
+    ].map(normalizeDraftKey).filter(Boolean);
+    const companyLevelSource = clients.find((item) => {
+      const d = readClientData(item);
+      const compKeys = [
+        item.selectedLead,
+        typeof item.selectedLead === 'object' ? item.selectedLead?._id : '',
+        typeof item.selectedLead === 'object' ? item.selectedLead?.leadCode : '',
+        d.selectedLead,
+        d.selectedLeadSnapshot?.id,
+        d.selectedLeadSnapshot?.sourceLeadId,
+        d.selectedLeadSnapshot?.leadCode,
+        d.importMeta?.leadNumber,
+        d.importMeta?.uniqueId,
+        d.basic?.clientLegalName,
+        d.basic?.tradeName,
+        d.companyOverview?.companyName,
+        String(d.basic?.clientLegalName || '').toLowerCase(),
+        String(d.basic?.tradeName || '').toLowerCase(),
+        String(d.companyOverview?.companyName || '').toLowerCase()
+      ].map(normalizeDraftKey).filter(Boolean);
+      return compKeys.some((k) => sharedSearchKeys.includes(k));
+    });
+    const mergeCompanyData = companyLevelSource ? readClientData(companyLevelSource) : null;
+    const pickExisting = (obj, defaults = {}) => {
+      if (!obj || typeof obj !== 'object') return defaults;
+      const out = { ...defaults };
+      Object.keys(obj).forEach((k) => {
+        if (obj[k] !== null && obj[k] !== undefined && obj[k] !== '') {
+          if (Array.isArray(obj[k]) && obj[k].length > 0) out[k] = obj[k];
+          else if (typeof obj[k] === 'object' && !Array.isArray(obj[k])) {
+            out[k] = pickExisting(obj[k], defaults[k] || {});
+          } else if (typeof obj[k] !== 'object') {
+            out[k] = obj[k];
+          }
+        }
+      });
+      return out;
+    };
+    const baseBasic = { ...emptyClient.basic };
+    const baseCompliance = { ...emptyClient.compliance };
+    const baseCompanyOverview = { ...emptyClient.companyOverview };
+    const baseCte = { numberOfPlantsLocations: '', plantWiseDetails: [] };
+    const baseMsme = [];
+    const baseCpcb = { linkedToCommonPortal: '' };
+    const mergedBasic = mergeCompanyData
+      ? {
+          ...baseBasic,
+          ...pickExisting(mergeCompanyData.basic || {}, baseBasic),
+          clientLegalName: mergeCompanyData.basic?.clientLegalName || company || '',
+          tradeName: mergeCompanyData.basic?.tradeName || company || '',
+          piboCategory: selectedLead.piboCategory || '',
+          eprCategory: selectedLead.eprCategory || ''
+        }
+      : {
+          ...baseBasic,
+          clientLegalName: company || '',
+          tradeName: company || '',
+          piboCategory: selectedLead.piboCategory || '',
+          eprCategory: selectedLead.eprCategory || ''
+        };
+    const mergedCompanyOverview = mergeCompanyData
+      ? {
+          ...baseCompanyOverview,
+          ...pickExisting(mergeCompanyData.companyOverview || {}, baseCompanyOverview),
+          companyName: mergeCompanyData.companyOverview?.companyName || company || '',
+          productName: mergeCompanyData.companyOverview?.productName || selectedLead.productName || '',
+          productManufacturer: mergeCompanyData.companyOverview?.productManufacturer || selectedLead.productManufacturer || '',
+          numberOfEmployees: mergeCompanyData.companyOverview?.numberOfEmployees || selectedLead.numberOfEmployees || ''
+        }
+      : {
+          ...baseCompanyOverview,
+          companyName: company || '',
+          productName: selectedLead.productName || '',
+          productManufacturer: selectedLead.productManufacturer || '',
+          category: [],
+          numberOfEmployees: selectedLead.numberOfEmployees || ''
+        };
+    const mergedCompliance = mergeCompanyData ? pickExisting(mergeCompanyData.compliance || {}, baseCompliance) : baseCompliance;
+    const mergedCte = mergeCompanyData && Object.keys(mergeCompanyData.cte || {}).length
+      ? { ...baseCte, ...pickExisting(mergeCompanyData.cte || {}, baseCte) }
+      : baseCte;
+    const mergedMsme = mergeCompanyData && Array.isArray(mergeCompanyData.msmeRows) && mergeCompanyData.msmeRows.length
+      ? mergeCompanyData.msmeRows
+      : baseMsme;
+    const mergedCpcb = mergeCompanyData && Object.keys(mergeCompanyData.cpcb || {}).length > 1
+      ? pickExisting(mergeCompanyData.cpcb || {}, baseCpcb)
+      : baseCpcb;
 
     setClient({
       ...emptyClient,
       selectedLead: leadValue,
-      basic: {
-        ...emptyClient.basic,
-        clientLegalName: company || '',
-        tradeName: company || '',
-        piboCategory: selectedLead.piboCategory || '',
-        eprCategory: selectedLead.eprCategory || ''
-      },
+      basic: mergedBasic,
+      compliance: mergedCompliance,
+      msmeRows: mergedMsme,
+      cte: mergedCte,
+      cpcb: mergedCpcb,
       importMeta: {
         leadNumber: leadCode,
         uniqueId: leadCode,
@@ -1237,14 +1440,7 @@ export default function ClientMaster() {
         createdBy: selectedLead.importedCreatedBy || selectedLead.referredBy || '',
         assignedTo: selectedLead.assignedToText || selectedLead.assignedTo?.name || ''
       },
-      companyOverview: {
-        ...emptyClient.companyOverview,
-        companyName: company || '',
-        productName: selectedLead.productName || '',
-        productManufacturer: selectedLead.productManufacturer || '',
-        category: [],
-        numberOfEmployees: selectedLead.numberOfEmployees || ''
-      },
+      companyOverview: mergedCompanyOverview,
       selectedLeadSnapshot: {
         assignedServiceId: readAssignedServiceId(service),
         id: leadValue,
@@ -1280,7 +1476,7 @@ export default function ClientMaster() {
       }
     });
     setEditingClientId('');
-    setNotice('Selected lead details loaded.');
+    setNotice(companyLevelSource ? 'Loaded shared company details pre-filled from existing client records. Review and continue.' : 'Selected lead details loaded.');
     setError('');
   }
 
@@ -1299,13 +1495,25 @@ export default function ClientMaster() {
 
   function openClientEdit(item) {
     const savedData = readClientData(item);
+    const idValue = String(item._id || item.id || '').trim();
+    const assignedServiceId = readAssignedServiceId(savedData);
     setClient({
       ...emptyClient,
-      ...savedData,
+      ...activateAssignedService(savedData, {
+        industryType: savedData.selectedLeadSnapshot?.industryType,
+        businessCategory: savedData.selectedLeadSnapshot?.businessCategory,
+        eprCategory: savedData.basic?.eprCategory || savedData.selectedLeadSnapshot?.eprCategory,
+        applicantType: savedData.selectedLeadSnapshot?.applicantType,
+        subApplicantType: savedData.basic?.piboCategory || savedData.selectedLeadSnapshot?.piboCategory,
+        servicesOffered: savedData.basic?.servicesOffered || savedData.selectedLeadSnapshot?.servicesOffered,
+        applicableService: savedData.selectedLeadSnapshot?.applicableService,
+        plantUnit: savedData.selectedLeadSnapshot?.plantUnit,
+        assignedServiceId
+      }, 1),
       selectedLead: item.selectedLead?._id || item.selectedLead?.id || item.selectedLead || savedData.selectedLead || '',
       adminControls: { ...emptyClient.adminControls, ...(item.adminControls || savedData.adminControls || {}) }
     });
-    setEditingClientId(item._id || item.id || '');
+    setEditingClientId(idValue);
     setActiveTab('companyOverview');
     setViewClient(null);
     setError('');
@@ -2065,7 +2273,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ? rawDocumentUrls.map((item) => (typeof item === 'string' ? item : item?.url || item?.fileUrl || item?.path || '')).map((item) => item.trim()).filter(Boolean)
     : String(rawDocumentUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
   const docLinks = mapClientDocuments(documentUrls);
-  const profileRows = [
+  const companyWideProfileRows = [
     ['ATPL Lead ID', data.importMeta?.leadNumber || data.importMeta?.uniqueId || getClientUniqueId(client), FileText],
     ['Company Overview Name', data.companyOverview?.companyName, Building2],
     ['Company Summary', data.companyOverview?.companySummary, FileText],
@@ -2076,11 +2284,21 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound],
     ['Client Name', clientName, Building2],
     ['Trade Name', data.basic?.tradeName, Building2],
+    ['Company Industry', data.basic?.companyIndustry, Building2],
+    ['Website', data.basic?.website, Eye]
+  ];
+  const companyWideComplianceRows = [
+    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, docLinks.gst],
+    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, docLinks.pan],
+    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, docLinks.cin],
+    ['MSME', getMsmeSummary(data), FileCheck2, docLinks.msme]
+  ];
+  const profileRows = [
+    ...companyWideProfileRows,
     ['State', data.registeredAddress?.state, MapPin],
     ['City with PIN', cityPin, MapPin],
     ['PIBO Category', data.basic?.piboCategory, FolderCheck],
     ['Service Category', data.basic?.eprCategory, FileCheck2],
-    ['Company Industry', data.basic?.companyIndustry, Building2],
     ['Services Offered', data.basic?.servicesOffered, CheckCircle2]
   ];
   const companyHistoryRows = [
@@ -2102,13 +2320,95 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Coordinator', data.coordinating?.name, UserRound]
   ];
   const complianceRows = [
-    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, docLinks.gst],
-    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, docLinks.pan],
-    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, docLinks.cin],
+    ...companyWideComplianceRows,
     ['Factory License', data.compliance?.factoryLicense || data.compliance?.factoryLicenseNumber, FileText, docLinks.factory],
-    ['EPR Certificate', data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, ShieldCheck, docLinks.epr],
-    ['MSME', getMsmeSummary(data), FileCheck2, docLinks.msme]
+    ['EPR Certificate', data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, ShieldCheck, docLinks.epr]
   ];
+  const hasMultipleServices = serviceClients.length > 1;
+  const perServiceData = useMemo(() => {
+    if (!hasMultipleServices) return [];
+    return serviceClients.map((svc, idx) => {
+      const svcData = readClientData(svc);
+      const svcName = svcData.basic?.piboCategory || `Service ${idx + 1}`;
+      const svcCat = svcData.basic?.eprCategory || '';
+      const svcServicesOffered = svcData.basic?.servicesOffered || '';
+      const svcCityPin = `${svcData.registeredAddress?.city || ''} ${svcData.registeredAddress?.pincode || ''}`.trim();
+      const svcMsmeRows = getMsmeRows(svcData);
+      const svcRawDocUrls = svcData.validation?.documentUrls;
+      const svcDocUrls = Array.isArray(svcRawDocUrls)
+        ? svcRawDocUrls.map((item) => (typeof item === 'string' ? item : item?.url || item?.fileUrl || item?.path || '')).map((item) => item.trim()).filter(Boolean)
+        : String(svcRawDocUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
+      const svcDocLinks = mapClientDocuments(svcDocUrls);
+      const colorPalette = [
+        { header: 'from-sky-50 to-blue-50', border: 'border-sky-200', badge: 'border-sky-200 bg-sky-50 text-sky-700', badge2: 'border-blue-200 bg-blue-50 text-blue-700', accent: '#0369a1', icon: Package },
+        { header: 'from-emerald-50 to-green-50', border: 'border-emerald-200', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700', badge2: 'border-green-200 bg-green-50 text-green-700', accent: '#047857', icon: Tag },
+        { header: 'from-amber-50 to-orange-50', border: 'border-amber-200', badge: 'border-amber-200 bg-amber-50 text-amber-700', badge2: 'border-orange-200 bg-orange-50 text-orange-700', accent: '#b45309', icon: Factory },
+        { header: 'from-violet-50 to-purple-50', border: 'border-violet-200', badge: 'border-violet-200 bg-violet-50 text-violet-700', badge2: 'border-purple-200 bg-purple-50 text-purple-700', accent: '#6d28d9', icon: Briefcase }
+      ];
+      const palette = colorPalette[idx % colorPalette.length];
+      return {
+        viewKey: getClientServiceViewKey(svc),
+        index: idx,
+        palette,
+        svcName,
+        svcCat,
+        svcServicesOffered,
+        svcInit: String(svcName || 'S').split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || 'SV',
+        svcProfileRows: [
+          ['PIBO Category', svcName, FolderCheck],
+          ['Service Category', svcCat, FileCheck2],
+          ['Services Offered', svcServicesOffered, CheckCircle2],
+          ['State', svcData.registeredAddress?.state, MapPin],
+          ['City with PIN', svcCityPin, MapPin]
+        ],
+        svcAddressRows: [
+          ['Registered Address 1', svcData.registeredAddress?.address1, MapPin],
+          ['Registered Address 2', svcData.registeredAddress?.address2, MapPin],
+          ['Registered Address 3', svcData.registeredAddress?.address3, MapPin],
+          ['Registered State', svcData.registeredAddress?.state, MapPin],
+          ['Registered City', svcData.registeredAddress?.city, MapPin],
+          ['Registered PIN', svcData.registeredAddress?.pincode, MapPin],
+          ['Communication Address 1', svcData.communicationAddress?.address1, MapPin],
+          ['Communication City', svcData.communicationAddress?.city, MapPin],
+          ['Communication State', svcData.communicationAddress?.state, MapPin],
+          ['Communication PIN', svcData.communicationAddress?.pincode, MapPin]
+        ],
+        svcComplianceRows: [
+          ['Factory License', svcData.compliance?.factoryLicense || svcData.compliance?.factoryLicenseNumber, FileText, svcDocLinks.factory],
+          ['EPR Certificate', svcData.compliance?.eprCertificate || svcData.compliance?.eprCertificateNumber, ShieldCheck, svcDocLinks.epr],
+          ['MSME (if service specific)', getMsmeSummary(svcData), FileCheck2, svcDocLinks.msme]
+        ],
+        svcDocRows: [
+          ['Factory License Date', svcData.compliance?.factoryLicenseDate, FileText, svcDocLinks.factory],
+          ['EPR Certificate Date', svcData.compliance?.eprCertificateDate, ShieldCheck, svcDocLinks.epr],
+          ['GST Certificate Date (shared)', svcData.compliance?.gstDate, FileText, svcDocLinks.gst],
+          ['CIN Document Date (shared)', svcData.compliance?.cinDate, FileText, svcDocLinks.cin],
+          ['PAN Document Date (shared)', svcData.compliance?.panDate, FileText, svcDocLinks.pan],
+          ...(svcDocLinks.application ? [['Application Page', 'Uploaded document', FileText, svcDocLinks.application]] : [])
+        ],
+        svcContactRows: [
+          ['Contact Person', svcData.otp?.personName || svcData.authorised?.name, UserRound],
+          ['Contact No', svcData.otp?.mobile || svcData.authorised?.mobile, UserRound],
+          ['Email', svcData.authorised?.email || svcData.coordinating?.email, FileText],
+          ['Authorised Person', svcData.authorised?.name, UserRound],
+          ['Authorised Designation', svcData.authorised?.designation, UserRound],
+          ['Authorised Email', svcData.authorised?.email, FileText],
+          ['Authorised Mobile', svcData.authorised?.mobile, UserRound],
+          ['Coordinator', svcData.coordinating?.name, UserRound],
+          ['Coordinator Designation', svcData.coordinating?.designation, UserRound],
+          ['Coordinator Email', svcData.coordinating?.email, FileText],
+          ['Coordinator Mobile', svcData.coordinating?.mobile, UserRound],
+          ['OTP Mobile', svcData.otp?.mobile, UserRound],
+          ['OTP Person', svcData.otp?.personName, UserRound],
+          ['OTP Designation', svcData.otp?.designation, UserRound]
+        ],
+        svcCpcb: svcData.cpcb || {},
+        svcCpcbDocs: svcData.cpcbScreenshots || [],
+        svcProgress: 0,
+        isSelected: selectedServiceKey && String(selectedServiceKey) === String(getClientServiceViewKey(svc))
+      };
+    });
+  }, [serviceClients, hasMultipleServices, selectedServiceKey, serviceClients.length]);
   const initials = clientName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'CL';
   const [activeClientTab, setActiveClientTab] = useState(initialTab || 'basic');
   const [openDetailGroups, setOpenDetailGroups] = useState({});
@@ -2374,22 +2674,125 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                 <div key={activeClientTab} className="client-detail-tab-panel">
                   {activeClientTab === 'basic' && (
                     <div className="mt-5 grid gap-4">
-                      <DetailAccordion title="Basic Info" open={Boolean(openDetailGroups.basic)} onToggle={() => toggleDetailGroup('basic')}>
+                      {hasMultipleServices && perServiceData.length > 0 && (
+                        <section className={`rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm`}>
+                          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#30737B]">Service-wise Client Details</p>
+                              <h4 className="mt-1 text-lg font-black text-slate-900">Importer, Brand Owner & Producer records shown separately</h4>
+                            </div>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-3 py-1 text-xs font-black uppercase text-teal-700 border border-teal-200">
+                              {perServiceData.length} Service{perServiceData.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <div className={`grid gap-4 ${perServiceData.length === 2 ? 'lg:grid-cols-2' : perServiceData.length === 3 ? 'lg:grid-cols-3' : perServiceData.length >= 4 ? 'xl:grid-cols-2' : ''}`}>
+                            {perServiceData.map((svcBlock) => {
+                              const PIcon = svcBlock.palette.icon || Package;
+                              return (
+                                <article key={svcBlock.viewKey} className={`group rounded-xl border ${svcBlock.palette.border} bg-white shadow-sm transition hover:shadow-md ${svcBlock.isSelected ? 'ring-2 ring-[#30737B] ring-offset-2' : ''}`}>
+                                  <header className={`rounded-t-xl bg-gradient-to-br ${svcBlock.palette.header} p-4`}>
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div className="flex items-center gap-3">
+                                        <div className="grid h-12 w-12 place-items-center rounded-xl text-white shadow-lg" style={{ backgroundColor: svcBlock.palette.accent }}>
+                                          <PIcon className="h-6 w-6" />
+                                        </div>
+                                        <div>
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase border ${svcBlock.palette.badge}`}>{svcBlock.svcName || `Service ${svcBlock.index + 1}`}</span>
+                                            {svcBlock.svcCat && <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase border ${svcBlock.palette.badge2}`}>{svcBlock.svcCat}</span>}
+                                            {svcBlock.isSelected && <span className="rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-[10px] font-black uppercase text-teal-700">Currently Viewing</span>}
+                                          </div>
+                                          <p className="mt-1 text-sm font-bold text-slate-600">{svcBlock.svcServicesOffered || 'Service details'}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </header>
+                                  <div className="space-y-3 p-4">
+                                    <div>
+                                      <p className="mb-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">Service Summary</p>
+                                      <DetailSheet columns={1}>
+                                        {svcBlock.svcProfileRows.map(([label, value, Icon, actionUrl]) => (
+                                          <DetailValue key={`${svcBlock.viewKey}-sum-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} />
+                                        ))}
+                                      </DetailSheet>
+                                    </div>
+                                    <div>
+                                      <p className="mb-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">Addresses</p>
+                                      <DetailSheet columns={1}>
+                                        {svcBlock.svcAddressRows.map(([label, value, Icon, actionUrl]) => (
+                                          <DetailValue key={`${svcBlock.viewKey}-addr-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} />
+                                        ))}
+                                      </DetailSheet>
+                                    </div>
+                                    <div>
+                                      <p className="mb-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">Service-Specific Contacts</p>
+                                      <DetailSheet columns={1}>
+                                        {svcBlock.svcContactRows.map(([label, value, Icon, actionUrl]) => (
+                                          <DetailValue key={`${svcBlock.viewKey}-cont-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} link={label.includes('Email') || label.includes('Website')} />
+                                        ))}
+                                      </DetailSheet>
+                                    </div>
+                                    <div>
+                                      <p className="mb-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">Service-Specific Compliance</p>
+                                      <DetailSheet columns={1}>
+                                        {[...svcBlock.svcComplianceRows, ...svcBlock.svcDocRows].map(([label, value, Icon, actionUrl]) => (
+                                          <DetailValue key={`${svcBlock.viewKey}-doc-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} />
+                                        ))}
+                                      </DetailSheet>
+                                    </div>
+                                    {hasMultipleServices && svcBlock.isSelected === false && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const matched = serviceClients.find((item) => getClientServiceViewKey(item) === svcBlock.viewKey);
+                                          if (matched) onServiceChange?.(matched);
+                                        }}
+                                        className={`mt-1 w-full inline-flex items-center justify-center gap-2 rounded-lg border ${svcBlock.palette.border} bg-gradient-to-br ${svcBlock.palette.header} px-3 py-2 text-xs font-black uppercase tracking-wider text-slate-800 shadow-sm hover:shadow transition`}
+                                        title="Switch view to this service's data"
+                                      >
+                                        <Eye className="h-4 w-4" />
+                                        View Only {svcBlock.svcName || `Service ${svcBlock.index + 1}`}
+                                      </button>
+                                    )}
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      )}
+
+                      <DetailAccordion title="Company-wide Shared Details (Common across all services)" open={Boolean(openDetailGroups.companyWide ?? true)} onToggle={() => toggleDetailGroup('companyWide')}>
+                        <DetailSheet columns={2}>
+                          {companyWideProfileRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={`cw-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} link={label === 'Website'} />)}
+                        </DetailSheet>
+                      </DetailAccordion>
+
+                      <DetailAccordion title="Shared Compliance Documents (GST, PAN, CIN, MSME)" open={Boolean(openDetailGroups.companyDocs)} onToggle={() => toggleDetailGroup('companyDocs')}>
+                        <DetailSheet columns={2}>
+                          {[...companyWideComplianceRows, ...docRows.filter((row) => {
+                            const lbl = String(row?.[0] || '').toLowerCase();
+                            return !lbl.includes('factory') && !lbl.includes('epr');
+                          })].map(([label, value, Icon, actionUrl]) => <DetailValue key={`sh-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
+                        </DetailSheet>
+                      </DetailAccordion>
+
+                      <DetailAccordion title="Currently Selected Service — Basic Info" open={Boolean(openDetailGroups.basic)} onToggle={() => toggleDetailGroup('basic')}>
                         <DetailSheet columns={2}>
                           {profileRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
                         </DetailSheet>
                       </DetailAccordion>
-                      <DetailAccordion title="Registered and communication addresses" open={Boolean(openDetailGroups.addresses)} onToggle={() => toggleDetailGroup('addresses')}>
+                      <DetailAccordion title="Currently Selected Service — Registered and communication addresses" open={Boolean(openDetailGroups.addresses)} onToggle={() => toggleDetailGroup('addresses')}>
                         <DetailSheet columns={2}>
                           {addressRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
                         </DetailSheet>
                       </DetailAccordion>
-                      <DetailAccordion title="Document depository" open={Boolean(openDetailGroups.docs)} onToggle={() => toggleDetailGroup('docs')}>
+                      <DetailAccordion title="Currently Selected Service — Service-specific Document depository (Factory License, EPR Cert)" open={Boolean(openDetailGroups.docs)} onToggle={() => toggleDetailGroup('docs')}>
                         <DetailSheet columns={2}>
                           {[...complianceRows, ...docRows].map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
                         </DetailSheet>
                       </DetailAccordion>
-                      <DetailAccordion title="Contact matrix" open={Boolean(openDetailGroups.contacts)} onToggle={() => toggleDetailGroup('contacts')}>
+                      <DetailAccordion title="Currently Selected Service — Contact matrix" open={Boolean(openDetailGroups.contacts)} onToggle={() => toggleDetailGroup('contacts')}>
                         <DetailSheet columns={2}>
                           {contactRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} link={label === 'Website'} />)}
                         </DetailSheet>
