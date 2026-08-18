@@ -797,6 +797,7 @@ exports.listLeads = async (req, res) => {
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .populate('createdBy', 'name email')
+    .populate('generatedForUser', 'name email crmUserId')
     .sort({ leadCode: 1, createdAt: 1 });
   await Promise.all(leads.map(async (lead) => {
     if (!Array.isArray(lead.serviceSelections)) return;

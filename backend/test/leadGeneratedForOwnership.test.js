@@ -16,6 +16,17 @@ test('Other User lead ownership is persisted separately from the actual creator'
   assert.match(controller, /populate\('generatedForUser', 'name email'\)/);
 });
 
+test('Lead staff filter matches current, generated-for, assignment and legacy owner identities', () => {
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  assert.match(controller, /populate\('generatedForUser', 'name email crmUserId'\)/);
+  assert.match(page, /function leadStaffIdentityTokens/);
+  assert.match(page, /item\.generatedForUser, item\.generatedForName, item\.generatedForEmail/);
+  assert.match(page, /Array\.isArray\(item\.assignments\)/);
+  assert.match(page, /Array\.isArray\(item\.serviceSelections\)/);
+  assert.match(page, /selectedStaffTokens\.some\(\(identity\) => leadStaffTokens\.includes\(identity\)\)/);
+});
+
 test('actual creator and generated-for owner can both quote lead services', () => {
   const quotationPage = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(quotationPage, /lead\.generatedForUser\?\._id/);

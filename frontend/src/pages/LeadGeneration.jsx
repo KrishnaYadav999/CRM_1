@@ -3337,7 +3337,6 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
   const filteredLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
     return leads.slice().sort(compareLeadCode).filter((item) => {
-      const assignedId = item.assignedTo?._id || item.assignedTo?.id || item.assignedTo || '';
       const isExisting = item.existingClient === 'Yes' || item.status === 'Existing Client';
       const isNew = item.existingClient !== 'Yes' && item.status !== 'Existing Client';
       const haystack = [
@@ -3356,12 +3355,13 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
       ].filter(Boolean).join(' ').toLowerCase();
       const matchesSearch = !term || haystack.includes(term);
       const matchesStatus = !statusFilter || item.status === statusFilter;
-      const selectedStaff = staff.find((user) => String(user._id || user.id) === String(staffFilter));
-      const assignedName = normalizePersonName(item.assignedTo?.name || item.assignedToText || item.assignedTo);
-      const matchesStaff = !staffFilter ||
-        String(assignedId) === String(staffFilter) ||
-        (String(staffFilter).startsWith('name:') && assignedName === normalizePersonName(String(staffFilter).slice(5))) ||
-        Boolean(selectedStaff && assignedName === normalizePersonName(selectedStaff.name));
+      const selectedStaff = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId]
+        .filter(Boolean).some((identity) => normalizePersonName(identity) === normalizePersonName(staffFilter)));
+      const selectedStaffTokens = selectedStaff
+        ? personIdentityTokens(selectedStaff)
+        : personIdentityTokens(String(staffFilter).startsWith('name:') ? String(staffFilter).slice(5) : staffFilter);
+      const leadStaffTokens = leadStaffIdentityTokens(item);
+      const matchesStaff = !staffFilter || selectedStaffTokens.some((identity) => leadStaffTokens.includes(identity));
       const matchesMetric =
         !metricFilter ||
         metricFilter === 'all' ||
@@ -3386,7 +3386,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
       if (value && label) optionsMap.set(value, { value, label });
     });
     leads.forEach((item) => {
-      const label = item.assignedTo?.name || item.assignedToText || (typeof item.assignedTo === 'string' ? item.assignedTo : '');
+      const label = item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || (typeof item.assignedTo === 'string' ? item.assignedTo : '');
       if (label) optionsMap.set(`name:${label.toLowerCase()}`, { value: `name:${label}`, label });
     });
     return [...optionsMap.values()].sort((a, b) => a.label.localeCompare(b.label));
@@ -4895,6 +4895,40 @@ function normalizeExistingClient(value) {
 
 function normalizePersonName(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function personIdentityTokens(...values) {
+  return [...new Set(values.flatMap((value) => {
+    if (!value) return [];
+    if (typeof value === 'object') {
+      return [value._id, value.id, value.crmUserId, value.userId, value.name, value.email]
+        .map(normalizePersonName).filter(Boolean);
+    }
+    return [normalizePersonName(value)].filter(Boolean);
+  }))];
+}
+
+function leadStaffIdentityTokens(item = {}) {
+  const tokens = personIdentityTokens(
+    item.assignedTo, item.assignedToText, item.assignedToEmail,
+    item.assignedStaff, item.assignedStaffText, item.assignedStaffEmail,
+    item.generatedForUser, item.generatedForName, item.generatedForEmail
+  );
+  (Array.isArray(item.assignments) ? item.assignments : []).forEach((assignment) => {
+    tokens.push(...personIdentityTokens(
+      assignment.assignedTo, assignment.assignedToText, assignment.assignedToEmail,
+      assignment.assignedStaff, assignment.assignedStaffText, assignment.assignedStaffEmail
+    ));
+  });
+  (Array.isArray(item.serviceSelections) ? item.serviceSelections : []).forEach((service) => {
+    tokens.push(...personIdentityTokens(service.createdByCrmUserId, service.createdByName, service.createdByEmail));
+  });
+  if (!tokens.length) {
+    tokens.push(...personIdentityTokens(
+      item.createdBy, item.createdByCrmUserId, item.createdByName, item.createdByEmail, item.importedCreatedBy
+    ));
+  }
+  return [...new Set(tokens)];
 }
 
 function compareLeadCode(a, b) {
