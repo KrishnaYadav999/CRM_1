@@ -13,6 +13,8 @@ test('super admin dashboard uses live overview and audit data with date filters'
   assert.match(page, /reportResult = await loadProductivityReport\(60000\)/);
   assert.match(page, /reportResult = await loadProductivityReport\(90000\)/);
   assert.match(page, /Unable to load Quotation MIS/);
+  assert.match(page, />Valid Until<\/th>/);
+  assert.match(page, /formatReportDate\(row\.validUntil\)/);
   assert.match(page, /function displayText\(value, fallback = '-'\)/);
   assert.match(page, /displayText\(row\.preparedBy \|\| row\.createdByName \|\| row\.createdBy\)/);
   assert.match(page, /function entityId\(value\)/);
