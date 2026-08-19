@@ -645,7 +645,7 @@ exports.userProductivityReport = async (req, res) => {
 
 exports.userWorkReport = async (req, res) => {
   try {
-    const report = await getUserWorkReport({ userId: req.params.id, from: req.query.from, to: req.query.to });
+    const report = await getUserWorkReport({ userId: req.params.id, from: req.query.from, to: req.query.to, requester: req.user });
     res.json({ ok: true, ...report });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Unable to generate the user work report' });

@@ -230,6 +230,37 @@ async function getUserProductivityReport({ from, to, requester }) {
   return report;
 }
 
+function canViewUserWorkReport({ requester, targetUserId, operationTeams = [] }) {
+  const requesterId = entityId(requester?._id || requester?.id);
+  const targetId = entityId(targetUserId);
+  const role = String(requester?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (['admin', 'superadmin'].includes(role)) return true;
+  if (!requesterId || !targetId || !['manager', 'operationhead', 'operationshead'].includes(role)) return false;
+  if (requesterId === targetId) return true;
+  return operationTeams.some((team) => {
+    const supervisesTeam = role === 'manager'
+      ? entityId(team.manager) === requesterId
+      : entityId(team.operationHead) === requesterId;
+    return supervisesTeam && (team.members || []).map(entityId).includes(targetId);
+  });
+}
+
+async function assertUserWorkReportAccess({ requester, targetUserId }) {
+  const role = String(requester?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (['admin', 'superadmin'].includes(role) || entityId(requester?._id || requester?.id) === entityId(targetUserId)) {
+    if (canViewUserWorkReport({ requester, targetUserId })) return;
+  }
+  const requesterId = requester?._id || requester?.id;
+  const operationTeams = ['manager', 'operationhead', 'operationshead'].includes(role)
+    ? await Team.find(role === 'manager' ? { manager: requesterId } : { operationHead: requesterId })
+      .select('manager operationHead members').lean()
+    : [];
+  if (canViewUserWorkReport({ requester, targetUserId, operationTeams })) return;
+  const error = new Error('You can only view work reports for yourself or users in your Operations MIS team.');
+  error.statusCode = 403;
+  throw error;
+}
+
 function clientSectionAnalysis(data = {}) {
   const ignored = /password|otp|token|secret/i;
   const meaningful = (value) => value !== undefined && value !== null && (typeof value !== 'string' || value.trim() !== '');
@@ -291,7 +322,8 @@ function analyzeClientMasterData(data = {}) {
   return { filledCount: filledFields.length, totalCount: entries.length, filledFields, missingFields, completed: missingFields.length === 0, sections };
 }
 
-async function getUserWorkReport({ userId, from, to }) {
+async function getUserWorkReport({ userId, from, to, requester }) {
+  await assertUserWorkReportAccess({ requester, targetUserId: userId });
   const period = reportDateRange(from, to);
   const user = await User.findById(userId).select('name email role team isActive').lean();
   if (!user) { const error = new Error('User not found'); error.statusCode = 404; throw error; }
@@ -360,4 +392,4 @@ async function getUserWorkReport({ userId, from, to }) {
     completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows, teamMembers };
 }
 
-module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange, getClientApplicantIdentity };
+module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange, getClientApplicantIdentity, canViewUserWorkReport };

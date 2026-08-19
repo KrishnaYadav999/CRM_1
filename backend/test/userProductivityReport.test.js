@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { analyzeClientMasterData, buildUserProductivityReport, clientSectionAnalysis, getClientApplicantIdentity, productivityScore } = require('../src/services/userProductivityReport');
+const { analyzeClientMasterData, buildUserProductivityReport, canViewUserWorkReport, clientSectionAnalysis, getClientApplicantIdentity, productivityScore } = require('../src/services/userProductivityReport');
 
 function user(id, name) {
   return { _id: id, name, email: `${name.toLowerCase()}@example.com`, role: 'operation', isActive: true, lastLogin: new Date('2026-08-08T04:30:00.000Z') };
@@ -143,6 +143,18 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   assert.match(page, /Filled vs Missing Data/);
   assert.match(page, /Section-wise Completion/);
   assert.match(page, /Manager Team/);
+});
+
+test('Operations MIS work-report access is limited to administrators and the assigned management hierarchy', () => {
+  const manager = { _id: 'manager-1', role: 'manager' };
+  const operationHead = { _id: 'head-1', role: 'operation head' };
+  const teams = [{ manager: 'manager-1', operationHead: 'head-1', members: ['operation-1', 'operation-2'] }];
+  assert.equal(canViewUserWorkReport({ requester: manager, targetUserId: 'manager-1', operationTeams: teams }), true);
+  assert.equal(canViewUserWorkReport({ requester: manager, targetUserId: 'operation-1', operationTeams: teams }), true);
+  assert.equal(canViewUserWorkReport({ requester: manager, targetUserId: 'unrelated-user', operationTeams: teams }), false);
+  assert.equal(canViewUserWorkReport({ requester: operationHead, targetUserId: 'operation-2', operationTeams: teams }), true);
+  assert.equal(canViewUserWorkReport({ requester: { _id: 'operation-1', role: 'operation' }, targetUserId: 'operation-1', operationTeams: teams }), false);
+  assert.equal(canViewUserWorkReport({ requester: { _id: 'admin-1', role: 'admin' }, targetUserId: 'unrelated-user' }), true);
 });
 
 test('Client Master rows resolve applicant identity from current and legacy records', () => {
