@@ -11,8 +11,8 @@ const REPORT_CACHE_TTL_MS = 60 * 1000;
 const productivityReportCache = new Map();
 
 function entityId(value) {
-  if (value && typeof value === 'object') return value._id || value.id || null;
-  return value || null;
+  const id = value && typeof value === 'object' ? value._id || value.id || value : value;
+  return id === undefined || id === null || id === '' ? null : String(id);
 }
 
 async function reportQuery(label, query, fallback = []) {

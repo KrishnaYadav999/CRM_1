@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const mongoose = require('mongoose');
 const { analyzeClientMasterData, buildUserProductivityReport, canViewUserWorkReport, clientSectionAnalysis, getClientApplicantIdentity, productivityScore } = require('../src/services/userProductivityReport');
 
 function user(id, name) {
@@ -155,6 +156,17 @@ test('Operations MIS work-report access is limited to administrators and the ass
   assert.equal(canViewUserWorkReport({ requester: operationHead, targetUserId: 'operation-2', operationTeams: teams }), true);
   assert.equal(canViewUserWorkReport({ requester: { _id: 'operation-1', role: 'operation' }, targetUserId: 'operation-1', operationTeams: teams }), false);
   assert.equal(canViewUserWorkReport({ requester: { _id: 'admin-1', role: 'admin' }, targetUserId: 'unrelated-user' }), true);
+});
+
+test('Operations MIS work-report access matches MongoDB ObjectIds with URL string ids', () => {
+  const managerId = new mongoose.Types.ObjectId();
+  const memberId = new mongoose.Types.ObjectId();
+  const unrelatedId = new mongoose.Types.ObjectId();
+  const requester = { _id: managerId, role: 'manager' };
+  const teams = [{ manager: managerId, members: [memberId] }];
+  assert.equal(canViewUserWorkReport({ requester, targetUserId: managerId.toString(), operationTeams: teams }), true);
+  assert.equal(canViewUserWorkReport({ requester, targetUserId: memberId.toString(), operationTeams: teams }), true);
+  assert.equal(canViewUserWorkReport({ requester, targetUserId: unrelatedId.toString(), operationTeams: teams }), false);
 });
 
 test('Client Master rows resolve applicant identity from current and legacy records', () => {
