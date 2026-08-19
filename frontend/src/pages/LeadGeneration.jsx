@@ -3487,12 +3487,12 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="lead-directory-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
           <div className="lead-directory-scroll max-h-[680px] overflow-auto">
-            <table className="crm-data-table lead-directory-table w-full min-w-[1740px] table-fixed text-left text-sm">
+            <table className="crm-data-table lead-directory-table w-full min-w-[1620px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
                   {[
-                    ['Lead ID', 'w-[140px]'], ['Company', 'w-[170px]'], ['Applicant Type', 'w-[120px]'],
-                    ['Service Category', 'w-[160px]'], ['Contact Person', 'w-[170px]'], ['Mobile 1', 'w-[135px]'],
+                    ['Lead ID', 'w-[140px]'], ['Company', 'w-[170px]'], ['Service Category', 'w-[160px]'],
+                    ['Contact Person', 'w-[170px]'], ['Mobile 1', 'w-[135px]'],
                     ['Email', 'w-[215px]'], ['Assigned To', 'w-[145px]'], ['Assigned By', 'w-[145px]'],
                     ['Created By', 'w-[145px]'], ['Status', 'w-[135px]'], ['Actions', 'w-[135px]']
                   ].map(([header, width]) => <th key={header} className={`px-4 py-4 ${width}`}>{header}</th>)}
@@ -3500,12 +3500,11 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {visibleLeads.length === 0 ? (
-                  <tr><td colSpan={12} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : 'No leads found.'}</td></tr>
+                  <tr><td colSpan={11} className="px-5 py-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : 'No leads found.'}</td></tr>
                 ) : visibleLeads.map((item) => (
                   <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
                     <td className="lead-directory-id-cell px-4 py-4"><span title={displayLeadId(item)}>{displayLeadId(item)}</span></td>
                     <td className="px-4 py-4 font-semibold uppercase text-slate-700"><span className="cell-clamp">{item.company || '-'}</span></td>
-                    <td className="px-4 py-4 text-slate-500"><span className="cell-clamp">{item.piboCategory || '-'}</span></td>
                     <td className="px-4 py-4"><span className="lead-service-tag">{item.eprCategory || '-'}</span></td>
                     <td className="px-4 py-4"><LeadPersonCell name={item.contactPerson} /></td>
                     <td className="px-4 py-4"><span className="lead-contact-value"><Phone className="h-3.5 w-3.5" />{item.mobileNo1 || '-'}</span></td>
