@@ -37,6 +37,54 @@ function displayText(value, fallback = '-') {
   return String(value)
 }
 
+function identityText(value) {
+  if (value && typeof value === 'object') return identityText(value._id || value.id)
+  return String(value || '').trim().toLowerCase()
+}
+
+function quotationPoStatus(quotation = {}, leads = []) {
+  const quotationLeadKeys = new Set([
+    quotation.leadRef, quotation.leadId, quotation.leadCode, quotation.businessLeadCode
+  ].map(identityText).filter(Boolean))
+  const lead = leads.find((item) => [item._id, item.id, item.leadCode, item.sourceLeadId, item.externalLeadId]
+    .map(identityText).some((key) => quotationLeadKeys.has(key)))
+  if (!lead) return 'not_applicable'
+
+  const quotationIds = new Set([quotation._id, quotation.id, quotation.quotationNumber].map(identityText).filter(Boolean))
+  const serviceIds = new Set((quotation.items || []).flatMap((item) => [item.assignedServiceId, item.sourceServiceIndex]).map(identityText).filter(Boolean))
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : []
+  const exactAssignments = assignments.filter((assignment) => {
+    const assignmentServiceId = identityText(assignment.assignedServiceId || assignment.serviceAssignmentId)
+    const rows = Array.isArray(assignment.poYearRows) ? assignment.poYearRows : []
+    return (assignmentServiceId && serviceIds.has(assignmentServiceId)) || rows.some((row) => [row.quotationId, row.quotationNumber, row.quotationNo]
+      .map(identityText).some((key) => key && quotationIds.has(key)))
+  })
+  const relevantAssignments = exactAssignments.length ? exactAssignments : assignments
+  const submitted = relevantAssignments.filter((assignment) => assignment.poStatus === 'received'
+    && (assignment.poYearRows || []).some((row) => row.poNumber || row.poFileUrl))
+  if (submitted.length) {
+    const decisions = submitted.map((assignment) => String(assignment.poApprovalStatus || '').toUpperCase())
+    if (decisions.includes('REVISION_REQUIRED')) return 'revision_required'
+    if (decisions.includes('REJECTED')) return 'rejected'
+    if (decisions.length && decisions.every((status) => status === 'APPROVED')) return 'approved'
+    return 'submitted'
+  }
+  const closed = Boolean(lead.closedAt || lead.closedBy || String(lead.status || '').toLowerCase() === 'closed'
+    || assignments.some((assignment) => assignment.closedBy || assignment.poStatus === 'provisional'))
+  return closed ? 'pending' : 'not_applicable'
+}
+
+function poStatusDisplay(status) {
+  return {
+    submitted: { label: 'Submitted', tone: 'bg-blue-100 text-blue-700' },
+    approved: { label: 'Approved', tone: 'bg-emerald-100 text-emerald-700' },
+    rejected: { label: 'Rejected', tone: 'bg-rose-100 text-rose-700' },
+    revision_required: { label: 'Revision Required', tone: 'bg-amber-100 text-amber-800' },
+    pending: { label: 'Pending', tone: 'bg-orange-100 text-orange-700' },
+    not_applicable: { label: '-', tone: 'bg-slate-100 text-slate-500' }
+  }[status] || { label: '-', tone: 'bg-slate-100 text-slate-500' }
+}
+
 function dateInReportRange(value, from, to) {
   const date = String(value || '').slice(0, 10)
   return Boolean(date && date >= from && date <= to)
@@ -201,6 +249,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [selected, setSelected] = useState(null)
   const [workReportUser, setWorkReportUser] = useState(null)
   const [quotations, setQuotations] = useState([])
+  const [quotationLeads, setQuotationLeads] = useState([])
 
   async function loadProductivityReport(timeout = 60000) {
     return api.get(API_ENDPOINTS.auth.userProductivityReport, {
@@ -241,6 +290,9 @@ export default function SuperAdminDashboard({ misPage = false }) {
       api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 })
         .then((result) => setQuotations(result.data?.quotations || []))
         .catch((quotationError) => console.error('Unable to load Quotation MIS', quotationError))
+      api.get(API_ENDPOINTS.leads.list, { timeout: 30000 })
+        .then((result) => setQuotationLeads(result.data?.leads || []))
+        .catch((leadError) => console.error('Unable to load PO statuses for Quotation MIS', leadError))
     }
   }
 
@@ -269,7 +321,9 @@ export default function SuperAdminDashboard({ misPage = false }) {
     ? (misAccess.scope === 'operation-head' ? 'Complete Operations MIS' : `${misAccess.operationTeams?.[0]?.name || 'Team'} Operations MIS`)
     : 'Complete MIS'
   const operationGroups = useMemo(() => buildOperationGroups(rows, misAccess.operationTeams), [rows, misAccess.operationTeams])
-  const quotationMisRows = useMemo(() => [...quotations].sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0)), [quotations])
+  const quotationMisRows = useMemo(() => [...quotations]
+    .sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0))
+    .map((row) => ({ ...row, poMisStatus: quotationPoStatus(row, quotationLeads) })), [quotationLeads, quotations])
   const salesTotals = useMemo(() => salesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [salesMisRows])
   const operationTotals = useMemo(() => operationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, filled: 0, missing: 0 }), [operationGroups])
   const quotationTotals = useMemo(() => ({ total: quotationMisRows.length, open: quotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: quotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [quotationMisRows])
@@ -425,8 +479,8 @@ export default function SuperAdminDashboard({ misPage = false }) {
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-orange-700"><FileText className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-700">Commercial MIS</p><h2 className="text-xl font-black text-slate-950">Quotation MIS</h2><p className="text-xs font-semibold text-slate-500">All quotations · latest quotation first</p></div></div>
             <button type="button" onClick={() => navigate('/sales/quotations')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-black text-white">Open Quotations</button>
           </header>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Quotation</th><th className="px-5 py-3">Company</th><th className="px-5 py-3">Lead Code</th><th className="px-5 py-3">Prepared By</th><th className="px-5 py-3">Valid Until</th><th className="px-5 py-3 text-right">Items</th><th className="px-5 py-3 text-right">Amount</th><th className="px-5 py-3">Status</th></tr></thead><tbody>
-            {quotationMisRows.map((row, index) => <tr key={entityId(row._id || row.id) || index} className={`border-t border-slate-100 font-semibold text-slate-700 hover:bg-orange-50/50 ${index === 0 ? 'bg-orange-50/60' : ''}`}><td className="px-5 py-3"><strong className="text-orange-700">{displayText(row.quotationNumber)}</strong>{index === 0 && <small className="ml-2 rounded-full bg-orange-500 px-2 py-1 text-[9px] font-black uppercase text-white">Latest</small>}</td><td className="px-5 py-3 font-black text-slate-950">{displayText(row.companyName || row.leadDetails?.companyName)}</td><td className="px-5 py-3">{displayText(row.leadCode || row.leadDetails?.leadCode)}</td><td className="px-5 py-3">{displayText(row.preparedBy || row.createdByName || row.createdBy)}</td><td className="px-5 py-3">{formatReportDate(row.validUntil)}</td><td className="px-5 py-3 text-right font-black">{row.items?.length || 0}</td><td className="px-5 py-3 text-right font-black text-orange-700">₹{(Number(row.grandTotal) || 0).toLocaleString('en-IN')}</td><td className="px-5 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-700">{displayText(row.status, 'draft')}</span></td></tr>)}
+          <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Quotation</th><th className="px-5 py-3">Company</th><th className="px-5 py-3">PO Status</th><th className="px-5 py-3">Prepared By</th><th className="px-5 py-3">Valid Until</th><th className="px-5 py-3 text-right">Items</th><th className="px-5 py-3 text-right">Amount</th><th className="px-5 py-3">Status</th></tr></thead><tbody>
+            {quotationMisRows.map((row, index) => { const poStatus = poStatusDisplay(row.poMisStatus); return <tr key={entityId(row._id || row.id) || index} className={`border-t border-slate-100 font-semibold text-slate-700 hover:bg-orange-50/50 ${index === 0 ? 'bg-orange-50/60' : ''}`}><td className="px-5 py-3"><strong className="text-orange-700">{displayText(row.quotationNumber)}</strong>{index === 0 && <small className="ml-2 rounded-full bg-orange-500 px-2 py-1 text-[9px] font-black uppercase text-white">Latest</small>}</td><td className="px-5 py-3 font-black text-slate-950">{displayText(row.companyName || row.leadDetails?.companyName)}</td><td className="px-5 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${poStatus.tone}`}>{poStatus.label}</span></td><td className="px-5 py-3">{displayText(row.preparedBy || row.createdByName || row.createdBy)}</td><td className="px-5 py-3">{formatReportDate(row.validUntil)}</td><td className="px-5 py-3 text-right font-black">{row.items?.length || 0}</td><td className="px-5 py-3 text-right font-black text-orange-700">₹{(Number(row.grandTotal) || 0).toLocaleString('en-IN')}</td><td className="px-5 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-700">{displayText(row.status, 'draft')}</span></td></tr> })}
             {!loading && !quotationMisRows.length && <tr><td colSpan="8" className="p-10 text-center font-bold text-slate-400">No quotations found.</td></tr>}
           </tbody></table></div>
         </section>}

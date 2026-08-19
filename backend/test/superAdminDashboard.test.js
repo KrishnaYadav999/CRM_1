@@ -15,6 +15,10 @@ test('super admin dashboard uses live overview and audit data with date filters'
   assert.match(page, /Unable to load Quotation MIS/);
   assert.match(page, />Valid Until<\/th>/);
   assert.match(page, /formatReportDate\(row\.validUntil\)/);
+  assert.match(page, />PO Status<\/th>/);
+  assert.match(page, /quotationPoStatus\(row, quotationLeads\)/);
+  assert.match(page, /Unable to load PO statuses for Quotation MIS/);
+  assert.match(page, /revision_required: \{ label: 'Revision Required'/);
   assert.match(page, /function displayText\(value, fallback = '-'\)/);
   assert.match(page, /displayText\(row\.preparedBy \|\| row\.createdByName \|\| row\.createdBy\)/);
   assert.match(page, /function entityId\(value\)/);
