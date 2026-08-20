@@ -59,7 +59,7 @@ export default function PurchaseProofDropzone({ files = [], required, disabled, 
   };
 
   const missing = required && !files.length;
-  return <div onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`min-w-72 rounded-xl border p-3 transition ${dragging ? 'border-emerald-500 bg-emerald-100/80 ring-2 ring-emerald-200' : missing ? 'border-amber-400 bg-amber-50' : files.length ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50'}`}>
+  return <div onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`min-w-0 rounded-xl border p-2.5 transition ${dragging ? 'border-emerald-500 bg-emerald-100/80 ring-2 ring-emerald-200' : missing ? 'border-amber-400 bg-amber-50' : files.length ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50'}`}>
     {!disabled && <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} className={`grid min-h-16 w-full place-items-center rounded-lg border px-3 py-2 text-center transition ${dragging ? 'border-emerald-500 bg-emerald-100' : missing ? 'border-amber-300 bg-white' : 'border-emerald-300 bg-white hover:bg-emerald-50'}`}>
       <span><span className={`inline-flex items-center gap-2 text-sm font-black ${missing ? 'text-orange-700' : 'text-emerald-700'}`}><Upload className="h-4 w-4" />{busy ? 'Uploading…' : dragging ? 'Drop files to upload' : files.length ? 'Upload more files' : 'Upload proof now'}</span><span className="mt-1 block text-[10px] font-bold text-slate-500">Drag & drop images, PDF, EML or Outlook MSG here, or click to upload.</span></span>
     </button>}
