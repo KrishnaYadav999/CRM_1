@@ -113,7 +113,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
       let working = purchase;
       for (const emailFile of emailFiles) {
         const form = new FormData(); form.append('file', emailFile); form.append('financialYear', financialYear); form.append('section', 'purchase'); form.append('progressParticular', purchase.checklist[index].particular);
-        const { data } = await api.post(API_ENDPOINTS.clients.purchaseEmailProof(clientId), form);
+        const { data } = await api.post(API_ENDPOINTS.clients.purchaseEmailProof(clientId), form, { headers: { 'Content-Type': 'multipart/form-data' } });
         if (data.purchaseData) working = data.purchaseData;
         else if (data.proof && !working.checklist[index].files.some((file) => String(file.proofId || '') === String(data.proof.proofId || ''))) working = { ...working, checklist: working.checklist.map((row, rowIndex) => rowIndex === index ? { ...row, files: [...(row.files || []), data.proof].slice(0, 20) } : row) };
       }

@@ -82,6 +82,7 @@ test('Yes status displays required date and drag-drop proof validation', () => {
   assert.match(dropzone, /event\.stopPropagation\(\)/);
   assert.match(dropzone, /Drop files to upload/);
   assert.match(dropzone, /Drag & drop images, PDF, EML or Outlook MSG/);
+  assert.match(workspace, /'Content-Type': 'multipart\/form-data'/);
 });
 test('Outlook MSG proof opens a safe decoded mail viewer with attachments', () => {
   const viewer = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/OutlookMsgViewer.jsx'), 'utf8');
