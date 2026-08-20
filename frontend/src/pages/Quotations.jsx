@@ -1236,7 +1236,9 @@ export default function Quotations() {
       leadCode: row.leadCode || '',
       fromName: row.fromName || quotationOwnerName(row),
       preparedByName: row.preparedByName || quotationPreparedByName(row),
-      leadDetails: { ...emptyLeadDetails, ...(row.leadDetails || {}) },
+      leadDetails: latestLead
+        ? mapLeadToDetails(latestLead)
+        : { ...emptyLeadDetails, ...(row.leadDetails || {}) },
       validUntil: row.validUntil || '',
       pricingMode: row.pricingMode || (Array.isArray(row.items) && row.items.length ? 'individual' : ''),
       combinedBasicAmount: row.combinedBasicAmount ?? '',

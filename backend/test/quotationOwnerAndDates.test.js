@@ -38,3 +38,29 @@ test('quotation valid-until dates use the same display formatter as quotation da
   assert.match(source, /Quotation Valid Until: \{formatDisplayDate\(quotation\.validUntil\)\}/);
   assert.match(source, /Quotation Valid Until: \$\{escapeHtml\(formatDisplayDate\(quotation\.validUntil\)\)\}/);
 });
+
+test('new and revised quotations refresh lead-owned details from the latest lead record', () => {
+  const controller = require('../src/controllers/quotationController');
+  const refreshed = controller._test.mergeCurrentLeadDetails({
+    leadId: 'lead-1',
+    leadCode: 'ATPL-LEAD-0143',
+    companyName: 'RAMSONS PERFUMES PRIVATE LIMITED',
+    leadDetails: {
+      companyName: 'RAMSONS PERFUMES PRIVATE LIMITED',
+      addressLine1: 'Old address',
+      city: 'Old city',
+      gstNumber: '27AAZCA6657R1ZB'
+    }
+  }, {
+    _id: 'lead-1',
+    leadCode: 'ATPL-LEAD-0143',
+    company: 'RAMSONS PERFUMES PRIVATE LIMITED',
+    addressLine1: 'Updated address',
+    city: 'Mumbai'
+  });
+
+  assert.equal(refreshed.leadDetails.addressLine1, 'Updated address');
+  assert.equal(refreshed.leadDetails.city, 'Mumbai');
+  assert.equal(refreshed.leadDetails.gstNumber, '27AAZCA6657R1ZB');
+  assert.match(source, /leadDetails: latestLead\s*\? mapLeadToDetails\(latestLead\)/);
+});

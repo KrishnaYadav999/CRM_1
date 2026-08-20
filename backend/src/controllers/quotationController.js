@@ -1,4 +1,5 @@
 const Quotation = require('../models/Quotation');
+const mongoose = require('mongoose');
 const ProformaInvoice = require('../models/ProformaInvoice');
 const PendingApproval = require('../models/PendingApproval');
 const QuotationServiceCategory = require('../models/QuotationServiceCategory');
@@ -139,6 +140,57 @@ function cleanLeadDetails(value = {}) {
     data[field] = field === 'gstNumber' ? cleanString(value[field]).toUpperCase() : cleanString(value[field]);
     return data;
   }, {});
+}
+
+const CURRENT_LEAD_DETAIL_FIELDS = {
+  referredBy: 'referredBy',
+  salutation: 'salutation',
+  contactPerson: 'contactPerson',
+  designation: 'designation',
+  mobileNo1: 'mobileNo1',
+  mobileNo2: 'mobileNo2',
+  companyName: 'company',
+  addressLine1: 'addressLine1',
+  addressLine2: 'addressLine2',
+  addressLine3: 'addressLine3',
+  state: 'state',
+  city: 'city',
+  pinCode: 'pinCode'
+};
+
+function mergeCurrentLeadDetails(data, lead) {
+  if (!lead) return data;
+  const leadDetails = { ...(data.leadDetails || {}) };
+  Object.entries(CURRENT_LEAD_DETAIL_FIELDS).forEach(([quotationField, leadField]) => {
+    leadDetails[quotationField] = cleanString(lead[leadField]);
+  });
+  const cleanedDetails = cleanLeadDetails(leadDetails);
+  return {
+    ...data,
+    leadId: data.leadId || String(lead._id || ''),
+    leadCode: cleanString(lead.leadCode) || data.leadCode,
+    companyName: cleanedDetails.companyName,
+    leadDetails: cleanedDetails
+  };
+}
+
+async function refreshQuotationLeadDetails(data, existingQuotation = null) {
+  const filters = [];
+  const identities = [
+    existingQuotation?.leadRef,
+    data.leadId,
+    data.leadCode,
+    existingQuotation?.leadId,
+    existingQuotation?.leadCode
+  ].map(cleanString).filter(Boolean);
+
+  identities.forEach((identity) => {
+    if (mongoose.Types.ObjectId.isValid(identity)) filters.push({ _id: identity });
+    filters.push({ leadCode: identity }, { sourceLeadId: identity }, { externalLeadId: identity });
+  });
+  if (!filters.length) return data;
+  const lead = await Lead.findOne({ $or: filters }).lean();
+  return mergeCurrentLeadDetails(data, lead);
 }
 
 function validateGstNumber(value) {
@@ -675,6 +727,7 @@ exports.createQuotation = async (req, res) => {
   let data;
   try {
     data = cleanBody(req.body, req.user);
+    data = await refreshQuotationLeadDetails(data);
     const termsError = validatePaymentTerms(data.terms);
     if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);
@@ -707,6 +760,7 @@ exports.updateQuotation = async (req, res) => {
   let data;
   try {
     data = cleanBody(req.body, req.user, quotation.items || []);
+    data = await refreshQuotationLeadDetails(data, quotation);
     const termsError = validatePaymentTerms(data.terms);
     if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);
@@ -992,6 +1046,7 @@ exports._test = {
   cleanItems,
   combineFilters,
   isQuotationAdmin,
+  mergeCurrentLeadDetails,
   normalizeCompanyName,
   preserveTerminalApprovalStatus,
   quotationAccessFilter,
