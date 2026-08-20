@@ -248,6 +248,14 @@ test('quotation mapping view and print hide the EPR service period column', () =
   assert.doesNotMatch(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
 });
 
+test('quotation mapping view and download place Applicant Type beside Service Category', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, />Service Category<\/th><th[^>]*>Applicant Type<\/th>\{hasReturnYearItems/);
+  assert.match(page, /\{item\.eprCategory \|\| item\.serviceCategory \|\| '-'\}<\/td><td[^>]*>\{getQuotationApplicantType\(item\)\}<\/td>\{hasReturnYearItems/);
+  assert.match(page, /<th>Service Category<\/th><th>Applicant Type<\/th>\$\{hasReturnYearItems/);
+  assert.match(page, /escapeHtml\(item\.eprCategory \|\| item\.serviceCategory \|\| '-'\)\}<\/td><td>\$\{escapeHtml\(getQuotationApplicantType\(item\)\)\}<\/td>/);
+});
+
 test('quotation containing PWP registration consultancy hides Registration Year in view and print', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function hidePwpRegistrationYearColumn\(items = \[\]\)/);
