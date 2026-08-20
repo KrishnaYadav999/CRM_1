@@ -267,6 +267,7 @@ function PlantQuantityTable({ title, plants, quantityKey, columns, rowTemplate, 
 
 function CteTab({ client, setValue, selectOptions }) {
   const plants = client.cte.plantWiseDetails || [];
+  const cteApplicable = client.cte.cteApplicable || 'Yes';
 
   function setPlants(nextPlants) {
     setValue('cte', 'plantWiseDetails', nextPlants);
@@ -309,6 +310,13 @@ function CteTab({ client, setValue, selectOptions }) {
   return (
     <Card title="CTE & CTO/CCA Details">
       <div className="space-y-7">
+        <div className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
+          <p className="text-sm font-black text-slate-900">Is CTE Applicable?</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">Select No when only CTO/CCA details apply. CTE fields will be hidden and excluded from completion percentage.</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {['Yes', 'No'].map((option) => <button key={option} type="button" onClick={() => setValue('cte', 'cteApplicable', option)} className={`rounded-xl border px-7 py-3 text-sm font-black ${cteApplicable === option ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{option}</button>)}
+          </div>
+        </div>
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5">
           <div className="grid gap-5 lg:grid-cols-[1fr_280px] lg:items-end">
             <div>
@@ -330,7 +338,7 @@ function CteTab({ client, setValue, selectOptions }) {
           </div>
         ) : (
           <>
-            <ConsentTable
+            {cteApplicable === 'Yes' && <ConsentTable
               title="CTE Details"
               eyebrow="Consent Establishment"
               plants={plants}
@@ -343,9 +351,9 @@ function CteTab({ client, setValue, selectOptions }) {
                 { key: 'cteDocument', label: 'CTE Document Upload', type: 'file' }
               ]}
               onPlantChange={updatePlant}
-            />
+            />}
 
-            <PlantQuantityTable
+            {cteApplicable === 'Yes' && <PlantQuantityTable
               title="CTE Production Quantity per Year"
               plants={plants}
               quantityKey="cteProductionRows"
@@ -355,7 +363,7 @@ function CteTab({ client, setValue, selectOptions }) {
               onUpdateRow={updatePlantRow}
               onRemoveRow={removePlantRow}
               onPlantNameChange={(plantIndex, value) => updatePlant(plantIndex, 'plantName', value)}
-            />
+            />}
 
             <ConsentTable
               title="CTO/CCA Details"
@@ -443,9 +451,18 @@ function PasswordField({ label, value, visible, onToggle, onChange }) {
   return <Field label={label}><div className="relative"><input type={visible ? 'text' : 'password'} className="form-input pr-12" value={value} onChange={(event) => onChange(event.target.value)} /><button type="button" onClick={onToggle} className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-lg text-slate-500 hover:bg-teal-50 hover:text-teal-700" aria-label={visible ? `Hide ${label}` : `View ${label}`} title={visible ? 'Hide password' : 'View password'}><Eye className="h-4 w-4" /></button></div></Field>;
 }
 
-function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
+function CpcbScreenshotTab({ client, setValue, setRoot, applicability, onValidationError }) {
+  const processDiagramRequired = client.cpcb?.processDiagramRequired || '';
+  const showProcessDiagram = !applicability?.processDiagramChoiceRequired || processDiagramRequired === 'Yes' || (client.processDiagrams || []).length > 0;
   return (
     <div className="grid gap-6">
+      {applicability?.processDiagramChoiceRequired && <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
+        <p className="text-sm font-black text-slate-900">Is Process Flow Diagram required?</p>
+        <p className="mt-1 text-xs font-semibold text-slate-500">For Importer and Brand Owner, select Yes to upload the diagram or No to exclude it from completion percentage.</p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          {['Yes', 'No'].map((option) => <button key={option} type="button" onClick={() => setValue('cpcb', 'processDiagramRequired', option)} className={`rounded-xl border px-7 py-3 text-sm font-black ${processDiagramRequired === option ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{option}</button>)}
+        </div>
+      </section>}
       <DocumentUploadSection
         title="CPCB Screenshot"
         items={Array.isArray(client.cpcbScreenshots) ? client.cpcbScreenshots : []}
@@ -459,7 +476,7 @@ function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
         onValidationError={onValidationError}
         onChange={(nextItems) => setRoot('cpcbScreenshots', nextItems)}
       />
-      <DocumentUploadSection
+      {showProcessDiagram && <DocumentUploadSection
         title="Process Flow Diagram (PFD) and Machinery Diagram"
         items={Array.isArray(client.processDiagrams) ? client.processDiagrams : []}
         emptyText="No Process Flow Diagram or Machinery Diagram PDFs uploaded yet."
@@ -472,7 +489,7 @@ function CpcbScreenshotTab({ client, setRoot, onValidationError }) {
         pdfOnly
         onValidationError={onValidationError}
         onChange={(nextItems) => setRoot('processDiagrams', nextItems)}
-      />
+      />}
     </div>
   );
 }

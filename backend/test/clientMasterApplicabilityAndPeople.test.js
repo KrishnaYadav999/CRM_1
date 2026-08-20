@@ -42,3 +42,22 @@ test('Authorized Person supports multiple cards and CPCB passwords can be viewed
   assert.match(page, /countOptionalRows\(client\.authorisedPersons/);
   assert.match(page, /countOptionalRows\(client\.coordinatingPersons/);
 });
+
+test('Client Master freezes Importer consent, supports conditional CTE and Process Diagram applicability', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  const sections = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx'), 'utf8');
+  assert.match(page, /tab\.id === 'cte' && applicability\.isImporter/);
+  assert.match(page, /CTE & CTO \/ CCA is not applicable for Importer clients/);
+  assert.match(page, /client\.cte\?\.cteApplicable !== 'No'/);
+  assert.match(page, /processDiagramChoiceRequired/);
+  assert.match(sections, /Is CTE Applicable\?/);
+  assert.match(sections, /cteApplicable === 'Yes' && <ConsentTable/);
+  assert.match(sections, /Is Process Flow Diagram required\?/);
+  assert.match(sections, /showProcessDiagram && <DocumentUploadSection/);
+});
+
+test('PWP document applicability removes CIN, Factory License and DIC\/DCSSI', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  assert.match(page, /applicantType === 'pwp' \|\| category === 'pwp'/);
+  assert.match(page, /\['cin', 'factoryLicense', 'dicDcssi'\]/);
+});

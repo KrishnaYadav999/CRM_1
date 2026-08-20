@@ -92,6 +92,8 @@ const complianceRows = [
 
 function getApplicableComplianceRows(client = {}) {
   const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
+  const applicantType = String(client.selectedLeadSnapshot?.applicantType || client.selectedLeadSnapshot?.piboParent || '').trim().toLowerCase();
+  if (applicantType === 'pwp' || category === 'pwp') return complianceRows.filter(([key]) => !['cin', 'factoryLicense', 'dicDcssi'].includes(key));
   if (category.includes('producer')) return complianceRows.filter(([key]) => !['iec', 'dicDcssi'].includes(key));
   if (category.includes('brand owner')) {
     const productionFacility = client.compliance?.brandOwnerProductionFacility
@@ -101,6 +103,20 @@ function getApplicableComplianceRows(client = {}) {
   }
   if (category.includes('importer')) return complianceRows.filter(([key]) => !['factoryLicense', 'dicDcssi'].includes(key));
   return complianceRows;
+}
+
+function getClientApplicability(client = {}) {
+  const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.subApplicantType || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
+  const applicantType = String(client.selectedLeadSnapshot?.applicantType || client.selectedLeadSnapshot?.piboParent || '').trim().toLowerCase();
+  const isImporter = category === 'importer';
+  const isBrandOwner = category.includes('brand owner');
+  const isPwp = applicantType === 'pwp' || category === 'pwp';
+  const cteApplicable = !isImporter && client.cte?.cteApplicable !== 'No';
+  const processDiagramChoiceRequired = isImporter || isBrandOwner;
+  const processDiagramRequired = processDiagramChoiceRequired
+    ? client.cpcb?.processDiagramRequired === 'Yes'
+    : true;
+  return { isImporter, isBrandOwner, isPwp, cteApplicable, processDiagramChoiceRequired, processDiagramRequired };
 }
 
 const tabProgressFields = {
@@ -212,8 +228,14 @@ function addProgressParts(...parts) {
 }
 
 function buildClientTabProgress(client = {}) {
+  const applicability = getClientApplicability(client);
   const complianceDocumentFields = getApplicableComplianceRows(client).flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`]);
   const ctePlants = Array.isArray(client.cte?.plantWiseDetails) ? client.cte.plantWiseDetails : [];
+  const ctePlantFields = [
+    'plantName',
+    ...(applicability.cteApplicable ? ['cteConsentNo', 'cteCategory', 'cteIssuedDate', 'cteValidDate', 'plantLocation', 'cteDocument'] : []),
+    'ctoOrderNo', 'ctoIssueDate', 'ctoValidDate', 'ctoDocument'
+  ];
   const progressByTab = {
     companyOverview: countFields(client, tabProgressFields.companyOverview),
     basic: countFields(client, tabProgressFields.basic),
@@ -225,18 +247,19 @@ function buildClientTabProgress(client = {}) {
         ? countRows(client.msmeRows, ['classificationYear', 'status', 'majorActivity', 'udyamNumber', 'turnover', 'file'])
         : { filled: 0, total: 0 }
     ),
-    cte: addProgressParts(
+    cte: applicability.isImporter ? { filled: 0, total: 0 } : addProgressParts(
       countFields(client, [['cte', 'numberOfPlantsLocations']]),
-      countRows(ctePlants, ['plantName', 'cteConsentNo', 'cteCategory', 'cteIssuedDate', 'cteValidDate', 'plantLocation', 'cteDocument', 'ctoOrderNo', 'ctoIssueDate', 'ctoValidDate', 'ctoDocument']),
+      countRows(ctePlants, ctePlantFields),
       ...ctePlants.map((plant) => addProgressParts(
-        countRows(plant.cteProductionRows, ['productName', 'capacity']),
+        applicability.cteApplicable ? countRows(plant.cteProductionRows, ['productName', 'capacity']) : { filled: 0, total: 0 },
         countRows(plant.ctoProductRows, ['productName', 'quantity'])
       ))
     ),
     cpcb: countFields(client, tabProgressFields.cpcb),
     cpcbScreenshots: addProgressParts(
       countRows(client.cpcbScreenshots, ['name', 'file']),
-      countRows(client.processDiagrams, ['name', 'file'])
+      applicability.processDiagramChoiceRequired ? countFields(client, [['cpcb', 'processDiagramRequired']]) : { filled: 0, total: 0 },
+      applicability.processDiagramRequired ? countRows(client.processDiagrams, ['name', 'file']) : { filled: 0, total: 0 }
     ),
     contacts: addProgressParts(
       countFields(client, tabProgressFields.contacts),
@@ -249,7 +272,7 @@ function buildClientTabProgress(client = {}) {
   return tabs.map((tab) => {
     const summary = progressByTab[tab.id] || { filled: 0, total: 0 };
     const percent = summary.total ? Math.round((summary.filled / summary.total) * 100) : 0;
-    return { ...tab, ...summary, percent };
+    return { ...tab, ...summary, percent, notApplicable: tab.id === 'cte' && applicability.isImporter };
   });
 }
 
@@ -1877,6 +1900,10 @@ export default function ClientMaster() {
       setError('First enter Company Name, Client Legal Name, or Trade Name before moving to the next step.');
       return;
     }
+    if (tabId === 'cte' && getClientApplicability(client).isImporter) {
+      setError('CTE & CTO / CCA is not applicable for Importer clients.');
+      return;
+    }
     setError('');
     setActiveTab(tabId);
   }
@@ -1892,14 +1919,16 @@ export default function ClientMaster() {
         setError('Please enter a name for every CPCB screenshot/document before continuing.');
         return;
       }
-      const invalidProcessDiagram = (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file);
+      const invalidProcessDiagram = getClientApplicability(client).processDiagramRequired
+        ? (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file)
+        : null;
       if (invalidProcessDiagram) {
         setError('Please enter a name for every PFD and Machinery Diagram PDF before continuing.');
         return;
       }
     }
     setError('');
-    const next = tabs[Math.min(activeIndex + 1, tabs.length - 1)];
+    const next = tabs.slice(activeIndex + 1).find((tab) => !(tab.id === 'cte' && getClientApplicability(client).isImporter)) || tabs[tabs.length - 1];
     setActiveTab(next.id);
   }
 
@@ -2148,7 +2177,13 @@ export default function ClientMaster() {
         setActiveTab('cpcbScreenshots');
         return;
       }
-      const invalidProcessDiagram = workflowStatus === 'submitted'
+      const applicability = getClientApplicability(normalizedClient);
+      if (workflowStatus === 'submitted' && applicability.processDiagramChoiceRequired && !['Yes', 'No'].includes(normalizedClient.cpcb?.processDiagramRequired)) {
+        setError('Select whether the Process Flow Diagram is required before submit.');
+        setActiveTab('cpcbScreenshots');
+        return;
+      }
+      const invalidProcessDiagram = workflowStatus === 'submitted' && applicability.processDiagramRequired
         ? (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file)
         : null;
       if (invalidProcessDiagram) {
@@ -2437,12 +2472,13 @@ export default function ClientMaster() {
                   <button
                     key={tab.id}
                     type="button"
+                    disabled={tab.notApplicable}
                     onClick={() => openClientTab(tab.id)}
-                    className={`client-progress-tab ${active ? 'client-progress-tab-active' : ''} ${complete ? 'client-progress-tab-complete' : ''}`}
+                    className={`client-progress-tab ${active ? 'client-progress-tab-active' : ''} ${complete ? 'client-progress-tab-complete' : ''} ${tab.notApplicable ? 'client-progress-tab-disabled' : ''}`}
                     style={{ '--tab-progress': `${tab.percent}%` }}
                   >
                     <span className="client-progress-tab-icon"><Icon className="h-5 w-5" /></span>
-                    <span className="client-progress-tab-copy"><strong>{tab.label}</strong><small>{tab.percent}%</small></span>
+                    <span className="client-progress-tab-copy"><strong>{tab.label}</strong><small>{tab.notApplicable ? 'Not applicable' : `${tab.percent}%`}</small></span>
                     <span className="client-progress-tab-fill" aria-hidden="true" />
                   </button>
                 );
@@ -2461,7 +2497,7 @@ export default function ClientMaster() {
             {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} applicableComplianceRows={getApplicableComplianceRows(client)} />}
             {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} />}
-            {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setRoot={setRoot} onValidationError={setError} />}
+            {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setValue={setValue} setRoot={setRoot} applicability={getClientApplicability(client)} onValidationError={setError} />}
             {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} setRoot={setRoot} />}
           </div>
 

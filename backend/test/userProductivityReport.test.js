@@ -195,3 +195,41 @@ test('full company analysis covers every Client Master section and respects appl
   assert.ok(applicable.missingFields.includes('CEPR Password'));
   assert.ok(applicable.sections.some((section) => section.name === 'Authorized Person Details'));
 });
+
+test('Client Master MIS excludes non-applicable PWP, Importer, CTE and process diagram fields', () => {
+  const pwp = analyzeClientMasterData({
+    basic: { piboCategory: 'Recycler' },
+    selectedLeadSnapshot: { applicantType: 'PWP' },
+    compliance: { msmeApplicable: 'No' },
+    cpcb: { linkedToCommonPortal: 'No' }
+  });
+  assert.ok(!pwp.missingFields.includes('CIN Number'));
+  assert.ok(!pwp.missingFields.includes('FACTORY LICENSE Number'));
+  assert.ok(!pwp.missingFields.includes('DIC DCSSI Number'));
+
+  const importer = analyzeClientMasterData({
+    basic: { piboCategory: 'Importer' },
+    compliance: { msmeApplicable: 'No' },
+    cpcb: { linkedToCommonPortal: 'No', processDiagramRequired: 'No' }
+  });
+  assert.ok(!importer.sections.some((section) => section.name === 'CTE & CTO / CCA'));
+  assert.ok(!importer.missingFields.some((label) => label.startsWith('Process Diagram')));
+  assert.ok(importer.filledFields.includes('Process Flow Diagram Required'));
+
+  const ctoOnly = analyzeClientMasterData({
+    cte: {
+      cteApplicable: 'No',
+      numberOfPlantsLocations: '1',
+      plantWiseDetails: [{
+        plantName: 'Plant 1', ctoOrderNo: 'CTO-1', ctoIssueDate: '2026-01-01',
+        ctoValidDate: '2027-01-01', ctoDocument: { url: 'cto.pdf' },
+        ctoProductRows: [{ productName: 'Product', quantity: '10' }]
+      }]
+    },
+    compliance: { msmeApplicable: 'No' },
+    cpcb: { linkedToCommonPortal: 'No' }
+  });
+  const consent = ctoOnly.sections.find((section) => section.name === 'CTE & CTO / CCA');
+  assert.equal(consent.percentage, 100);
+  assert.ok(!ctoOnly.missingFields.some((label) => label.includes('CTE Consent') || label.includes('CTE Document')));
+});
