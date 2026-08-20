@@ -52,12 +52,16 @@ async function notifyPurchaseWorkflow({ stage, client, purchase, actor, message 
     audience: recipients.map((user) => user._id), visibleToRoles: ['admin', 'superadmin'],
     metadata: { clientId, clientName, financialYear, dataVersion: version, stage, actor: label(actor) }
   });
-  await Promise.all(recipients.filter((user) => user.email).map((recipient) => sendMail(
+  const emailRecipients = recipients.filter((user) => user.email);
+  const emailResults = await Promise.allSettled(emailRecipients.map((recipient) => sendMail(
     recipient.email,
     `${title} - ${clientName}`,
     `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p><p>Updated by ${escapeHtml(label(actor))}. Please open CRM to review the Purchase Data workspace.</p></div>`
-  ).catch((error) => console.error('Purchase Data email failed', { email: recipient.email, error: error.message }))));
-  return { ok: true, notification, recipientCount: recipients.length };
+  )));
+  emailResults.forEach((result, index) => {
+    if (result.status === 'rejected') console.error('Purchase Data email failed', { email: emailRecipients[index]?.email, error: result.reason?.message || 'Email delivery failed' });
+  });
+  return { ok: true, notification, recipientCount: recipients.length, emailSent: emailResults.filter((result) => result.status === 'fulfilled').length, emailFailed: emailResults.filter((result) => result.status === 'rejected').length };
 }
 
 module.exports = { notifyPurchaseWorkflow };

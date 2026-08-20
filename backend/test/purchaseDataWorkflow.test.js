@@ -65,6 +65,18 @@ test('routes expose import, reconciliation and two-level approvals behind authen
   assert.match(routes, /purchase-imports\/:source', requireAuth/); assert.match(routes, /purchase-reconciliation', requireAuth/);
   assert.match(routes, /purchase-data\/manager-review', requireAuth/); assert.match(routes, /purchase-data\/compliance-review', requireAuth/);
 });
+test('the second valid Excel import automatically submits once and emails the assigned Manager', () => {
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/purchaseDataController.js'), 'utf8');
+  const notifications = fs.readFileSync(path.resolve(__dirname, '../src/services/purchaseDataNotifications.js'), 'utf8');
+  const workspace = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseDataWorkspace.jsx'), 'utf8');
+  assert.match(controller, /function hasBothExcelImports\(purchase\)/);
+  assert.match(controller, /hasBothExcelImports\(purchase\) && readiness\.ready/);
+  assert.match(controller, /submitForManagerApproval\(\{ purchase, client, user: req\.user/);
+  assert.match(controller, /preventDuplicate: duplicate/);
+  assert.match(controller, /managerEmailSent/);
+  assert.match(notifications, /Promise\.allSettled\(emailRecipients/);
+  assert.match(workspace, /Sent to Manager for approval and email notification delivered/);
+});
 test('frontend mounts Purchase Data inside Data Compliance and exposes all requested tabs', () => {
   const annual = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientMasterAnnualReturn.jsx'), 'utf8');
   const workspace = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseDataWorkspace.jsx'), 'utf8');

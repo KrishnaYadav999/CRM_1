@@ -152,7 +152,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     try {
       const file = await uploadMedia(pendingImport.file, `crm/purchase-data/${clientId}/${financialYear}/excel`);
       const { data } = await api.post(API_ENDPOINTS.clients.purchaseImport(clientId, pendingImport.source), { financialYear, file, rows: pendingImport.parsed.rows, sheetName: pendingImport.parsed.sheetName, headerRowNumber: pendingImport.parsed.headerRowNumber });
-      setPurchase(data.purchaseData); setPendingImport(null); setNotice({ type: 'success', text: 'Excel validated, imported and reconciled successfully.' });
+      setPurchase(data.purchaseData); setPendingImport(null); setNotice({ type: data.autoSubmitted && !data.managerEmailSent ? 'warning' : 'success', text: data.autoSubmitted ? (data.managerEmailSent ? 'Both Excel files imported. Sent to Manager for approval and email notification delivered.' : 'Both Excel files imported and sent to Manager approval, but the Manager email could not be delivered. Please verify the user-manager mapping and mail configuration.') : 'Excel validated, imported and reconciled successfully.' });
     } catch (error) {
       const details = error?.response?.data?.validationErrors?.slice(0, 3).map((item) => `Row ${item.rowNumber}: ${item.message}`).join(' · ');
       setNotice({ type: 'error', text: `${errorText(error)}${details ? ` ${details}` : ''}` });

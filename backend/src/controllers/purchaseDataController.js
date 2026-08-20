@@ -59,6 +59,28 @@ function resetApprovals(purchase) {
   purchase.submittedAt = undefined;
 }
 
+function hasBothExcelImports(purchase) {
+  return purchase.baseUpload?.importStatus === 'Imported' && purchase.portalUpload?.importStatus === 'Imported';
+}
+
+async function submitForManagerApproval({ purchase, client, user, message }) {
+  const duplicate = purchase.lastSubmissionVersion === purchase.dataVersion && purchase.managerVerificationStatus === 'Pending';
+  if (!duplicate) {
+    const wasSubmitted = Boolean(purchase.lastSubmissionVersion);
+    purchase.managerVerificationStatus = 'Pending';
+    purchase.complianceVerificationStatus = 'Not Ready';
+    purchase.submittedBy = user._id;
+    purchase.submittedByName = user.name || user.email || 'CRM User';
+    purchase.submittedAt = new Date();
+    purchase.lastSubmissionVersion = purchase.dataVersion;
+    purchase.reviewHistory.push(historyItem('User', wasSubmitted ? 'Revised' : 'Submitted', user, message));
+    purchase.markModified('reviewHistory');
+    await purchase.save();
+  }
+  const notification = await notifyPurchaseWorkflow({ stage: 'manager_pending', client, purchase, actor: user, message, preventDuplicate: duplicate });
+  return { duplicate, notification };
+}
+
 async function rowsFor(purchase, source) {
   const upload = source === 'base' ? purchase.baseUpload : purchase.portalUpload;
   if (!upload?.uploadId) return [];
@@ -180,7 +202,23 @@ exports.importPurchaseRows = async (req, res) => {
     purchase.markModified(field); purchase.markModified('reviewHistory');
     await purchase.save();
     if (previous?.uploadId) await PurchaseImportRow.deleteMany({ uploadId: previous.uploadId });
-    res.json({ ok: true, upload: purchase[field], previewRows: parsed.normalizedRows.slice(0, 100), validationErrors: parsed.validationErrors, summary: purchase.reconciliation, purchaseData: payload(purchase, req.user) });
+    let automaticSubmission = null;
+    const readiness = purchaseReadiness(purchase);
+    if (hasBothExcelImports(purchase) && readiness.ready) {
+      const warningNote = readiness.warningIssueCount ? ` Reconciliation includes ${readiness.warningIssueCount} warning(s) for Manager review.` : '';
+      automaticSubmission = await submitForManagerApproval({ purchase, client, user: req.user, message: `Automatically submitted after both Purchase Excel files were imported.${warningNote}` });
+    }
+    res.json({
+      ok: true,
+      upload: purchase[field],
+      previewRows: parsed.normalizedRows.slice(0, 100),
+      validationErrors: parsed.validationErrors,
+      summary: purchase.reconciliation,
+      purchaseData: payload(purchase, req.user),
+      autoSubmitted: Boolean(automaticSubmission && !automaticSubmission.duplicate),
+      managerNotificationCreated: Boolean(automaticSubmission?.notification?.ok),
+      managerEmailSent: Number(automaticSubmission?.notification?.emailSent || 0) > 0
+    });
   } catch (error) { console.error('Purchase import failed', error); res.status(500).json({ error: 'Unable to import Purchase Excel data.' }); }
 };
 
@@ -258,15 +296,8 @@ exports.submitPurchaseData = async (req, res) => {
     if (!readiness.ready) return res.status(422).json({ error: 'Purchase Data is not ready for submission.', errors: readiness.errors });
     const message = String(req.body.message || purchase.userRemarks || '').trim();
     if (readiness.warningIssueCount && !message) return res.status(422).json({ error: 'Explain reconciliation warnings before submission.' });
-    const duplicate = purchase.lastSubmissionVersion === purchase.dataVersion && purchase.managerVerificationStatus === 'Pending';
-    if (!duplicate) {
-      const wasSubmitted = Boolean(purchase.submittedAt);
-      purchase.managerVerificationStatus = 'Pending'; purchase.complianceVerificationStatus = 'Not Ready'; purchase.submittedBy = req.user._id;
-      purchase.submittedByName = req.user.name || req.user.email || 'CRM User'; purchase.submittedAt = new Date(); purchase.lastSubmissionVersion = purchase.dataVersion;
-      purchase.reviewHistory.push(historyItem('User', wasSubmitted ? 'Revised' : 'Submitted', req.user, message || (readiness.nilUpload ? 'Nil Upload submitted.' : 'Purchase Data submitted for Manager review.')));
-      purchase.markModified('reviewHistory'); await purchase.save();
-    }
-    await notifyPurchaseWorkflow({ stage: 'manager_pending', client, purchase, actor: req.user, message, preventDuplicate: duplicate });
+    const submission = await submitForManagerApproval({ purchase, client, user: req.user, message: message || (readiness.nilUpload ? 'Nil Upload submitted.' : 'Purchase Data submitted for Manager review.') });
+    const duplicate = submission.duplicate;
     res.json({ ok: true, purchaseData: payload(purchase, req.user), duplicateSubmission: duplicate });
   } catch (error) { console.error('Purchase submission failed', error); res.status(500).json({ error: 'Unable to submit Purchase Data.' }); }
 };
