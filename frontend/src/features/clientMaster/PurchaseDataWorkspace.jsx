@@ -4,6 +4,8 @@ import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
 import { downloadCsv, downloadPurchaseTemplate, formatMetric, readPurchaseWorkbook } from './purchaseData.utils';
+import OutlookMsgViewer from './OutlookMsgViewer';
+import PurchaseProofDropzone from './PurchaseProofDropzone';
 
 const WORKSPACE_TABS = ['Purchase Data', 'Sales Data', 'Pre Consumer / State / Annual', 'EPR Target', 'EPR CREDIT', 'Upload All Screenshot'];
 const EMPTY_PAGINATION = { page: 1, pages: 1, total: 0 };
@@ -14,7 +16,7 @@ const statusTone = (value) => {
   if (status.includes('pending') || status.includes('warning') || status.includes('partial')) return 'border-amber-200 bg-amber-50 text-amber-700';
   return 'border-slate-200 bg-slate-50 text-slate-600';
 };
-const errorText = (error) => error?.response?.data?.error || error?.message || 'Something went wrong.';
+const errorText = (error) => error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Something went wrong.';
 
 function Badge({ children, value = children }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${statusTone(value)}`}>{children}</span>;
@@ -23,11 +25,6 @@ function Badge({ children, value = children }) {
 function Metric({ label, value, tone = 'slate' }) {
   const colors = tone === 'green' ? 'border-emerald-200 bg-emerald-50' : tone === 'orange' ? 'border-orange-200 bg-orange-50' : 'border-slate-200 bg-slate-50';
   return <div className={`rounded-xl border p-3 ${colors}`}><p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</p><strong className="mt-1 block text-lg font-black text-slate-950">{value}</strong></div>;
-}
-
-function FileLinks({ files = [], onRemove, disabled }) {
-  if (!files.length) return <span className="text-xs font-bold text-slate-400">No proof</span>;
-  return <div className="space-y-1">{files.map((file, index) => <div key={`${file.url || file.secureUrl}-${index}`} className="flex items-center gap-1 text-xs font-bold"><a className="max-w-36 truncate text-[#087A70] hover:underline" target="_blank" rel="noreferrer" href={file.secureUrl || file.url}>{file.name || `Proof ${index + 1}`}</a>{!disabled && <button type="button" title="Remove proof" onClick={() => onRemove(index)} className="rounded p-1 text-rose-500 hover:bg-rose-50"><X className="h-3.5 w-3.5" /></button>}</div>)}</div>;
 }
 
 function UploadCard({ source, upload, locked, disabled, busy, onSelect, onRemove, financialYear }) {
@@ -61,6 +58,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState(null);
   const [pendingImport, setPendingImport] = useState(null);
+  const [mailPreview, setMailPreview] = useState(null);
   const [rowsSource, setRowsSource] = useState('base');
   const [rows, setRows] = useState([]);
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
@@ -102,17 +100,42 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     clearTimeout(saveTimer.current);
     if (immediate) saveChecklist(next, 'Checklist saved.'); else saveTimer.current = setTimeout(() => saveChecklist(next), 650);
     if (next.checklist[index].particular === 'Nil Upload' && patch.yesNo === 'Yes') setActiveTab('Upload All Screenshot');
+    if (patch.yesNo === 'Yes' && (!next.checklist[index].date || !next.checklist[index].files?.length)) setNotice({ type: 'warning', text: `${next.checklist[index].particular}: date and supporting proof are required for Yes status.` });
   };
 
   const uploadProof = async (index, fileList) => {
     if (!fileList?.length) return;
     setBusy(`proof-${index}`);
     try {
-      const uploaded = await uploadMediaBatch(fileList, `crm/purchase-data/${clientId}/${financialYear}/proofs`);
-      const next = { ...purchase, checklist: purchase.checklist.map((row, rowIndex) => rowIndex === index ? { ...row, files: [...(row.files || []), ...uploaded].slice(0, 20) } : row) };
-      setPurchase(next); await saveChecklist(next, 'Proof uploaded.');
-    } catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
+      const selected = Array.from(fileList);
+      const emailFiles = selected.filter((file) => /\.(eml|msg)$/i.test(file.name) || ['message/rfc822', 'application/vnd.ms-outlook'].includes(file.type));
+      const ordinaryFiles = selected.filter((file) => !emailFiles.includes(file));
+      let working = purchase;
+      for (const emailFile of emailFiles) {
+        const form = new FormData(); form.append('file', emailFile); form.append('financialYear', financialYear); form.append('section', 'purchase'); form.append('progressParticular', purchase.checklist[index].particular);
+        const { data } = await api.post(API_ENDPOINTS.clients.purchaseEmailProof(clientId), form);
+        if (data.purchaseData) working = data.purchaseData;
+        else if (data.proof && !working.checklist[index].files.some((file) => String(file.proofId || '') === String(data.proof.proofId || ''))) working = { ...working, checklist: working.checklist.map((row, rowIndex) => rowIndex === index ? { ...row, files: [...(row.files || []), data.proof].slice(0, 20) } : row) };
+      }
+      if (ordinaryFiles.length) {
+        const uploaded = await uploadMediaBatch(ordinaryFiles, `crm/purchase-data/${clientId}/${financialYear}/proofs`);
+        working = { ...working, checklist: working.checklist.map((row, rowIndex) => rowIndex === index ? { ...row, files: [...(row.files || []), ...uploaded].slice(0, 20) } : row) };
+        await saveChecklist(working);
+      }
+      setPurchase(working); setNotice({ type: 'success', text: emailFiles.length ? 'Email proof decoded and uploaded successfully.' : 'Proof uploaded.' });
+    } catch (error) { if (error?.response?.data?.proof) setMailPreview(error.response.data.proof); setNotice({ type: 'error', text: errorText(error) }); }
     finally { setBusy(''); }
+  };
+
+  const removeProof = async (rowIndex, fileIndex, file) => {
+    if (file?.proofId) {
+      setBusy(`proof-${rowIndex}`);
+      try { const { data } = await api.delete(API_ENDPOINTS.purchaseProofs.detail(file.proofId)); if (data.purchaseData) setPurchase(data.purchaseData); setNotice({ type: 'success', text: 'Email proof removed.' }); }
+      catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
+      finally { setBusy(''); }
+      return;
+    }
+    updateChecklistRow(rowIndex, { files: purchase.checklist[rowIndex].files.filter((_, current) => current !== fileIndex) }, true);
   };
 
   const selectExcel = async (source, file, input) => {
@@ -203,11 +226,11 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
 
   return <section role="tabpanel" aria-label="Data Compliance" className="mx-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
     <div className="overflow-x-auto border-b border-slate-200 bg-slate-50 p-2"><div className="flex min-w-max gap-1" role="tablist">{WORKSPACE_TABS.map((tab) => <button type="button" role="tab" aria-selected={activeTab === tab} key={tab} onClick={() => setActiveTab(tab)} className={`min-w-44 rounded-lg px-4 py-2.5 text-xs font-black ${activeTab === tab ? 'bg-white text-[#087A70] shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:bg-white'}`}>{tab}</button>)}</div></div>
-    {notice && <div className={`m-4 flex items-start justify-between gap-3 rounded-xl border p-3 text-sm font-bold ${notice.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}><span>{notice.text}</span><button type="button" onClick={() => setNotice(null)}><X className="h-4 w-4" /></button></div>}
+    {notice && <div className={`m-4 flex items-start justify-between gap-3 rounded-xl border p-3 text-sm font-bold ${notice.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : notice.type === 'warning' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}><span>{notice.text}</span><button type="button" onClick={() => setNotice(null)}><X className="h-4 w-4" /></button></div>}
 
     {activeTab === 'Purchase Data' && <div className="space-y-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#30737B]">Purchase progress tracker</p><h5 className="mt-1 text-lg font-black text-slate-950">Purchase Data Upload Checklist</h5></div><div className="flex items-center gap-2"><Badge value={purchase.calculatedStatus}>{purchase.calculatedStatus}</Badge><button type="button" onClick={() => loadPurchase()} className="rounded-lg border border-slate-200 p-2 text-slate-600"><RefreshCw className="h-4 w-4" /></button></div></div>
-      <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-[1050px] w-full text-left text-xs"><thead className="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-3">Sr.</th><th className="px-3 py-3">Particular</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Date</th><th className="px-3 py-3">Upload proof</th><th className="px-3 py-3">Remarks</th></tr></thead><tbody>{purchase.checklist.map((row, index) => <tr key={row.particular} className="border-t border-slate-200 align-top"><td className="px-3 py-3 font-black text-slate-500">{index + 1}</td><td className="px-3 py-3"><strong className="text-slate-900">{row.particular}</strong><p className="mt-1 text-[10px] font-bold text-slate-400">Update status, date and supporting proof.</p></td><td className="px-3 py-3"><select disabled={!canEdit} value={row.yesNo} onChange={(event) => updateChecklistRow(index, { yesNo: event.target.value }, true)} className="rounded-lg border border-slate-200 bg-white px-2 py-2 font-black"><option value="">Select</option><option>Yes</option><option>No</option></select></td><td className="px-3 py-3"><input disabled={!canEdit} type="date" value={row.date || ''} onChange={(event) => updateChecklistRow(index, { date: event.target.value })} className="rounded-lg border border-slate-200 px-2 py-2 font-bold" /></td><td className="px-3 py-3"><FileLinks files={row.files} disabled={!canEdit} onRemove={(fileIndex) => updateChecklistRow(index, { files: row.files.filter((_, current) => current !== fileIndex) }, true)} />{canEdit && <label className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 font-black text-emerald-700"><Upload className="h-3.5 w-3.5" />{busy === `proof-${index}` ? 'Uploading…' : 'Upload files'}<input type="file" multiple className="hidden" onChange={(event) => uploadProof(index, event.target.files)} /></label>}</td><td className="px-3 py-3"><textarea disabled={!canEdit} rows="2" maxLength="2000" value={row.remarks || ''} onChange={(event) => updateChecklistRow(index, { remarks: event.target.value })} placeholder="Add remarks…" className="w-full min-w-48 resize-y rounded-lg border border-slate-200 p-2 font-bold" /></td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-[1250px] w-full text-left text-xs"><thead className="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-3">Sr.</th><th className="px-3 py-3">Particular</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Date</th><th className="px-3 py-3">Upload proof</th><th className="px-3 py-3">Remarks</th></tr></thead><tbody>{purchase.checklist.map((row, index) => { const proofRequired = row.yesNo === 'Yes'; const proofMissing = proofRequired && !row.files?.length; const dateMissing = proofRequired && !row.date; return <tr key={row.particular} className={`border-t align-top ${proofMissing || dateMissing ? 'border-rose-200 bg-rose-50/20' : 'border-slate-200'}`}><td className="px-3 py-3 font-black text-slate-500">{index + 1}</td><td className="px-3 py-3"><strong className="text-slate-900">{row.particular}</strong><p className="mt-1 text-[10px] font-bold text-slate-400">Update status, date and supporting proof.</p></td><td className="px-3 py-3"><select disabled={!canEdit} value={row.yesNo} onChange={(event) => updateChecklistRow(index, { yesNo: event.target.value }, true)} className={`rounded-lg border bg-white px-3 py-2 font-black ${proofMissing || dateMissing ? 'border-rose-300 text-slate-900' : 'border-slate-200'}`}><option value="">Select</option><option>Yes</option><option>No</option></select>{proofMissing && <p className="mt-2 max-w-40 text-xs font-black leading-5 text-rose-600">Proof upload is required for a Yes status. Please upload supporting proof.</p>}</td><td className="px-3 py-3"><input disabled={!canEdit} type="date" value={row.date || ''} onChange={(event) => updateChecklistRow(index, { date: event.target.value })} className={`rounded-lg border bg-white px-3 py-2 font-bold ${dateMissing ? 'border-rose-300' : 'border-slate-200'}`} />{dateMissing && <p className="mt-2 text-xs font-black text-rose-600">Date is required.</p>}</td><td className="px-3 py-3"><PurchaseProofDropzone files={row.files || []} required={proofRequired} disabled={!canEdit} busy={busy === `proof-${index}`} onUpload={(selected) => uploadProof(index, selected)} onRemove={(fileIndex, file) => removeProof(index, fileIndex, file)} onPreview={setMailPreview} onError={(text) => setNotice({ type: 'error', text })} /></td><td className="px-3 py-3"><textarea disabled={!canEdit} rows="3" maxLength="2000" value={row.remarks || ''} onChange={(event) => updateChecklistRow(index, { remarks: event.target.value })} placeholder="Add remarks…" className="w-full min-w-48 resize-y rounded-lg border border-slate-200 p-2 font-bold" /></td></tr>; })}</tbody></table></div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Metric label="Status" value={purchase.calculatedStatus} /><Metric label="Received date" value={purchase.readiness?.startDate || '-'} /><Metric label="Portal upload date" value={purchase.readiness?.endDate || '-'} /><Metric label="Blocking issues" value={purchase.reconciliation?.blockingIssueCount || 0} tone="orange" /><Metric label="Warnings" value={purchase.reconciliation?.warningIssueCount || 0} tone="orange" /></div>
       {!uploadUnlocked && !nilUpload && <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800">Set “Upload Complete” to “Yes” in the tracker to unlock Purchase Excel uploads.</div>}
@@ -230,6 +253,6 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
 
     {!['Purchase Data','Upload All Screenshot'].includes(activeTab) && <div className="grid min-h-72 place-items-center bg-[linear-gradient(135deg,#f0fdfa,#fff,#fff7ed)] p-8 text-center"><div><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-[#30737B] shadow ring-1 ring-teal-100"><FileSpreadsheet className="h-7 w-7" /></span><h5 className="mt-4 text-lg font-black">{activeTab}</h5><p className="mt-2 text-sm font-bold text-slate-500">This Data Compliance module will be configured in the next phase.</p></div></div>}
     <ImportPreview pending={pendingImport} busy={busy === 'import'} onClose={() => setPendingImport(null)} onConfirm={confirmImport} />
+    {mailPreview && <OutlookMsgViewer file={mailPreview} onClose={() => setMailPreview(null)} />}
   </section>;
 }
-

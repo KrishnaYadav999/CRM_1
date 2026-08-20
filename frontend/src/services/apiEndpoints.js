@@ -69,6 +69,12 @@ const API_ENDPOINTS = {
     ,purchaseSubmit: (id) => `/clients/${encodePathValue(id)}/purchase-data/submit`
     ,purchaseManagerReview: (id) => `/clients/${encodePathValue(id)}/purchase-data/manager-review`
     ,purchaseComplianceReview: (id) => `/clients/${encodePathValue(id)}/purchase-data/compliance-review`
+    ,purchaseEmailProof: (id) => `/clients/${encodePathValue(id)}/purchase-proof/email`
+  },
+  purchaseProofs: {
+    detail: (id) => `/purchase-proofs/${encodePathValue(id)}`,
+    download: (id) => `/purchase-proofs/${encodePathValue(id)}/download`,
+    attachment: (id, attachmentId) => `/purchase-proofs/${encodePathValue(id)}/attachments/${encodePathValue(attachmentId)}/download`
   },
   quotations: {
     list: '/quotations',

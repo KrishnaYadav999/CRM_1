@@ -1,10 +1,14 @@
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const clientCtrl = require('../controllers/clientController');
 const reviewCtrl = require('../controllers/clientComplianceReviewController');
 const purchaseCtrl = require('../controllers/purchaseDataController');
+const purchaseProofCtrl = require('../controllers/purchaseProofController');
 const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES, CLIENT_APPROVAL_ROLES } = require('../constants/roles');
+const emailProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Math.max(1, Number(process.env.EMAIL_PROOF_MAX_SIZE_MB) || 15) * 1024 * 1024, files: 1, fields: 10 } }).single('file');
+const receiveEmailProof = (req, res, next) => emailProofUpload(req, res, (error) => error ? res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, message: error.code === 'LIMIT_FILE_SIZE' ? 'Email proof exceeds the configured size limit.' : 'Invalid email proof upload.', code: error.code || 'MULTIPART_UPLOAD_FAILED' }) : next());
 
 router.get('/', requireAuth, clientCtrl.listClients);
 router.get('/discovery/search', requireAuth, clientCtrl.searchClientMasterCompanies);
@@ -17,6 +21,7 @@ router.post('/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.bu
 router.post('/', requireAuth, clientCtrl.createClient);
 router.get('/:id', requireAuth, clientCtrl.getClient);
 router.get('/:id/annual-return/po-status', requireAuth, clientCtrl.getAnnualReturnPoStatus);
+router.post('/:clientId/purchase-proof/email', requireAuth, receiveEmailProof, purchaseProofCtrl.uploadEmailProof);
 router.get('/:id/purchase-data', requireAuth, purchaseCtrl.getPurchaseData);
 router.put('/:id/purchase-data/checklist', requireAuth, purchaseCtrl.updateChecklist);
 router.put('/:id/purchase-data/screenshots', requireAuth, purchaseCtrl.updateScreenshots);

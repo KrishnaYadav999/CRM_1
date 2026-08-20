@@ -71,3 +71,20 @@ test('frontend mounts Purchase Data inside Data Compliance and exposes all reque
   assert.match(annual, /<PurchaseDataWorkspace/);
   ['Purchase Data','Sales Data','Pre Consumer / State / Annual','EPR Target','EPR CREDIT','Upload All Screenshot'].forEach((tab) => assert.match(workspace, new RegExp(tab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
 });
+test('Yes status displays required date and drag-drop proof validation', () => {
+  const workspace = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseDataWorkspace.jsx'), 'utf8');
+  const dropzone = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseProofDropzone.jsx'), 'utf8');
+  assert.match(workspace, /row\.yesNo === 'Yes'/);
+  assert.match(workspace, /Proof upload is required for a Yes status/);
+  assert.match(workspace, /Date is required\./);
+  assert.match(dropzone, /onDrop=/);
+  assert.match(dropzone, /Drag & drop images, PDF, EML or Outlook MSG/);
+});
+test('Outlook MSG proof opens a safe decoded mail viewer with attachments', () => {
+  const viewer = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/OutlookMsgViewer.jsx'), 'utf8');
+  assert.match(viewer, /import\('@kenjiuno\/msgreader'\)/);
+  assert.match(viewer, /getFileData\(\)/);
+  assert.match(viewer, /getAttachment\(item\)/);
+  assert.match(viewer, /Clean text view/);
+  assert.doesNotMatch(viewer, /dangerouslySetInnerHTML/);
+});

@@ -36,6 +36,9 @@ function cleanFile(file = {}) {
   };
 }
 function cleanFiles(files) { return (Array.isArray(files) ? files : []).map(cleanFile).filter(Boolean).slice(0, 20); }
+function cleanEvidenceFiles(files) {
+  return cleanFiles(files).filter((file) => /^image\//i.test(file.mimeType) || /application\/pdf/i.test(file.mimeType) || /message\/rfc822/i.test(file.mimeType) || /application\/vnd\.ms-outlook/i.test(file.mimeType) || /\.(pdf|eml|msg|png|jpe?g|gif|webp)$/i.test(file.name));
+}
 
 async function getOrCreate(client, financialYear, user) {
   let purchase = await PurchaseData.findOne({ clientId: client._id, financialYear });
@@ -103,9 +106,13 @@ exports.updateChecklist = async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     const incoming = new Map((Array.isArray(req.body.checklist) ? req.body.checklist : []).map((row) => [String(row.particular || '').trim(), row]));
+    const existingRows = new Map(defaultChecklist(purchase.checklist).map((row) => [row.particular, row]));
     purchase.checklist = PURCHASE_CHECKLIST_PARTICULARS.map((particular) => {
       const row = incoming.get(particular) || {};
-      return { particular, yesNo: ['Yes', 'No'].includes(row.yesNo) ? row.yesNo : '', date: /^\d{4}-\d{2}-\d{2}$/.test(row.date || '') ? row.date : '', files: cleanFiles(row.files), remarks: String(row.remarks || '').trim().slice(0, 2000) };
+      const existingProofs = new Map((existingRows.get(particular)?.files || []).filter((file) => file?.proofId).map((file) => [String(file.proofId), file]));
+      const requestedProofs = (Array.isArray(row.files) ? row.files : []).filter((file) => file?.proofId).map((file) => existingProofs.get(String(file.proofId))).filter(Boolean);
+      const ordinaryFiles = cleanEvidenceFiles((Array.isArray(row.files) ? row.files : []).filter((file) => !file?.proofId));
+      return { particular, yesNo: ['Yes', 'No'].includes(row.yesNo) ? row.yesNo : '', date: /^\d{4}-\d{2}-\d{2}$/.test(row.date || '') ? row.date : '', files: [...requestedProofs, ...ordinaryFiles].slice(0, 20), remarks: String(row.remarks || '').trim().slice(0, 2000) };
     });
     if (req.body.userRemarks !== undefined) purchase.userRemarks = String(req.body.userRemarks || '').trim().slice(0, 3000);
     purchase.updatedBy = req.user._id;
@@ -125,7 +132,7 @@ exports.updateScreenshots = async (req, res) => {
     const client = await findClient(req.params.id);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await getOrCreate(client, financialYear, req.user);
-    purchase.screenshots = cleanFiles(req.body.screenshots);
+    purchase.screenshots = cleanEvidenceFiles(req.body.screenshots);
     purchase.updatedBy = req.user._id;
     purchase.markModified('screenshots');
     await purchase.save();
