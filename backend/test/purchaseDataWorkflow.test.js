@@ -78,6 +78,9 @@ test('Yes status displays required date and drag-drop proof validation', () => {
   assert.match(workspace, /Proof upload is required for a Yes status/);
   assert.match(workspace, /Date is required\./);
   assert.match(dropzone, /onDrop=/);
+  assert.match(dropzone, /window\.addEventListener\('drop', preventFileNavigation\)/);
+  assert.match(dropzone, /event\.stopPropagation\(\)/);
+  assert.match(dropzone, /Drop files to upload/);
   assert.match(dropzone, /Drag & drop images, PDF, EML or Outlook MSG/);
 });
 test('Outlook MSG proof opens a safe decoded mail viewer with attachments', () => {
