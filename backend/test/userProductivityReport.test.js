@@ -205,7 +205,18 @@ test('Client Master MIS excludes non-applicable PWP, Importer, CTE and process d
   });
   assert.ok(!pwp.missingFields.includes('CIN Number'));
   assert.ok(!pwp.missingFields.includes('FACTORY LICENSE Number'));
+  assert.ok(!pwp.missingFields.includes('IEC Number'));
   assert.ok(!pwp.missingFields.includes('DIC DCSSI Number'));
+
+  const linkedPwp = analyzeClientMasterData({
+    basic: { piboCategory: 'PWP' },
+    selectedLeadSnapshot: { applicantType: 'PWP' },
+    compliance: { msmeApplicable: 'No' },
+    cpcb: { linkedToCommonPortal: 'Yes' }
+  });
+  assert.ok(!linkedPwp.missingFields.includes('CPCB Registration Number'));
+  assert.ok(!linkedPwp.missingFields.includes('Application Number'));
+  assert.ok(linkedPwp.missingFields.includes('CEPR User ID'));
 
   const importer = analyzeClientMasterData({
     basic: { piboCategory: 'Importer' },

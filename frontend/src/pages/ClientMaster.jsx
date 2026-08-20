@@ -93,7 +93,7 @@ const complianceRows = [
 function getApplicableComplianceRows(client = {}) {
   const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
   const applicantType = String(client.selectedLeadSnapshot?.applicantType || client.selectedLeadSnapshot?.piboParent || '').trim().toLowerCase();
-  if (applicantType === 'pwp' || category === 'pwp') return complianceRows.filter(([key]) => !['cin', 'factoryLicense', 'dicDcssi'].includes(key));
+  if (applicantType === 'pwp' || category === 'pwp') return complianceRows.filter(([key]) => !['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key));
   if (category.includes('producer')) return complianceRows.filter(([key]) => !['iec', 'dicDcssi'].includes(key));
   if (category.includes('brand owner')) {
     const productionFacility = client.compliance?.brandOwnerProductionFacility
@@ -255,7 +255,9 @@ function buildClientTabProgress(client = {}) {
         countRows(plant.ctoProductRows, ['productName', 'quantity'])
       ))
     ),
-    cpcb: countFields(client, tabProgressFields.cpcb),
+    cpcb: countFields(client, applicability.isPwp
+      ? tabProgressFields.cpcb.filter(([, field]) => !['registrationNumber', 'applicationNumber'].includes(field))
+      : tabProgressFields.cpcb),
     cpcbScreenshots: addProgressParts(
       countRows(client.cpcbScreenshots, ['name', 'file']),
       applicability.processDiagramChoiceRequired ? countFields(client, [['cpcb', 'processDiagramRequired']]) : { filled: 0, total: 0 },
@@ -2496,7 +2498,7 @@ export default function ClientMaster() {
             {activeTab === 'address' && <AddressTab client={client} setValue={setValue} copyRegisteredAddress={copyRegisteredAddress} selectOptions={selectOptions} />}
             {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} applicableComplianceRows={getApplicableComplianceRows(client)} />}
             {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
-            {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} />}
+            {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} applicability={getClientApplicability(client)} />}
             {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setValue={setValue} setRoot={setRoot} applicability={getClientApplicability(client)} onValidationError={setError} />}
             {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} setRoot={setRoot} />}
           </div>

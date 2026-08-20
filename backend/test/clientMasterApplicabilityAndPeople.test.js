@@ -56,8 +56,12 @@ test('Client Master freezes Importer consent, supports conditional CTE and Proce
   assert.match(sections, /showProcessDiagram && <DocumentUploadSection/);
 });
 
-test('PWP document applicability removes CIN, Factory License and DIC\/DCSSI', () => {
+test('PWP applicability removes IEC and CPCB registration and application numbers', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  const sections = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx'), 'utf8');
   assert.match(page, /applicantType === 'pwp' \|\| category === 'pwp'/);
-  assert.match(page, /\['cin', 'factoryLicense', 'dicDcssi'\]/);
+  assert.match(page, /\['cin', 'factoryLicense', 'iec', 'dicDcssi'\]/);
+  assert.match(page, /\['registrationNumber', 'applicationNumber'\]/);
+  assert.match(sections, /registrationFieldsApplicable = !applicability\?\.isPwp/);
+  assert.equal((sections.match(/disabled=\{!registrationFieldsApplicable\}/g) || []).length, 2);
 });

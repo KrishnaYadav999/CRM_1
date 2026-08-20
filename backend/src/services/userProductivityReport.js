@@ -308,7 +308,7 @@ function analyzeClientMasterData(data = {}) {
   const brandOwnerHasFactory = data.compliance?.brandOwnerProductionFacility === 'Yes'
     || (!data.compliance?.brandOwnerProductionFacility && data.compliance?.factoryLicenseApplicability === 'Applicable');
   const documentKeys = ['gst','cin','pan','factoryLicense','eprCertificate','iec','dicDcssi'].filter((key) => {
-    if (isPwp && ['cin', 'factoryLicense', 'dicDcssi'].includes(key)) return false;
+    if (isPwp && ['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key)) return false;
     if (category.includes('producer') && ['iec', 'dicDcssi'].includes(key)) return false;
     if (isBrandOwner && (key === 'dicDcssi' || (key === 'factoryLicense' && !brandOwnerHasFactory))) return false;
     if (isImporter && ['factoryLicense', 'dicDcssi'].includes(key)) return false;
@@ -332,7 +332,7 @@ function analyzeClientMasterData(data = {}) {
     });
   }
   add('CPCB Credentials', 'Linked to Common Portal', data.cpcb?.linkedToCommonPortal);
-  if (data.cpcb?.linkedToCommonPortal === 'Yes') addFields('CPCB Credentials', data.cpcb, [['status','CPCB Status'],['remark','CPCB Remark'],['homePageFile','CPCB Home Page'],['registrationNumber','CPCB Registration Number'],['applicationDate','Application Date'],['approvalDate','Approval Date'],['applicationNumber','Application Number'],['ceprUserId','CEPR User ID'],['ceprPassword','CEPR Password'],['loginId','CPCB Login ID'],['loginPassword','CPCB Login Password'],['unitId','Unit ID']]);
+  if (data.cpcb?.linkedToCommonPortal === 'Yes') addFields('CPCB Credentials', data.cpcb, [['status','CPCB Status'],['remark','CPCB Remark'],['homePageFile','CPCB Home Page'],['registrationNumber','CPCB Registration Number'],['applicationDate','Application Date'],['approvalDate','Approval Date'],['applicationNumber','Application Number'],['ceprUserId','CEPR User ID'],['ceprPassword','CEPR Password'],['loginId','CPCB Login ID'],['loginPassword','CPCB Login Password'],['unitId','Unit ID']].filter(([key]) => !isPwp || !['registrationNumber', 'applicationNumber'].includes(key)));
   (data.cpcbScreenshots?.length ? data.cpcbScreenshots : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Screenshot ${index + 1} Name`, row.name); add('CPCB Screenshots', `Screenshot ${index + 1} File`, row.file); });
   const processDiagramChoiceRequired = isImporter || isBrandOwner;
   const processDiagramRequired = processDiagramChoiceRequired ? data.cpcb?.processDiagramRequired === 'Yes' : true;

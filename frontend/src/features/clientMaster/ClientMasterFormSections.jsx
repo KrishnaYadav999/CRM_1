@@ -396,8 +396,9 @@ function CteTab({ client, setValue, selectOptions }) {
   );
 }
 
-function CpcbTab({ client, setValue, selectOptions }) {
+function CpcbTab({ client, setValue, selectOptions, applicability }) {
   const linked = client.cpcb.linkedToCommonPortal || '';
+  const registrationFieldsApplicable = !applicability?.isPwp;
   const [showCeprPassword, setShowCeprPassword] = useState(false);
   const [showCpcbPassword, setShowCpcbPassword] = useState(false);
   return (
@@ -427,8 +428,8 @@ function CpcbTab({ client, setValue, selectOptions }) {
           <Field label="Unit ID"><input className="form-input" value={client.cpcb.unitId || ''} onChange={(event) => setValue('cpcb', 'unitId', event.target.value)} placeholder="Enter Unit ID" /></Field>
           <Field label="CPCB Home Page"><UploadButton value={client.cpcb.homePageFile} onChange={(value) => setValue('cpcb', 'homePageFile', value)} /></Field>
         </div>
-        <Field label="CPCB Registration Number"><input className="form-input" value={client.cpcb.registrationNumber || ''} onChange={(event) => setValue('cpcb', 'registrationNumber', event.target.value)} /></Field>
-        <Field label="Application Number"><input className="form-input" value={client.cpcb.applicationNumber || ''} onChange={(event) => setValue('cpcb', 'applicationNumber', event.target.value)} /></Field>
+        <Field label={`CPCB Registration Number${registrationFieldsApplicable ? '' : ' (Not Applicable)'}`}><input disabled={!registrationFieldsApplicable} className="form-input" value={client.cpcb.registrationNumber || ''} onChange={(event) => setValue('cpcb', 'registrationNumber', event.target.value)} /></Field>
+        <Field label={`Application Number${registrationFieldsApplicable ? '' : ' (Not Applicable)'}`}><input disabled={!registrationFieldsApplicable} className="form-input" value={client.cpcb.applicationNumber || ''} onChange={(event) => setValue('cpcb', 'applicationNumber', event.target.value)} /></Field>
         <Field label="Date of Application"><PremiumDatePicker value={client.cpcb.applicationDate || ''} onChange={(event) => setValue('cpcb', 'applicationDate', event.target.value)} /></Field>
         <Field label="Date of Application Approval"><PremiumDatePicker value={client.cpcb.approvalDate || ''} onChange={(event) => setValue('cpcb', 'approvalDate', event.target.value)} /></Field>
         <Field label="CEPR User ID"><input className="form-input" value={client.cpcb.ceprUserId || ''} onChange={(event) => setValue('cpcb', 'ceprUserId', event.target.value)} /></Field>
