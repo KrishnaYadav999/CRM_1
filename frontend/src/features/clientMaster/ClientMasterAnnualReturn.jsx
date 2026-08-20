@@ -514,11 +514,14 @@ function hasAnyAnnualUserRole(user = {}, allowedRoles = []) {
 
 export const annualProcessingTabLabels = {
   basic: 'Basic Info',
-  financials: 'Financials',
   data: 'Data',
   cpcbLetter: 'CPCB Letter'
 };
 export const annualProcessingTabIds = Object.keys(annualProcessingTabLabels);
+export const annualDataSubTabs = [
+  { id: 'portal', label: 'Portal Data' },
+  { id: 'compliance', label: 'Data Compliance' }
+];
 
 export function getAnnualCompletedTabs(draft = {}) {
   const completed = draft?.__completedTabs && typeof draft.__completedTabs === 'object' && !Array.isArray(draft.__completedTabs)
@@ -595,6 +598,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
   const data = readClientData(client);
   const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
   const [activeProcessingTab, setActiveProcessingTab] = useState('basic');
+  const [activeDataSubTab, setActiveDataSubTab] = useState('portal');
   const [activePillSection, setActivePillSection] = useState('');
   const [annualTransitioning, setAnnualTransitioning] = useState(false);
   const [annualDraft, setAnnualDraft] = useState({});
@@ -737,6 +741,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
       nextDraft = dbDraft && typeof dbDraft === 'object' ? dbDraft : {};
     }
     setAnnualDraft(nextDraft);
+    setActiveDataSubTab('portal');
     const completedTabs = getAnnualCompletedTabs(nextDraft);
     const restoredMessage = formatCompletedTabsMessage(completedTabs);
     setConfirmFinancials(false);
@@ -1339,7 +1344,6 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
 
   const processingTabs = [
     { id: 'basic', label: 'Basic Info', icon: Building2 },
-    { id: 'financials', label: 'Financials', icon: FileText },
     { id: 'data', label: 'Data', icon: Database },
     { id: 'cpcbLetter', label: 'CPCB Letter', icon: ShieldCheck }
   ];
@@ -2216,8 +2220,27 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                   <span className="annual-year-badge"><CalendarDays className="h-4 w-4" /> FY {selected.label}</span>
                 </div>
               </div>
+              {activeProcessingTab === 'data' && (
+                <div className="mx-4 mt-4 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2" role="tablist" aria-label="Annual return data views">
+                  {annualDataSubTabs.map((subTab) => {
+                    const active = activeDataSubTab === subTab.id;
+                    return (
+                      <button
+                        key={subTab.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setActiveDataSubTab(subTab.id)}
+                        className={`min-h-11 flex-1 rounded-xl px-5 py-2.5 text-sm font-black transition sm:flex-none ${active ? 'bg-[#30737B] text-white shadow-md shadow-teal-900/15' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-teal-50 hover:text-[#30737B]'}`}
+                      >
+                        {subTab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="annual-section-content space-y-4">
-                {activeSection && (
+                {activeSection && (activeProcessingTab !== 'data' || activeDataSubTab === 'portal') && (
                   <ProcessingSection
                     section={activeSection}
                     sectionTabs={activeSections.map((section) => section.title)}
@@ -2237,8 +2260,17 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                     onSave={() => saveAnnualDraft(activeProcessingTab, activeSection?.title || '')}
                   />
                 )}
+                {activeProcessingTab === 'data' && activeDataSubTab === 'compliance' && (
+                  <section role="tabpanel" aria-label="Data Compliance" className="mx-4 grid min-h-[280px] place-items-center rounded-2xl border border-dashed border-teal-200 bg-[linear-gradient(135deg,#f0fdfa_0%,#ffffff_55%,#fff7ed_100%)] p-8 text-center">
+                    <div className="max-w-md">
+                      <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-[#30737B] shadow-sm ring-1 ring-teal-100"><ShieldCheck className="h-7 w-7" /></span>
+                      <h5 className="mt-4 text-lg font-black text-slate-950">Data Compliance</h5>
+                      <p className="mt-2 text-sm font-bold leading-6 text-slate-500">This workspace is reserved for the Data Compliance process. Its fields and workflow will be added in the next phase.</p>
+                    </div>
+                  </section>
+                )}
               </div>
-              {activeProcessingTab === 'data' && (
+              {activeProcessingTab === 'data' && activeDataSubTab === 'portal' && (
                 <div className="mx-4 mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -2252,14 +2284,14 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
               )}
               {saveNotice && <ToastMessage type="success" className="mx-4 mb-3">{saveNotice}</ToastMessage>}
               {annualSaveError && <ToastMessage type="error" className="mx-4 mb-3">{annualSaveError}</ToastMessage>}
-              <div className="mt-5 flex flex-wrap justify-end gap-2">
+              {(activeProcessingTab !== 'data' || activeDataSubTab === 'portal') && <div className="mt-5 flex flex-wrap justify-end gap-2">
                 <button type="button" disabled={savingAnnual || dataPendingForReview} onClick={handlePrimaryAnnualAction} className={`btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-6 text-sm font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${canViewReviewData ? 'bg-slate-950 shadow-slate-950/20' : 'bg-emerald-600 shadow-emerald-600/20'}`}>{React.createElement(submitButtonIcon, { className: 'h-4 w-4' })}{savingAnnual ? 'Saving...' : submitButtonLabel}</button>
                 {showReviewNextButton && (
                   <button type="button" disabled={savingAnnual} onClick={handleAnnualSubmitNext} className="btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-6 text-sm font-black text-slate-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
                     Next Part <ChevronRight className="h-4 w-4" />
                   </button>
                 )}
-              </div>
+              </div>}
             </div>
           </div>
         </section>
