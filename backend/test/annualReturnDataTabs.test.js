@@ -15,11 +15,12 @@ test('Annual Return hides Financials from the visible three-step processing flow
   assert.match(processingTabsBlock, /id:\s*'cpcbLetter'/);
 });
 
-test('Data exposes Portal Data and a reserved Data Compliance sub-tab', () => {
+test('Data exposes Portal Data and the Purchase Data Compliance workspace', () => {
   assert.match(source, /\{ id: 'portal', label: 'Portal Data' \}/);
   assert.match(source, /\{ id: 'compliance', label: 'Data Compliance' \}/);
   assert.match(source, /role="tablist" aria-label="Annual return data views"/);
   assert.match(source, /activeDataSubTab === 'portal'/);
   assert.match(source, /activeDataSubTab === 'compliance'/);
-  assert.match(source, /Its fields and workflow will be added in the next phase\./);
+  assert.match(source, /<PurchaseDataWorkspace/);
+  assert.match(source, /financialYear=\{selected\.label\}/);
 });

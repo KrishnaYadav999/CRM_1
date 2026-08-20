@@ -59,6 +59,16 @@ const API_ENDPOINTS = {
     complianceReviewDecision: (id) => `/clients/${encodePathValue(id)}/compliance-review/decision`,
     annualReturn: (id) => `/clients/${encodePathValue(id)}/annual-return`
     ,annualReturnPoStatus: (id) => `/clients/${encodePathValue(id)}/annual-return/po-status`
+    ,purchaseData: (id) => `/clients/${encodePathValue(id)}/purchase-data`
+    ,purchaseChecklist: (id) => `/clients/${encodePathValue(id)}/purchase-data/checklist`
+    ,purchaseScreenshots: (id) => `/clients/${encodePathValue(id)}/purchase-data/screenshots`
+    ,purchaseImport: (id, source) => `/clients/${encodePathValue(id)}/purchase-imports/${encodePathValue(source)}`
+    ,purchaseRows: (id) => `/clients/${encodePathValue(id)}/purchase-data/rows`
+    ,purchaseReconciliation: (id) => `/clients/${encodePathValue(id)}/purchase-reconciliation`
+    ,purchaseErrors: (id, source) => `/clients/${encodePathValue(id)}/purchase-imports/${encodePathValue(source)}/errors`
+    ,purchaseSubmit: (id) => `/clients/${encodePathValue(id)}/purchase-data/submit`
+    ,purchaseManagerReview: (id) => `/clients/${encodePathValue(id)}/purchase-data/manager-review`
+    ,purchaseComplianceReview: (id) => `/clients/${encodePathValue(id)}/purchase-data/compliance-review`
   },
   quotations: {
     list: '/quotations',

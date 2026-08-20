@@ -37,7 +37,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 const app = express();
-app.use(express.json({ limit: '3mb' }));
+app.use(express.json({ limit: '12mb' }));
 
 const allowedOrigins = String(process.env.CLIENT_ORIGIN || '')
   .split(',')

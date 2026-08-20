@@ -9,6 +9,7 @@ import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { adminRoles } from '../../constants/dashboard';
 import { quotationServiceCategoryOptions, selectOptions } from './clientMaster.constants';
 import { UploadButton } from './ClientMasterFormSections';
+import PurchaseDataWorkspace from './PurchaseDataWorkspace';
 import { uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
 import {
   annualDraftLegacyKeys,
@@ -2261,13 +2262,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                   />
                 )}
                 {activeProcessingTab === 'data' && activeDataSubTab === 'compliance' && (
-                  <section role="tabpanel" aria-label="Data Compliance" className="mx-4 grid min-h-[280px] place-items-center rounded-2xl border border-dashed border-teal-200 bg-[linear-gradient(135deg,#f0fdfa_0%,#ffffff_55%,#fff7ed_100%)] p-8 text-center">
-                    <div className="max-w-md">
-                      <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-[#30737B] shadow-sm ring-1 ring-teal-100"><ShieldCheck className="h-7 w-7" /></span>
-                      <h5 className="mt-4 text-lg font-black text-slate-950">Data Compliance</h5>
-                      <p className="mt-2 text-sm font-bold leading-6 text-slate-500">This workspace is reserved for the Data Compliance process. Its fields and workflow will be added in the next phase.</p>
-                    </div>
-                  </section>
+                  <PurchaseDataWorkspace clientId={client?._id || client?.id || uniqueId} financialYear={selected.label} currentUser={currentUser} />
                 )}
               </div>
               {activeProcessingTab === 'data' && activeDataSubTab === 'portal' && (

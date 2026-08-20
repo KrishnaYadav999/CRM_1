@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const clientCtrl = require('../controllers/clientController');
 const reviewCtrl = require('../controllers/clientComplianceReviewController');
+const purchaseCtrl = require('../controllers/purchaseDataController');
 const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES, CLIENT_APPROVAL_ROLES } = require('../constants/roles');
 
@@ -16,6 +17,17 @@ router.post('/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.bu
 router.post('/', requireAuth, clientCtrl.createClient);
 router.get('/:id', requireAuth, clientCtrl.getClient);
 router.get('/:id/annual-return/po-status', requireAuth, clientCtrl.getAnnualReturnPoStatus);
+router.get('/:id/purchase-data', requireAuth, purchaseCtrl.getPurchaseData);
+router.put('/:id/purchase-data/checklist', requireAuth, purchaseCtrl.updateChecklist);
+router.put('/:id/purchase-data/screenshots', requireAuth, purchaseCtrl.updateScreenshots);
+router.post('/:id/purchase-imports/:source', requireAuth, purchaseCtrl.importPurchaseRows);
+router.delete('/:id/purchase-imports/:source', requireAuth, purchaseCtrl.removePurchaseImport);
+router.get('/:id/purchase-data/rows', requireAuth, purchaseCtrl.listPurchaseRows);
+router.get('/:id/purchase-reconciliation', requireAuth, purchaseCtrl.getReconciliation);
+router.get('/:id/purchase-imports/:source/errors', requireAuth, purchaseCtrl.getPurchaseErrors);
+router.post('/:id/purchase-data/submit', requireAuth, purchaseCtrl.submitPurchaseData);
+router.post('/:id/purchase-data/manager-review', requireAuth, purchaseCtrl.managerReview);
+router.post('/:id/purchase-data/compliance-review', requireAuth, purchaseCtrl.complianceReview);
 router.get('/:id/compliance-review', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.getReview);
 router.put('/:id/compliance-review/sections/:sectionKey', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.updateSection);
 router.post('/:id/compliance-review/decision', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.completeReview);
