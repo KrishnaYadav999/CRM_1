@@ -349,6 +349,7 @@ function cleanTerms(terms) {
 const PAYMENT_TERM_OPTIONS = [
   '100% after completion of work',
   '50% advance and 50% after completion of work',
+  '50% upon receipt of PO and 50% upon completion of EPR Annual Filing',
   '100% advance payment'
 ];
 
