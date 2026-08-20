@@ -15,6 +15,7 @@ const { CLIENT_APPROVAL_ROLES } = require('../constants/roles');
 const { analyzeClientMasterData } = require('../services/userProductivityReport');
 const { normalizeClientMaster, resolveClientMasterData } = require('../services/clientMasterResolver');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
+const { normalizeFinancialYear, resolveAnnualReturnPO } = require('../services/annualReturnPoResolver');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -1021,6 +1022,30 @@ exports.getClient = async (req, res) => {
     identity: normalizeClientMaster(client),
     resolvedData: resolveClientMasterData(client, requestedAssignedServiceId)
   });
+};
+
+exports.getAnnualReturnPoStatus = async (req, res) => {
+  const clientId = String(req.params.id || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(clientId)) {
+    return res.status(400).json({ error: 'Invalid Client Master ID' });
+  }
+  const years = String(req.query.years || '')
+    .split(',')
+    .map(normalizeFinancialYear)
+    .filter(Boolean)
+    .slice(0, 20);
+  if (!years.length) return res.status(400).json({ error: 'At least one valid financial year is required' });
+
+  const scope = await getVisibleUserScope(req.user);
+  const query = Client.findOne({
+    _id: clientId,
+    ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo'])
+  }).select('selectedLead data.selectedLead data.sourceLeadId data.leadId data.selectedLeadSnapshot data.importMeta.leadNumber data.annualReturn.filings');
+  const client = typeof query.lean === 'function' ? await query.lean() : await query;
+  if (!client) return res.status(404).json({ error: 'Client Master record not found' });
+
+  const result = await resolveAnnualReturnPO({ clientMaster: client, financialYears: years });
+  return res.json({ success: true, ...result });
 };
 
 exports.listPendingApprovals = async (req, res) => {

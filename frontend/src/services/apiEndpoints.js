@@ -58,6 +58,7 @@ const API_ENDPOINTS = {
     complianceReviewSection: (id, sectionKey) => `/clients/${encodePathValue(id)}/compliance-review/sections/${encodePathValue(sectionKey)}`,
     complianceReviewDecision: (id) => `/clients/${encodePathValue(id)}/compliance-review/decision`,
     annualReturn: (id) => `/clients/${encodePathValue(id)}/annual-return`
+    ,annualReturnPoStatus: (id) => `/clients/${encodePathValue(id)}/annual-return/po-status`
   },
   quotations: {
     list: '/quotations',

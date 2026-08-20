@@ -586,6 +586,10 @@ function PoServiceMultiSelect({ value, options, onChange }) {
   );
 }
 
+function PoDetailItem({ label, value, wide = false }) {
+  return <div className={`rounded-xl border border-slate-200 bg-slate-50/70 p-4 ${wide ? 'sm:col-span-2' : ''}`}><span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</span><strong className="mt-1 block break-words text-sm font-black text-slate-800">{value || '-'}</strong></div>;
+}
+
 export function AnnualReturnHistory({ client, quotations = [], proformaInvoices = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
@@ -619,6 +623,9 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
     try { return JSON.parse(localStorage.getItem(annualPoStorageKey) || 'null') || storedPoWorkflow; } catch { return storedPoWorkflow; }
   });
   const [poModalOpen, setPoModalOpen] = useState(false);
+  const [poDetails, setPoDetails] = useState(null);
+  const [poResolution, setPoResolution] = useState({ loading: true, error: '', byYear: {}, sourceLead: null });
+  const [poRefreshToken, setPoRefreshToken] = useState(0);
   const [poApprovalPreviewOpen, setPoApprovalPreviewOpen] = useState(false);
   const [poValidationError, setPoValidationError] = useState('');
   const assignedName = getAssignedName(client);
@@ -770,19 +777,38 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
   }, [annualToast]);
 
   useEffect(() => {
-    if (!poModalOpen && !poApprovalPreviewOpen) return undefined;
+    if (!poModalOpen && !poApprovalPreviewOpen && !poDetails) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previousOverflow; };
-  }, [poModalOpen, poApprovalPreviewOpen]);
+  }, [poModalOpen, poApprovalPreviewOpen, poDetails]);
 
   useEffect(() => {
-    if (selected) return;
-    const missingYears = years.filter((year) => poWorkflow.mode === 'yes' && !(poWorkflow.rows || []).some((row) => row.fyYear === year.label));
-    if (poWorkflow.confirmed && missingYears.length) {
-      setAnnualToast({ type: 'error', message: `You didn't fill Annual Return ${missingYears.map((year) => year.label).join(', ')}. Complete PO details to unlock these years.` });
+    if (selected || !years.length) return undefined;
+    const clientId = client?._id || client?.id;
+    if (!clientId) {
+      setPoResolution({ loading: false, error: '', byYear: Object.fromEntries(years.map((year) => [year.label, { fy: year.label, poRequired: false, poStatus: 'unlinked', po: null }])), sourceLead: null });
+      return undefined;
     }
-  }, [poWorkflow, selectedYear, years.map((year) => year.label).join('|')]);
+    let cancelled = false;
+    setPoResolution((current) => ({ ...current, loading: true, error: '' }));
+    api.get(API_ENDPOINTS.clients.annualReturnPoStatus(clientId), {
+      params: { years: years.map((year) => year.label).join(',') }
+    }).then((response) => {
+      if (cancelled) return;
+      const rows = Array.isArray(response.data?.years) ? response.data.years : [];
+      setPoResolution({
+        loading: false,
+        error: '',
+        byYear: Object.fromEntries(rows.map((row) => [normalizeFinancialYearLabel(row.fy), row])),
+        sourceLead: response.data?.sourceLead || null
+      });
+    }).catch((error) => {
+      if (cancelled) return;
+      setPoResolution({ loading: false, error: error?.response?.data?.error || 'Unable to check PO details.', byYear: {}, sourceLead: null });
+    });
+    return () => { cancelled = true; };
+  }, [client?._id, client?.id, selected, poRefreshToken, years.map((year) => year.label).join('|')]);
 
   function updatePoRows(nextRows) {
     setPoDraft((current) => ({ ...current, mode: current.mode || 'yes', rows: nextRows }));
@@ -846,12 +872,19 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
     setPoDraft(saved);
     setPoValidationError('');
     setPoModalOpen(false);
+    setPoRefreshToken((value) => value + 1);
     setAnnualToast({ type: 'success', message: 'Purchase Order confirmation saved successfully.' });
   }
 
   function isAnnualYearLocked(yearLabel) {
-    if (!poWorkflow.confirmed) return true;
-    return !(poWorkflow.rows || []).some((row) => row.fyYear === yearLabel);
+    if (poResolution.loading || poResolution.error) return true;
+    return ['pending', 'conflict'].includes(poResolution.byYear[normalizeFinancialYearLabel(yearLabel)]?.poStatus);
+  }
+
+  function poStateForYear(yearLabel) {
+    if (poResolution.loading) return { fy: yearLabel, poStatus: 'loading', poRequired: false, po: null };
+    if (poResolution.error) return { fy: yearLabel, poStatus: 'error', poRequired: false, po: null, message: poResolution.error };
+    return poResolution.byYear[normalizeFinancialYearLabel(yearLabel)] || { fy: yearLabel, poStatus: 'unlinked', poRequired: false, po: null };
   }
 
   useEffect(() => {
@@ -1884,10 +1917,17 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
   function openAnnualYear(year) {
     const clientKey = client?._id || client?.id || data.importMeta?.uniqueId || getClientUniqueId(client);
     const nextYear = year?.label || '';
+    const poState = poStateForYear(nextYear);
     if (isAnnualYearLocked(nextYear)) {
-      setAnnualToast({ type: 'error', message: `You didn't fill Annual Return ${nextYear}. Complete its PO details first.` });
-      setPoDraft(poWorkflow);
-      setPoModalOpen(true);
+      if (poState.poStatus === 'pending') {
+        setAnnualToast({ type: 'error', message: `PO details are required before starting Annual Return ${nextYear}.` });
+        setPoDraft(poWorkflow);
+        setPoModalOpen(true);
+      } else if (poState.poStatus === 'conflict') {
+        setPoDetails(poState);
+      } else {
+        setAnnualToast({ type: 'error', message: poState.message || 'Checking PO details. Please try again shortly.' });
+      }
       return;
     }
     console.debug('[CRM AnnualReturn]', {
@@ -1902,6 +1942,10 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
     navigate(`/sales/client-data-processing/${encodeURIComponent(clientKey)}/${encodeURIComponent(nextYear)}`);
   }
 
+  const hubPoStates = years.map((year) => poStateForYear(year.label));
+  const pendingPoState = hubPoStates.find((state) => state.poStatus === 'pending');
+  const receivedPoState = hubPoStates.find((state) => state.poStatus === 'received');
+
   return (
     <div className="mt-5 space-y-5">
       {!selected && (
@@ -1911,7 +1955,13 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
             <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Annual Return</p><h2 className="text-xl font-black text-slate-950">{clientName}</h2></div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => { setPoDraft(poWorkflow.confirmed ? poWorkflow : {}); setPoValidationError(''); setPoModalOpen(true); }} className="btn-lift inline-flex items-center gap-2 rounded-xl bg-[#30737B] px-5 py-3 text-sm font-black text-white"><Plus className="h-4 w-4" /> {poWorkflow.confirmed ? 'Edit PO' : 'Add PO'}</button>
+            {!poResolution.loading && (pendingPoState || receivedPoState) && <button type="button" onClick={() => {
+              if (pendingPoState) {
+                setPoDraft(poWorkflow.confirmed ? poWorkflow : {});
+                setPoValidationError('');
+                setPoModalOpen(true);
+              } else setPoDetails(receivedPoState);
+            }} className="btn-lift inline-flex items-center gap-2 rounded-xl bg-[#30737B] px-5 py-3 text-sm font-black text-white">{pendingPoState ? <Plus className="h-4 w-4" /> : <FileText className="h-4 w-4" />} {pendingPoState ? 'Add PO' : 'PO Details'}</button>}
           </div>
         </div>
       )}
@@ -1934,24 +1984,42 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
             {years.map((year, index) => {
               const active = selected?.label === year.label;
               const locked = isAnnualYearLocked(year.label);
-              const [yearStart, yearEnd] = year.label.split('-');
+              const poState = poStateForYear(year.label);
+              const statusMeta = {
+                received: { label: 'PO Received', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700', card: 'border-emerald-200 bg-gradient-to-br from-white to-emerald-50/70' },
+                pending: { label: 'PO Pending', badge: 'border-amber-200 bg-amber-50 text-amber-700', card: 'border-amber-200 bg-gradient-to-br from-white to-amber-50/70' },
+                not_required: { label: 'PO Not Required', badge: 'border-slate-200 bg-slate-100 text-slate-600', card: 'border-slate-200 bg-white' },
+                unlinked: { label: 'Source Lead Not Linked', badge: 'border-slate-200 bg-slate-100 text-slate-600', card: 'border-slate-200 bg-white' },
+                conflict: { label: 'PO Conflict', badge: 'border-orange-200 bg-orange-50 text-orange-700', card: 'border-orange-200 bg-gradient-to-br from-white to-orange-50/70' },
+                loading: { label: 'Checking PO details...', badge: 'border-teal-100 bg-teal-50 text-teal-700', card: 'border-teal-100 bg-white' },
+                error: { label: 'PO check unavailable', badge: 'border-red-200 bg-red-50 text-red-700', card: 'border-red-200 bg-white' }
+              }[poState.poStatus];
               return (
-                <button
+                <article
                   key={year.label}
-                  type="button"
-                  onClick={() => openAnnualYear(year)}
-                  className={`annual-year-card ${active ? 'annual-year-card-active' : ''} ${locked ? '!border-red-300 !bg-red-50/80 opacity-80' : ''}`}
+                  className={`relative overflow-hidden rounded-2xl border p-5 shadow-[0_12px_28px_rgba(15,23,42,0.07)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.10)] ${statusMeta.card} ${active ? 'ring-2 ring-teal-500' : ''}`}
                   style={{ '--delay': `${index * 90}ms` }}
                 >
-                  <span className="annual-year-topline" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">EPR Year</span>
-                  <strong className="mt-4 block text-4xl font-black leading-[0.95] text-slate-950">
-                    <span className="block">{yearStart}-</span>
-                    <span className="block">{yearEnd}</span>
-                  </strong>
-                  <span className="mt-4 block text-xs font-black text-slate-400">{year.period}</span>
-                  <span className={`mt-1 block text-xs font-black ${locked ? 'text-red-600' : 'text-slate-400'}`}>- {locked ? 'Frozen — PO details pending' : year.status}</span>
-                </button>
+                  <div className="flex items-start justify-between gap-3"><span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">EPR Year</span><span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${statusMeta.badge}`}>{statusMeta.label}</span></div>
+                  <strong className="mt-3 block text-3xl font-black leading-none text-slate-950">{year.label}</strong>
+                  <span className="mt-2 block text-xs font-bold text-slate-400">{year.period}</span>
+                  <div className="mt-4 min-h-16 rounded-xl border border-white/80 bg-white/75 p-3">
+                    {poState.poStatus === 'received' && <><span className="text-[10px] font-black uppercase tracking-widest text-slate-400">PO Number</span><strong className="mt-1 block break-words text-sm font-black text-slate-800">{poState.po?.number || 'Document received'}</strong>{poState.po?.fileName && <span className="mt-1 block truncate text-xs font-semibold text-slate-500" title={poState.po.fileName}>{poState.po.fileName}</span>}</>}
+                    {poState.poStatus === 'pending' && <p className="text-xs font-bold leading-5 text-amber-700">PO details are required before starting this Annual Return.</p>}
+                    {poState.poStatus === 'not_required' && <p className="text-xs font-bold leading-5 text-slate-500">This year is available without a purchase order.</p>}
+                    {poState.poStatus === 'unlinked' && <p className="text-xs font-bold leading-5 text-slate-500">The Client Master has no valid source Lead relationship.</p>}
+                    {poState.poStatus === 'conflict' && <p className="text-xs font-bold leading-5 text-orange-700">Multiple PO records found. Please review PO details.</p>}
+                    {poState.poStatus === 'loading' && <div className="space-y-2"><span className="block h-3 w-32 animate-pulse rounded bg-teal-100" /><span className="block h-3 w-48 animate-pulse rounded bg-slate-100" /></div>}
+                    {poState.poStatus === 'error' && <p className="text-xs font-bold leading-5 text-red-600">{poState.message}</p>}
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                    {poState.poStatus === 'received' && poState.po?.fileUrl ? <a href={normalizeDocumentUrl(poState.po.fileUrl)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-700"><Eye className="h-3.5 w-3.5" /> View PO</a> : <span />}
+                    {poState.poStatus === 'error' && <button type="button" onClick={() => setPoRefreshToken((value) => value + 1)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600">Retry</button>}
+                    {poState.poStatus === 'pending' && <button type="button" onClick={() => { setPoDraft(poWorkflow.confirmed ? poWorkflow : {}); setPoValidationError(''); setPoModalOpen(true); }} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-black text-white">Add PO</button>}
+                    {poState.poStatus === 'conflict' && <button type="button" onClick={() => setPoDetails(poState)} className="rounded-lg bg-orange-600 px-3 py-2 text-xs font-black text-white">Review Details</button>}
+                    {!['error', 'pending', 'conflict'].includes(poState.poStatus) && <button type="button" disabled={locked} onClick={() => openAnnualYear(year)} className="rounded-lg bg-[#30737B] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-45">Open Annual Return</button>}
+                  </div>
+                </article>
               );
             })}
           </div>
@@ -1962,6 +2030,30 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
           />
         )}
       </section>}
+
+      {poDetails && !selected && createPortal((
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <section className="w-full max-w-xl overflow-hidden rounded-[24px] border border-emerald-100 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.35)]">
+            <header className="flex items-start justify-between gap-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-teal-50 p-6">
+              <div><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Purchase Order Details</p><h2 className="mt-2 text-2xl font-black text-slate-950">{poDetails.poStatus === 'conflict' ? 'PO records need review' : 'Lead closure PO'}</h2></div>
+              <button type="button" onClick={() => setPoDetails(null)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500"><X className="h-4 w-4" /></button>
+            </header>
+            <div className="grid gap-4 p-6 sm:grid-cols-2">
+              <PoDetailItem label="PO Status" value={poDetails.poStatus === 'received' ? 'Received' : 'Conflict'} />
+              <PoDetailItem label="Financial Year" value={poDetails.fy} />
+              <PoDetailItem label="PO Number" value={poDetails.po?.number || 'Multiple records found'} wide />
+              <PoDetailItem label="Service" value={poDetails.po?.service || 'Annual Return'} />
+              <PoDetailItem label="Source" value={poDetails.po?.source === 'annual_return_legacy' ? 'Existing Annual Return record' : poDetails.po?.leadCode ? `Lead ${poDetails.po.leadCode}` : poResolution.sourceLead?.leadCode ? `Lead ${poResolution.sourceLead.leadCode}` : 'Source Lead'} />
+              <PoDetailItem label="Document" value={poDetails.po?.fileName || (poDetails.po?.fileUrl ? 'PO document' : 'Not available')} wide />
+              {poDetails.poStatus === 'conflict' && <p className="sm:col-span-2 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm font-bold text-orange-700">Multiple different Annual Return PO records were found for this financial year. No record was selected automatically.</p>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t border-slate-100 p-5">
+              <button type="button" onClick={() => setPoDetails(null)} className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-black text-slate-600">Close</button>
+              {poDetails.po?.fileUrl && <a href={normalizeDocumentUrl(poDetails.po.fileUrl)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-[#30737B] px-5 py-2.5 text-sm font-black text-white"><Eye className="h-4 w-4" /> View Document</a>}
+            </footer>
+          </section>
+        </div>
+      ), document.body)}
 
       {poApprovalPreviewOpen && !selected && createPortal((
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-700/70 p-3 backdrop-blur-md sm:p-6">
