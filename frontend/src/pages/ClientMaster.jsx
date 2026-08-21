@@ -132,6 +132,7 @@ const tabProgressFields = {
   basic: [
     ['basic', 'clientLegalName'],
     ['basic', 'tradeName'],
+    ['basic', 'companyType'],
     ['basic', 'piboCategory'],
     ['basic', 'eprCategory'],
     ['basic', 'onboardingYear'],
@@ -673,7 +674,7 @@ const emptyClient = {
     category: [],
     numberOfEmployees: ''
   },
-  basic: { clientLegalName: '', tradeName: '', piboCategory: '', eprCategory: '', onboardingYear: '', firstAnnualReturnYear: '' },
+  basic: { clientLegalName: '', tradeName: '', companyType: '', piboCategory: '', eprCategory: '', onboardingYear: '', firstAnnualReturnYear: '' },
   registeredAddress: {},
   communicationAddress: {},
   compliance: {},
@@ -2664,6 +2665,7 @@ function BasicTab({ client, setValue }) {
       <div className="grid gap-5 md:grid-cols-2">
         <Field required label="Client Legal Name"><input className="form-input" value={basic.clientLegalName ?? ''} onChange={(event) => setValue('basic', 'clientLegalName', event.target.value)} /></Field>
         <Field label="Trade Name"><input className="form-input" value={basic.tradeName ?? ''} onChange={(event) => setValue('basic', 'tradeName', event.target.value)} /></Field>
+        <SelectLike label="Company Type" value={basic.companyType ?? ''} options={selectOptions.companyType} placeholder="Select Company Type" onChange={(value) => setValue('basic', 'companyType', value)} />
         <SelectLike label="PIBO Category" value={basic.piboCategory ?? ''} options={selectOptions.piboCategory} onChange={(value) => setValue('basic', 'piboCategory', value)} />
         <SelectLike label="Service Category" value={basic.eprCategory ?? ''} options={selectOptions.eprCategory} onChange={(value) => setValue('basic', 'eprCategory', value)} />
         <SelectLike label="Client Onboarding Year" value={basic.onboardingYear ?? ''} options={selectOptions.years} placeholder="Select onboarding year" onChange={(value) => setValue('basic', 'onboardingYear', value)} />
@@ -2702,6 +2704,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound],
     ['Client Name', clientName, Building2],
     ['Trade Name', data.basic?.tradeName, Building2],
+    ['Company Type', data.basic?.companyType, Building2],
     ['Company Industry', data.basic?.companyIndustry, Building2],
     ['Website', data.basic?.website, Eye]
   ];

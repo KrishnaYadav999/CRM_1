@@ -156,6 +156,7 @@ function mapFlatClientData(item) {
     basic: {
       clientLegalName: pickLookup(lookup, ['Client Name', 'Client Legal Name', 'Legal Name', 'Company Name', 'Name']),
       tradeName: pickLookup(lookup, ['Trade Name', 'Company', 'Company Name']),
+      companyType: pickLookup(lookup, ['Company Type', 'Company Constitution', 'Entity Type']),
       companyIndustry: pickLookup(lookup, ['Company Industry', 'Industry Type']),
       piboCategory: pickLookup(lookup, ['PIBO Category', 'PIBO']),
       eprCategory: pickLookup(lookup, ['EPR Category', 'EPR']),
@@ -821,6 +822,9 @@ function mapExcelRowToClient(row, staff, leads) {
     creationdate: 'importMeta.creationDate',
     assignedto: 'importMeta.assignedTo',
     clientname: 'basic.clientLegalName',
+    companytype: 'basic.companyType',
+    companyconstitution: 'basic.companyType',
+    entitytype: 'basic.companyType',
     clientonboardingyear: 'basic.onboardingYear',
     firstannualreturnyearapplicable: 'basic.firstAnnualReturnYear',
     firstannualreturnyear: 'basic.firstAnnualReturnYear',

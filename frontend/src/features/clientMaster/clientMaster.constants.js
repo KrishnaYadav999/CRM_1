@@ -3,6 +3,7 @@ import { buildAnnualReturnYearOptions } from './clientMaster.utils';
 export const selectOptions = {
   approvalStatus: ['PENDING', 'APPROVED', 'REJECTED'],
   visibilityStatus: ['DISCONTINUED', 'LIVE', 'SUSPENDED'],
+  companyType: ['Private Limited', 'LLP', 'Partnership', 'Proprietorship', 'Public Limited'],
   piboCategory: ['Producer', 'Importer', 'Brand Owner', 'Recycler', 'PWP', 'Refurbisher'],
   eprCategory: ['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste'],
   // Consent issue/validity dropdowns must allow upcoming renewal years too.

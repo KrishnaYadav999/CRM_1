@@ -298,7 +298,7 @@ function analyzeClientMasterData(data = {}) {
   const add = (section, label, value) => entries.push({ section, label, filled: filled(value) });
   const addFields = (section, source, fields) => fields.forEach(([key, label]) => add(section, label, source?.[key]));
   addFields('Company Overview', data.companyOverview, [['companyName','Company Name'],['companySummary','Company Summary'],['productName','Product Name'],['productManufacturer','Product Manufacturer'],['productImage','Product Image'],['category','Product Category'],['numberOfEmployees','Number of Employees']]);
-  addFields('Client Basic Info', data.basic, [['clientLegalName','Client Legal Name'],['tradeName','Trade Name'],['piboCategory','PIBO Category'],['eprCategory','Service Category'],['onboardingYear','Onboarding Year'],['firstAnnualReturnYear','First Annual Return Year']]);
+  addFields('Client Basic Info', data.basic, [['clientLegalName','Client Legal Name'],['tradeName','Trade Name'],['companyType','Company Type'],['piboCategory','PIBO Category'],['eprCategory','Service Category'],['onboardingYear','Onboarding Year'],['firstAnnualReturnYear','First Annual Return Year']]);
   [['Registered Address', data.registeredAddress], ['Communication Address', data.communicationAddress]].forEach(([section, source]) => addFields(section, source, [['address1','Address 1'],['address2','Address 2'],['address3','Address 3'],['state','State'],['city','City'],['pincode','PIN Code']]));
   const category = String(data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
   const applicantType = String(data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || '').trim().toLowerCase();
