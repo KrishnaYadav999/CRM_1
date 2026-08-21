@@ -14,9 +14,11 @@ test('MSME applicability controls validation and Document completion', () => {
 
 test('document applicability freezes non-required Producer, Brand Owner and Importer certificates', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
-  assert.match(page, /category\.includes\('producer'\).*\['iec', 'dicDcssi'\]/s);
-  assert.match(page, /category\.includes\('brand owner'\).*\['factoryLicense', 'dicDcssi'\]/s);
-  assert.match(page, /category\.includes\('importer'\).*\['factoryLicense', 'dicDcssi'\]/s);
+  assert.match(page, /isCorporate = \['private limited', 'public limited'\]\.includes\(companyType\)/);
+  assert.match(page, /isNonCorporate = \['llp', 'partnership', 'proprietorship'\]\.includes\(companyType\)/);
+  assert.match(page, /category\.includes\('producer'\)/);
+  assert.match(page, /category\.includes\('brand owner'\)/);
+  assert.match(page, /category\.includes\('importer'\)/);
   assert.match(page, /getApplicableComplianceRows\(client\)\.flatMap/);
 });
 
@@ -46,8 +48,9 @@ test('Authorized Person supports multiple cards and CPCB passwords can be viewed
 test('Client Master freezes Importer consent, supports conditional CTE and Process Diagram applicability', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
   const sections = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx'), 'utf8');
-  assert.match(page, /tab\.id === 'cte' && applicability\.isImporter/);
+  assert.match(page, /tab\.id === 'cte' && !applicability\.cteTabApplicable/);
   assert.match(page, /CTE & CTO \/ CCA is not applicable for Importer clients/);
+  assert.match(page, /Brand Owner has no production facility/);
   assert.match(page, /client\.cte\?\.cteApplicable !== 'No'/);
   assert.match(page, /processDiagramChoiceRequired/);
   assert.match(sections, /Is CTE Applicable\?/);

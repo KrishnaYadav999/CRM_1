@@ -60,8 +60,10 @@ test('CRM automatically logs out and audits users after thirty idle minutes', ()
 test('document progress and frozen fields follow Producer and Importer applicability', () => {
   const page = read('../../frontend/src/pages/ClientMaster.jsx');
   const sections = read('../../frontend/src/features/clientMaster/ClientMasterFormSections.jsx');
-  assert.match(page, /category\.includes\('producer'\).*\['iec', 'dicDcssi'\]/s);
-  assert.match(page, /category\.includes\('importer'\).*\['factoryLicense', 'dicDcssi'\]/s);
+  assert.match(page, /category\.includes\('producer'\)/);
+  assert.match(page, /category\.includes\('importer'\)/);
+  assert.match(page, /new Set\(\['factoryLicense'/);
+  assert.match(page, /isNonCorporate \? \['cin'\] : \['dicDcssi'\]/);
   assert.match(page, /getApplicableComplianceRows\(client\)\.flatMap/);
   assert.match(sections, /Not Applicable/);
   assert.match(sections, /disabled=\{!applicable\}/);

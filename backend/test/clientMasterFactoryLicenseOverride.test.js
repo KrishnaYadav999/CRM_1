@@ -16,6 +16,6 @@ test('Brand Owner production facility answer controls Factory License applicabil
 });
 
 test('Factory License override participates in the central progress applicability list', () => {
-  assert.match(page, /key !== 'factoryLicense' \|\| factoryApplicable/);
+  assert.match(page, /!factoryApplicable \? \['factoryLicense'\] : \[\]/);
   assert.match(page, /getApplicableComplianceRows\(client\)\.flatMap/);
 });

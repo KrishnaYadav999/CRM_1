@@ -364,7 +364,7 @@ function analyzeClientMasterData(data = {}) {
   const add = (section, label, value) => entries.push({ section, label, filled: filled(value) });
   const addFields = (section, source, fields) => fields.forEach(([key, label]) => add(section, label, source?.[key]));
   const cpcbRestricted = data.cpcbOnboarding?.cpcbPortalRegistered === false;
-  addFields('Company Overview', data.companyOverview, [['companyName','Company Name'],['companySummary','Company Summary'],['productName','Product Name'],['productManufacturer','Product Manufacturer'],['productImage','Product Image'],['category','Product Category'],['numberOfEmployees','Number of Employees']]);
+  addFields('Company Overview', data.companyOverview, [['companyName','Company Name'],['companySummary','Company Summary'],['productName','Product Name'],['productImage','Product Image'],['category','Product Category']]);
   addFields('Client Basic Info', data.basic, [['clientLegalName','Client Legal Name'],['tradeName','Trade Name'],['companyType','Company Type'],['piboCategory','PIBO Category'],['eprCategory','Service Category'],['onboardingYear','Onboarding Year'],['firstAnnualReturnYear','First Annual Return Year']]);
   [['Registered Address', data.registeredAddress], ['Communication Address', data.communicationAddress]].forEach(([section, source]) => addFields(section, source, [['address1','Address 1'],['address2','Address 2'],['address3','Address 3'],['state','State'],['city','City'],['pincode','PIN Code']]));
   const category = String(data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
@@ -372,19 +372,31 @@ function analyzeClientMasterData(data = {}) {
   const isImporter = category === 'importer';
   const isBrandOwner = category.includes('brand owner');
   const isPwp = applicantType === 'pwp' || category === 'pwp';
+  const companyType = String(data.basic?.companyType || '').trim().toLowerCase();
+  const isCorporate = ['private limited', 'public limited'].includes(companyType);
+  const isNonCorporate = ['llp', 'partnership', 'proprietorship'].includes(companyType);
   const brandOwnerHasFactory = data.compliance?.brandOwnerProductionFacility === 'Yes'
     || (!data.compliance?.brandOwnerProductionFacility && data.compliance?.factoryLicenseApplicability === 'Applicable');
+  const brandOwnerProductionFacility = data.compliance?.brandOwnerProductionFacility
+    || (data.compliance?.factoryLicenseApplicability === 'Applicable' ? 'Yes' : data.compliance?.factoryLicenseApplicability === 'Not Applicable' ? 'No' : '');
   const documentKeys = cpcbRestricted ? [] : ['gst','cin','pan','factoryLicense','eprCertificate','iec','dicDcssi'].filter((key) => {
     if (isPwp && ['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key)) return false;
-    if (category.includes('producer') && ['iec', 'dicDcssi'].includes(key)) return false;
-    if (isBrandOwner && (key === 'dicDcssi' || (key === 'factoryLicense' && !brandOwnerHasFactory))) return false;
-    if (isImporter && ['factoryLicense', 'dicDcssi'].includes(key)) return false;
+    if (category.includes('producer') && (['iec', 'dicDcssi'].includes(key) || (isNonCorporate && key === 'cin'))) return false;
+    if (isBrandOwner && (
+      key === 'dicDcssi'
+      || ((isCorporate || isNonCorporate) && key === 'iec')
+      || (isNonCorporate && key === 'cin')
+      || (key === 'factoryLicense' && !brandOwnerHasFactory)
+    )) return false;
+    if (isImporter && (key === 'factoryLicense' || (isNonCorporate ? key === 'cin' : key === 'dicDcssi'))) return false;
+    if (!category.includes('producer') && !isBrandOwner && !isImporter && isCorporate && ['iec', 'dicDcssi'].includes(key)) return false;
     return true;
   });
   documentKeys.forEach((key) => { const name = key.replace(/([A-Z])/g, ' $1').toUpperCase(); add('Documents', `${name} Number`, data.compliance?.[`${key}Number`]); add('Documents', `${name} Date`, data.compliance?.[`${key}Date`]); add('Documents', `${name} File`, data.compliance?.[`${key}File`]); });
   if (!cpcbRestricted) add('Documents', 'MSME Applicability', data.compliance?.msmeApplicable);
   if (!cpcbRestricted && data.compliance?.msmeApplicable === 'Yes') (data.msmeRows?.length ? data.msmeRows : [{}]).forEach((row, index) => addFields('MSME Details', row, [['classificationYear',`MSME ${index + 1} Classification Year`],['status',`MSME ${index + 1} Status`],['majorActivity',`MSME ${index + 1} Major Activity`],['udyamNumber',`MSME ${index + 1} Udyam Number`],['turnover',`MSME ${index + 1} Turnover`],['file',`MSME ${index + 1} Certificate`]]));
-  if (!cpcbRestricted && !isImporter) {
+  const cteTabApplicable = !isImporter && !(isBrandOwner && brandOwnerProductionFacility === 'No');
+  if (!cpcbRestricted && cteTabApplicable) {
     const cteApplicable = data.cte?.cteApplicable !== 'No';
     const hasCtePlants = Array.isArray(data.cte?.plantWiseDetails) && data.cte.plantWiseDetails.length > 0;
     add('CTE & CTO / CCA', 'Number of Plant Locations', data.cte?.numberOfPlantsLocations);

@@ -278,3 +278,53 @@ test('Client Master MIS excludes non-applicable PWP, Importer, CTE and process d
   assert.equal(consent.percentage, 100);
   assert.ok(!ctoOnly.missingFields.some((label) => label.includes('CTE Consent') || label.includes('CTE Document')));
 });
+
+test('Company Type and applicant category drive the requested document applicability matrix', () => {
+  const analyze = (piboCategory, companyType, compliance = {}) => analyzeClientMasterData({
+    basic: { piboCategory, companyType },
+    compliance: { msmeApplicable: 'No', ...compliance },
+    cpcb: { linkedToCommonPortal: 'No', processDiagramRequired: 'No' }
+  }).missingFields;
+
+  const producerCompany = analyze('Producer', 'Private Limited');
+  assert.ok(!producerCompany.includes('IEC Number'));
+  assert.ok(!producerCompany.includes('DIC DCSSI Number'));
+  assert.ok(producerCompany.includes('CIN Number'));
+
+  const producerFirm = analyze('Producer', 'LLP');
+  assert.ok(!producerFirm.includes('CIN Number'));
+  assert.ok(!producerFirm.includes('IEC Number'));
+  assert.ok(!producerFirm.includes('DIC DCSSI Number'));
+
+  const brandFirm = analyze('Brand Owner', 'Partnership', { brandOwnerProductionFacility: 'Yes' });
+  assert.ok(!brandFirm.includes('CIN Number'));
+  assert.ok(!brandFirm.includes('IEC Number'));
+  assert.ok(!brandFirm.includes('DIC DCSSI Number'));
+  assert.ok(brandFirm.includes('FACTORY LICENSE Number'));
+
+  const importerCompany = analyze('Importer', 'Public Limited');
+  assert.ok(!importerCompany.includes('FACTORY LICENSE Number'));
+  assert.ok(!importerCompany.includes('DIC DCSSI Number'));
+  assert.ok(importerCompany.includes('CIN Number'));
+  assert.ok(importerCompany.includes('IEC Number'));
+
+  const importerFirm = analyze('Importer', 'Proprietorship');
+  assert.ok(!importerFirm.includes('CIN Number'));
+  assert.ok(!importerFirm.includes('FACTORY LICENSE Number'));
+  assert.ok(importerFirm.includes('DIC DCSSI Number'));
+});
+
+test('Brand Owner without production facility excludes the entire CTE and CTO/CCA section', () => {
+  const analysis = analyzeClientMasterData({
+    basic: { piboCategory: 'Brand Owner', companyType: 'Private Limited' },
+    compliance: { msmeApplicable: 'No', brandOwnerProductionFacility: 'No' },
+    cpcb: { linkedToCommonPortal: 'No', processDiagramRequired: 'No' }
+  });
+  assert.ok(!analysis.sections.some((section) => section.name === 'CTE & CTO / CCA'));
+});
+
+test('removed Company Overview fields do not affect completion', () => {
+  const analysis = analyzeClientMasterData({ companyOverview: {} });
+  assert.ok(!analysis.missingFields.includes('Product Manufacturer'));
+  assert.ok(!analysis.missingFields.includes('Number of Employees'));
+});

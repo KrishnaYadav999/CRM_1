@@ -100,15 +100,30 @@ const complianceRows = [
 function getApplicableComplianceRows(client = {}) {
   const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
   const applicantType = String(client.selectedLeadSnapshot?.applicantType || client.selectedLeadSnapshot?.piboParent || '').trim().toLowerCase();
+  const companyType = String(client.basic?.companyType || '').trim().toLowerCase();
+  const isCorporate = ['private limited', 'public limited'].includes(companyType);
+  const isNonCorporate = ['llp', 'partnership', 'proprietorship'].includes(companyType);
   if (applicantType === 'pwp' || category === 'pwp') return complianceRows.filter(([key]) => !['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key));
-  if (category.includes('producer')) return complianceRows.filter(([key]) => !['iec', 'dicDcssi'].includes(key));
+  if (category.includes('producer')) return complianceRows.filter(([key]) => ![
+    'iec', 'dicDcssi', ...(isNonCorporate ? ['cin'] : [])
+  ].includes(key));
   if (category.includes('brand owner')) {
     const productionFacility = client.compliance?.brandOwnerProductionFacility
       || (client.compliance?.factoryLicenseApplicability === 'Applicable' ? 'Yes' : 'No');
     const factoryApplicable = productionFacility === 'Yes';
-    return complianceRows.filter(([key]) => key !== 'dicDcssi' && (key !== 'factoryLicense' || factoryApplicable));
+    const excluded = new Set([
+      'dicDcssi',
+      ...(isCorporate || isNonCorporate ? ['iec'] : []),
+      ...(isNonCorporate ? ['cin'] : []),
+      ...(!factoryApplicable ? ['factoryLicense'] : [])
+    ]);
+    return complianceRows.filter(([key]) => !excluded.has(key));
   }
-  if (category.includes('importer')) return complianceRows.filter(([key]) => !['factoryLicense', 'dicDcssi'].includes(key));
+  if (category.includes('importer')) {
+    const excluded = new Set(['factoryLicense', ...(isNonCorporate ? ['cin'] : ['dicDcssi'])]);
+    return complianceRows.filter(([key]) => !excluded.has(key));
+  }
+  if (isCorporate) return complianceRows.filter(([key]) => !['iec', 'dicDcssi'].includes(key));
   return complianceRows;
 }
 
@@ -118,12 +133,16 @@ function getClientApplicability(client = {}) {
   const isImporter = category === 'importer';
   const isBrandOwner = category.includes('brand owner');
   const isPwp = applicantType === 'pwp' || category === 'pwp';
-  const cteApplicable = !isImporter && client.cte?.cteApplicable !== 'No';
+  const factoryLicenseApplicability = client.compliance?.factoryLicenseApplicability;
+  const brandOwnerProductionFacility = client.compliance?.brandOwnerProductionFacility
+    || (factoryLicenseApplicability === 'Applicable' ? 'Yes' : factoryLicenseApplicability === 'Not Applicable' ? 'No' : '');
+  const cteTabApplicable = !isImporter && !(isBrandOwner && brandOwnerProductionFacility === 'No');
+  const cteApplicable = cteTabApplicable && client.cte?.cteApplicable !== 'No';
   const processDiagramChoiceRequired = isImporter || isBrandOwner;
   const processDiagramRequired = processDiagramChoiceRequired
     ? client.cpcb?.processDiagramRequired === 'Yes'
     : true;
-  return { isImporter, isBrandOwner, isPwp, cteApplicable, processDiagramChoiceRequired, processDiagramRequired };
+  return { isImporter, isBrandOwner, isPwp, cteTabApplicable, cteApplicable, processDiagramChoiceRequired, processDiagramRequired };
 }
 
 const tabProgressFields = {
@@ -131,10 +150,8 @@ const tabProgressFields = {
     ['companyOverview', 'companyName'],
     ['companyOverview', 'companySummary'],
     ['companyOverview', 'productName'],
-    ['companyOverview', 'productManufacturer'],
     ['companyOverview', 'productImage'],
-    ['companyOverview', 'category'],
-    ['companyOverview', 'numberOfEmployees']
+    ['companyOverview', 'category']
   ],
   basic: [
     ['basic', 'clientLegalName'],
@@ -255,7 +272,7 @@ function buildClientTabProgress(client = {}) {
         ? countRows(client.msmeRows, ['classificationYear', 'status', 'majorActivity', 'udyamNumber', 'turnover', 'file'])
         : { filled: 0, total: 0 }
     ),
-    cte: applicability.isImporter ? { filled: 0, total: 0 } : addProgressParts(
+    cte: !applicability.cteTabApplicable ? { filled: 0, total: 0 } : addProgressParts(
       countFields(client, [['cte', 'numberOfPlantsLocations']]),
       countRows(ctePlants, ctePlantFields),
       ...ctePlants.map((plant) => addProgressParts(
@@ -284,7 +301,7 @@ function buildClientTabProgress(client = {}) {
     const summary = progressByTab[tab.id] || { filled: 0, total: 0 };
     const percent = summary.total ? Math.round((summary.filled / summary.total) * 100) : 0;
     const locked = restricted && cpcbRestrictedTabIds.includes(tab.id);
-    return { ...tab, ...summary, percent, locked, notApplicable: tab.id === 'cte' && applicability.isImporter };
+    return { ...tab, ...summary, percent, locked, notApplicable: tab.id === 'cte' && !applicability.cteTabApplicable };
   });
 }
 
@@ -2073,8 +2090,10 @@ export default function ClientMaster() {
       setError('First enter Company Name, Client Legal Name, or Trade Name before moving to the next step.');
       return;
     }
-    if (tabId === 'cte' && getClientApplicability(client).isImporter) {
-      setError('CTE & CTO / CCA is not applicable for Importer clients.');
+    if (tabId === 'cte' && !getClientApplicability(client).cteTabApplicable) {
+      setError(getClientApplicability(client).isImporter
+        ? 'CTE & CTO / CCA is not applicable for Importer clients.'
+        : 'CTE & CTO / CCA is not applicable because the Brand Owner has no production facility.');
       return;
     }
     setError('');
@@ -2101,7 +2120,7 @@ export default function ClientMaster() {
       }
     }
     setError('');
-    const next = tabs.slice(activeIndex + 1).find((tab) => !((tab.id === 'cte' && getClientApplicability(client).isImporter) || (isCpcbRestricted(client) && cpcbRestrictedTabIds.includes(tab.id)))) || tabs[tabs.length - 1];
+    const next = tabs.slice(activeIndex + 1).find((tab) => !((tab.id === 'cte' && !getClientApplicability(client).cteTabApplicable) || (isCpcbRestricted(client) && cpcbRestrictedTabIds.includes(tab.id)))) || tabs[tabs.length - 1];
     setActiveTab(next.id);
   }
 
@@ -2862,8 +2881,7 @@ function CompanyOverviewTab({ client, setValue }) {
   return (
     <Card title="Company Overview">
       <div className="grid gap-5 md:grid-cols-2">
-        <Field required label="Company Name"><input className="form-input" value={overview.companyName || ''} onChange={(event) => setValue('companyOverview', 'companyName', event.target.value)} /></Field>
-        <Field label="Number of Employees"><input className="form-input" value={overview.numberOfEmployees || ''} onChange={(event) => setValue('companyOverview', 'numberOfEmployees', event.target.value)} /></Field>
+        <div className="md:col-span-2"><Field required label="Company Name"><input className="form-input" value={overview.companyName || ''} onChange={(event) => setValue('companyOverview', 'companyName', event.target.value)} /></Field></div>
         <div className="md:col-span-2">
           <Field label="Company Summary"><textarea className="form-input min-h-[110px] resize-y py-3" value={overview.companySummary || ''} onChange={(event) => setValue('companyOverview', 'companySummary', event.target.value)} /></Field>
         </div>
@@ -2894,8 +2912,7 @@ function CompanyOverviewTab({ client, setValue }) {
             ))}
           </div>
         </div>
-        <Field label="Product Name"><input className="form-input" value={overview.productName || ''} onChange={(event) => setValue('companyOverview', 'productName', event.target.value)} /></Field>
-        <Field label="Product Manufacturer"><input className="form-input" value={overview.productManufacturer || ''} onChange={(event) => setValue('companyOverview', 'productManufacturer', event.target.value)} /></Field>
+        <div className="md:col-span-2"><Field label="Product Name"><input className="form-input" value={overview.productName || ''} onChange={(event) => setValue('companyOverview', 'productName', event.target.value)} /></Field></div>
         <CompanyCategoryMultiSelect value={overview.category} onChange={(value) => setValue('companyOverview', 'category', value)} />
         <Field label="Product Image Upload"><UploadButton value={overview.productImage} onChange={(value) => setValue('companyOverview', 'productImage', value)} /></Field>
       </div>
@@ -2944,9 +2961,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Company Summary', data.companyOverview?.companySummary, FileText],
     ['Overview Points', Array.isArray(data.companyOverview?.overviewItems) ? data.companyOverview.overviewItems.filter(Boolean).join(' | ') : '', ClipboardList],
     ['Product Name', data.companyOverview?.productName, FileText],
-    ['Product Manufacturer', data.companyOverview?.productManufacturer, Building2],
     ['Product Category', normalizeCompanyOverviewCategories(data.companyOverview?.category).join(', '), FolderCheck],
-    ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound],
     ['Client Name', clientName, Building2],
     ['Trade Name', data.basic?.tradeName, Building2],
     ['Company Type', data.basic?.companyType, Building2],
@@ -2973,9 +2988,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Company Summary', data.companyOverview?.companySummary, FileText],
     ['Overview Points', Array.isArray(data.companyOverview?.overviewItems) ? data.companyOverview.overviewItems.filter(Boolean).join(' | ') : '', ClipboardList],
     ['Product Name', data.companyOverview?.productName, FileText],
-    ['Product Manufacturer', data.companyOverview?.productManufacturer, Building2],
     ['Product Category', normalizeCompanyOverviewCategories(data.companyOverview?.category).join(', '), FolderCheck],
-    ['Number of Employees', data.companyOverview?.numberOfEmployees, UserRound]
   ];
   const contactRows = [
     ['Contact Person', data.otp?.personName || data.authorised?.name, UserRound],
