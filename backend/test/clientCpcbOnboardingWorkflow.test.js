@@ -22,6 +22,28 @@ test('restricted client updates cannot mutate frozen sections or the onboarding 
   assert.match(__test.validateRestrictedCpcbUpdate(existing, { ...existing, cpcbOnboarding: { cpcbPortalRegistered: true } }), /only be changed/i);
 });
 
+test('answering Yes preserves every earlier Client Master section on the same data record', () => {
+  const existing = {
+    companyOverview: { companyName: 'Existing Pvt Ltd', companySummary: 'Keep this' },
+    basic: { clientLegalName: 'Existing Pvt Ltd', companyType: 'Private Limited' },
+    registeredAddress: { address1: 'Old saved address' },
+    compliance: { gstNumber: '27ABCDE1234F1Z5' },
+    cpcb: { loginId: 'saved-login' }
+  };
+  const updated = __test.applyCpcbOnboardingData(existing, {
+    registered: true,
+    userId: 'user-1',
+    changedAt: new Date('2026-08-21T10:00:00.000Z')
+  });
+  assert.deepEqual(updated.companyOverview, existing.companyOverview);
+  assert.deepEqual(updated.basic, existing.basic);
+  assert.deepEqual(updated.registeredAddress, existing.registeredAddress);
+  assert.deepEqual(updated.compliance, existing.compliance);
+  assert.deepEqual(updated.cpcb, existing.cpcb);
+  assert.equal(updated.cpcbOnboarding.cpcbPortalRegistered, true);
+  assert.equal(updated.cpcbOnboarding.cpcbApplicationStatus, null);
+});
+
 test('restricted completion excludes Document, CTE and CPCB sections', () => {
   const base = { companyOverview: {}, basic: {}, registeredAddress: {}, communicationAddress: {}, otp: {}, authorised: {}, coordinating: {} };
   const full = analyzeClientMasterData(base);
@@ -52,4 +74,6 @@ test('frontend implements first-time, recheck, locked tabs, badge and immediate 
   assert.match(source, /This section is locked until CPCB Portal registration is confirmed/);
   assert.match(source, /CPCB Registered/);
   assert.match(source, /CPCB Pending/);
+  assert.doesNotMatch(source, /hasExistingClient && typeof service\.cpcbPortalRegistered !== 'boolean'/);
+  assert.match(source, /if \(service\.cpcbPortalRegistered === true\)/);
 });

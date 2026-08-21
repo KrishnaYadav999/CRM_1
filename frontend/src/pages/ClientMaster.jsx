@@ -1424,8 +1424,7 @@ export default function ClientMaster() {
   }
 
   function beginServiceOnboarding(pending, service) {
-    const hasExistingClient = Boolean(service.clientMasterId);
-    if (service.cpcbPortalRegistered === true || (hasExistingClient && typeof service.cpcbPortalRegistered !== 'boolean')) {
+    if (service.cpcbPortalRegistered === true) {
       setPendingLeadServices(null);
       handleLeadSelect(pending.value, service, pending.lead);
       return;

@@ -382,6 +382,27 @@ function validateRestrictedCpcbUpdate(existingData = {}, incomingData = {}) {
   return changedKey ? `CPCB registration is pending. Updates to the locked ${changedKey} section are not allowed` : '';
 }
 
+function applyCpcbOnboardingData(existingData = {}, { registered, applicationStatus = '', userId, changedAt = new Date() } = {}) {
+  const data = isPlainObject(existingData) ? { ...existingData } : {};
+  const previous = readCpcbOnboarding(data);
+  const history = Array.isArray(data.cpcbOnboarding?.history) ? data.cpcbOnboarding.history : [];
+  data.cpcbOnboarding = {
+    cpcbPortalRegistered: registered,
+    cpcbApplicationStatus: registered ? null : String(applicationStatus || '').trim(),
+    updatedAt: changedAt,
+    updatedBy: userId,
+    history: [...history, {
+      cpcbPortalRegistered: registered,
+      cpcbApplicationStatus: registered ? null : String(applicationStatus || '').trim(),
+      previousRegistered: previous.answered ? previous.registered : null,
+      previousApplicationStatus: previous.status || null,
+      changedAt,
+      changedBy: userId
+    }].slice(-50)
+  };
+  return data;
+}
+
 function readRequestedClientId(body = {}) {
   return String(body.recordId || body.clientId || body._id || body.id || '').trim();
 }
@@ -1145,24 +1166,13 @@ exports.updateCpcbOnboarding = async (req, res) => {
   const identityError = validateClientMasterIdentity(client, { assignedServiceId, selectedLead });
   if (identityError) return res.status(409).json({ error: identityError });
 
-  const data = isPlainObject(client.data) ? { ...client.data } : {};
-  const previous = readCpcbOnboarding(data);
   const changedAt = new Date();
-  const history = Array.isArray(data.cpcbOnboarding?.history) ? data.cpcbOnboarding.history : [];
-  data.cpcbOnboarding = {
-    cpcbPortalRegistered: registered,
-    cpcbApplicationStatus: registered ? null : applicationStatus,
-    updatedAt: changedAt,
-    updatedBy: req.user?._id,
-    history: [...history, {
-      cpcbPortalRegistered: registered,
-      cpcbApplicationStatus: registered ? null : applicationStatus,
-      previousRegistered: previous.answered ? previous.registered : null,
-      previousApplicationStatus: previous.status || null,
-      changedAt,
-      changedBy: req.user?._id
-    }].slice(-50)
-  };
+  const data = applyCpcbOnboardingData(client.data, {
+    registered,
+    applicationStatus,
+    userId: req.user?._id,
+    changedAt
+  });
   client.assignedServiceId = assignedServiceId;
   client.data = data;
   client.markModified('data');
@@ -1854,6 +1864,7 @@ exports.__test = {
   readCpcbOnboarding,
   validateCpcbOnboardingInput,
   validateRestrictedCpcbUpdate,
+  applyCpcbOnboardingData,
   readRequestedClientId,
   validateClientMasterIdentity,
   normalizeClientMaster,
