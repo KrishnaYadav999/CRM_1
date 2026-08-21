@@ -26,6 +26,11 @@ export async function readPurchaseWorkbook(file, source) {
 }
 
 export function downloadPurchaseTemplate(source, financialYear) {
+  return downloadDataTemplate(source, financialYear, 'purchase');
+}
+
+export function downloadDataTemplate(source, financialYear, moduleName = 'purchase') {
+  const moduleLabel = moduleName === 'sales' ? 'Sales' : 'Purchase';
   const headers = source === 'base' ? BASE_HEADERS : PORTAL_HEADERS;
   const example = source === 'base'
     ? [financialYear, 'ABC RECYCLERS PRIVATE LIMITED', 'Registered', '27ABCDE1234F1Z5', 'INV-1001', '01-04-2025', 'Cat-I', 'PET', 12.5, 2250, 'Maharashtra', 'Example only']
@@ -33,7 +38,7 @@ export function downloadPurchaseTemplate(source, financialYear) {
   const dataSheet = XLSX.utils.aoa_to_sheet([headers, example]);
   dataSheet['!cols'] = headers.map((header) => ({ wch: Math.max(16, header.length + 2) }));
   const instructions = XLSX.utils.aoa_to_sheet([
-    ['Purchase Data Import Instructions'],
+    [`${moduleLabel} Data Import Instructions`],
     ['Rule', 'Value'],
     ['Financial Year', `Use ${financialYear} on every row`],
     ['Registration Type', 'Registered or Unregistered'],
@@ -44,9 +49,9 @@ export function downloadPurchaseTemplate(source, financialYear) {
   ]);
   instructions['!cols'] = [{ wch: 24 }, { wch: 72 }];
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, dataSheet, source === 'base' ? 'Purchase Base Data' : 'Purchase Portal Upload');
+  XLSX.utils.book_append_sheet(workbook, dataSheet, source === 'base' ? `${moduleLabel} Base Data` : `${moduleLabel} Portal Upload`);
   XLSX.utils.book_append_sheet(workbook, instructions, 'Instructions');
-  XLSX.writeFile(workbook, `purchase-${source}-template-${financialYear}.xlsx`);
+  XLSX.writeFile(workbook, `${moduleName}-${source}-template-${financialYear}.xlsx`);
 }
 
 export function downloadCsv(filename, rows) {
@@ -64,4 +69,3 @@ export function downloadCsv(filename, rows) {
 export function formatMetric(value) {
   return Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 }
-

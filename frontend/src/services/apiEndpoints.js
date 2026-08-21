@@ -69,6 +69,13 @@ const API_ENDPOINTS = {
     ,purchaseSubmit: (id) => `/clients/${encodePathValue(id)}/purchase-data/submit`
     ,purchaseManagerReview: (id) => `/clients/${encodePathValue(id)}/purchase-data/manager-review`
     ,purchaseComplianceReview: (id) => `/clients/${encodePathValue(id)}/purchase-data/compliance-review`
+    ,salesData: (id) => `/clients/${encodePathValue(id)}/sales-data`
+    ,salesImport: (id, source) => `/clients/${encodePathValue(id)}/sales-imports/${encodePathValue(source)}`
+    ,salesRows: (id) => `/clients/${encodePathValue(id)}/sales-data/rows`
+    ,salesReconciliation: (id) => `/clients/${encodePathValue(id)}/sales-reconciliation`
+    ,salesSubmit: (id) => `/clients/${encodePathValue(id)}/sales-data/submit`
+    ,salesManagerReview: (id) => `/clients/${encodePathValue(id)}/sales-data/manager-review`
+    ,salesComplianceReview: (id) => `/clients/${encodePathValue(id)}/sales-data/compliance-review`
     ,purchaseEmailProof: (id) => `/clients/${encodePathValue(id)}/purchase-proof/email`
   },
   purchaseProofs: {
