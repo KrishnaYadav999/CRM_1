@@ -124,7 +124,11 @@ app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/purchase-proofs', purchaseProofRoutes);
 app.use('/api/health-report-assignments', healthReportAssignmentRoutes);
 
-app.get('/', (req, res) => res.send({ ok: true, env: process.env.NODE_ENV }));
+app.get('/', (req, res) => res.send({
+  ok: true,
+  env: process.env.NODE_ENV,
+  release: String(process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || undefined
+}));
 
 const PORT = process.env.PORT || 4000;
 if (require.main === module) {
