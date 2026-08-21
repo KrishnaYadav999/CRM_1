@@ -18,6 +18,8 @@ test('Sales Data persists independently from Purchase Data', () => {
 
 test('Sales routes expose imports, rows, reconciliation and two-level approvals', () => {
   const routes = read('../src/routes/clients.js');
+  assert.match(routes, /sales-data\/checklist', requireAuth/);
+  assert.match(routes, /sales-data\/screenshots', requireAuth/);
   assert.match(routes, /sales-imports\/:source', requireAuth/);
   assert.match(routes, /sales-data\/rows', requireAuth/);
   assert.match(routes, /sales-reconciliation', requireAuth/);
@@ -29,6 +31,7 @@ test('second Sales Excel import automatically creates Manager review and notific
   const controller = read('../src/controllers/salesDataController.js');
   const notifications = read('../src/services/salesDataNotifications.js');
   assert.match(controller, /if \(readiness\(sales\)\.ready\) automaticSubmission = await submitForManager/);
+  assert.match(controller, /purchaseReadiness\(sales\)/);
   assert.match(controller, /Automatically submitted after both Sales Excel files were imported/);
   assert.match(controller, /managerVerificationStatus = 'Pending'/);
   assert.match(controller, /managerNotificationCreated/);
@@ -38,6 +41,7 @@ test('second Sales Excel import automatically creates Manager review and notific
 
 test('Sales UI provides two templates, preview, reconciliation and approval controls', () => {
   const panel = read('../../frontend/src/features/clientMaster/SalesDataPanel.jsx');
+  const checklist = read('../../frontend/src/features/clientMaster/SalesUploadChecklist.jsx');
   const workspace = read('../../frontend/src/features/clientMaster/PurchaseDataWorkspace.jsx');
   assert.match(workspace, /activeTab === 'Sales Data'/);
   assert.match(panel, /downloadDataTemplate\(source, financialYear, 'sales'\)/);
@@ -46,4 +50,9 @@ test('Sales UI provides two templates, preview, reconciliation and approval cont
   assert.match(panel, /Manager review starts automatically/);
   assert.match(panel, /Manager Approve/);
   assert.match(panel, /Compliance Approve/);
+  assert.match(panel, /salesChecklist/);
+  assert.match(panel, /Upload Complete/);
+  assert.match(panel, /!canEdit \|\| !uploadUnlocked/);
+  assert.match(checklist, /Sales Data Upload Checklist/);
+  assert.match(checklist, /Every “Yes” row requires a date and supporting proof/);
 });

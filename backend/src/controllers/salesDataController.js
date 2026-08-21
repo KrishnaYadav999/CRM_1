@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Client = require('../models/Client');
 const SalesData = require('../models/SalesData');
 const SalesImportRow = require('../models/SalesImportRow');
-const { defaultChecklist, normalizePurchaseRows, reconcilePurchaseRows, checksum } = require('../services/purchaseDataService');
+const { PURCHASE_CHECKLIST_PARTICULARS, defaultChecklist, normalizePurchaseRows, reconcilePurchaseRows, purchaseReadiness, calculatePurchaseStatus, checksum } = require('../services/purchaseDataService');
 const { notifySalesWorkflow } = require('../services/salesDataNotifications');
 
 const normalizedRole = (user) => String(user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
@@ -29,6 +29,11 @@ function cleanFile(file = {}) {
   return { name: String(file.name || file.originalName || 'file').trim().slice(0, 240), originalName: String(file.originalName || file.name || 'file').trim().slice(0, 240), mimeType: String(file.mimeType || file.type || '').trim().slice(0, 120), size: Math.max(0, Number(file.size || file.bytes) || 0), url, secureUrl: url, publicId: String(file.publicId || '').trim(), uploadedAt: file.uploadedAt || new Date().toISOString() };
 }
 
+function cleanFiles(files) { return (Array.isArray(files) ? files : []).map(cleanFile).filter(Boolean).slice(0, 20); }
+function cleanEvidenceFiles(files) {
+  return cleanFiles(files).filter((file) => /^image\//i.test(file.mimeType) || /application\/pdf/i.test(file.mimeType) || /message\/rfc822/i.test(file.mimeType) || /application\/vnd\.ms-outlook/i.test(file.mimeType) || /\.(pdf|eml|msg|png|jpe?g|gif|webp)$/i.test(file.name));
+}
+
 async function getOrCreate(client, financialYear, user) {
   let sales = await SalesData.findOne({ clientId: client._id, financialYear });
   if (!sales) sales = new SalesData({ clientId: client._id, financialYear, checklist: defaultChecklist(), createdBy: user?._id, updatedBy: user?._id });
@@ -41,21 +46,13 @@ function resetApprovals(sales) {
 }
 
 function readiness(sales = {}) {
-  const errors = [];
-  if (sales.baseUpload?.importStatus !== 'Imported') errors.push('Sales Base Data is required.');
-  if (sales.portalUpload?.importStatus !== 'Imported') errors.push('Sales Portal Upload is required.');
-  return { ready: errors.length === 0, errors, warningIssueCount: Number(sales.reconciliation?.warningIssueCount || 0) + Number(sales.reconciliation?.blockingIssueCount || 0) };
+  const value = purchaseReadiness(sales);
+  return { ...value, errors: value.errors.map((error) => error.replace(/Purchase Base Data/g, 'Sales Base Data').replace(/Purchase Portal Upload/g, 'Sales Portal Upload')) };
 }
 
 function calculatedStatus(sales = {}) {
-  if (sales.complianceVerificationStatus === 'Approved') return 'Fully Approved';
-  if (sales.complianceVerificationStatus === 'Rejected') return 'Compliance Rework Required';
-  if (sales.managerVerificationStatus === 'Approved') return 'Manager Approved';
-  if (sales.managerVerificationStatus === 'Rejected') return 'Rework Required';
   if (sales.managerVerificationStatus === 'Pending') return 'Manager Review Pending';
-  if (sales.baseUpload && sales.portalUpload) return 'Completed';
-  if (sales.baseUpload || sales.portalUpload) return 'Partially Uploaded';
-  return 'Pending';
+  return calculatePurchaseStatus(sales);
 }
 
 function payload(sales, user) {
@@ -96,6 +93,36 @@ exports.getSalesData = async (req, res) => {
     const sales = await getOrCreate(client, financialYear, req.user); sales.calculatedStatus = calculatedStatus(sales); await sales.save();
     res.json({ ok: true, salesData: payload(sales, req.user) });
   } catch (error) { console.error('Sales Data load failed', error); res.status(500).json({ error: 'Unable to load Sales Data.' }); }
+};
+
+exports.updateChecklist = async (req, res) => {
+  try {
+    if (!canEdit(req.user)) return res.status(403).json({ error: 'Your role has read-only access to the Sales Data checklist.' });
+    const financialYear = String(req.body.financialYear || '').trim();
+    if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
+    const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
+    const sales = await getOrCreate(client, financialYear, req.user);
+    const incoming = new Map((Array.isArray(req.body.checklist) ? req.body.checklist : []).map((row) => [String(row.particular || '').trim(), row]));
+    sales.checklist = PURCHASE_CHECKLIST_PARTICULARS.map((particular) => {
+      const row = incoming.get(particular) || {};
+      return { particular, yesNo: ['Yes', 'No'].includes(row.yesNo) ? row.yesNo : '', date: /^\d{4}-\d{2}-\d{2}$/.test(row.date || '') ? row.date : '', files: cleanEvidenceFiles(row.files), remarks: String(row.remarks || '').trim().slice(0, 2000) };
+    });
+    if (req.body.userRemarks !== undefined) sales.userRemarks = String(req.body.userRemarks || '').trim().slice(0, 3000);
+    sales.updatedBy = req.user._id; resetApprovals(sales); sales.calculatedStatus = calculatedStatus(sales); sales.markModified('checklist'); await sales.save();
+    let automaticSubmission = null;
+    if (sales.baseUpload?.importStatus === 'Imported' && sales.portalUpload?.importStatus === 'Imported' && readiness(sales).ready) automaticSubmission = await submitForManager({ sales, client, user: req.user, message: 'Automatically submitted after the Sales checklist and both Excel files were completed.' });
+    res.json({ ok: true, salesData: payload(sales, req.user), autoSubmitted: Boolean(automaticSubmission && !automaticSubmission.duplicate), managerNotificationCreated: Boolean(automaticSubmission?.notification?.ok), managerEmailSent: Number(automaticSubmission?.notification?.emailSent || 0) > 0 });
+  } catch (error) { console.error('Sales checklist update failed', error); res.status(500).json({ error: 'Unable to save Sales Data checklist.' }); }
+};
+
+exports.updateScreenshots = async (req, res) => {
+  try {
+    if (!canEdit(req.user)) return res.status(403).json({ error: 'Your role cannot change Sales Data evidence.' });
+    const financialYear = String(req.body.financialYear || '').trim(); if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
+    const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
+    const sales = await getOrCreate(client, financialYear, req.user); sales.screenshots = cleanEvidenceFiles(req.body.screenshots); sales.updatedBy = req.user._id; sales.markModified('screenshots'); await sales.save();
+    res.json({ ok: true, salesData: payload(sales, req.user) });
+  } catch (error) { console.error('Sales evidence update failed', error); res.status(500).json({ error: 'Unable to save Sales evidence.' }); }
 };
 
 exports.importSalesRows = async (req, res) => {
@@ -182,6 +209,8 @@ exports.managerReview = async (req, res) => {
     const financialYear = String(req.body.financialYear || '').trim(); if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
     const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' }); const sales = await getOrCreate(client, financialYear, req.user);
     if (sales.managerVerificationStatus !== 'Pending') return res.status(409).json({ error: 'Sales Data is not pending Manager review.' });
+    const ready = readiness(sales); if (!ready.ready) return res.status(422).json({ error: 'Sales Data is no longer ready.', errors: ready.errors });
+    if (decision === 'APPROVED' && ready.warningIssueCount && req.body.acknowledgeWarnings !== true) return res.status(422).json({ error: 'Manager must acknowledge reconciliation warnings.' });
     sales.managerVerificationStatus = decision === 'APPROVED' ? 'Approved' : 'Rejected'; sales.managerVerifiedAt = new Date(); sales.managerVerifiedBy = req.user._id; sales.managerVerifiedByName = req.user.name || req.user.email || 'Manager'; sales.complianceVerificationStatus = decision === 'APPROVED' ? 'Pending' : 'Not Ready';
     sales.reviewHistory.push(historyItem('Manager', decision === 'APPROVED' ? 'Approved' : 'Rejected', req.user, message)); sales.markModified('reviewHistory'); sales.calculatedStatus = calculatedStatus(sales); await sales.save();
     await notifySalesWorkflow({ stage: decision === 'APPROVED' ? 'compliance_pending' : 'manager_rejected', client, sales, actor: req.user, message }); res.json({ ok: true, salesData: payload(sales, req.user) });

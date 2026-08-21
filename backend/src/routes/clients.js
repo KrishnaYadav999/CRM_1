@@ -35,6 +35,8 @@ router.post('/:id/purchase-data/submit', requireAuth, purchaseCtrl.submitPurchas
 router.post('/:id/purchase-data/manager-review', requireAuth, purchaseCtrl.managerReview);
 router.post('/:id/purchase-data/compliance-review', requireAuth, purchaseCtrl.complianceReview);
 router.get('/:id/sales-data', requireAuth, salesCtrl.getSalesData);
+router.put('/:id/sales-data/checklist', requireAuth, salesCtrl.updateChecklist);
+router.put('/:id/sales-data/screenshots', requireAuth, salesCtrl.updateScreenshots);
 router.post('/:id/sales-imports/:source', requireAuth, salesCtrl.importSalesRows);
 router.delete('/:id/sales-imports/:source', requireAuth, salesCtrl.removeSalesImport);
 router.get('/:id/sales-data/rows', requireAuth, salesCtrl.listSalesRows);
