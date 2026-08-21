@@ -22,6 +22,42 @@ test('restricted client updates cannot mutate frozen sections or the onboarding 
   assert.match(__test.validateRestrictedCpcbUpdate(existing, { ...existing, cpcbOnboarding: { cpcbPortalRegistered: true } }), /only be changed/i);
 });
 
+test('restricted validation compares the selected service snapshot instead of legacy root CPCB data', () => {
+  const client = {
+    assignedServiceId: 'service-1',
+    data: {
+      assignedServiceId: 'service-1',
+      cpcbOnboarding: { cpcbPortalRegistered: false, cpcbApplicationStatus: 'Client Submit' },
+      cpcb: { loginId: 'legacy-root-login' },
+      cpcbDataByAssignedServiceId: {
+        'service-1': { cpcb: { loginId: 'selected-service-login' } }
+      }
+    }
+  };
+  const resolved = __test.resolveClientMasterData(client, 'service-1');
+  assert.equal(__test.validateRestrictedCpcbUpdate(resolved, { ...resolved, basic: { clientLegalName: 'Updated' } }), '');
+  assert.match(
+    __test.validateRestrictedCpcbUpdate(resolved, { ...resolved, cpcb: { loginId: 'changed-login' } }),
+    /locked cpcb/i
+  );
+});
+
+test('restricted saves preserve stored CPCB sections while allowing unlocked data changes', () => {
+  const existing = {
+    basic: { clientLegalName: 'Old name' },
+    cpcb: { loginId: 'stored-login' },
+    cpcbDataByAssignedServiceId: { 'service-1': { cpcb: { loginId: 'stored-service-login' } } }
+  };
+  const safe = __test.preserveRestrictedCpcbSections(existing, {
+    basic: { clientLegalName: 'New name' },
+    cpcb: { loginId: 'attempted-change' },
+    cpcbDataByAssignedServiceId: { 'service-1': { cpcb: { loginId: 'attempted-service-change' } } }
+  });
+  assert.equal(safe.basic.clientLegalName, 'New name');
+  assert.deepEqual(safe.cpcb, existing.cpcb);
+  assert.deepEqual(safe.cpcbDataByAssignedServiceId, existing.cpcbDataByAssignedServiceId);
+});
+
 test('answering Yes preserves every earlier Client Master section on the same data record', () => {
   const existing = {
     companyOverview: { companyName: 'Existing Pvt Ltd', companySummary: 'Keep this' },

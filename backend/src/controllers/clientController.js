@@ -382,6 +382,17 @@ function validateRestrictedCpcbUpdate(existingData = {}, incomingData = {}) {
   return changedKey ? `CPCB registration is pending. Updates to the locked ${changedKey} section are not allowed` : '';
 }
 
+function preserveRestrictedCpcbSections(existingData = {}, incomingData = {}) {
+  const safeData = isPlainObject(incomingData) ? { ...incomingData } : {};
+  CPCB_LOCKED_DATA_KEYS.forEach((key) => {
+    if (existingData[key] === undefined) delete safeData[key];
+    else safeData[key] = existingData[key];
+  });
+  if (existingData.cpcbDataByAssignedServiceId === undefined) delete safeData.cpcbDataByAssignedServiceId;
+  else safeData.cpcbDataByAssignedServiceId = existingData.cpcbDataByAssignedServiceId;
+  return safeData;
+}
+
 function applyCpcbOnboardingData(existingData = {}, { registered, applicationStatus = '', userId, changedAt = new Date() } = {}) {
   const data = isPlainObject(existingData) ? { ...existingData } : {};
   const previous = readCpcbOnboarding(data);
@@ -1403,9 +1414,11 @@ exports.updateClient = async (req, res) => {
 
   let client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
-  const restrictedUpdateError = validateRestrictedCpcbUpdate(client.data || {}, data);
-  if (restrictedUpdateError) return res.status(403).json({ error: restrictedUpdateError });
   const effectiveAssignedServiceId = assignedServiceId || readClientAssignedServiceId(client, client.data || {});
+  const existingData = isPlainObject(client.data) ? client.data : {};
+  const resolvedExistingData = resolveClientMasterData(client, effectiveAssignedServiceId);
+  const restrictedUpdateError = validateRestrictedCpcbUpdate(resolvedExistingData, data);
+  if (restrictedUpdateError) return res.status(403).json({ error: restrictedUpdateError });
 
   const identityError = validateClientMasterIdentity(client, { assignedServiceId: effectiveAssignedServiceId, selectedLead });
   if (identityError) return res.status(409).json({ error: identityError });
@@ -1417,8 +1430,10 @@ exports.updateClient = async (req, res) => {
   const requestedApprovalStatus = normalizeApprovalStatus(adminControls.approvalStatus) || existingApprovalStatus;
   adminControls.approvalStatus = canApproveClient ? requestedApprovalStatus : existingApprovalStatus;
 
-  const existingData = isPlainObject(client.data) ? client.data : {};
-  const mergedData = mergeAssignedServiceCpcbData(existingData, data);
+  const safeData = readCpcbOnboarding(resolvedExistingData).registered === false
+    ? preserveRestrictedCpcbSections(existingData, data)
+    : data;
+  const mergedData = mergeAssignedServiceCpcbData(existingData, safeData);
 
   if (transition.becameSubmitted) {
     const submittedAt = new Date();
@@ -1864,6 +1879,7 @@ exports.__test = {
   readCpcbOnboarding,
   validateCpcbOnboardingInput,
   validateRestrictedCpcbUpdate,
+  preserveRestrictedCpcbSections,
   applyCpcbOnboardingData,
   readRequestedClientId,
   validateClientMasterIdentity,
