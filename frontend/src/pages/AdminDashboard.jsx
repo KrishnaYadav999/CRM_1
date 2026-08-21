@@ -5338,12 +5338,6 @@ export default function AdminDashboard() {
                 onRefresh={() => loadDashboard({ force: true })}
                 onOpenPo={openPoDetails}
               />
-              <OperationMisSection
-                rows={scopedOperationsRows}
-                users={users}
-                teams={teams}
-                onOpenFullMis={() => navigate('/mis')}
-              />
               <div className="operations-hero" style={{ display: 'none' }}>
                 <div className="flex min-w-0 items-center gap-4">
                   <span className="operations-hero-icon"><Activity className="h-6 w-6" /></span>

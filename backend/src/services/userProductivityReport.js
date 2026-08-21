@@ -115,7 +115,26 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
     map.get(ownerId).push(lead);
     return map;
   }, new Map());
-  const clientsByUser = byUser(clients, 'createdBy');
+  const clientLeadById = new Map(leads.map((lead) => [entityId(lead._id), lead]));
+  const reportClients = deduplicateClientWorkRows(clients.map((client) => {
+    const data = client.data || {};
+    const snapshot = data.selectedLeadSnapshot || {};
+    const lead = clientLeadById.get(entityId(client.selectedLead)) || {};
+    return {
+      ...client,
+      id: client._id,
+      leadId: entityId(client.selectedLead),
+      company: data.basic?.clientLegalName || data.basic?.tradeName || lead.company || client.companyIdentity || '',
+      status: String(client.workflowStatus || 'draft').toLowerCase(),
+      ...getClientApplicantIdentity({ client, lead }),
+      assignedServiceId: client.assignedServiceId || data.assignedServiceId || snapshot.assignedServiceId || '',
+      serviceCategory: data.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || '',
+      servicesOffered: data.basic?.servicesOffered || snapshot.servicesOffered || snapshot.applicableService || '',
+      plantUnit: data.basic?.plantUnit || snapshot.plantUnit || '',
+      businessCategory: snapshot.businessCategory || ''
+    };
+  }));
+  const clientsByUser = byUser(reportClients, 'createdBy');
   const ticketByUser = new Map(ticketStats.map((item) => [String(item._id || ''), {
     total: Number(item.total) || 0, open: Number(item.open) || 0, resolved: Number(item.resolved) || 0
   }]));
@@ -299,12 +318,22 @@ function normalizeClientWorkIdentity(value = '') {
 function clientWorkRowsShareService(left = {}, right = {}) {
   const leftLead = normalizeClientWorkIdentity(left.leadId);
   const rightLead = normalizeClientWorkIdentity(right.leadId);
+  const leftCompany = normalizeClientWorkIdentity(left.company);
+  const rightCompany = normalizeClientWorkIdentity(right.company);
   const sameCompany = leftLead && rightLead
     ? leftLead === rightLead
-    : normalizeClientWorkIdentity(left.company) === normalizeClientWorkIdentity(right.company);
+    : Boolean(leftCompany && rightCompany && leftCompany === rightCompany);
   if (!sameCompany) return false;
 
-  return ['applicantType', 'subApplicantType', 'serviceCategory', 'servicesOffered', 'plantUnit', 'businessCategory'].every((field) => {
+  const serviceFields = ['applicantType', 'subApplicantType', 'serviceCategory', 'servicesOffered', 'plantUnit', 'businessCategory'];
+  const hasSemanticServiceIdentity = serviceFields.some((field) => normalizeClientWorkIdentity(left[field]) || normalizeClientWorkIdentity(right[field]));
+  if (!hasSemanticServiceIdentity) {
+    const leftAssignment = normalizeClientWorkIdentity(left.assignedServiceId);
+    const rightAssignment = normalizeClientWorkIdentity(right.assignedServiceId);
+    return Boolean(leftAssignment && rightAssignment && leftAssignment === rightAssignment);
+  }
+
+  return serviceFields.every((field) => {
     const leftValue = normalizeClientWorkIdentity(left[field]);
     const rightValue = normalizeClientWorkIdentity(right[field]);
     return !leftValue || !rightValue || leftValue === rightValue;
@@ -421,6 +450,7 @@ async function getUserWorkReport({ userId, from, to, requester }) {
     const filled = required.filledCount;
     const total = required.totalCount;
     return { id: client._id, leadId: client.selectedLead, leadCode: lead?.leadCode || '', company: companyNameFor({ lead, client }), status: client.workflowStatus, ...applicantIdentity,
+      assignedServiceId: client.assignedServiceId || data.assignedServiceId || snapshot.assignedServiceId || '',
       serviceCategory: data.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || '',
       servicesOffered: data.basic?.servicesOffered || snapshot.servicesOffered || snapshot.applicableService || '',
       plantUnit: data.basic?.plantUnit || snapshot.plantUnit || '', businessCategory: snapshot.businessCategory || '',

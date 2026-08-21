@@ -83,9 +83,9 @@ test('operations dashboard uses the compact PO-first reference composition', () 
   const dashboard = read('frontend/src/pages/AdminDashboard.jsx');
   const density = read('frontend/src/styles/modules/14-desktop-density.css');
   const poIndex = dashboard.lastIndexOf('<UserWisePoStatus');
-  const operationMisIndex = dashboard.lastIndexOf('<OperationMisSection');
   assert.match(dashboard, /operations-welcome-bar/);
-  assert.ok(poIndex >= 0 && operationMisIndex > poIndex);
+  assert.ok(poIndex >= 0);
+  assert.doesNotMatch(dashboard.slice(poIndex), /<OperationMisSection/);
   assert.match(dashboard, /operations-po-dashboard/);
   assert.match(density, /grid-template-columns: minmax\(0, \.82fr\) minmax\(0, 1\.18fr\)/);
   assert.match(density, /\.red-flag-table-wrap[\s\S]*max-height: 390px/);

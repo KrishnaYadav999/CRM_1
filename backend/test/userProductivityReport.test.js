@@ -87,6 +87,27 @@ test('Operation MIS includes draft and submitted Client Masters as separate tota
   assert.equal(operation.submittedClients, 1);
 });
 
+test('Operation MIS totals exclude a stale draft when the same client service is submitted', () => {
+  const shared = {
+    createdBy: 'operation-1', selectedLead: 'lead-asia',
+    data: { basic: { clientLegalName: 'ASIA BULK SACKS PRIVATE LIMITED', eprCategory: 'EPR - Plastic Waste' }, selectedLeadSnapshot: { applicantType: 'PIBO' } }
+  };
+  const report = buildUserProductivityReport({
+    users: [user('operation-1', 'Operation User')], sessions: [], activities: [], ticketStats: [],
+    leads: [{ _id: 'lead-asia', company: 'ASIA BULK SACKS PRIVATE LIMITED', applicantType: 'PIBO' }],
+    clients: [
+      { ...shared, _id: 'draft-importer', workflowStatus: 'draft', updatedAt: '2026-08-20T10:00:00.000Z', data: { ...shared.data, basic: { ...shared.data.basic, piboCategory: 'Importer' } } },
+      { ...shared, _id: 'submitted-importer', workflowStatus: 'submitted', updatedAt: '2026-08-21T10:00:00.000Z', data: { ...shared.data, basic: { ...shared.data.basic, piboCategory: 'Importer' } } },
+      { ...shared, _id: 'draft-producer', workflowStatus: 'draft', updatedAt: '2026-08-21T11:00:00.000Z', data: { ...shared.data, basic: { ...shared.data.basic, piboCategory: 'Producer' } } }
+    ],
+    period: { from: '2026-08-01', to: '2026-08-21' }, now: new Date('2026-08-21T12:00:00.000Z')
+  });
+  const operation = report.users[0];
+  assert.equal(operation.clientMasters, 2);
+  assert.equal(operation.draftClients, 1);
+  assert.equal(operation.submittedClients, 1);
+});
+
 test('Operation MIS database query does not exclude draft Client Masters', () => {
   const fs = require('node:fs');
   const path = require('node:path');
