@@ -103,9 +103,13 @@ exports.updateChecklist = async (req, res) => {
     const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
     const sales = await getOrCreate(client, financialYear, req.user);
     const incoming = new Map((Array.isArray(req.body.checklist) ? req.body.checklist : []).map((row) => [String(row.particular || '').trim(), row]));
+    const existingRows = new Map(defaultChecklist(sales.checklist).map((row) => [row.particular, row]));
     sales.checklist = PURCHASE_CHECKLIST_PARTICULARS.map((particular) => {
       const row = incoming.get(particular) || {};
-      return { particular, yesNo: ['Yes', 'No'].includes(row.yesNo) ? row.yesNo : '', date: /^\d{4}-\d{2}-\d{2}$/.test(row.date || '') ? row.date : '', files: cleanEvidenceFiles(row.files), remarks: String(row.remarks || '').trim().slice(0, 2000) };
+      const existingProofs = new Map((existingRows.get(particular)?.files || []).filter((file) => file?.proofId).map((file) => [String(file.proofId), file]));
+      const requestedProofs = (Array.isArray(row.files) ? row.files : []).filter((file) => file?.proofId).map((file) => existingProofs.get(String(file.proofId))).filter(Boolean);
+      const ordinaryFiles = cleanEvidenceFiles((Array.isArray(row.files) ? row.files : []).filter((file) => !file?.proofId));
+      return { particular, yesNo: ['Yes', 'No'].includes(row.yesNo) ? row.yesNo : '', date: /^\d{4}-\d{2}-\d{2}$/.test(row.date || '') ? row.date : '', files: [...requestedProofs, ...ordinaryFiles].slice(0, 20), remarks: String(row.remarks || '').trim().slice(0, 2000) };
     });
     if (req.body.userRemarks !== undefined) sales.userRemarks = String(req.body.userRemarks || '').trim().slice(0, 3000);
     sales.updatedBy = req.user._id; resetApprovals(sales); sales.calculatedStatus = calculatedStatus(sales); sales.markModified('checklist'); await sales.save();

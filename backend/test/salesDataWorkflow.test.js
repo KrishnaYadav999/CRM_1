@@ -56,3 +56,16 @@ test('Sales UI provides two templates, preview, reconciliation and approval cont
   assert.match(checklist, /Sales Data Upload Checklist/);
   assert.match(checklist, /Every “Yes” row requires a date and supporting proof/);
 });
+
+test('Sales EML and Outlook MSG proofs use the same decoded mail viewer as Purchase', () => {
+  const proofController = read('../src/controllers/purchaseProofController.js');
+  const panel = read('../../frontend/src/features/clientMaster/SalesDataPanel.jsx');
+  const checklist = read('../../frontend/src/features/clientMaster/SalesUploadChecklist.jsx');
+  assert.match(proofController, /\['purchase', 'sales'\]\.includes\(section\)/);
+  assert.match(proofController, /section === 'sales' \? SalesData : PurchaseData/);
+  assert.match(proofController, /'salesData' : 'purchaseData'/);
+  assert.match(panel, /form\.append\('section', 'sales'\)/);
+  assert.match(panel, /<OutlookMsgViewer file=\{mailPreview\}/);
+  assert.match(panel, /data\.salesData/);
+  assert.match(checklist, /onPreview=\{onPreview\}/);
+});
