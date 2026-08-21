@@ -1337,7 +1337,8 @@ export default function ClientMaster() {
   }
 
   function getVisibleServiceRows(lead) {
-    let rows = Array.isArray(lead?.serviceSelections) && lead.serviceSelections.length
+    const hasAuthoritativeLeadServices = Array.isArray(lead?.serviceSelections);
+    let rows = hasAuthoritativeLeadServices
       ? lead.serviceSelections
       : [{ industryType: lead?.industryType, eprCategory: lead?.eprCategory, applicantType: lead?.applicantType || lead?.piboParent, subApplicantType: lead?.subApplicantType, piboCategory: lead?.piboCategory, servicesOffered: lead?.servicesOffered }];
     const storedServices = Array.isArray(lead?._clientMasterServices)
@@ -1348,16 +1349,46 @@ export default function ClientMaster() {
           _existingClientMaster: true
         }))
       : [];
-    const storedAssignmentIds = new Set(storedServices.map(readAssignedServiceId).filter(Boolean));
-    const currentServices = uniqueClientMasterServices(rows).filter((row) => {
-      const assignedServiceId = readAssignedServiceId(row);
-      if (assignedServiceId && storedAssignmentIds.has(assignedServiceId)) return false;
-      const representedByLegacyRecord = storedServices.some((stored) => (
-        !readAssignedServiceId(stored) && legacyServiceFingerprintCompatible(stored, row)
-      ));
-      return !representedByLegacyRecord;
-    });
-    rows = [...storedServices, ...currentServices];
+    if (hasAuthoritativeLeadServices) {
+      const usedStoredIndexes = new Set();
+      rows = uniqueClientMasterServices(rows).map((currentService) => {
+        const assignedServiceId = readAssignedServiceId(currentService);
+        let storedIndex = assignedServiceId
+          ? storedServices.findIndex((stored, index) => !usedStoredIndexes.has(index) && readAssignedServiceId(stored) === assignedServiceId)
+          : -1;
+        if (storedIndex < 0) {
+          storedIndex = storedServices.findIndex((stored, index) => (
+            !usedStoredIndexes.has(index)
+            && (!assignedServiceId || !readAssignedServiceId(stored))
+            && legacyServiceFingerprintCompatible(stored, currentService)
+          ));
+        }
+        if (storedIndex < 0) return currentService;
+        usedStoredIndexes.add(storedIndex);
+        const stored = storedServices[storedIndex];
+        return {
+          ...stored,
+          ...currentService,
+          clientMasterId: stored.clientMasterId,
+          workflowStatus: stored.workflowStatus,
+          cpcbPortalRegistered: stored.cpcbPortalRegistered,
+          cpcbApplicationStatus: stored.cpcbApplicationStatus,
+          assignedServiceId: assignedServiceId || readAssignedServiceId(stored),
+          _existingClientMaster: true
+        };
+      });
+    } else {
+      const storedAssignmentIds = new Set(storedServices.map(readAssignedServiceId).filter(Boolean));
+      const currentServices = uniqueClientMasterServices(rows).filter((row) => {
+        const assignedServiceId = readAssignedServiceId(row);
+        if (assignedServiceId && storedAssignmentIds.has(assignedServiceId)) return false;
+        const representedByLegacyRecord = storedServices.some((stored) => (
+          !readAssignedServiceId(stored) && legacyServiceFingerprintCompatible(stored, row)
+        ));
+        return !representedByLegacyRecord;
+      });
+      rows = [...storedServices, ...currentServices];
+    }
     return uniqueClientMasterServices(rows).map((row, index) => {
       const addressData = (lead.addresses || []).find((item) => row.plantUnit && item?.plantUnit === row.plantUnit)
         || (lead.addresses || []).find((item) => item?.assignedServiceId && item.assignedServiceId === row.assignedServiceId)
@@ -1705,6 +1736,16 @@ export default function ClientMaster() {
       return;
     }
     const visibleServices = getVisibleServiceRows(baseLead);
+    if (!visibleServices.length) {
+      clientRecordRequestRef.current += 1;
+      setClient({ ...emptyClient, selectedLead: value });
+      setEditingClientId('');
+      setEditingWorkflowStatus('draft');
+      setPendingLeadServices(null);
+      setNotice('');
+      setError('This Lead has no current assigned services. Add a service in Lead Generation first.');
+      return;
+    }
     if (!selectedService && visibleServices.length === 1) {
       beginServiceOnboarding({ lead: baseLead, value }, visibleServices[0]);
       return;

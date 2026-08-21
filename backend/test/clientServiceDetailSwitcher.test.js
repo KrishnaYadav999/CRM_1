@@ -63,3 +63,16 @@ test('Client Master service chooser removes business-identical duplicate service
   const fingerprint = page.slice(page.indexOf('function clientMasterServiceFingerprint'), page.indexOf('function uniqueClientMasterServices'));
   assert.doesNotMatch(fingerprint, /firstAnnualReturnYearApplicable|servicesForYear|financialYear/);
 });
+
+test('Client Master chooser treats current Lead services as authoritative and drops stale stored cards', () => {
+  const chooser = page.slice(page.indexOf('function getVisibleServiceRows'), page.indexOf('async function loadPage'));
+  assert.match(chooser, /hasAuthoritativeLeadServices = Array\.isArray\(lead\?\.serviceSelections\)/);
+  assert.match(chooser, /rows = uniqueClientMasterServices\(rows\)\.map\(\(currentService\)/);
+  assert.match(chooser, /usedStoredIndexes/);
+  assert.match(chooser, /readAssignedServiceId\(stored\) === assignedServiceId/);
+  assert.match(chooser, /!assignedServiceId \|\| !readAssignedServiceId\(stored\)/);
+  assert.match(chooser, /legacyServiceFingerprintCompatible\(stored, currentService\)/);
+  const authoritativeBranch = chooser.slice(chooser.indexOf('if (hasAuthoritativeLeadServices)'), chooser.indexOf('} else {'));
+  assert.doesNotMatch(authoritativeBranch, /rows = \[\.\.\.storedServices/);
+  assert.match(page, /This Lead has no current assigned services/);
+});
