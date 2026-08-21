@@ -419,8 +419,10 @@ function analyzeClientMasterData(data = {}) {
   if (!cpcbRestricted && processDiagramRequired) (data.processDiagrams?.length ? data.processDiagrams : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Process Diagram ${index + 1} Name`, row.name); add('CPCB Screenshots', `Process Diagram ${index + 1} File`, row.file); });
   addFields('Authorized Person Details', data.otp, [['mobile','OTP Mobile'],['personName','OTP Person'],['designation','OTP Person Designation']]);
   const personFields = [['name','Name'],['designation','Designation'],['department','Department'],['reporting','Reporting Person'],['mobile','Mobile'],['email','Email'],['pan','PAN'],['panDocument','PAN Document']];
-  addFields('Authorized Person Details', data.authorised, personFields.map(([key,label]) => [key,`Authorized Person ${label}`]));
-  (data.authorisedPersons || []).forEach((person, index) => addFields('Authorized Person Details', person, personFields.map(([key,label]) => [key,`Authorized Person ${index + 2} ${label}`])));
+  if (!cpcbRestricted) {
+    addFields('Authorized Person Details', data.authorised, personFields.map(([key,label]) => [key,`Authorized Person ${label}`]));
+    (data.authorisedPersons || []).forEach((person, index) => addFields('Authorized Person Details', person, personFields.map(([key,label]) => [key,`Authorized Person ${index + 2} ${label}`])));
+  }
   addFields('Authorized Person Details', data.coordinating, personFields.slice(0, 6).map(([key,label]) => [key,`Coordinating Person ${label}`]));
   const grouped = new Map(); entries.forEach((entry) => { const row = grouped.get(entry.section) || { name: entry.section, filled: 0, total: 0 }; row.total += 1; row.filled += entry.filled ? 1 : 0; grouped.set(entry.section, row); });
   const sections = [...grouped.values()].map((row) => ({ ...row, missing: row.total - row.filled, percentage: row.total ? Math.round((row.filled / row.total) * 100) : 0 }));

@@ -254,6 +254,7 @@ function addProgressParts(...parts) {
 
 function buildClientTabProgress(client = {}) {
   const applicability = getClientApplicability(client);
+  const restricted = isCpcbRestricted(client);
   const complianceDocumentFields = getApplicableComplianceRows(client).flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`]);
   const ctePlants = Array.isArray(client.cte?.plantWiseDetails) ? client.cte.plantWiseDetails : [];
   const ctePlantFields = [
@@ -289,14 +290,17 @@ function buildClientTabProgress(client = {}) {
       applicability.processDiagramRequired ? countRows(client.processDiagrams, ['name', 'file']) : { filled: 0, total: 0 }
     ),
     contacts: addProgressParts(
-      countFields(client, tabProgressFields.contacts),
+      countFields(client, restricted
+        ? tabProgressFields.contacts.filter(([section]) => section !== 'authorised')
+        : tabProgressFields.contacts),
       countOptionalRows(client.otpContacts, ['mobile', 'personName', 'designation']),
-      countOptionalRows(client.authorisedPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email', 'pan', 'panDocument']),
+      restricted
+        ? { filled: 0, total: 0 }
+        : countOptionalRows(client.authorisedPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email', 'pan', 'panDocument']),
       countOptionalRows(client.coordinatingPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email'])
     )
   };
 
-  const restricted = isCpcbRestricted(client);
   return tabs.map((tab) => {
     const summary = progressByTab[tab.id] || { filled: 0, total: 0 };
     const percent = summary.total ? Math.round((summary.filled / summary.total) * 100) : 0;
@@ -2412,7 +2416,9 @@ export default function ClientMaster() {
         ...(!cpcbRestricted ? [['MSME Applicability', normalizedClient.compliance?.msmeApplicable]] : []),
         ...(!cpcbRestricted ? [['CPCB Common Portal Link', normalizedClient.cpcb?.linkedToCommonPortal]] : []),
         ...(!cpcbRestricted && normalizedClient.cpcb?.linkedToCommonPortal === 'Yes' ? [['CPCB Status', normalizedClient.cpcb?.status]] : []),
-        ['OTP Mobile', normalizedClient.otp?.mobile], ['Authorised Mobile', normalizedClient.authorised?.mobile], ['Authorised Email', normalizedClient.authorised?.email], ['Coordinating Mobile', normalizedClient.coordinating?.mobile], ['Coordinating Email', normalizedClient.coordinating?.email]
+        ['OTP Mobile', normalizedClient.otp?.mobile],
+        ...(!cpcbRestricted ? [['Authorised Mobile', normalizedClient.authorised?.mobile], ['Authorised Email', normalizedClient.authorised?.email]] : []),
+        ['Coordinating Mobile', normalizedClient.coordinating?.mobile], ['Coordinating Email', normalizedClient.coordinating?.email]
       ];
       const missing = workflowStatus === 'submitted' ? submittedRequired.find(([, value]) => !String(value || '').trim()) : null;
       if (missing) {

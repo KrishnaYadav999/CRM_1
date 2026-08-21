@@ -56,6 +56,21 @@ test('restricted completion excludes Document, CTE and CPCB sections', () => {
   assert.equal(names.includes('CPCB Screenshots'), false);
 });
 
+test('CPCB No makes the Authorised Person table percentage-neutral whether blank or filled', () => {
+  const restricted = { cpcbOnboarding: { cpcbPortalRegistered: false, cpcbApplicationStatus: 'In Process' } };
+  const blank = analyzeClientMasterData({ ...restricted, otp: {}, coordinating: {} });
+  const filled = analyzeClientMasterData({
+    ...restricted,
+    otp: {},
+    coordinating: {},
+    authorised: { name: 'Saved Person', mobile: '9999999999', email: 'saved@example.com' },
+    authorisedPersons: [{ name: 'Second Person', designation: 'Manager', mobile: '8888888888' }]
+  });
+  assert.equal(filled.totalCount, blank.totalCount);
+  assert.equal(filled.filledCount, blank.filledCount);
+  assert.ok(!filled.filledFields.some((label) => label.startsWith('Authorized Person ')));
+});
+
 test('service discovery returns service-specific CPCB state', () => {
   const normalized = normalizeClientMaster({
     _id: 'client-1', assignedServiceId: 'service-1',
@@ -74,6 +89,8 @@ test('frontend implements first-time, recheck, locked tabs, badge and immediate 
   assert.match(source, /This section is locked until CPCB Portal registration is confirmed/);
   assert.match(source, /CPCB Registered/);
   assert.match(source, /CPCB Pending/);
+  assert.match(source, /section !== 'authorised'/);
+  assert.match(source, /!cpcbRestricted \? \[\['Authorised Mobile'/);
   assert.doesNotMatch(source, /hasExistingClient && typeof service\.cpcbPortalRegistered !== 'boolean'/);
   assert.match(source, /if \(service\.cpcbPortalRegistered === true\)/);
 });
