@@ -81,6 +81,10 @@ function normalizeClientMaster(record = {}) {
     plantUnit: firstText(data.selectedLeadSnapshot?.plantUnit, data.basic?.plantUnit, raw.plantUnit),
     industryType: firstText(data.selectedLeadSnapshot?.industryType, data.basic?.companyIndustry, raw.industryType),
     applicantType: firstText(data.selectedLeadSnapshot?.applicantType, data.selectedLeadSnapshot?.piboParent, raw.applicantType),
+    cpcbPortalRegistered: typeof data.cpcbOnboarding?.cpcbPortalRegistered === 'boolean'
+      ? data.cpcbOnboarding.cpcbPortalRegistered
+      : undefined,
+    cpcbApplicationStatus: firstText(data.cpcbOnboarding?.cpcbApplicationStatus) || null,
     workflowStatus: firstText(raw.workflowStatus, 'draft'),
     legacy: !assignedServiceId
   };

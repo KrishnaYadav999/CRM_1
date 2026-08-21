@@ -80,6 +80,13 @@ const tabs = [
   { id: 'contacts', label: 'Authorized Person Details', icon: UserRound }
 ];
 
+const cpcbApplicationStatuses = ['Fresh Application', 'In Process', 'Client Submit'];
+const cpcbRestrictedTabIds = ['compliance', 'cte', 'cpcb', 'cpcbScreenshots'];
+
+function isCpcbRestricted(client = {}) {
+  return client.cpcbOnboarding?.cpcbPortalRegistered === false;
+}
+
 const complianceRows = [
   ['gst', 'GST Number', 'GST Certificate Date', 'GST Certificate'],
   ['cin', 'CIN', 'CIN Document Date', 'CIN Document'],
@@ -272,10 +279,12 @@ function buildClientTabProgress(client = {}) {
     )
   };
 
+  const restricted = isCpcbRestricted(client);
   return tabs.map((tab) => {
     const summary = progressByTab[tab.id] || { filled: 0, total: 0 };
     const percent = summary.total ? Math.round((summary.filled / summary.total) * 100) : 0;
-    return { ...tab, ...summary, percent, notApplicable: tab.id === 'cte' && applicability.isImporter };
+    const locked = restricted && cpcbRestrictedTabIds.includes(tab.id);
+    return { ...tab, ...summary, percent, locked, notApplicable: tab.id === 'cte' && applicability.isImporter };
   });
 }
 
@@ -661,6 +670,7 @@ function getClientServiceOptionLabel(item = {}, index = 0) {
 const emptyClient = {
   selectedLead: '',
   assignedServiceId: '',
+  cpcbOnboarding: {},
   cpcbDataByAssignedServiceId: {},
   serviceDetailsByAssignedServiceId: {},
   adminControls: { approvalStatus: 'PENDING', visibilityStatus: 'LIVE', assignedTo: '' },
@@ -1067,6 +1077,7 @@ export default function ClientMaster() {
   const [activeTab, setActiveTab] = useState('companyOverview');
   const [viewMode, setViewMode] = useState('list');
   const [pendingLeadServices, setPendingLeadServices] = useState(null);
+  const [pendingCpcbOnboarding, setPendingCpcbOnboarding] = useState(null);
   const [saving, setSaving] = useState(false);
   const [savingMode, setSavingMode] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1091,7 +1102,7 @@ export default function ClientMaster() {
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const tabProgress = useMemo(() => buildClientTabProgress(client), [client]);
   const overallProgress = useMemo(() => {
-    const summary = tabProgress.reduce((total, tab) => ({
+    const summary = tabProgress.filter((tab) => !tab.locked).reduce((total, tab) => ({
       filled: total.filled + tab.filled,
       total: total.total + tab.total
     }), { filled: 0, total: 0 });
@@ -1412,6 +1423,120 @@ export default function ClientMaster() {
     }
   }
 
+  function beginServiceOnboarding(pending, service) {
+    const hasExistingClient = Boolean(service.clientMasterId);
+    if (service.cpcbPortalRegistered === true || (hasExistingClient && typeof service.cpcbPortalRegistered !== 'boolean')) {
+      setPendingLeadServices(null);
+      handleLeadSelect(pending.value, service, pending.lead);
+      return;
+    }
+    setPendingLeadServices(null);
+    setPendingCpcbOnboarding({
+      lead: pending.lead,
+      value: pending.value,
+      service,
+      recheck: service.cpcbPortalRegistered === false,
+      cpcbPortalRegistered: service.cpcbPortalRegistered === false ? false : null,
+      cpcbApplicationStatus: service.cpcbApplicationStatus || 'Fresh Application',
+      saving: false
+    });
+  }
+
+  function buildCpcbBootstrapData(pending) {
+    const lead = pending.lead || {};
+    const service = pending.service || {};
+    const company = lead.company || lead.companyName || lead.clientName || '';
+    const address = service.addressData || {};
+    const contact = service.contactData || {};
+    const email = String(contact.emails || lead.emails || lead.email || '').split(/[,\s;]+/).find(Boolean) || '';
+    const assignedServiceId = readAssignedServiceId(service);
+    const piboCategory = service.subApplicantType || service.piboCategory || '';
+    const eprCategory = service.eprCategory || service.serviceCategory || '';
+    const servicesOffered = service.servicesOffered || service.serviceName || '';
+    const addressData = {
+      address1: address.addressLine1 || lead.addressLine1 || '', address2: address.addressLine2 || lead.addressLine2 || '', address3: address.addressLine3 || lead.addressLine3 || '',
+      state: address.state || lead.state || '', city: address.city || lead.city || '', pincode: address.pinCode || lead.pinCode || ''
+    };
+    const person = {
+      name: contact.contactPerson || lead.contactPerson || '', designation: contact.designation || lead.designation || '',
+      mobile: contact.mobileNo1 || lead.mobileNo1 || '', email
+    };
+    return {
+      assignedServiceId,
+      companyOverview: { ...emptyClient.companyOverview, companyName: company },
+      basic: { ...emptyClient.basic, clientLegalName: company, tradeName: company, piboCategory, eprCategory, servicesOffered, companyIndustry: service.industryType || '', plantUnit: service.plantUnit || '' },
+      registeredAddress: addressData,
+      communicationAddress: { ...addressData },
+      otp: { mobile: person.mobile, personName: person.name, designation: person.designation },
+      authorised: person,
+      coordinating: person,
+      selectedLeadSnapshot: {
+        assignedServiceId, id: getLeadSelectValue(lead), sourceLeadId: lead.sourceLeadId || '', leadCode: lead.leadCode || '', company,
+        piboCategory, subApplicantType: piboCategory, eprCategory, serviceCategory: eprCategory,
+        industryType: service.industryType || '', servicesOffered, plantUnit: service.plantUnit || '',
+        businessCategory: service.businessCategory || '', applicantType: service.applicantType || ''
+      },
+      importMeta: { leadNumber: lead.leadCode || '', uniqueId: lead.leadCode || '', companyName: company }
+    };
+  }
+
+  async function persistCpcbOnboarding() {
+    const pending = pendingCpcbOnboarding;
+    if (!pending || typeof pending.cpcbPortalRegistered !== 'boolean') {
+      setError('Please select Yes or No for CPCB Portal registration.');
+      return;
+    }
+    if (!pending.cpcbPortalRegistered && !cpcbApplicationStatuses.includes(pending.cpcbApplicationStatus)) {
+      setError('Please select the CPCB application status.');
+      return;
+    }
+    const assignedServiceId = readAssignedServiceId(pending.service);
+    if (!assignedServiceId) {
+      setError('The selected service has no assignedServiceId. Please refresh and try again.');
+      return;
+    }
+    setPendingCpcbOnboarding((current) => ({ ...current, saving: true }));
+    setError('');
+    try {
+      const response = await api.post(API_ENDPOINTS.clients.cpcbOnboarding, {
+        clientMasterId: pending.service.clientMasterId || undefined,
+        selectedLead: getMongoObjectIdOrEmpty(getLeadSelectValue(pending.lead)),
+        assignedServiceId,
+        cpcbPortalRegistered: pending.cpcbPortalRegistered,
+        cpcbApplicationStatus: pending.cpcbPortalRegistered ? null : pending.cpcbApplicationStatus,
+        bootstrapData: buildCpcbBootstrapData(pending)
+      });
+      const saved = response.data.client || response.data.data?.client || {};
+      const nextService = {
+        ...pending.service,
+        clientMasterId: saved._id || saved.id || pending.service.clientMasterId,
+        workflowStatus: saved.workflowStatus || pending.service.workflowStatus || 'draft',
+        cpcbPortalRegistered: pending.cpcbPortalRegistered,
+        cpcbApplicationStatus: pending.cpcbPortalRegistered ? null : pending.cpcbApplicationStatus
+      };
+      setPendingCpcbOnboarding(null);
+      if (pending.continuationClient) {
+        const exact = await fetchExactClientMaster(nextService, ++clientRecordRequestRef.current);
+        if (exact) applyClientEdit(exact);
+      } else {
+        await handleLeadSelect(pending.value, nextService, pending.lead);
+        setClient((current) => ({
+          ...current,
+          cpcbOnboarding: {
+            ...(current.cpcbOnboarding || {}),
+            cpcbPortalRegistered: pending.cpcbPortalRegistered,
+            cpcbApplicationStatus: pending.cpcbPortalRegistered ? null : pending.cpcbApplicationStatus
+          }
+        }));
+      }
+      setActiveTab('companyOverview');
+      setNotice(pending.cpcbPortalRegistered ? 'CPCB registration confirmed. Full Client Master is unlocked.' : 'CPCB application status saved. Complete the four available sections.');
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Unable to save CPCB registration status.');
+      setPendingCpcbOnboarding((current) => ({ ...current, saving: false }));
+    }
+  }
+
   function setValue(section, field, value) {
     setClient((current) => ({ ...current, [section]: { ...current[section], [field]: value } }));
   }
@@ -1560,6 +1685,10 @@ export default function ClientMaster() {
       return;
     }
     const visibleServices = getVisibleServiceRows(baseLead);
+    if (!selectedService && visibleServices.length === 1) {
+      beginServiceOnboarding({ lead: baseLead, value }, visibleServices[0]);
+      return;
+    }
     if (!selectedService && visibleServices.length > 1) {
       clientRecordRequestRef.current += 1;
       setClient({ ...emptyClient, selectedLead: value });
@@ -1901,6 +2030,31 @@ export default function ClientMaster() {
     try {
       const exactClient = await fetchExactClientMaster(item, requestId);
       if (requestId !== clientRecordRequestRef.current || !exactClient) return;
+      const exactData = readClientData(exactClient);
+      if (exactData.cpcbOnboarding?.cpcbPortalRegistered === false) {
+        const selectedLead = exactClient.selectedLead || {};
+        const selectedLeadId = selectedLead?._id || selectedLead || exactData.selectedLeadSnapshot?.id || '';
+        setPendingCpcbOnboarding({
+          lead: {
+            ...(typeof selectedLead === 'object' ? selectedLead : {}),
+            _id: selectedLeadId,
+            company: exactData.basic?.clientLegalName || exactData.companyOverview?.companyName || ''
+          },
+          value: selectedLeadId,
+          service: {
+            clientMasterId: exactClient._id || exactClient.id,
+            assignedServiceId: exactClient.assignedServiceId || exactData.assignedServiceId || exactData.selectedLeadSnapshot?.assignedServiceId,
+            cpcbPortalRegistered: false,
+            cpcbApplicationStatus: exactData.cpcbOnboarding?.cpcbApplicationStatus || 'Fresh Application'
+          },
+          continuationClient: exactClient,
+          recheck: true,
+          cpcbPortalRegistered: false,
+          cpcbApplicationStatus: exactData.cpcbOnboarding?.cpcbApplicationStatus || 'Fresh Application',
+          saving: false
+        });
+        return;
+      }
       applyClientEdit(exactClient);
     } catch (err) {
       if (requestId === clientRecordRequestRef.current) {
@@ -1912,6 +2066,10 @@ export default function ClientMaster() {
   }
 
   function openClientTab(tabId) {
+    if (isCpcbRestricted(client) && cpcbRestrictedTabIds.includes(tabId)) {
+      setError('This section is locked until CPCB Portal registration is confirmed.');
+      return;
+    }
     if (!['companyOverview', 'basic'].includes(tabId) && !isFirstStepReady) {
       setError('First enter Company Name, Client Legal Name, or Trade Name before moving to the next step.');
       return;
@@ -1944,7 +2102,7 @@ export default function ClientMaster() {
       }
     }
     setError('');
-    const next = tabs.slice(activeIndex + 1).find((tab) => !(tab.id === 'cte' && getClientApplicability(client).isImporter)) || tabs[tabs.length - 1];
+    const next = tabs.slice(activeIndex + 1).find((tab) => !((tab.id === 'cte' && getClientApplicability(client).isImporter) || (isCpcbRestricted(client) && cpcbRestrictedTabIds.includes(tab.id)))) || tabs[tabs.length - 1];
     setActiveTab(next.id);
   }
 
@@ -2183,11 +2341,12 @@ export default function ClientMaster() {
           }
         };
       }
+      const cpcbRestricted = isCpcbRestricted(normalizedClient);
       if (workflowStatus === 'submitted' && overallProgress.percent < 60) {
         setError(`To submit Client Master, please complete at least 60% of the data. Current completion is ${overallProgress.percent}%.`);
         return;
       }
-      const invalidScreenshot = workflowStatus === 'submitted'
+      const invalidScreenshot = workflowStatus === 'submitted' && !cpcbRestricted
         ? (client.cpcbScreenshots || []).find((item) => !String(item.name || '').trim() || !item.file)
         : null;
       if (invalidScreenshot) {
@@ -2196,12 +2355,12 @@ export default function ClientMaster() {
         return;
       }
       const applicability = getClientApplicability(normalizedClient);
-      if (workflowStatus === 'submitted' && applicability.processDiagramChoiceRequired && !['Yes', 'No'].includes(normalizedClient.cpcb?.processDiagramRequired)) {
+      if (workflowStatus === 'submitted' && !cpcbRestricted && applicability.processDiagramChoiceRequired && !['Yes', 'No'].includes(normalizedClient.cpcb?.processDiagramRequired)) {
         setError('Select whether the Process Flow Diagram is required before submit.');
         setActiveTab('cpcbScreenshots');
         return;
       }
-      const invalidProcessDiagram = workflowStatus === 'submitted' && applicability.processDiagramRequired
+      const invalidProcessDiagram = workflowStatus === 'submitted' && !cpcbRestricted && applicability.processDiagramRequired
         ? (client.processDiagrams || []).find((item) => !String(item.name || '').trim() || !item.file)
         : null;
       if (invalidProcessDiagram) {
@@ -2209,7 +2368,7 @@ export default function ClientMaster() {
         setActiveTab('cpcbScreenshots');
         return;
       }
-      if (workflowStatus === 'submitted' && normalizedClient.compliance?.msmeApplicable === 'Yes') {
+      if (workflowStatus === 'submitted' && !cpcbRestricted && normalizedClient.compliance?.msmeApplicable === 'Yes') {
         const invalidMsme = !(normalizedClient.msmeRows || []).length || normalizedClient.msmeRows.some((row) => ['classificationYear', 'status', 'majorActivity', 'udyamNumber', 'turnover', 'file'].some((field) => !isProgressValueFilled(row?.[field])));
         if (invalidMsme) {
           setError('MSME is Applicable. Add at least one row and complete every MSME detail before submit.');
@@ -2220,7 +2379,7 @@ export default function ClientMaster() {
       const isBrandOwner = String(normalizedClient.basic?.piboCategory || normalizedClient.selectedLeadSnapshot?.piboCategory || '').toLowerCase().includes('brand owner');
       const brandOwnerHasProductionFacility = normalizedClient.compliance?.brandOwnerProductionFacility === 'Yes'
         || (!normalizedClient.compliance?.brandOwnerProductionFacility && normalizedClient.compliance?.factoryLicenseApplicability === 'Applicable');
-      if (workflowStatus === 'submitted' && isBrandOwner && brandOwnerHasProductionFacility) {
+      if (workflowStatus === 'submitted' && !cpcbRestricted && isBrandOwner && brandOwnerHasProductionFacility) {
         const factoryFields = [normalizedClient.compliance?.factoryLicenseNumber, normalizedClient.compliance?.factoryLicenseDate, normalizedClient.compliance?.factoryLicenseFile];
         if (factoryFields.some((value) => !isProgressValueFilled(value))) {
           setError('Brand Owner has a Production Facility. Complete the Factory License number, document date, and upload before submit.');
@@ -2232,9 +2391,9 @@ export default function ClientMaster() {
         ['Choose Existing Lead', normalizedClient.selectedLead], ['Client Legal Name', normalizedClient.basic?.clientLegalName],
         ['Registered Address', normalizedClient.registeredAddress?.address1], ['Registered State', normalizedClient.registeredAddress?.state], ['Registered City', normalizedClient.registeredAddress?.city], ['Registered Pincode', normalizedClient.registeredAddress?.pincode],
         ['Communication Address', normalizedClient.communicationAddress?.address1], ['Communication State', normalizedClient.communicationAddress?.state], ['Communication City', normalizedClient.communicationAddress?.city], ['Communication Pincode', normalizedClient.communicationAddress?.pincode],
-        ['MSME Applicability', normalizedClient.compliance?.msmeApplicable],
-        ['CPCB Common Portal Link', normalizedClient.cpcb?.linkedToCommonPortal],
-        ...(normalizedClient.cpcb?.linkedToCommonPortal === 'Yes' ? [['CPCB Status', normalizedClient.cpcb?.status]] : []),
+        ...(!cpcbRestricted ? [['MSME Applicability', normalizedClient.compliance?.msmeApplicable]] : []),
+        ...(!cpcbRestricted ? [['CPCB Common Portal Link', normalizedClient.cpcb?.linkedToCommonPortal]] : []),
+        ...(!cpcbRestricted && normalizedClient.cpcb?.linkedToCommonPortal === 'Yes' ? [['CPCB Status', normalizedClient.cpcb?.status]] : []),
         ['OTP Mobile', normalizedClient.otp?.mobile], ['Authorised Mobile', normalizedClient.authorised?.mobile], ['Authorised Email', normalizedClient.authorised?.email], ['Coordinating Mobile', normalizedClient.coordinating?.mobile], ['Coordinating Email', normalizedClient.coordinating?.email]
       ];
       const missing = workflowStatus === 'submitted' ? submittedRequired.find(([, value]) => !String(value || '').trim()) : null;
@@ -2394,6 +2553,13 @@ export default function ClientMaster() {
               <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 shadow-sm">
                 {overallProgress.percent}% complete
               </span>
+              {typeof client.cpcbOnboarding?.cpcbPortalRegistered === 'boolean' && (
+                <span className={`w-fit rounded-full border px-3 py-1 text-xs font-black shadow-sm ${client.cpcbOnboarding.cpcbPortalRegistered ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                  {client.cpcbOnboarding.cpcbPortalRegistered
+                    ? 'CPCB Registered'
+                    : `CPCB Pending · ${client.cpcbOnboarding.cpcbApplicationStatus || 'Status required'}`}
+                </span>
+              )}
             </div>
           </section>
 
@@ -2429,7 +2595,7 @@ export default function ClientMaster() {
                     const applicantType = service.applicantType || service.piboParent || service.piboCategoryParent || '-';
                     const subApplicantType = service.subApplicantType || service.piboCategory || 'Not applicable';
                     return (
-                    <button key={service.clientMasterId || readAssignedServiceId(service) || clientMasterServiceFingerprint(service)} type="button" onClick={() => { const pending = pendingLeadServices; setPendingLeadServices(null); handleLeadSelect(pending.value, service); }} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
+                    <button key={service.clientMasterId || readAssignedServiceId(service) || clientMasterServiceFingerprint(service)} type="button" onClick={() => beginServiceOnboarding(pendingLeadServices, service)} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
                       <strong className="block text-base font-black text-slate-950">{service.eprCategory || `Service ${index + 1}`} · {applicantType}</strong>
                       <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
                       {service.applicableService && <span className="mt-1 block rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">Applicable: {service.applicableService}</span>}
@@ -2448,6 +2614,57 @@ export default function ClientMaster() {
                       </span>
                     </button>
                   )})}
+                </div>
+              </section>
+            </div>
+          )}
+
+          {pendingCpcbOnboarding && (
+            <div className="fixed inset-0 z-[10010] grid place-items-center bg-slate-950/60 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="cpcb-registration-title">
+              <section className="w-full max-w-xl overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-2xl">
+                <header className="bg-gradient-to-r from-teal-50 via-cyan-50 to-emerald-50 px-6 py-5">
+                  <p className="text-xs font-black uppercase tracking-[.18em] text-[#30737B]">CPCB Portal Registration Status</p>
+                  <h2 id="cpcb-registration-title" className="mt-1 text-xl font-black text-slate-950">{pendingCpcbOnboarding.lead.company || 'Selected Client'}</h2>
+                  <p className="mt-2 text-sm font-bold leading-6 text-slate-600">
+                    {pendingCpcbOnboarding.recheck
+                      ? 'Earlier, you selected that this client was not registered on the CPCB Portal. Has the client now been registered on the CPCB Portal?'
+                      : 'Has the Client Registered on CPCB Portal?'}
+                  </p>
+                </header>
+                <div className="space-y-5 p-6">
+                  <div className="grid grid-cols-2 gap-3">
+                    {[true, false].map((answer) => (
+                      <button
+                        key={String(answer)}
+                        type="button"
+                        disabled={pendingCpcbOnboarding.saving}
+                        onClick={() => setPendingCpcbOnboarding((current) => ({ ...current, cpcbPortalRegistered: answer }))}
+                        className={`min-h-14 rounded-xl border-2 px-5 text-sm font-black transition ${pendingCpcbOnboarding.cpcbPortalRegistered === answer ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300'}`}
+                      >
+                        {answer ? 'Yes, Registered' : 'No, Not Registered'}
+                      </button>
+                    ))}
+                  </div>
+                  {pendingCpcbOnboarding.cpcbPortalRegistered === false && (
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-600">Application Status <span className="text-red-500">*</span></span>
+                      <select
+                        value={pendingCpcbOnboarding.cpcbApplicationStatus}
+                        disabled={pendingCpcbOnboarding.saving}
+                        onChange={(event) => setPendingCpcbOnboarding((current) => ({ ...current, cpcbApplicationStatus: event.target.value }))}
+                        className="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 font-bold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                      >
+                        {cpcbApplicationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                      </select>
+                      <span className="mt-2 block text-xs font-semibold leading-5 text-amber-700">Only Company Overview, Client Basic Info, Address Details, and Authorized Person Details will be required until registration is confirmed.</span>
+                    </label>
+                  )}
+                  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                    <button type="button" disabled={pendingCpcbOnboarding.saving} onClick={() => setPendingCpcbOnboarding(null)} className="min-h-11 rounded-xl border border-slate-200 px-5 font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60">Cancel</button>
+                    <button type="button" disabled={pendingCpcbOnboarding.saving || typeof pendingCpcbOnboarding.cpcbPortalRegistered !== 'boolean'} onClick={persistCpcbOnboarding} className="min-h-11 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-60">
+                      {pendingCpcbOnboarding.saving ? 'Saving...' : 'Save & Continue'}
+                    </button>
+                  </div>
                 </div>
               </section>
             </div>
@@ -2506,11 +2723,11 @@ export default function ClientMaster() {
                     type="button"
                     disabled={tab.notApplicable}
                     onClick={() => openClientTab(tab.id)}
-                    className={`client-progress-tab ${active ? 'client-progress-tab-active' : ''} ${complete ? 'client-progress-tab-complete' : ''} ${tab.notApplicable ? 'client-progress-tab-disabled' : ''}`}
+                    className={`client-progress-tab ${active ? 'client-progress-tab-active' : ''} ${complete ? 'client-progress-tab-complete' : ''} ${(tab.notApplicable || tab.locked) ? 'client-progress-tab-disabled' : ''}`}
                     style={{ '--tab-progress': `${tab.percent}%` }}
                   >
                     <span className="client-progress-tab-icon"><Icon className="h-5 w-5" /></span>
-                    <span className="client-progress-tab-copy"><strong>{tab.label}</strong><small>{tab.notApplicable ? 'Not applicable' : `${tab.percent}%`}</small></span>
+                    <span className="client-progress-tab-copy"><strong>{tab.label}</strong><small>{tab.locked ? 'Locked' : tab.notApplicable ? 'Not applicable' : `${tab.percent}%`}</small></span>
                     <span className="client-progress-tab-fill" aria-hidden="true" />
                   </button>
                 );

@@ -363,6 +363,7 @@ function analyzeClientMasterData(data = {}) {
   const filled = (value) => Array.isArray(value) ? value.length > 0 : value && typeof value === 'object' ? Boolean(value.url || value.secureUrl || value.dataUrl || value.path || value.publicId || value.name || value.fileName) : value !== undefined && value !== null && String(value).trim() !== '';
   const add = (section, label, value) => entries.push({ section, label, filled: filled(value) });
   const addFields = (section, source, fields) => fields.forEach(([key, label]) => add(section, label, source?.[key]));
+  const cpcbRestricted = data.cpcbOnboarding?.cpcbPortalRegistered === false;
   addFields('Company Overview', data.companyOverview, [['companyName','Company Name'],['companySummary','Company Summary'],['productName','Product Name'],['productManufacturer','Product Manufacturer'],['productImage','Product Image'],['category','Product Category'],['numberOfEmployees','Number of Employees']]);
   addFields('Client Basic Info', data.basic, [['clientLegalName','Client Legal Name'],['tradeName','Trade Name'],['companyType','Company Type'],['piboCategory','PIBO Category'],['eprCategory','Service Category'],['onboardingYear','Onboarding Year'],['firstAnnualReturnYear','First Annual Return Year']]);
   [['Registered Address', data.registeredAddress], ['Communication Address', data.communicationAddress]].forEach(([section, source]) => addFields(section, source, [['address1','Address 1'],['address2','Address 2'],['address3','Address 3'],['state','State'],['city','City'],['pincode','PIN Code']]));
@@ -373,7 +374,7 @@ function analyzeClientMasterData(data = {}) {
   const isPwp = applicantType === 'pwp' || category === 'pwp';
   const brandOwnerHasFactory = data.compliance?.brandOwnerProductionFacility === 'Yes'
     || (!data.compliance?.brandOwnerProductionFacility && data.compliance?.factoryLicenseApplicability === 'Applicable');
-  const documentKeys = ['gst','cin','pan','factoryLicense','eprCertificate','iec','dicDcssi'].filter((key) => {
+  const documentKeys = cpcbRestricted ? [] : ['gst','cin','pan','factoryLicense','eprCertificate','iec','dicDcssi'].filter((key) => {
     if (isPwp && ['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key)) return false;
     if (category.includes('producer') && ['iec', 'dicDcssi'].includes(key)) return false;
     if (isBrandOwner && (key === 'dicDcssi' || (key === 'factoryLicense' && !brandOwnerHasFactory))) return false;
@@ -381,9 +382,9 @@ function analyzeClientMasterData(data = {}) {
     return true;
   });
   documentKeys.forEach((key) => { const name = key.replace(/([A-Z])/g, ' $1').toUpperCase(); add('Documents', `${name} Number`, data.compliance?.[`${key}Number`]); add('Documents', `${name} Date`, data.compliance?.[`${key}Date`]); add('Documents', `${name} File`, data.compliance?.[`${key}File`]); });
-  add('Documents', 'MSME Applicability', data.compliance?.msmeApplicable);
-  if (data.compliance?.msmeApplicable === 'Yes') (data.msmeRows?.length ? data.msmeRows : [{}]).forEach((row, index) => addFields('MSME Details', row, [['classificationYear',`MSME ${index + 1} Classification Year`],['status',`MSME ${index + 1} Status`],['majorActivity',`MSME ${index + 1} Major Activity`],['udyamNumber',`MSME ${index + 1} Udyam Number`],['turnover',`MSME ${index + 1} Turnover`],['file',`MSME ${index + 1} Certificate`]]));
-  if (!isImporter) {
+  if (!cpcbRestricted) add('Documents', 'MSME Applicability', data.compliance?.msmeApplicable);
+  if (!cpcbRestricted && data.compliance?.msmeApplicable === 'Yes') (data.msmeRows?.length ? data.msmeRows : [{}]).forEach((row, index) => addFields('MSME Details', row, [['classificationYear',`MSME ${index + 1} Classification Year`],['status',`MSME ${index + 1} Status`],['majorActivity',`MSME ${index + 1} Major Activity`],['udyamNumber',`MSME ${index + 1} Udyam Number`],['turnover',`MSME ${index + 1} Turnover`],['file',`MSME ${index + 1} Certificate`]]));
+  if (!cpcbRestricted && !isImporter) {
     const cteApplicable = data.cte?.cteApplicable !== 'No';
     const hasCtePlants = Array.isArray(data.cte?.plantWiseDetails) && data.cte.plantWiseDetails.length > 0;
     add('CTE & CTO / CCA', 'Number of Plant Locations', data.cte?.numberOfPlantsLocations);
@@ -397,13 +398,13 @@ function analyzeClientMasterData(data = {}) {
       if (hasCtePlants) (plant.ctoProductRows?.length ? plant.ctoProductRows : [{}]).forEach((row, rowIndex) => addFields('CTE & CTO / CCA', row, [['productName',`Plant ${index + 1} CTO/CCA Product ${rowIndex + 1}`],['quantity',`Plant ${index + 1} CTO/CCA Quantity ${rowIndex + 1}`]]));
     });
   }
-  add('CPCB Credentials', 'Linked to Common Portal', data.cpcb?.linkedToCommonPortal);
-  if (data.cpcb?.linkedToCommonPortal === 'Yes') addFields('CPCB Credentials', data.cpcb, [['status','CPCB Status'],['remark','CPCB Remark'],['homePageFile','CPCB Home Page'],['registrationNumber','CPCB Registration Number'],['applicationDate','Application Date'],['approvalDate','Approval Date'],['applicationNumber','Application Number'],['ceprUserId','CEPR User ID'],['ceprPassword','CEPR Password'],['loginId','CPCB Login ID'],['loginPassword','CPCB Login Password'],['unitId','Unit ID']].filter(([key]) => !isPwp || !['registrationNumber', 'applicationNumber'].includes(key)));
-  (data.cpcbScreenshots?.length ? data.cpcbScreenshots : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Screenshot ${index + 1} Name`, row.name); add('CPCB Screenshots', `Screenshot ${index + 1} File`, row.file); });
+  if (!cpcbRestricted) add('CPCB Credentials', 'Linked to Common Portal', data.cpcb?.linkedToCommonPortal);
+  if (!cpcbRestricted && data.cpcb?.linkedToCommonPortal === 'Yes') addFields('CPCB Credentials', data.cpcb, [['status','CPCB Status'],['remark','CPCB Remark'],['homePageFile','CPCB Home Page'],['registrationNumber','CPCB Registration Number'],['applicationDate','Application Date'],['approvalDate','Approval Date'],['applicationNumber','Application Number'],['ceprUserId','CEPR User ID'],['ceprPassword','CEPR Password'],['loginId','CPCB Login ID'],['loginPassword','CPCB Login Password'],['unitId','Unit ID']].filter(([key]) => !isPwp || !['registrationNumber', 'applicationNumber'].includes(key)));
+  if (!cpcbRestricted) (data.cpcbScreenshots?.length ? data.cpcbScreenshots : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Screenshot ${index + 1} Name`, row.name); add('CPCB Screenshots', `Screenshot ${index + 1} File`, row.file); });
   const processDiagramChoiceRequired = isImporter || isBrandOwner;
   const processDiagramRequired = processDiagramChoiceRequired ? data.cpcb?.processDiagramRequired === 'Yes' : true;
-  if (processDiagramChoiceRequired) add('CPCB Screenshots', 'Process Flow Diagram Required', data.cpcb?.processDiagramRequired);
-  if (processDiagramRequired) (data.processDiagrams?.length ? data.processDiagrams : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Process Diagram ${index + 1} Name`, row.name); add('CPCB Screenshots', `Process Diagram ${index + 1} File`, row.file); });
+  if (!cpcbRestricted && processDiagramChoiceRequired) add('CPCB Screenshots', 'Process Flow Diagram Required', data.cpcb?.processDiagramRequired);
+  if (!cpcbRestricted && processDiagramRequired) (data.processDiagrams?.length ? data.processDiagrams : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Process Diagram ${index + 1} Name`, row.name); add('CPCB Screenshots', `Process Diagram ${index + 1} File`, row.file); });
   addFields('Authorized Person Details', data.otp, [['mobile','OTP Mobile'],['personName','OTP Person'],['designation','OTP Person Designation']]);
   const personFields = [['name','Name'],['designation','Designation'],['department','Department'],['reporting','Reporting Person'],['mobile','Mobile'],['email','Email'],['pan','PAN'],['panDocument','PAN Document']];
   addFields('Authorized Person Details', data.authorised, personFields.map(([key,label]) => [key,`Authorized Person ${label}`]));

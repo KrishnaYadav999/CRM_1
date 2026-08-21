@@ -50,6 +50,7 @@ const API_ENDPOINTS = {
     create: '/clients',
     bulk: '/clients/bulk',
     bulkUpdateYears: '/clients/years/bulk',
+    cpcbOnboarding: '/clients/onboarding/cpcb',
     pendingApprovals: '/clients/pending-approvals',
     approveAllPendingClients: '/clients/pending-approvals/clients/approve-all',
     detail: (id) => `/clients/${encodePathValue(id)}`,

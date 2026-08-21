@@ -332,6 +332,56 @@ function readClientAssignedServiceId(body = {}, data = {}) {
   return String(body.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
 }
 
+const CPCB_APPLICATION_STATUSES = ['Fresh Application', 'In Process', 'Client Submit'];
+const CPCB_LOCKED_DATA_KEYS = ['compliance', 'msmeRows', 'cte', 'cpcb', 'cpcbScreenshots', 'processDiagrams'];
+
+function readCpcbOnboarding(data = {}) {
+  const onboarding = isPlainObject(data?.cpcbOnboarding) ? data.cpcbOnboarding : {};
+  return {
+    answered: typeof onboarding.cpcbPortalRegistered === 'boolean',
+    registered: onboarding.cpcbPortalRegistered,
+    status: String(onboarding.cpcbApplicationStatus || '').trim()
+  };
+}
+
+function validateCpcbOnboardingInput(registered, status) {
+  if (typeof registered !== 'boolean') return 'Select whether the client is registered on the CPCB Portal';
+  if (!registered && !CPCB_APPLICATION_STATUSES.includes(String(status || '').trim())) {
+    return 'Select one valid CPCB application status';
+  }
+  return '';
+}
+
+function stableDataValue(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (Array.isArray(value)) {
+    const normalized = value.map(stableDataValue).filter((item) => item !== null);
+    return normalized.length ? normalized : null;
+  }
+  if (isPlainObject(value)) {
+    const normalized = Object.keys(value).sort().reduce((result, key) => {
+      const next = stableDataValue(value[key]);
+      if (next !== null) result[key] = next;
+      return result;
+    }, {});
+    return Object.keys(normalized).length ? normalized : null;
+  }
+  return value;
+}
+
+function validateRestrictedCpcbUpdate(existingData = {}, incomingData = {}) {
+  const existingState = readCpcbOnboarding(existingData);
+  const incomingState = readCpcbOnboarding(incomingData);
+  if (existingState.answered && (!incomingState.answered || incomingState.registered !== existingState.registered || incomingState.status !== existingState.status)) {
+    return 'CPCB onboarding status can only be changed through the CPCB registration status action';
+  }
+  if (!existingState.answered || existingState.registered !== false) return '';
+  const changedKey = CPCB_LOCKED_DATA_KEYS.find((key) => (
+    JSON.stringify(stableDataValue(existingData[key])) !== JSON.stringify(stableDataValue(incomingData[key]))
+  ));
+  return changedKey ? `CPCB registration is pending. Updates to the locked ${changedKey} section are not allowed` : '';
+}
+
 function readRequestedClientId(body = {}) {
   return String(body.recordId || body.clientId || body._id || body.id || '').trim();
 }
@@ -853,7 +903,7 @@ exports.listClientMasterCatalog = async (req, res) => {
       'data.basic.clientLegalName', 'data.basic.tradeName', 'data.basic.piboCategory',
       'data.basic.eprCategory', 'data.basic.servicesOffered', 'data.basic.plantUnit',
       'data.basic.companyIndustry', 'data.companyOverview.companyName',
-      'data.importMeta.companyName', 'data.importMeta.leadNumber', 'data.importMeta.uniqueId',
+      'data.importMeta.companyName', 'data.importMeta.leadNumber', 'data.importMeta.uniqueId', 'data.cpcbOnboarding',
       'companyName', 'clientLegalName', 'tradeName', 'piboCategory', 'eprCategory',
       'servicesOffered', 'plantUnit', 'industryType', 'applicantType'
     ].join(' '))
@@ -880,7 +930,7 @@ function clientDiscoveryProjection() {
     'data.basic.clientLegalName', 'data.basic.tradeName', 'data.basic.piboCategory',
     'data.basic.eprCategory', 'data.basic.servicesOffered', 'data.basic.plantUnit',
     'data.basic.companyIndustry', 'data.companyOverview.companyName',
-    'data.importMeta.companyName', 'data.importMeta.leadNumber', 'data.importMeta.uniqueId',
+    'data.importMeta.companyName', 'data.importMeta.leadNumber', 'data.importMeta.uniqueId', 'data.cpcbOnboarding',
     'companyIdentity', 'companyName', 'clientLegalName', 'tradeName', 'piboCategory',
     'eprCategory', 'servicesOffered', 'plantUnit', 'industryType', 'applicantType'
   ].join(' ');
@@ -1019,6 +1069,7 @@ exports.listClientMasterServices = async (req, res) => {
         'data.basic.eprCategory': 1, 'data.basic.servicesOffered': 1, 'data.basic.plantUnit': 1,
         'data.basic.companyIndustry': 1, 'data.companyOverview.companyName': 1,
         'data.importMeta.companyName': 1, 'data.importMeta.leadNumber': 1, 'data.importMeta.uniqueId': 1,
+        'data.cpcbOnboarding': 1,
         companyIdentity: 1, companyName: 1, clientLegalName: 1, tradeName: 1,
         piboCategory: 1, eprCategory: 1, servicesOffered: 1, plantUnit: 1,
         industryType: 1, applicantType: 1
@@ -1052,6 +1103,71 @@ exports.getClient = async (req, res) => {
     identity: normalizeClientMaster(client),
     resolvedData: resolveClientMasterData(client, requestedAssignedServiceId)
   });
+};
+
+exports.updateCpcbOnboarding = async (req, res) => {
+  const clientMasterId = String(req.body.clientMasterId || '').trim();
+  const assignedServiceId = String(req.body.assignedServiceId || '').trim();
+  const selectedLead = readSelectedLeadId(req.body.selectedLead);
+  const registered = req.body.cpcbPortalRegistered;
+  const applicationStatus = String(req.body.cpcbApplicationStatus || '').trim();
+  const validationError = validateCpcbOnboardingInput(registered, applicationStatus);
+  if (validationError) return res.status(400).json({ error: validationError });
+  if (!assignedServiceId) return res.status(400).json({ error: 'Assigned service is required' });
+  if (clientMasterId && !mongoose.Types.ObjectId.isValid(clientMasterId)) return res.status(400).json({ error: 'Invalid Client Master ID' });
+
+  const scope = await getVisibleUserScope(req.user);
+  const visibility = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo']);
+  let client = clientMasterId
+    ? await Client.findOne({ _id: clientMasterId, ...visibility })
+    : selectedLead
+      ? await Client.findOne({ selectedLead, ...visibility, $or: [
+          { assignedServiceId },
+          { 'data.assignedServiceId': assignedServiceId },
+          { 'data.selectedLeadSnapshot.assignedServiceId': assignedServiceId }
+        ] })
+      : null;
+
+  if (clientMasterId && !client) return res.status(404).json({ error: 'Client Master record not found' });
+  const creatingClient = !client;
+  if (!client) {
+    if (!selectedLead) return res.status(400).json({ error: 'Selected lead is required for first-time CPCB onboarding' });
+    const bootstrapData = isPlainObject(req.body.bootstrapData) ? req.body.bootstrapData : {};
+    client = new Client({
+      selectedLead,
+      assignedServiceId,
+      companyIdentity: normalizeCompanyIdentity(bootstrapData.basic?.clientLegalName || bootstrapData.companyOverview?.companyName || ''),
+      workflowStatus: 'draft',
+      createdBy: req.user?._id,
+      data: { ...bootstrapData, assignedServiceId }
+    });
+  }
+  const identityError = validateClientMasterIdentity(client, { assignedServiceId, selectedLead });
+  if (identityError) return res.status(409).json({ error: identityError });
+
+  const data = isPlainObject(client.data) ? { ...client.data } : {};
+  const previous = readCpcbOnboarding(data);
+  const changedAt = new Date();
+  const history = Array.isArray(data.cpcbOnboarding?.history) ? data.cpcbOnboarding.history : [];
+  data.cpcbOnboarding = {
+    cpcbPortalRegistered: registered,
+    cpcbApplicationStatus: registered ? null : applicationStatus,
+    updatedAt: changedAt,
+    updatedBy: req.user?._id,
+    history: [...history, {
+      cpcbPortalRegistered: registered,
+      cpcbApplicationStatus: registered ? null : applicationStatus,
+      previousRegistered: previous.answered ? previous.registered : null,
+      previousApplicationStatus: previous.status || null,
+      changedAt,
+      changedBy: req.user?._id
+    }].slice(-50)
+  };
+  client.assignedServiceId = assignedServiceId;
+  client.data = data;
+  client.markModified('data');
+  await client.save();
+  return res.status(creatingClient ? 201 : 200).json({ ok: true, client, identity: normalizeClientMaster(client), resolvedData: resolveClientMasterData(client, assignedServiceId) });
 };
 
 exports.getAnnualReturnPoStatus = async (req, res) => {
@@ -1277,6 +1393,8 @@ exports.updateClient = async (req, res) => {
 
   let client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
+  const restrictedUpdateError = validateRestrictedCpcbUpdate(client.data || {}, data);
+  if (restrictedUpdateError) return res.status(403).json({ error: restrictedUpdateError });
   const effectiveAssignedServiceId = assignedServiceId || readClientAssignedServiceId(client, client.data || {});
 
   const identityError = validateClientMasterIdentity(client, { assignedServiceId: effectiveAssignedServiceId, selectedLead });
@@ -1733,6 +1851,9 @@ exports.__test = {
   applyClientSubmissionMetadata,
   getClientWorkflowTransition,
   mergeAssignedServiceCpcbData,
+  readCpcbOnboarding,
+  validateCpcbOnboardingInput,
+  validateRestrictedCpcbUpdate,
   readRequestedClientId,
   validateClientMasterIdentity,
   normalizeClientMaster,

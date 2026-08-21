@@ -19,6 +19,7 @@ router.get('/pending-approvals', requireAuth, clientCtrl.listPendingApprovals);
 router.patch('/pending-approvals/clients/approve-all', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), clientCtrl.approveAllPendingClients);
 router.post('/bulk', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.bulkCreateClients);
 router.post('/years/bulk', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.bulkUpdateClientYears);
+router.post('/onboarding/cpcb', requireAuth, clientCtrl.updateCpcbOnboarding);
 router.post('/', requireAuth, clientCtrl.createClient);
 router.get('/:id', requireAuth, clientCtrl.getClient);
 router.get('/:id/annual-return/po-status', requireAuth, clientCtrl.getAnnualReturnPoStatus);
