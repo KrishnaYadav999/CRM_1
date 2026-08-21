@@ -15,10 +15,10 @@ test('CPCB onboarding accepts only the supported No-status values and clears sta
   assert.equal(__test.validateCpcbOnboardingInput(true, ''), '');
 });
 
-test('restricted client updates cannot mutate frozen sections or the onboarding decision', () => {
+test('restricted client updates accept the form payload but protect the onboarding decision', () => {
   const existing = { cpcbOnboarding: { cpcbPortalRegistered: false, cpcbApplicationStatus: 'In Process' }, compliance: { gstNumber: '' } };
   assert.equal(__test.validateRestrictedCpcbUpdate(existing, { ...existing, basic: { clientLegalName: 'Updated' } }), '');
-  assert.match(__test.validateRestrictedCpcbUpdate(existing, { ...existing, compliance: { gstNumber: 'NEW' } }), /locked compliance/i);
+  assert.equal(__test.validateRestrictedCpcbUpdate(existing, { ...existing, compliance: { gstNumber: 'NEW' } }), '');
   assert.match(__test.validateRestrictedCpcbUpdate(existing, { ...existing, cpcbOnboarding: { cpcbPortalRegistered: true } }), /only be changed/i);
 });
 
@@ -36,10 +36,7 @@ test('restricted validation compares the selected service snapshot instead of le
   };
   const resolved = __test.resolveClientMasterData(client, 'service-1');
   assert.equal(__test.validateRestrictedCpcbUpdate(resolved, { ...resolved, basic: { clientLegalName: 'Updated' } }), '');
-  assert.match(
-    __test.validateRestrictedCpcbUpdate(resolved, { ...resolved, cpcb: { loginId: 'changed-login' } }),
-    /locked cpcb/i
-  );
+  assert.equal(__test.validateRestrictedCpcbUpdate(resolved, { ...resolved, cpcb: { loginId: 'changed-login' } }), '');
 });
 
 test('restricted saves preserve stored CPCB sections while allowing unlocked data changes', () => {

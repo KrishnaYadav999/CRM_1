@@ -352,34 +352,17 @@ function validateCpcbOnboardingInput(registered, status) {
   return '';
 }
 
-function stableDataValue(value) {
-  if (value === undefined || value === null || value === '') return null;
-  if (Array.isArray(value)) {
-    const normalized = value.map(stableDataValue).filter((item) => item !== null);
-    return normalized.length ? normalized : null;
-  }
-  if (isPlainObject(value)) {
-    const normalized = Object.keys(value).sort().reduce((result, key) => {
-      const next = stableDataValue(value[key]);
-      if (next !== null) result[key] = next;
-      return result;
-    }, {});
-    return Object.keys(normalized).length ? normalized : null;
-  }
-  return value;
-}
-
 function validateRestrictedCpcbUpdate(existingData = {}, incomingData = {}) {
   const existingState = readCpcbOnboarding(existingData);
   const incomingState = readCpcbOnboarding(incomingData);
   if (existingState.answered && (!incomingState.answered || incomingState.registered !== existingState.registered || incomingState.status !== existingState.status)) {
     return 'CPCB onboarding status can only be changed through the CPCB registration status action';
   }
-  if (!existingState.answered || existingState.registered !== false) return '';
-  const changedKey = CPCB_LOCKED_DATA_KEYS.find((key) => (
-    JSON.stringify(stableDataValue(existingData[key])) !== JSON.stringify(stableDataValue(incomingData[key]))
-  ));
-  return changedKey ? `CPCB registration is pending. Updates to the locked ${changedKey} section are not allowed` : '';
+  // Pending CPCB sections are restored from stored data before persistence.
+  // Accepting the form payload avoids false failures caused by legacy/root and
+  // assigned-service snapshots having different shapes, while the sanitizer
+  // below still prevents every locked field from being changed.
+  return '';
 }
 
 function preserveRestrictedCpcbSections(existingData = {}, incomingData = {}) {
