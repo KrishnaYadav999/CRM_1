@@ -332,6 +332,36 @@ function readClientAssignedServiceId(body = {}, data = {}) {
   return String(body.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim();
 }
 
+function readRequestedClientId(body = {}) {
+  return String(body.recordId || body.clientId || body._id || body.id || '').trim();
+}
+
+function readRequestedClientWorkflowStatus(value) {
+  const status = String(value || 'draft').trim().toLowerCase();
+  return ['draft', 'submitted'].includes(status) ? status : '';
+}
+
+function getClientWorkflowTransition(currentValue, requestedValue) {
+  const currentStatus = readRequestedClientWorkflowStatus(currentValue);
+  const requestedStatus = readRequestedClientWorkflowStatus(requestedValue);
+  if (!requestedStatus) return { error: 'Invalid Client Master workflow status' };
+  if (currentStatus === 'submitted' && requestedStatus === 'draft') {
+    return { error: 'A submitted Client Master record cannot be changed back to draft' };
+  }
+  return {
+    currentStatus,
+    requestedStatus,
+    becameSubmitted: currentStatus !== 'submitted' && requestedStatus === 'submitted',
+    alreadySubmitted: currentStatus === 'submitted' && requestedStatus === 'submitted'
+  };
+}
+
+function applyClientSubmissionMetadata(client, userId, submittedAt = new Date()) {
+  if (!client.submittedAt) client.submittedAt = submittedAt;
+  if (!client.submittedBy && userId) client.submittedBy = userId;
+  return client;
+}
+
 function validateClientMasterIdentity(client, { assignedServiceId = '', selectedLead = '' } = {}) {
   const storedAssignedServiceId = readClientAssignedServiceId(client, client?.data || {});
   if (assignedServiceId && storedAssignedServiceId && String(assignedServiceId) !== storedAssignedServiceId) {
@@ -1069,10 +1099,16 @@ exports.listPendingApprovals = async (req, res) => {
 };
 
 exports.createClient = async (req, res) => {
-  const workflowStatus = req.body.workflowStatus === 'submitted' ? 'submitted' : 'draft';
+  const workflowStatus = readRequestedClientWorkflowStatus(req.body.workflowStatus);
+  if (!workflowStatus) return res.status(400).json({ error: 'Invalid Client Master workflow status' });
   const { data, adminControls } = normalizeClientRequestPayload(req.body);
   const selectedLead = readSelectedLeadId(req.body.selectedLead);
   const assignedServiceId = readClientAssignedServiceId(req.body, data);
+  const requestedClientId = readRequestedClientId(req.body);
+
+  if (requestedClientId && !mongoose.Types.ObjectId.isValid(requestedClientId)) {
+    return res.status(400).json({ error: 'Invalid Client Master record ID' });
+  }
 
   if (!assignedServiceId) {
     return res.status(400).json({ error: 'Assigned service is required to save Client Master data' });
@@ -1084,8 +1120,10 @@ exports.createClient = async (req, res) => {
   const completionError = validateClientSubmissionCompletion(data, workflowStatus);
   if (completionError) return res.status(400).json({ error: completionError });
 
-  const existingClient = selectedLead && req.user?._id
-    ? await Client.findOne({
+  const existingClient = requestedClientId
+    ? await Client.findById(requestedClientId)
+    : selectedLead && req.user?._id
+      ? await Client.findOne({
         selectedLead,
         createdBy: req.user._id,
         $or: [
@@ -1093,8 +1131,17 @@ exports.createClient = async (req, res) => {
           { 'data.assignedServiceId': assignedServiceId },
           { 'data.selectedLeadSnapshot.assignedServiceId': assignedServiceId }
         ]
-      })
-    : null;
+        })
+      : null;
+  if (requestedClientId && !existingClient) {
+    return res.status(404).json({ error: 'Client Master draft not found' });
+  }
+  if (existingClient) {
+    const identityError = validateClientMasterIdentity(existingClient, { assignedServiceId, selectedLead });
+    if (identityError) return res.status(409).json({ error: identityError });
+  }
+  const transition = getClientWorkflowTransition(existingClient?.workflowStatus || 'draft', workflowStatus);
+  if (transition.error) return res.status(409).json({ error: transition.error });
   const client = existingClient || new Client();
   client.selectedLead = selectedLead;
   client.assignedServiceId = assignedServiceId;
@@ -1102,12 +1149,13 @@ exports.createClient = async (req, res) => {
   client.data = existingClient ? mergeAssignedServiceCpcbData(existingClient.data, data) : data;
   client.workflowStatus = workflowStatus;
   client.createdBy = existingClient?.createdBy || req.user?._id;
+  if (transition.becameSubmitted) applyClientSubmissionMetadata(client, req.user?._id);
   client.markModified('data');
   await client.save();
 
-  if (workflowStatus === 'submitted') await queueCreatedClientApproval(client, req.user);
+  if (transition.becameSubmitted) await queueCreatedClientApproval(client, req.user);
 
-  res.status(201).json({ ok: true, client });
+  res.status(existingClient ? 200 : 201).json({ ok: true, client, alreadySubmitted: transition.alreadySubmitted });
 };
 
 async function createClientRecord(row, userId) {
@@ -1211,10 +1259,15 @@ exports.bulkUpdateClientYears = async (req, res) => {
 };
 
 exports.updateClient = async (req, res) => {
-  const workflowStatus = req.body.workflowStatus === 'submitted' ? 'submitted' : 'draft';
+  const workflowStatus = readRequestedClientWorkflowStatus(req.body.workflowStatus);
+  if (!workflowStatus) return res.status(400).json({ error: 'Invalid Client Master workflow status' });
   const { data, adminControls } = normalizeClientRequestPayload(req.body);
   const selectedLead = readSelectedLeadId(req.body.selectedLead);
   const assignedServiceId = readClientAssignedServiceId(req.body, data);
+  const requestedClientId = readRequestedClientId(req.body);
+  if (requestedClientId && String(requestedClientId) !== String(req.params.id)) {
+    return res.status(409).json({ error: 'Client Master record ID does not match the update URL' });
+  }
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     return res.status(400).json({ error: 'Client Legal Name is required before submit' });
@@ -1222,28 +1275,55 @@ exports.updateClient = async (req, res) => {
   const completionError = validateClientSubmissionCompletion(data, workflowStatus);
   if (completionError) return res.status(400).json({ error: completionError });
 
-  const client = await Client.findById(req.params.id);
+  let client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
   const effectiveAssignedServiceId = assignedServiceId || readClientAssignedServiceId(client, client.data || {});
 
   const identityError = validateClientMasterIdentity(client, { assignedServiceId: effectiveAssignedServiceId, selectedLead });
   if (identityError) return res.status(409).json({ error: identityError });
+  const transition = getClientWorkflowTransition(client.workflowStatus, workflowStatus);
+  if (transition.error) return res.status(409).json({ error: transition.error });
 
   const canApproveClient = CLIENT_APPROVAL_ROLES.includes(String(req.user?.role || '').trim().toLowerCase());
   const existingApprovalStatus = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
   const requestedApprovalStatus = normalizeApprovalStatus(adminControls.approvalStatus) || existingApprovalStatus;
   adminControls.approvalStatus = canApproveClient ? requestedApprovalStatus : existingApprovalStatus;
 
-  if (selectedLead) client.selectedLead = selectedLead;
-  if (effectiveAssignedServiceId) client.assignedServiceId = effectiveAssignedServiceId;
-  client.adminControls = adminControls;
   const existingData = isPlainObject(client.data) ? client.data : {};
-  client.data = mergeAssignedServiceCpcbData(existingData, data);
-  client.workflowStatus = workflowStatus;
-  client.markModified('data');
-  await client.save();
+  const mergedData = mergeAssignedServiceCpcbData(existingData, data);
 
-  if (workflowStatus === 'submitted') await queueCreatedClientApproval(client, req.user);
+  if (transition.becameSubmitted) {
+    const submittedAt = new Date();
+    const update = {
+      adminControls,
+      data: mergedData,
+      workflowStatus: 'submitted',
+      submittedAt,
+      ...(req.user?._id ? { submittedBy: req.user._id } : {}),
+      ...(selectedLead ? { selectedLead } : {}),
+      ...(effectiveAssignedServiceId ? { assignedServiceId: effectiveAssignedServiceId } : {})
+    };
+    const transitionedClient = await Client.findOneAndUpdate(
+      { _id: client._id, workflowStatus: 'draft' },
+      { $set: update },
+      { new: true, runValidators: true }
+    );
+    if (!transitionedClient) {
+      const currentClient = await Client.findById(client._id);
+      if (!currentClient) return res.status(404).json({ error: 'Client not found' });
+      return res.json({ ok: true, client: currentClient, alreadySubmitted: currentClient.workflowStatus === 'submitted' });
+    }
+    client = transitionedClient;
+    await queueCreatedClientApproval(client, req.user);
+  } else {
+    if (selectedLead) client.selectedLead = selectedLead;
+    if (effectiveAssignedServiceId) client.assignedServiceId = effectiveAssignedServiceId;
+    client.adminControls = adminControls;
+    client.data = mergedData;
+    client.workflowStatus = workflowStatus;
+    client.markModified('data');
+    await client.save();
+  }
 
   if (canApproveClient && requestedApprovalStatus !== 'PENDING' && requestedApprovalStatus !== existingApprovalStatus) {
     const actionAt = new Date();
@@ -1650,7 +1730,10 @@ exports.approveAllPendingClients = async (req, res) => {
 
 exports.__test = {
   buildClientApprovalPayload,
+  applyClientSubmissionMetadata,
+  getClientWorkflowTransition,
   mergeAssignedServiceCpcbData,
+  readRequestedClientId,
   validateClientMasterIdentity,
   normalizeClientMaster,
   resolveClientMasterData

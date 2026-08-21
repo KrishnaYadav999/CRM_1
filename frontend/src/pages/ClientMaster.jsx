@@ -1061,12 +1061,14 @@ export default function ClientMaster() {
   const [staff, setStaff] = useState([]);
   const [client, setClient] = useState(emptyClient);
   const [editingClientId, setEditingClientId] = useState('');
+  const [editingWorkflowStatus, setEditingWorkflowStatus] = useState('draft');
   const [viewClient, setViewClient] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('companyOverview');
   const [viewMode, setViewMode] = useState('list');
   const [pendingLeadServices, setPendingLeadServices] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [savingMode, setSavingMode] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -1079,6 +1081,7 @@ export default function ClientMaster() {
   const pendingApprovalLeadHandled = useRef('');
   const clientRecordRequestRef = useRef(0);
   const pageLoadRequestRef = useRef(0);
+  const saveRequestRef = useRef(false);
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
 
@@ -1504,6 +1507,7 @@ export default function ClientMaster() {
       clientRecordRequestRef.current += 1;
       setClient(emptyClient);
       setEditingClientId('');
+      setEditingWorkflowStatus('draft');
       setPendingLeadServices(null);
       return;
     }
@@ -1511,6 +1515,7 @@ export default function ClientMaster() {
     const lookupId = ++clientRecordRequestRef.current;
     setClient({ ...emptyClient, selectedLead: selectionKey });
     setEditingClientId('');
+    setEditingWorkflowStatus('draft');
     setPendingLeadServices(null);
     setNotice('Loading available services...');
     setError('');
@@ -1551,6 +1556,7 @@ export default function ClientMaster() {
       clientRecordRequestRef.current += 1;
       setClient({ ...emptyClient, selectedLead: value });
       setEditingClientId('');
+      setEditingWorkflowStatus('draft');
       return;
     }
     const visibleServices = getVisibleServiceRows(baseLead);
@@ -1558,6 +1564,7 @@ export default function ClientMaster() {
       clientRecordRequestRef.current += 1;
       setClient({ ...emptyClient, selectedLead: value });
       setEditingClientId('');
+      setEditingWorkflowStatus('draft');
       setNotice('');
       setError('');
       setPendingLeadServices({ lead: baseLead, value, services: visibleServices });
@@ -1569,6 +1576,7 @@ export default function ClientMaster() {
     const requestId = ++clientRecordRequestRef.current;
     setClient({ ...emptyClient, selectedLead: leadValue });
     setEditingClientId('');
+    setEditingWorkflowStatus('draft');
     setNotice('Loading selected Client Master...');
     setError('');
     const existingDraft = service.clientMasterId
@@ -1593,6 +1601,7 @@ export default function ClientMaster() {
             ...existingDraft,
             id: String(exactRecord._id || exactRecord.id || existingDraft.id || '').trim(),
             record: exactRecord,
+            workflowStatus: exactRecord.workflowStatus || existingDraft.workflowStatus || 'draft',
             adminControls: { ...emptyClient.adminControls, ...(exactRecord.adminControls || {}) },
             data: { ...emptyClient, ...readClientData(exactRecord), selectedLead: leadValue }
           };
@@ -1614,6 +1623,7 @@ export default function ClientMaster() {
         adminControls: { ...emptyClient.adminControls, ...(exactDraft.adminControls || exactDraft.data.adminControls || {}) }
       });
       setEditingClientId(String(exactDraft.id || '').trim());
+      setEditingWorkflowStatus(exactDraft.workflowStatus || exactDraft.record?.workflowStatus || 'draft');
       setNotice('Saved draft loaded. Continue from where you left.');
       setError('');
       return;
@@ -1794,6 +1804,7 @@ export default function ClientMaster() {
       }
     });
     setEditingClientId('');
+    setEditingWorkflowStatus('draft');
     setNotice(companyLevelSource ? 'Loaded shared company details pre-filled from existing client records. Review and continue.' : 'Selected lead details loaded.');
     setError('');
   }
@@ -1805,6 +1816,7 @@ export default function ClientMaster() {
   function openClientForm() {
     setClient(emptyClient);
     setEditingClientId('');
+    setEditingWorkflowStatus('draft');
     setActiveTab('companyOverview');
     setError('');
     setNotice('');
@@ -1873,6 +1885,7 @@ export default function ClientMaster() {
       adminControls: { ...emptyClient.adminControls, ...(item.adminControls || savedData.adminControls || {}) }
     });
     setEditingClientId(idValue);
+    setEditingWorkflowStatus(item.workflowStatus || 'draft');
     setActiveTab('companyOverview');
     setViewClient(null);
     setError('');
@@ -2111,8 +2124,10 @@ export default function ClientMaster() {
   }
 
   async function saveClient(workflowStatus) {
-    if (saving) return;
+    if (saveRequestRef.current) return;
+    saveRequestRef.current = true;
     setSaving(true);
+    setSavingMode(workflowStatus);
     setError('');
     setNotice('');
     try {
@@ -2229,6 +2244,7 @@ export default function ClientMaster() {
         return;
       }
       const payload = {
+        ...(editingClientId ? { recordId: editingClientId } : {}),
         selectedLead: getMongoObjectIdOrEmpty(normalizedClient.selectedLead),
         adminControls: buildAdminControlsPayload(normalizedClient.adminControls),
         data: normalizedClient,
@@ -2239,24 +2255,36 @@ export default function ClientMaster() {
       if (!savedClient || typeof savedClient !== 'object') throw new Error('CRM did not return the saved client.');
       const savedId = savedClient._id || savedClient.id || editingClientId || '';
       if (savedId) setEditingClientId(savedId);
-      rememberClientDraft(savedClient, { ...normalizedClient, selectedLead: normalizedClient.selectedLead, workflowStatus });
+      setEditingWorkflowStatus(savedClient.workflowStatus || workflowStatus);
+      const savedDraft = {
+        id: savedId,
+        workflowStatus: savedClient.workflowStatus || workflowStatus
+      };
+      if (workflowStatus === 'submitted') {
+        removeCachedClientDraft(savedDraft);
+      } else {
+        rememberClientDraft(savedClient, { ...normalizedClient, selectedLead: normalizedClient.selectedLead, workflowStatus });
+      }
       setClient((current) => ({
         ...current,
         ...readClientData(savedClient),
         selectedLead: current.selectedLead,
         adminControls: { ...current.adminControls, ...(savedClient.adminControls || {}) }
       }));
-      setNotice(workflowStatus === 'submitted' ? 'Client submitted successfully.' : 'Client draft saved. You can continue editing this same lead.');
+      setNotice(workflowStatus === 'submitted' ? 'Record submitted successfully.' : 'Client draft saved. You can continue editing this same lead.');
       await loadPage();
       if (workflowStatus === 'submitted') {
         setClient(emptyClient);
         setEditingClientId('');
+        setEditingWorkflowStatus('draft');
         setViewMode('list');
       }
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to save client');
     } finally {
+      saveRequestRef.current = false;
       setSaving(false);
+      setSavingMode('');
     }
   }
 
@@ -2313,6 +2341,7 @@ export default function ClientMaster() {
             currentUser={currentUser}
             loading={loading}
             error={error}
+            notice={notice}
             onRefresh={loadPage}
             onView={openClientView}
             onEdit={openClientEdit}
@@ -2505,8 +2534,8 @@ export default function ClientMaster() {
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <button type="button" disabled={saving} onClick={() => saveClient('draft')} className="btn-lift min-h-11 rounded-xl border border-orange-200 bg-white px-8 font-black text-orange-600 hover:bg-orange-50">Save Draft</button>
-            <button type="button" disabled={saving} onClick={() => saveClient('submitted')} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-8 font-black text-white shadow-lg shadow-orange-600/20">Submit</button>
+            <button type="button" disabled={saving || editingWorkflowStatus === 'submitted'} onClick={() => saveClient('draft')} className="btn-lift min-h-11 rounded-xl border border-orange-200 bg-white px-8 font-black text-orange-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">{savingMode === 'draft' ? 'Saving...' : 'Save Draft'}</button>
+            <button type="button" disabled={saving} onClick={() => saveClient('submitted')} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-8 font-black text-white shadow-lg shadow-orange-600/20">{savingMode === 'submitted' ? 'Submitting...' : 'Submit'}</button>
             <button type="button" disabled={saving || activeIndex === tabs.length - 1} onClick={nextTab} className="btn-lift min-h-11 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 px-8 font-black text-white shadow-lg shadow-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-60">Next Step</button>
           </div>
         </div>

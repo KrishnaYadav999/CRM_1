@@ -11,6 +11,8 @@ const ClientSchema = new mongoose.Schema({
   },
   data: { type: mongoose.Schema.Types.Mixed, default: {} },
   workflowStatus: { type: String, enum: ['draft', 'submitted'], default: 'draft' },
+  submittedAt: { type: Date },
+  submittedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   sync: {
     source: { type: String, trim: true, default: 'crm' },

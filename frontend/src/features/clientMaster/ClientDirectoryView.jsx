@@ -99,7 +99,7 @@ function clientMatchesSearch(item, term) {
     compactHaystack.includes(compactTerm);
 }
 
-function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRefresh, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
+function ClientDirectoryView({ clients, staff, currentUser, loading, error, notice, onRefresh, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -244,6 +244,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, onRe
         />
         {selectedMetric && <ClientMetricOutputCard stat={selectedMetric} clients={filteredClients} onClose={() => setMetricFilter('')} onExport={exportExcel} />}
         {error && <ToastMessage type="error">{error}</ToastMessage>}
+        {notice && <ToastMessage type="success">{notice}</ToastMessage>}
 
         <div className="client-directory-toolbar grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm xl:grid-cols-[minmax(240px,1.2fr)_minmax(210px,0.8fr)_minmax(190px,0.8fr)_auto] xl:items-center">
           <div className="relative min-w-0">
