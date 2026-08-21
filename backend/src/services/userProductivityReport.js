@@ -292,6 +292,43 @@ function getClientApplicantIdentity({ client = {}, lead = {} } = {}) {
   };
 }
 
+function normalizeClientWorkIdentity(value = '') {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function clientWorkRowsShareService(left = {}, right = {}) {
+  const leftLead = normalizeClientWorkIdentity(left.leadId);
+  const rightLead = normalizeClientWorkIdentity(right.leadId);
+  const sameCompany = leftLead && rightLead
+    ? leftLead === rightLead
+    : normalizeClientWorkIdentity(left.company) === normalizeClientWorkIdentity(right.company);
+  if (!sameCompany) return false;
+
+  return ['applicantType', 'subApplicantType', 'serviceCategory', 'servicesOffered', 'plantUnit', 'businessCategory'].every((field) => {
+    const leftValue = normalizeClientWorkIdentity(left[field]);
+    const rightValue = normalizeClientWorkIdentity(right[field]);
+    return !leftValue || !rightValue || leftValue === rightValue;
+  });
+}
+
+function deduplicateClientWorkRows(rows = []) {
+  return rows.reduce((result, row) => {
+    const matchingIndex = result.findIndex((candidate) => clientWorkRowsShareService(candidate, row));
+    if (matchingIndex === -1) return [...result, row];
+
+    const current = result[matchingIndex];
+    const currentSubmitted = String(current.status || '').toLowerCase() === 'submitted';
+    const incomingSubmitted = String(row.status || '').toLowerCase() === 'submitted';
+    const incomingIsNewer = new Date(row.updatedAt || row.createdAt || 0) > new Date(current.updatedAt || current.createdAt || 0);
+    if ((incomingSubmitted && !currentSubmitted) || (incomingSubmitted === currentSubmitted && incomingIsNewer)) {
+      const next = [...result];
+      next[matchingIndex] = row;
+      return next;
+    }
+    return result;
+  }, []);
+}
+
 function analyzeClientMasterData(data = {}) {
   const entries = [];
   const filled = (value) => Array.isArray(value) ? value.length > 0 : value && typeof value === 'object' ? Boolean(value.url || value.secureUrl || value.dataUrl || value.path || value.publicId || value.name || value.fileName) : value !== undefined && value !== null && String(value).trim() !== '';
@@ -374,17 +411,22 @@ async function getUserWorkReport({ userId, from, to, requester }) {
   });
   const leadById = new Map(leads.map((lead) => [String(lead._id), lead]));
   const latestClients = [...new Map([...clients].sort((left, right) => new Date(left.updatedAt || left.createdAt || 0) - new Date(right.updatedAt || right.createdAt || 0)).map((client) => [`${String(client.selectedLead || client._id)}:${String(client.assignedServiceId || client.data?.assignedServiceId || '')}`, client])).values()];
-  const clientRows = latestClients.map((client) => {
+  const clientRows = deduplicateClientWorkRows(latestClients.map((client) => {
     const lead = leadById.get(String(client.selectedLead || ''));
     const applicantIdentity = getClientApplicantIdentity({ client, lead });
+    const data = client.data || {};
+    const snapshot = data.selectedLeadSnapshot || {};
     const required = analyzeClientMasterData(client.data || {});
     const sections = required.sections;
     const filled = required.filledCount;
     const total = required.totalCount;
     return { id: client._id, leadId: client.selectedLead, leadCode: lead?.leadCode || '', company: companyNameFor({ lead, client }), status: client.workflowStatus, ...applicantIdentity,
+      serviceCategory: data.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || '',
+      servicesOffered: data.basic?.servicesOffered || snapshot.servicesOffered || snapshot.applicableService || '',
+      plantUnit: data.basic?.plantUnit || snapshot.plantUnit || '', businessCategory: snapshot.businessCategory || '',
       approvalStatus: client.adminControls?.approvalStatus || '', createdAt: client.createdAt, updatedAt: client.updatedAt,
       analysis: { filled, missing: Math.max(0, total - filled), total, percentage: total ? Math.round((filled / total) * 100) : 0, filledFields: required.filledFields, missingFields: required.missingFields, sections } };
-  });
+  }));
   const clientLeadIds = new Set(clientRows.map((row) => String(row.leadId || '')).filter(Boolean));
   const today = new Date().toISOString().slice(0, 10);
   const leadRows = leads.map((lead) => {
@@ -419,4 +461,4 @@ async function getUserWorkReport({ userId, from, to, requester }) {
     completeClients: clientRows.filter((row) => row.analysis.percentage === 100).length, incompleteClients: clientRows.filter((row) => row.analysis.percentage < 100).length }, leads: leadRows, clients: clientRows, teamMembers };
 }
 
-module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange, getClientApplicantIdentity, canViewUserWorkReport };
+module.exports = { getUserProductivityReport, getUserWorkReport, analyzeClientMasterData, clientSectionAnalysis, buildUserProductivityReport, productivityScore, riskForUser, reportDateRange, getClientApplicantIdentity, deduplicateClientWorkRows, canViewUserWorkReport };

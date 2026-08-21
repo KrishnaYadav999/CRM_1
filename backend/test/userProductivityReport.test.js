@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
-const { analyzeClientMasterData, buildUserProductivityReport, canViewUserWorkReport, clientSectionAnalysis, getClientApplicantIdentity, productivityScore } = require('../src/services/userProductivityReport');
+const { analyzeClientMasterData, buildUserProductivityReport, canViewUserWorkReport, clientSectionAnalysis, deduplicateClientWorkRows, getClientApplicantIdentity, productivityScore } = require('../src/services/userProductivityReport');
 
 function user(id, name) {
   return { _id: id, name, email: `${name.toLowerCase()}@example.com`, role: 'operation', isActive: true, lastLogin: new Date('2026-08-08T04:30:00.000Z') };
@@ -183,6 +183,19 @@ test('Client Master rows resolve applicant identity from current and legacy reco
     client: { data: { basic: { piboCategory: 'Importer' }, selectedLeadSnapshot: { piboParent: 'PIBO' } } }
   });
   assert.deepEqual(legacy, { applicantType: 'PIBO', subApplicantType: 'Importer' });
+});
+
+test('submitted Client Master service suppresses its stale draft duplicate without hiding another service', () => {
+  const rows = [
+    { id: 'draft-importer', leadId: 'lead-1', company: 'ASIA BULK SACKS PRIVATE LIMITED', applicantType: 'PIBO', subApplicantType: 'Importer', serviceCategory: 'EPR - Plastic Waste', status: 'draft', updatedAt: '2026-08-20T10:00:00.000Z' },
+    { id: 'draft-producer', leadId: 'lead-1', company: 'ASIA BULK SACKS PRIVATE LIMITED', applicantType: 'PIBO', subApplicantType: 'Producer', serviceCategory: 'EPR - Plastic Waste', status: 'draft', updatedAt: '2026-08-20T11:00:00.000Z' },
+    { id: 'submitted-importer', leadId: 'lead-1', company: 'ASIA BULK SACKS PRIVATE LIMITED', applicantType: 'PIBO', subApplicantType: 'Importer', serviceCategory: 'EPR - Plastic Waste', status: 'submitted', updatedAt: '2026-08-21T10:00:00.000Z' }
+  ];
+
+  const result = deduplicateClientWorkRows(rows);
+  assert.deepEqual(result.map((row) => row.id), ['submitted-importer', 'draft-producer']);
+  assert.equal(result.filter((row) => row.status === 'draft').length, 1);
+  assert.equal(result.filter((row) => row.status === 'submitted').length, 1);
 });
 
 test('full company analysis covers every Client Master section and respects applicability', () => {
