@@ -3662,7 +3662,6 @@ function SalesStatesMapCard({ rows = [], delay = 0 }) {
   const total = rows.reduce((sum, row) => sum + row.value, 0)
   const max = Math.max(1, ...rows.map((row) => row.value))
   const visibleRows = rows.slice(0, 7)
-  const markerPoints = [[65, 126], [49, 147], [91, 143], [76, 173], [72, 211], [80, 270]]
 
   return (
     <motion.article className="sales-states-map-card" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .42, delay }}>
@@ -3672,15 +3671,7 @@ function SalesStatesMapCard({ rows = [], delay = 0 }) {
       </header>
       <div className="sales-states-map-body">
         <div className="sales-india-map" role="img" aria-label="India lead distribution map">
-          <svg viewBox="0 0 180 330" aria-hidden="true">
-            <path className="india-outline" d="M65 8 86 15 98 29 116 33 124 48 116 67 125 82 146 91 157 108 149 126 166 138 154 151 161 166 145 178 139 196 123 202 114 222 105 241 97 262 90 287 78 315 68 289 58 265 49 244 42 219 31 202 30 181 18 169 25 151 17 135 31 119 29 102 42 90 38 72 52 59 49 42 59 31 55 18Z" />
-            <path className="india-region region-west" d="M18 135 31 119 55 119 70 132 66 164 49 177 30 181 18 169 25 151Z" />
-            <path className="india-region region-central" d="M55 119 91 105 112 122 110 157 91 177 66 164 70 132Z" />
-            <path className="india-region region-north" d="M49 42 65 8 86 15 98 29 116 33 116 67 92 82 68 71 52 59Z" />
-            <path className="india-region region-south" d="M49 177 91 177 114 222 105 241 97 262 90 287 78 315 68 289 58 265 49 244 42 219 31 202Z" />
-            <path className="india-region region-east" d="M110 157 149 126 166 138 154 151 161 166 145 178 139 196 123 202 114 222 91 177Z" />
-            {visibleRows.slice(0, 6).map((row, index) => <g key={`${row.label}-${index}`} transform={`translate(${markerPoints[index][0]} ${markerPoints[index][1]})`}><circle r="10" /><text y="3.5">{index + 1}</text></g>)}
-          </svg>
+          <img src="/maps/india-states.svg" alt="India map with state and district boundaries" />
           <div className="sales-map-scale"><span>Lead Count</span><i /><small><em>Low</em><em>High</em></small></div>
         </div>
         <div className="sales-state-ranking">
