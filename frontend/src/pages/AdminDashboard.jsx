@@ -3572,14 +3572,16 @@ function AnnualReturnYearModal({ row, onClose, onSelectYear }) {
   )
 }
 
-function SalesAnalyticsBars({ title, subtitle, rows = [], tone = 'teal', delay = 0 }) {
+function SalesAnalyticsBars({ title, subtitle, rows = [], tone = 'teal', delay = 0, initialLimit = 0 }) {
+  const [showAllRows, setShowAllRows] = useState(false)
   const max = Math.max(1, ...rows.map((row) => row.value))
   const total = rows.reduce((sum, row) => sum + row.value, 0)
+  const visibleRows = initialLimit && !showAllRows ? rows.slice(0, initialLimit) : rows
   return (
     <motion.article className={`sales-mix-card sales-mix-${tone}`} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .42, delay }}>
       <header><div><span>{subtitle}</span><h3>{title}</h3></div><b>{total}</b></header>
       <div className="sales-mix-bars">
-        {rows.length ? rows.map((row, index) => {
+        {rows.length ? visibleRows.map((row, index) => {
           const percentValue = Math.round((row.value / Math.max(total, 1)) * 100)
           return (
             <div className="sales-mix-row" key={`${row.label}-${index}`} title={`${row.label}: ${row.value} (${percentValue}%)`}>
@@ -3590,6 +3592,7 @@ function SalesAnalyticsBars({ title, subtitle, rows = [], tone = 'teal', delay =
           )
         }) : <p className="sales-mix-empty">No data available yet</p>}
       </div>
+      {initialLimit > 0 && rows.length > initialLimit && <button type="button" className="sales-mix-view-more" aria-expanded={showAllRows} onClick={() => setShowAllRows((value) => !value)}>{showAllRows ? 'View Less' : `View More (${rows.length - initialLimit})`}<ChevronDown aria-hidden="true" /></button>}
     </motion.article>
   )
 }
@@ -3829,9 +3832,6 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
           <h1>Sales Dashboard</h1>
           <p>Real-time overview of your sales pipeline and performance.</p>
         </div>
-        <div className="sales-hero-actions">
-          <button type="button"><CalendarDays aria-hidden="true" />{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</button>
-        </div>
       </div>
 
       <div className="sales-metric-grid">
@@ -3845,7 +3845,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       </AnimatePresence>
 
       <div className="sales-reference-top-grid">
-        <SalesAnalyticsBars title="Applicant Type" subtitle="Applicant distribution" rows={salesMixAnalytics.subApplicantTypes} tone="teal" delay={.04} />
+        <SalesAnalyticsBars title="Applicant Type" subtitle="Applicant distribution" rows={salesMixAnalytics.subApplicantTypes} tone="teal" delay={.04} initialLimit={7} />
         <SalesAnalyticsBars title="Top Industries" subtitle="Industry concentration" rows={salesMixAnalytics.industries} tone="teal" delay={.08} />
         <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={salesMixAnalytics.states} tone="green" delay={.1} />
       </div>
