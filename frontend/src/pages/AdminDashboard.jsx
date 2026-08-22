@@ -3699,7 +3699,7 @@ function SalesStatesMapCard({ rows = [], delay = 0 }) {
       </header>
       <div className="sales-states-map-body">
         <div className="sales-india-map" aria-label="Interactive India lead distribution map">
-          <ComposableMap projection="geoMercator" projectionConfig={{ center: [82, 22], scale: 720 }} width={420} height={340}>
+          <ComposableMap projection="geoMercator" projectionConfig={{ center: [82, 22], scale: 560 }} width={420} height={340}>
             <Geographies geography={indiaStatesGeoJson}>{({ geographies }) => geographies.map((geo) => {
               const key = normalizeState(geo.properties.ST_NM || geo.properties.st_nm || geo.properties.NAME_1)
               const value = stateValues[key] || 0
@@ -3843,7 +3843,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       ;(lead.assignments || []).forEach((assignment) => {
         ;(assignment.poYearRows || []).forEach((row) => {
           if (!getPoValue(row.poNumber, row.poFileUrl, row.poAmount)) return
-          records.push({ company, poNumber: row.poNumber || '', fileUrl: row.poFileUrl || getFileUrl(row.poFile), amount: Number(row.poAmount || row.amount || 0), fy: row.fy || row.fyYear || '', source: 'Lead purchase order' })
+          records.push({ owner: getLeadOwnerName(lead), company, poNumber: row.poNumber || '', fileUrl: row.poFileUrl || getFileUrl(row.poFile), amount: Number(row.poAmount || row.amount || 0), fy: row.fy || row.fyYear || '', source: 'Lead purchase order' })
         })
       })
     })
@@ -3852,7 +3852,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       const poNumber = getPoValue(quote.poNumber, quote.poNo, quote.purchaseOrderNo, purchaseOrder.number)
       const file = getPoValue(quote.poFileUrl, quote.poDocument, purchaseOrder.document, purchaseOrder.file)
       if (!poNumber && !file) return
-      records.push({ company: quote.leadDetails?.companyName || quote.companyName || 'Quotation company', poNumber, fileUrl: getFileUrl(file), amount: Number(quote.poAmount || purchaseOrder.amount || quote.grandTotal || 0), source: 'Quotation purchase order' })
+      records.push({ owner: getQuotationOwnerName(quote), company: quote.leadDetails?.companyName || quote.companyName || 'Quotation company', poNumber, fileUrl: getFileUrl(file), amount: Number(quote.poAmount || purchaseOrder.amount || quote.grandTotal || 0), source: 'Quotation purchase order' })
     })
     const unique = new Map()
     records.forEach((row) => {
@@ -4199,7 +4199,7 @@ function SalesFollowUps({ leads = [], onView, onCalendar }) {
   )
 }
 
-function SalesPurchaseOrderTable({ rows = [] }) {
+function SalesPurchaseOrderFlatTable({ rows = [] }) {
   const totalValue = rows.reduce((sum, row) => sum + row.amount, 0)
   return (
     <motion.section className="sales-po-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
@@ -4207,6 +4207,29 @@ function SalesPurchaseOrderTable({ rows = [] }) {
       <div className="sales-po-table-wrap"><table><thead><tr><th>Company Name</th><th>PO Number</th><th>PO Upload</th><th>Total PO</th></tr></thead><tbody>
         {rows.length ? rows.map((row, index) => <tr key={`${row.company}-${row.poNumber}-${index}`}><td><strong>{row.company}</strong><small>{row.fy || row.source || 'Sales PO'}</small></td><td>{row.poNumber || '-'}</td><td>{row.fileUrl ? <a href={row.fileUrl} target="_blank" rel="noreferrer"><Eye aria-hidden="true" />View PO</a> : <span className="sales-po-pending">Not uploaded</span>}</td><td><strong>{formatDashboardInr(row.amount)}</strong></td></tr>) : <tr><td colSpan={4}><EmptyOperationState label="No purchase orders found" /></td></tr>}
       </tbody></table></div>
+    </motion.section>
+  )
+}
+
+function SalesPurchaseOrderTable({ rows = [] }) {
+  const [expandedOwner, setExpandedOwner] = useState('')
+  const totalValue = rows.reduce((sum, row) => sum + row.amount, 0)
+  const ownerGroups = Object.values(rows.reduce((groups, row) => {
+    const owner = row.owner || 'Unassigned'
+    const key = normalizeKey(owner) || 'unassigned'
+    if (!groups[key]) groups[key] = { key, owner, rows: [], total: 0 }
+    groups[key].rows.push(row)
+    groups[key].total += row.amount
+    return groups
+  }, {})).sort((left, right) => right.total - left.total || left.owner.localeCompare(right.owner))
+  return (
+    <motion.section className="sales-po-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="sales-section-head"><div><FileCheck2 className="h-4 w-4" /><strong>Purchase Orders by User</strong></div><p>{rows.length} PO records | {formatDashboardInr(totalValue)}</p></div>
+      <div className="sales-po-owner-list">{ownerGroups.length ? ownerGroups.map((group) => {
+        const open = expandedOwner === group.key
+        const initials = group.owner.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'NA'
+        return <section className="sales-po-owner" key={group.key}><button type="button" aria-expanded={open} onClick={() => setExpandedOwner((current) => current === group.key ? '' : group.key)}><i>{initials}</i><span><strong>{group.owner}</strong><small>{group.rows.length} purchase order{group.rows.length === 1 ? '' : 's'}</small></span><em>{formatDashboardInr(group.total)}</em><ChevronDown aria-hidden="true" /></button><AnimatePresence initial={false}>{open && <motion.div className="sales-po-table-wrap" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: .28 }}><table><thead><tr><th>Company Name</th><th>PO Number</th><th>PO Upload</th><th>Total PO</th></tr></thead><tbody>{group.rows.map((row, index) => <tr key={`${row.company}-${row.poNumber}-${index}`}><td><strong>{row.company}</strong><small>{row.fy || row.source || 'Sales PO'}</small></td><td>{row.poNumber || '-'}</td><td>{row.fileUrl ? <a href={row.fileUrl} target="_blank" rel="noreferrer"><Eye aria-hidden="true" />View PO</a> : <span className="sales-po-pending">Not uploaded</span>}</td><td><strong>{formatDashboardInr(row.amount)}</strong></td></tr>)}</tbody></table></motion.div>}</AnimatePresence></section>
+      }) : <EmptyOperationState label="No purchase orders found" />}</div>
     </motion.section>
   )
 }
