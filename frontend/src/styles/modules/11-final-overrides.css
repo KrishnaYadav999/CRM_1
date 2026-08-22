@@ -6975,3 +6975,33 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
   background: #f97316 !important;
   color: #fff !important;
 }
+
+/* Sales dashboard pro: dense, scan-first command center matching the approved concept. */
+.sales-dashboard{max-width:1700px!important;margin:0 auto!important;color:#172033}
+.sales-dashboard .sales-hero{margin-bottom:12px!important;padding:0 2px!important}
+.sales-dashboard .sales-hero h1{font-size:28px!important;line-height:1.05!important;letter-spacing:0!important}
+.sales-dashboard .sales-metric-grid{gap:12px!important;margin-top:0!important}
+.sales-dashboard .sales-metric-card{min-height:104px!important;border-radius:8px!important;padding:16px 18px!important;box-shadow:0 5px 18px rgba(15,23,42,.055)!important}
+.sales-dashboard .sales-metric-card>span{width:48px!important;height:48px!important;border-radius:8px!important}
+.sales-dashboard .sales-metric-card strong{font-size:30px!important;line-height:1!important}
+.sales-dashboard .sales-metric-card small{font-size:10px!important}
+.red-flag-audit-compact{margin-top:12px!important;border-radius:8px!important;box-shadow:none!important}
+.red-flag-audit-compact>header{min-height:54px!important;align-items:center!important;padding:9px 14px!important;background:#fff7f7!important}
+.red-flag-audit-title{display:flex;align-items:center;gap:10px;min-width:250px}.red-flag-audit-title>svg{width:22px;height:22px;flex:none;color:#dc2626}.red-flag-audit-title>div{min-width:0}
+.red-flag-audit-compact>header span{display:none}.red-flag-audit-compact>header h2{margin:0!important;font-size:14px!important;color:#b91c1c!important;white-space:nowrap}.red-flag-audit-compact>header p{display:none}
+.red-flag-audit-compact .red-flag-audit-summary{align-items:center;flex:1;justify-content:flex-end;gap:0!important}
+.red-flag-audit-compact .red-flag-audit-summary b{min-width:92px!important;border:0!important;border-left:1px solid #fecaca!important;border-radius:0!important;background:transparent!important;padding:4px 10px!important;font-size:15px!important}
+.red-flag-audit-compact .red-flag-audit-summary small{display:block!important;font-size:8px!important;letter-spacing:0!important;white-space:nowrap}
+.red-flag-details-toggle{display:inline-flex;height:34px;align-items:center;gap:6px;margin-left:12px;border:1px solid #f87171;border-radius:6px;background:#fff;padding:0 12px;color:#b91c1c;font-size:10px;font-weight:900;white-space:nowrap}.red-flag-details-toggle svg{width:14px;transition:transform .18s}.red-flag-audit-compact.is-expanded .red-flag-details-toggle svg{transform:rotate(180deg)}
+.red-flag-audit-compact .red-flag-table-wrap{border-top:1px solid #fecaca}
+.sales-dashboard .sales-mix-top-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important}
+.sales-dashboard .sales-mix-card,.sales-dashboard .sales-applicant-type-panel{min-height:244px!important;border-radius:8px!important;box-shadow:0 4px 14px rgba(15,23,42,.045)!important}
+.sales-dashboard .sales-mix-card{padding:14px!important}.sales-dashboard .sales-mix-card::before,.sales-dashboard .sales-mix-card::after{display:none!important}
+.sales-dashboard .sales-mix-card header h3{font-size:13px!important}.sales-dashboard .sales-mix-row{grid-template-columns:minmax(74px,.9fr) minmax(70px,1.25fr) 28px 32px!important;gap:6px!important}.sales-dashboard .sales-mix-row strong{font-size:9px!important}.sales-dashboard .sales-mix-row>div{height:5px!important}
+.sales-dashboard .sales-applicant-type-head{padding:11px 12px 9px!important}.sales-dashboard .sales-applicant-type-head h3{font-size:13px!important}.sales-dashboard .sales-applicant-type-tabs{border-radius:6px!important;padding:2px!important}.sales-dashboard .sales-applicant-type-tabs button{min-height:26px!important;border-radius:4px!important;padding:0 7px!important;font-size:8px!important}.sales-dashboard .sales-applicant-type-tabs button.active{border-radius:4px!important}
+.sales-insight-grid-pro{display:grid!important;grid-template-columns:minmax(0,1.45fr) repeat(3,minmax(0,1fr))!important;gap:12px!important;margin-top:12px!important;align-items:stretch!important}
+.sales-insight-grid-pro>.sales-lead-breakdown-card,.sales-insight-grid-pro>.sales-donut-card,.sales-insight-grid-pro>.sales-follow-card{min-width:0!important;height:100%!important;margin:0!important;border-radius:8px!important;box-shadow:0 4px 14px rgba(15,23,42,.045)!important}
+.sales-insight-grid-pro .sales-lead-breakdown-table{min-width:720px!important}.sales-insight-grid-pro .sales-lead-breakdown-wrap{height:256px!important;overflow:auto!important}.sales-insight-grid-pro .sales-section-head{min-height:44px!important}
+.sales-dashboard .sales-recent-card{margin-top:12px!important;border-radius:8px!important;box-shadow:0 4px 14px rgba(15,23,42,.045)!important}
+@media(max-width:1320px){.sales-dashboard .sales-mix-top-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sales-insight-grid-pro{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sales-insight-grid-pro>.sales-lead-breakdown-card{grid-column:1/-1}}
+@media(max-width:760px){.red-flag-audit-compact>header{align-items:flex-start!important}.red-flag-audit-compact .red-flag-audit-summary{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.red-flag-audit-compact .red-flag-audit-summary b{border-left:0!important;border-top:1px solid #fecaca!important}.red-flag-details-toggle{grid-column:1/-1;justify-content:center;margin:6px 0 0}.sales-dashboard .sales-mix-top-grid,.sales-insight-grid-pro{grid-template-columns:1fr!important}.sales-insight-grid-pro>.sales-lead-breakdown-card{grid-column:auto}}

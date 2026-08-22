@@ -468,8 +468,9 @@ function buildRedFlagHistory(item = {}, stage = {}) {
   return events.filter((event) => event.at)
 }
 
-function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Missed Action Audit' }) {
+function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Missed Action Audit', compact = false }) {
   const [selected, setSelected] = useState(null)
+  const [expanded, setExpanded] = useState(!compact)
   const [page, setPage] = useState(1)
   const pageSize = 5
   const rows = useMemo(() => items
@@ -491,18 +492,19 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
 
   return (
     <>
-      <section className="red-flag-audit">
+      <section className={`red-flag-audit${compact ? ' red-flag-audit-compact' : ''}${expanded ? ' is-expanded' : ''}`}>
         <header>
-          <div><span>Action control</span><h2>{title}</h2><p>30 minutes before through the permanent 48-hour red-flag escalation in one place.</p></div>
+          <div className="red-flag-audit-title"><ShieldAlert aria-hidden="true" /><div><span>Action control</span><h2>{title}</h2><p>30 minutes before through the permanent 48-hour red-flag escalation in one place.</p></div></div>
           <div className="red-flag-audit-summary">
             <b>{counts['permanent-red'] || 0}<small>Red flags</small></b>
             <b>{(counts['overdue-60'] || 0) + (counts['overdue-30'] || 0)}<small>Missed</small></b>
             <b>{counts['due-30'] || 0}<small>Due soon</small></b>
             <b className="is-resolved-green">{counts['resolved-green'] || 0}<small>Resolved green</small></b>
             <b className="is-resolved-red">{counts['resolved-red'] || 0}<small>Resolved red</small></b>
+            {compact && <button type="button" className="red-flag-details-toggle" onClick={() => setExpanded((value) => !value)}>{expanded ? 'Hide Details' : 'View Details'}<ChevronDown aria-hidden="true" /></button>}
           </div>
         </header>
-        <div className="red-flag-table-wrap">
+        <div className="red-flag-table-wrap" hidden={compact && !expanded}>
           <table>
             <thead><tr><th>Stage</th><th>Lead / Follow-up</th><th>Assigned User</th><th>Due At</th><th>No-action Reason</th><th>History</th></tr></thead>
             <tbody>
@@ -522,7 +524,7 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
             </tbody>
           </table>
         </div>
-        {rows.length > pageSize && (
+        {(!compact || expanded) && rows.length > pageSize && (
           <div className="red-flag-pagination">
             <div className="red-flag-pagination-meta">
               <strong>{rows.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, rows.length)}</strong>
@@ -3627,11 +3629,40 @@ function SalesMixAnalytics({ analytics, total }) {
           />
         </div>
         <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={analytics.states} tone="green" delay={.16} />
-      </div>
-      <div className="sales-mix-bottom-grid">
         <SalesAnalyticsBars title="Team Workload · Leads Assigned" subtitle="Ownership balance" rows={analytics.workload} tone="amber" delay={.2} />
       </div>
     </section>
+  )
+}
+
+function SalesRiskStrip({ items = [], onView }) {
+  const stages = items.map(getRedFlagStage).filter(Boolean)
+  const redFlags = stages.filter((stage) => stage.key === 'permanent-red').length
+  const overdue = stages.filter((stage) => ['overdue-30', 'overdue-60'].includes(stage.key)).length
+  const dueSoon = stages.filter((stage) => stage.key === 'due-30').length
+  return (
+    <section className="sales-risk-strip">
+      <div className="sales-risk-title"><ShieldAlert aria-hidden="true" /><strong>Sales Red Flags &amp; Missed Follow-ups</strong></div>
+      <span><b>{redFlags}</b> leads not contacted in 3+ days</span>
+      <span><b>{overdue}</b> follow-ups overdue today</span>
+      <span><b>{dueSoon}</b> quotations pending &gt; 7 days</span>
+      <span><b>{formatDashboardInr(items.reduce((sum, item) => sum + (Number(item.dealValue) || 0), 0))}</b> at risk</span>
+      <button type="button" onClick={onView}>View Details</button>
+    </section>
+  )
+}
+
+function SalesCommunicationTerms({ users = [], currentUser = {} }) {
+  const rows = (users.length ? users : [currentUser]).filter(Boolean).slice(0, 5)
+  return (
+    <motion.section className="sales-communication-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="sales-section-head"><div><Mail className="h-4 w-4" /><strong>My Communication Terms</strong></div></div>
+      <div className="sales-activity-table"><table><thead><tr><th>Mobile No.</th><th>OTP Status</th><th>Person Name</th><th>Designation</th><th>Mode</th><th>Verified</th><th>Status</th></tr></thead>
+        <tbody>{rows.length ? rows.map((user, index) => <tr key={user._id || user.id || user.email || index}>
+          <td>{user.mobile || user.phone || '-'}</td><td><span>OTP Verified</span></td><td>{user.name || user.email || 'CRM User'}</td><td>{roleLabels[user.role] || user.role || 'Sales'}</td><td>{user.communicationMode || 'Email'}</td><td><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /></td><td><span>Active</span></td>
+        </tr>) : <tr><td colSpan={7}><EmptyOperationState label="No communication records" /></td></tr>}</tbody>
+      </table></div>
+    </motion.section>
   )
 }
 
@@ -3640,6 +3671,10 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
   const [reportModal, setReportModal] = useState(null)
   const [leadSourcePeriod, setLeadSourcePeriod] = useState(() => `months:m${new Date().getMonth()}`)
   const [quotationPeriod, setQuotationPeriod] = useState(() => `months:m${new Date().getMonth()}`)
+  useEffect(() => {
+    document.body.classList.add('sales-dashboard-page')
+    return () => document.body.classList.remove('sales-dashboard-page')
+  }, [])
   const scopedLeads = useMemo(() => getSalesVisibleRecords(leads, (lead) => leadBelongsToSalesUser(lead, currentUser)), [currentUser, leads])
   const scopedQuotations = useMemo(() => getSalesVisibleRecords(quotations, (quote) => quotationBelongsToSalesUser(quote, currentUser)), [currentUser, quotations])
   const periodLeads = useMemo(() => scopedLeads.filter((lead) => isDateInSalesPeriod(getLeadCreatedDate(lead), leadSourcePeriod)), [leadSourcePeriod, scopedLeads])
@@ -3776,7 +3811,11 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
         <div>
           <p className="operations-eyebrow">Sales command center</p>
           <h1>Sales Dashboard</h1>
-          <p>Lead generation, quotations, conversion, source mix and today follow-up visibility.</p>
+          <p>Real-time overview of your sales pipeline and performance.</p>
+        </div>
+        <div className="sales-hero-actions">
+          <button type="button"><CalendarDays aria-hidden="true" />{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</button>
+          <button type="button"><ListChecks aria-hidden="true" />Filters</button>
         </div>
       </div>
 
@@ -3784,13 +3823,10 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
         {metrics.map((metric, index) => <SalesMetricCard key={metric.label} metric={metric} index={index} />)}
       </div>
 
-      <RedFlagAuditSection items={calendarFollowUps} users={users} title="Sales Red Flag & Missed Follow-ups" />
+      <SalesRiskStrip items={calendarFollowUps} onView={() => document.getElementById('sales-red-flag-details')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
 
-      <SalesMixAnalytics analytics={salesMixAnalytics} total={scopedLeads.length} />
-
-      <SalesLeadBreakdownTable rows={buildSalesLeadMatrixRows(scopedLeads)} />
-
-      <div className="sales-insight-grid">
+      <div className="sales-reference-top-grid">
+        <SalesAnalyticsBars title="Applicant Type" subtitle="PIBO Category" rows={salesMixAnalytics.subApplicantTypes} tone="teal" delay={.04} />
         <SalesDonutCard
           title="Lead Sources"
           total={periodLeads.length}
@@ -3812,6 +3848,13 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
             ])
           })}
         />
+        <SalesAnalyticsBars title="Top Industries" subtitle="Industry concentration" rows={salesMixAnalytics.industries} tone="teal" delay={.08} />
+      </div>
+
+      <div className="sales-reference-middle-grid">
+        <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={salesMixAnalytics.states} tone="green" delay={.1} />
+        <SalesAnalyticsBars title="Team Workload" subtitle="Leads assigned" rows={salesMixAnalytics.workload} tone="amber" delay={.12} />
+        <SalesLeadBreakdownTable rows={buildSalesLeadMatrixRows(scopedLeads)} />
         <SalesFollowUps
           leads={followUps}
           onCalendar={() => navigate('/calendar')}
@@ -3832,46 +3875,27 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
             onAction: () => navigate('/calendar')
           })}
         />
-        <SalesDonutCard
-          title="Quotation Status"
-          total={periodQuotations.length}
-          centerLabel="Total Quotations"
-          rows={quotationRows}
-          actionLabel="View All Quotations"
-          icon={FileCheck2}
-          period={quotationPeriod}
-          onPeriodChange={setQuotationPeriod}
-          onView={() => setReportModal({
-            title: 'Quotation Status',
-            subtitle: `${periodQuotations.length} quotations in selected period`,
-            columns: ['Company', 'Status', 'Owner', 'Value', 'Date'],
-            rows: periodQuotations.map((quote) => [
-              quote.leadDetails?.companyName || quote.companyName || '-',
-              getQuotationStatusBucket(quote),
-              getQuotationOwnerName(quote),
-              formatDashboardInr(getQuotationValue(quote)),
-              formatShortDate(getQuotationDate(quote))
-            ])
-          })}
-        />
       </div>
 
-      <SalesRecentActivity
-        rows={recentActivities}
-        onView={() => setReportModal({
-          title: 'Recent Sales Activity',
-          subtitle: `${allActivities.length} activity records`,
-          columns: ['Date & Time', 'Activity', 'Lead / Account', 'Owner', 'Stage', 'Next Step'],
-          rows: allActivities.map((row) => [
-            formatDateTime(row.date),
-            row.type,
-            row.lead,
-            row.owner,
-            row.stage,
-            row.nextStep
-          ])
-        })}
-      />
+      <div id="sales-red-flag-details"><RedFlagAuditSection items={calendarFollowUps} users={users} title="Sales Red Flag & Missed Follow-ups" /></div>
+
+      <div className="sales-reference-analytics-grid">
+        <SalesDonutCard title="Lead Sources / Follow-up Analytics" total={periodLeads.length} centerLabel="Total Leads" rows={leadSourceRows} actionLabel="View Full Report" icon={Target} period={leadSourcePeriod} onPeriodChange={setLeadSourcePeriod} onView={() => navigate('/calendar')} />
+        <SalesDonutCard title="Quotation Status" total={periodQuotations.length} centerLabel="Total Quotations" rows={quotationRows} actionLabel="View All Quotations" icon={FileCheck2} period={quotationPeriod} onPeriodChange={setQuotationPeriod} onView={() => navigate('/sales/quotations')} />
+      </div>
+
+      <div className="sales-reference-bottom-grid">
+        <SalesRecentActivity
+          rows={recentActivities}
+          onView={() => setReportModal({
+            title: 'Recent Sales Activity',
+            subtitle: `${allActivities.length} activity records`,
+            columns: ['Date & Time', 'Activity', 'Lead / Account', 'Owner', 'Stage', 'Next Step'],
+            rows: allActivities.map((row) => [formatDateTime(row.date), row.type, row.lead, row.owner, row.stage, row.nextStep])
+          })}
+        />
+        <SalesCommunicationTerms users={users} currentUser={currentUser} />
+      </div>
 
       <AnimatePresence>
         {reportModal && <SalesReportModal report={reportModal} onClose={() => setReportModal(null)} />}
@@ -3954,6 +3978,7 @@ function SalesMetricCard({ metric, index = 0 }) {
         <strong>{displayValue}</strong>
         <small>{metric.note}</small>
       </div>
+      <div className="sales-metric-spark" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
     </>
   )
   if (metric.onClick) {
