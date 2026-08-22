@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps'
+import indiaStatesGeoJson from '../assets/india-states.json'
 import {
   Bar,
   BarChart,
@@ -3659,9 +3661,35 @@ function SalesRiskStrip({ items = [], onView, expanded = false }) {
 }
 
 function SalesStatesMapCard({ rows = [], delay = 0 }) {
-  const total = rows.reduce((sum, row) => sum + row.value, 0)
-  const max = Math.max(1, ...rows.map((row) => row.value))
-  const visibleRows = rows.slice(0, 7)
+  const [hoveredState, setHoveredState] = useState(null)
+  const normalizeState = (value = '') => {
+    const key = String(value).trim().toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim()
+    const aliases = { orissa: 'odisha', uttaranchal: 'uttarakhand', 'nct of delhi': 'delhi', 'jammu and kashmir': 'jammu and kashmir', 'dadra and nagar haveli and daman and diu': 'dadra and nagar haveli and daman and diu' }
+    return aliases[key] || key
+  }
+  const displayState = (value = '') => value.replace(/\b\w/g, (letter) => letter.toUpperCase()).replace(/\bAnd\b/g, 'and')
+  const aggregatedRows = Object.entries(rows.reduce((result, row) => {
+    const key = normalizeState(row.label)
+    if (key && key !== 'others') result[key] = (result[key] || 0) + Number(row.value || 0)
+    return result
+  }, {})).map(([key, value]) => ({ key, label: displayState(key), value })).sort((a, b) => b.value - a.value)
+  const total = aggregatedRows.reduce((sum, row) => sum + row.value, 0)
+  const max = Math.max(1, ...aggregatedRows.map((row) => row.value))
+  const topRows = aggregatedRows.slice(0, 6)
+  const othersValue = aggregatedRows.slice(6).reduce((sum, row) => sum + row.value, 0)
+  const visibleRows = othersValue ? [...topRows, { key: 'others', label: 'Others', value: othersValue }] : topRows
+  const stateValues = Object.fromEntries(aggregatedRows.map((row) => [row.key, row.value]))
+  const rankByState = Object.fromEntries(topRows.map((row, index) => [row.key, index + 1]))
+  const markerCoordinates = { gujarat: [71.2, 22.7], maharashtra: [75.5, 19.2], karnataka: [76.1, 14.7], delhi: [77.1, 28.6], rajasthan: [73.8, 26.8], 'uttar pradesh': [80.8, 27.3], 'madhya pradesh': [78.2, 23.5], 'tamil nadu': [78.4, 10.8], telangana: [79.1, 17.8], 'west bengal': [87.8, 23.1], haryana: [76.2, 29.1], punjab: [75.3, 31.1], odisha: [84.2, 20.5] }
+  const colorForValue = (value) => {
+    if (!value) return '#f8fafc'
+    const ratio = value / max
+    if (ratio >= .8) return '#0f5d46'
+    if (ratio >= .55) return '#2f8f6b'
+    if (ratio >= .3) return '#75b99d'
+    if (ratio >= .12) return '#b7dccb'
+    return '#e2f1ea'
+  }
 
   return (
     <motion.article className="sales-states-map-card" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .42, delay }}>
@@ -3670,8 +3698,17 @@ function SalesStatesMapCard({ rows = [], delay = 0 }) {
         <b><strong>{total}</strong><small>Total Leads</small></b>
       </header>
       <div className="sales-states-map-body">
-        <div className="sales-india-map" role="img" aria-label="India lead distribution map">
-          <img src="/maps/india-states.svg" alt="India map with state and district boundaries" />
+        <div className="sales-india-map" aria-label="Interactive India lead distribution map">
+          <ComposableMap projection="geoMercator" projectionConfig={{ center: [82, 22], scale: 720 }} width={420} height={340}>
+            <Geographies geography={indiaStatesGeoJson}>{({ geographies }) => geographies.map((geo) => {
+              const key = normalizeState(geo.properties.ST_NM || geo.properties.st_nm || geo.properties.NAME_1)
+              const value = stateValues[key] || 0
+              const percentage = total ? ((value / total) * 100).toFixed(1) : '0.0'
+              return <Geography key={geo.rsmKey} geography={geo} fill={colorForValue(value)} stroke="#d5e0dc" strokeWidth={.55} tabIndex={0} aria-label={`${displayState(key)}, ${value} leads, ${percentage}% of total`} onMouseEnter={(event) => setHoveredState({ name: displayState(key), value, percentage, x: event.clientX, y: event.clientY })} onMouseMove={(event) => setHoveredState((current) => current ? { ...current, x: event.clientX, y: event.clientY } : current)} onMouseLeave={() => setHoveredState(null)} onFocus={() => setHoveredState({ name: displayState(key), value, percentage })} onBlur={() => setHoveredState(null)} style={{ default: { outline: 'none' }, hover: { fill: '#0a7150', outline: 'none', cursor: 'pointer' }, pressed: { outline: 'none' } }} />
+            })}</Geographies>
+            {topRows.map((row) => markerCoordinates[row.key] && <Marker key={row.key} coordinates={markerCoordinates[row.key]}><circle r={9} className={rankByState[row.key] === 1 ? 'map-rank-first' : 'map-rank'} /><text y={3.2}>{rankByState[row.key]}</text></Marker>)}
+          </ComposableMap>
+          {hoveredState && <div className="sales-map-tooltip" style={hoveredState.x ? { left: hoveredState.x, top: hoveredState.y } : undefined}><strong>{hoveredState.name}</strong><span>{hoveredState.value} Leads</span><small>{hoveredState.percentage}% of Total</small></div>}
           <div className="sales-map-scale"><span>Lead Count</span><i /><small><em>Low</em><em>High</em></small></div>
         </div>
         <div className="sales-state-ranking">
