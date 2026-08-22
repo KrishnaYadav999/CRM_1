@@ -3636,17 +3636,9 @@ function SalesMixAnalytics({ analytics, total }) {
 }
 
 function SalesRiskStrip({ items = [], onView, expanded = false }) {
-  const stages = items.map(getRedFlagStage).filter(Boolean)
-  const redFlags = stages.filter((stage) => stage.key === 'permanent-red').length
-  const overdue = stages.filter((stage) => ['overdue-30', 'overdue-60'].includes(stage.key)).length
-  const dueSoon = stages.filter((stage) => stage.key === 'due-30').length
   return (
     <section className="sales-risk-strip">
       <div className="sales-risk-title"><ShieldAlert aria-hidden="true" /><strong>Sales Red Flags &amp; Missed Follow-ups</strong></div>
-      <span><b>{redFlags}</b> leads not contacted in 3+ days</span>
-      <span><b>{overdue}</b> follow-ups overdue today</span>
-      <span><b>{dueSoon}</b> quotations pending &gt; 7 days</span>
-      <span><b>{formatDashboardInr(items.reduce((sum, item) => sum + (Number(item.dealValue) || 0), 0))}</b> at risk</span>
       <button type="button" onClick={onView} aria-expanded={expanded}>{expanded ? 'Hide Details' : 'View Details'}<ChevronDown aria-hidden="true" /></button>
     </section>
   )
@@ -3828,7 +3820,6 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
         </div>
         <div className="sales-hero-actions">
           <button type="button"><CalendarDays aria-hidden="true" />{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</button>
-          <button type="button"><ListChecks aria-hidden="true" />Filters</button>
         </div>
       </div>
 
@@ -3843,12 +3834,12 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       </AnimatePresence>
 
       <div className="sales-reference-top-grid">
-        <SalesAnalyticsBars title="Applicant Type" subtitle="PIBO Category" rows={salesMixAnalytics.subApplicantTypes} tone="teal" delay={.04} />
+        <SalesAnalyticsBars title="Applicant Type" subtitle="Applicant distribution" rows={salesMixAnalytics.subApplicantTypes} tone="teal" delay={.04} />
         <SalesAnalyticsBars title="Top Industries" subtitle="Industry concentration" rows={salesMixAnalytics.industries} tone="teal" delay={.08} />
+        <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={salesMixAnalytics.states} tone="green" delay={.1} />
       </div>
 
       <div className="sales-reference-middle-grid">
-        <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={salesMixAnalytics.states} tone="green" delay={.1} />
         <SalesLeadBreakdownTable rows={buildSalesLeadMatrixRows(scopedLeads)} />
         <SalesFollowUps
           leads={followUps}
@@ -3874,10 +3865,10 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
 
       <div className="sales-reference-analytics-grid">
         <SalesLeadSourcesTable rows={leadSourceRows} total={periodLeads.length} onView={() => setReportModal({ title: 'Lead Sources', subtitle: `${periodLeads.length} leads in selected period`, columns: ['Referred By', 'Date', 'Lead Source', 'Company'], rows: periodLeads.map((lead) => [getLeadOwnerName(lead), formatShortDate(getLeadCreatedDate(lead)), lead.source || lead.leadSource || '-', getLeadCompanyName(lead) || '-']) })} />
-        <SalesDonutCard title="Quotation Status" total={periodQuotations.length} centerLabel="Total Quotations" rows={quotationRows} actionLabel="View All Quotations" icon={FileCheck2} period={quotationPeriod} onPeriodChange={setQuotationPeriod} onView={() => navigate('/sales/quotations')} />
+        <SalesDonutCard title="Quotation Status" total={periodQuotations.length} centerLabel="Total Quotations" rows={quotationRows} actionLabel="View All Quotations" icon={FileCheck2} period={quotationPeriod} onPeriodChange={setQuotationPeriod} onView={() => navigate('/sales/quotations')} pie />
       </div>
 
-      <div className="sales-reference-bottom-grid">
+      <div className="sales-reference-bottom-grid sales-reference-bottom-single">
         <SalesRecentActivity
           rows={recentActivities}
           onView={() => setReportModal({
@@ -3887,7 +3878,6 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
             rows: allActivities.map((row) => [formatDateTime(row.date), row.type, row.lead, row.owner, row.stage, row.nextStep])
           })}
         />
-        <SalesCommunicationTerms users={users} currentUser={currentUser} />
       </div>
 
       <AnimatePresence>
@@ -4149,7 +4139,7 @@ function SalesRecentActivity({ rows = [], onView }) {
   )
 }
 
-function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, icon: Icon, onView, period = 'q1', onPeriodChange }) {
+function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, icon: Icon, onView, period = 'q1', onPeriodChange, pie = false }) {
   const [showAllRows, setShowAllRows] = useState(false)
   const [monthMenuOpen, setMonthMenuOpen] = useState(false)
   const monthMenuRef = useRef(null)
@@ -4213,7 +4203,7 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
 
   return (
     <motion.section
-      className="sales-donut-card sales-donut-card-animated"
+      className={`sales-donut-card sales-donut-card-animated${pie ? ' sales-pie-card' : ''}`}
       initial={{ opacity: 0, y: 24, scale: 0.98 }}
       whileInView={{ opacity: 1, y: 0, scale: 1 }}
       viewport={{ once: false, amount: 0.42 }}
@@ -4280,7 +4270,7 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
                 data={chartRows}
                 dataKey="value"
                 nameKey="label"
-                innerRadius={54}
+                innerRadius={pie ? 0 : 54}
                 outerRadius={80}
                 paddingAngle={rows.length > 1 ? 3 : 0}
                 stroke="none"
@@ -4289,12 +4279,14 @@ function SalesDonutCard({ title, total, centerLabel, rows = [], actionLabel, ico
                 animationEasing="ease-out"
                 startAngle={450}
                 endAngle={90}
+                label={pie && rows.length ? ({ percent: slicePercent }) => `${Math.round((slicePercent || 0) * 100)}%` : false}
+                labelLine={false}
               >
                 {chartRows.map((row) => <Cell key={row.label} fill={row.color} />)}
               </Pie>
             </RechartsPieChart>
           </ResponsiveContainer>
-          <div className="sales-chart-center"><strong>{total}</strong><span>{centerLabel}</span></div>
+          {!pie && <div className="sales-chart-center"><strong>{total}</strong><span>{centerLabel}</span></div>}
         </div>
         <div className="sales-donut-legend">
           {rows.length ? visibleRows.map((row, index) => (
