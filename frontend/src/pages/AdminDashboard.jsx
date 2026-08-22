@@ -3658,6 +3658,43 @@ function SalesRiskStrip({ items = [], onView, expanded = false }) {
   )
 }
 
+function SalesStatesMapCard({ rows = [], delay = 0 }) {
+  const total = rows.reduce((sum, row) => sum + row.value, 0)
+  const max = Math.max(1, ...rows.map((row) => row.value))
+  const visibleRows = rows.slice(0, 7)
+  const markerPoints = [[65, 126], [49, 147], [91, 143], [76, 173], [72, 211], [80, 270]]
+
+  return (
+    <motion.article className="sales-states-map-card" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .42, delay }}>
+      <header>
+        <div><span>Geographic demand</span><h3>Top States by Leads</h3><p>Distribution of leads across India</p></div>
+        <b><strong>{total}</strong><small>Total Leads</small></b>
+      </header>
+      <div className="sales-states-map-body">
+        <div className="sales-india-map" role="img" aria-label="India lead distribution map">
+          <svg viewBox="0 0 180 330" aria-hidden="true">
+            <path className="india-outline" d="M65 8 86 15 98 29 116 33 124 48 116 67 125 82 146 91 157 108 149 126 166 138 154 151 161 166 145 178 139 196 123 202 114 222 105 241 97 262 90 287 78 315 68 289 58 265 49 244 42 219 31 202 30 181 18 169 25 151 17 135 31 119 29 102 42 90 38 72 52 59 49 42 59 31 55 18Z" />
+            <path className="india-region region-west" d="M18 135 31 119 55 119 70 132 66 164 49 177 30 181 18 169 25 151Z" />
+            <path className="india-region region-central" d="M55 119 91 105 112 122 110 157 91 177 66 164 70 132Z" />
+            <path className="india-region region-north" d="M49 42 65 8 86 15 98 29 116 33 116 67 92 82 68 71 52 59Z" />
+            <path className="india-region region-south" d="M49 177 91 177 114 222 105 241 97 262 90 287 78 315 68 289 58 265 49 244 42 219 31 202Z" />
+            <path className="india-region region-east" d="M110 157 149 126 166 138 154 151 161 166 145 178 139 196 123 202 114 222 91 177Z" />
+            {visibleRows.slice(0, 6).map((row, index) => <g key={`${row.label}-${index}`} transform={`translate(${markerPoints[index][0]} ${markerPoints[index][1]})`}><circle r="10" /><text y="3.5">{index + 1}</text></g>)}
+          </svg>
+          <div className="sales-map-scale"><span>Lead Count</span><i /><small><em>Low</em><em>High</em></small></div>
+        </div>
+        <div className="sales-state-ranking">
+          {visibleRows.length ? visibleRows.map((row, index) => {
+            const percent = Math.round((row.value / Math.max(total, 1)) * 100)
+            return <div className="sales-state-rank-row" key={`${row.label}-${index}`}><i>{index < 6 ? index + 1 : <Users aria-hidden="true" />}</i><div><strong title={row.label}>{row.label}</strong><span><b style={{ width: `${Math.max(4, (row.value / max) * 100)}%` }} /></span></div><em>{row.value}</em><small>{percent}%</small></div>
+          }) : <p className="sales-mix-empty">No state data available yet</p>}
+        </div>
+      </div>
+      <footer><span><BarChart3 aria-hidden="true" />Data represents leads distribution by state</span><time>Live CRM data <RefreshCw aria-hidden="true" /></time></footer>
+    </motion.article>
+  )
+}
+
 function SalesLeadSourcesTable({ rows = [], total = 0, onView }) {
   return (
     <motion.section className="sales-source-table-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
@@ -3847,7 +3884,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       <div className="sales-reference-top-grid">
         <SalesAnalyticsBars title="Applicant Type" subtitle="Applicant distribution" rows={salesMixAnalytics.subApplicantTypes} tone="teal" delay={.04} initialLimit={7} />
         <SalesAnalyticsBars title="Top Industries" subtitle="Industry concentration" rows={salesMixAnalytics.industries} tone="teal" delay={.08} />
-        <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={salesMixAnalytics.states} tone="green" delay={.1} />
+        <SalesStatesMapCard rows={salesMixAnalytics.states} delay={.1} />
       </div>
 
       <div className="sales-reference-middle-grid">
