@@ -4718,6 +4718,8 @@ export default function AdminDashboard() {
   const [operationsReportModal, setOperationsReportModal] = useState(null)
   const [clientAnalyticsOpen, setClientAnalyticsOpen] = useState(false)
   const [dashboardMode, setDashboardMode] = useState('operations')
+  const dashboardDataRef = useRef({})
+  const dashboardRequestInFlightRef = useRef(false)
   const navigate = useNavigate()
   const location = useLocation()
   const isUserManagementView = location.pathname === '/dashboard/users'
@@ -4989,6 +4991,7 @@ export default function AdminDashboard() {
   }, [piboCards, selectedPiboCategory])
 
   function applyDashboardData(snapshot = {}) {
+    dashboardDataRef.current = { ...dashboardDataRef.current, ...snapshot }
     if (snapshot.currentUser) setCurrentUser(snapshot.currentUser)
     setUsers(snapshot.users || [])
     setTeams(snapshot.teams || [])
@@ -5002,8 +5005,16 @@ export default function AdminDashboard() {
   }
 
   async function loadDashboard(options = {}) {
+    if (dashboardRequestInFlightRef.current && options.silent) return
+    dashboardRequestInFlightRef.current = true
     const cacheKey = `${DASHBOARD_CACHE_KEY}:${location.pathname}`
     const cached = !options.force ? readSessionCache(cacheKey) : null
+    const retained = cached || dashboardDataRef.current || {}
+    const retainStableList = (next, previous) => (
+      options.silent && Array.isArray(previous) && previous.length > 0 && (!Array.isArray(next) || next.length === 0)
+        ? previous
+        : (Array.isArray(next) ? next : (previous || []))
+    )
     const requestConfig = { timeout: DASHBOARD_REQUEST_TIMEOUT_MS }
     if (cached) {
       applyDashboardData(cached)
@@ -5076,18 +5087,30 @@ export default function AdminDashboard() {
       const crmClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
       const mergedClients = mergeClientSources(crmClients, [])
       const clientRequestsSucceeded = clientsResult.status === 'fulfilled'
-      const nextClients = asRecordList(clientRequestsSucceeded ? mergedClients : (cached?.clients || []))
+      const nextClients = retainStableList(
+        asRecordList(clientRequestsSucceeded ? mergedClients : retained.clients),
+        retained.clients
+      )
       const freshLeads = mergeLeadSources(
         leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [],
         []
       )
-      const nextLeads = freshLeads.length ? freshLeads : (cached?.leads || [])
-      const nextQuotations = quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []
-      const nextAnnualReturns = annualReturnsResult.status === 'fulfilled' ? (annualReturnsResult.value.data.annualReturns || []) : []
+      const nextLeads = retainStableList(freshLeads, retained.leads)
+      const nextQuotations = retainStableList(
+        quotationsResult.status === 'fulfilled' ? quotationsResult.value.data.quotations : null,
+        retained.quotations
+      )
+      const nextAnnualReturns = retainStableList(
+        annualReturnsResult.status === 'fulfilled' ? annualReturnsResult.value.data.annualReturns : null,
+        retained.annualReturns
+      )
       const approvals = approvalsResult.status === 'fulfilled' ? approvalsResult.value.data : {}
-      const nextPendingClients = approvals.pendingClients || []
-      const nextPendingQuotations = approvals.pendingQuotations || []
-      const nextCalendarItems = calendarItemsResult.status === 'fulfilled' ? (calendarItemsResult.value.data.items || []) : (cached?.calendarItems || [])
+      const nextPendingClients = retainStableList(approvals.pendingClients, retained.pendingClients)
+      const nextPendingQuotations = retainStableList(approvals.pendingQuotations, retained.pendingQuotations)
+      const nextCalendarItems = retainStableList(
+        calendarItemsResult.status === 'fulfilled' ? calendarItemsResult.value.data.items : null,
+        retained.calendarItems
+      )
 
       let nextUsers = []
       let nextTeams = []
@@ -5096,11 +5119,11 @@ export default function AdminDashboard() {
           api.get(API_ENDPOINTS.auth.adminUsers, requestConfig),
           api.get(API_ENDPOINTS.teams.list, requestConfig)
         ])
-        nextUsers = usersResponse.data.users || []
-        nextTeams = teamsResponse.data.teams || []
+        nextUsers = retainStableList(usersResponse.data.users, retained.users)
+        nextTeams = retainStableList(teamsResponse.data.teams, retained.teams)
       } else {
         const usersResponse = await api.get(API_ENDPOINTS.auth.users, requestConfig)
-        nextUsers = usersResponse.data.users || [user]
+        nextUsers = retainStableList(usersResponse.data.users || [user], retained.users)
         nextTeams = []
       }
       const snapshot = {
@@ -5120,6 +5143,7 @@ export default function AdminDashboard() {
     } catch (err) {
       if (!cached) setError(err?.response?.data?.error || 'Unable to load dashboard')
     } finally {
+      dashboardRequestInFlightRef.current = false
       setLoading(false)
     }
   }
