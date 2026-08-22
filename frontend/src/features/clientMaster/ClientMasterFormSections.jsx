@@ -54,14 +54,18 @@ function ComplianceTab({ client, setValue, addRow, updateRow, removeRow, complia
           {brandOwnerProductionFacility === 'Yes' && <p className="mt-3 text-xs font-bold text-orange-700">Factory License number, date, and document are enabled, required, and included in the Document percentage.</p>}
           {brandOwnerProductionFacility === 'No' && <p className="mt-3 text-xs font-bold text-emerald-700">Factory License is disabled and does not affect validation or completion percentage.</p>}
         </div>}
-        <div className="grid gap-4">
+        <div className="grid gap-4 xl:grid-cols-2">
           {complianceRows.map(([key, numberLabel, dateLabel, fileLabel]) => {
             const applicable = applicableKeys.has(key);
-            return <div key={key} className={`grid gap-3 rounded-xl border p-3 lg:grid-cols-[1fr_1fr_180px] ${applicable ? 'border-slate-100 bg-slate-50' : 'border-slate-200 bg-slate-100 opacity-60'}`}>
-              <Field label={`${numberLabel}${applicable ? '' : ' (Not Applicable)'}`}><input disabled={!applicable} className="form-input" value={client.compliance[`${key}Number`] || ''} onChange={(event) => setValue('compliance', `${key}Number`, event.target.value)} /></Field>
-      <Field label={dateLabel}><PremiumDatePicker disabled={!applicable} value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
-              <Field label={fileLabel}>{applicable ? <UploadButton value={client.compliance[`${key}File`]} onChange={(value) => setValue('compliance', `${key}File`, value)} /> : <span className="inline-flex min-h-10 items-center rounded-lg bg-slate-200 px-3 text-xs font-black text-slate-500">Not required</span>}</Field>
-            </div>
+            return <section key={key} className={`rounded-2xl border p-4 shadow-sm ${applicable ? 'border-slate-200 bg-gradient-to-br from-white to-slate-50/80' : 'border-slate-200 bg-slate-100 opacity-60'}`}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={`${numberLabel}${applicable ? '' : ' (Not Applicable)'}`}><input disabled={!applicable} className="form-input" value={client.compliance[`${key}Number`] || ''} onChange={(event) => setValue('compliance', `${key}Number`, event.target.value)} /></Field>
+                <Field label={dateLabel}><PremiumDatePicker disabled={!applicable} value={client.compliance[`${key}Date`] || ''} onChange={(event) => setValue('compliance', `${key}Date`, event.target.value)} /></Field>
+              </div>
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <Field label={fileLabel}>{applicable ? <UploadButton value={client.compliance[`${key}File`]} onChange={(value) => setValue('compliance', `${key}File`, value)} /> : <span className="inline-flex min-h-10 items-center rounded-lg bg-slate-200 px-3 text-xs font-black text-slate-500">Not required</span>}</Field>
+              </div>
+            </section>
           })}
         </div>
       </Card>
