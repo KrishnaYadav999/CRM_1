@@ -6539,6 +6539,7 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 .red-flag-stage.is-red-flag { background: #fee2e2; color: #b91c1c; }
 .red-flag-stage.is-permanent-red { background: #7f1d1d; color: #fff; box-shadow: 0 0 0 3px #fecaca; }
 .red-flag-stage.is-overdue-60 { background: #ffedd5; color: #c2410c; }
+.red-flag-stage.is-overdue-24 { border-color: #fed7aa; background: #fff7ed; color: #c2410c; }
 .red-flag-stage.is-missed-60 { background: #ffedd5; color: #c2410c; }
 .red-flag-stage.is-overdue-30 { background: #fef3c7; color: #a16207; }
 .red-flag-stage.is-due-30 { background: #e0f2fe; color: #0369a1; }

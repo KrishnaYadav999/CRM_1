@@ -431,14 +431,11 @@ function getRedFlagStage(item = {}, now = new Date()) {
   const referenceTime = completedAt && !Number.isNaN(completedAt.getTime()) ? completedAt.getTime() : now.getTime()
   const delta = referenceTime - dueAt.getTime()
   if (completed) {
-    if (delta < 30 * 60 * 1000) return null
-    const previousStage = delta >= 48 * 60 * 60 * 1000 ? 'Permanent Red Flag'
-      : delta >= 24 * 60 * 60 * 1000 ? 'Red Flag'
-        : delta >= 60 * 60 * 1000 ? '60 min overdue' : '30 min overdue'
-    return { key: 'resolved-red', label: 'Resolved Red Flag', detail: `Previously ${previousStage}; corrective action completed`, rank: delta >= 48 * 60 * 60 * 1000 ? 5 : delta >= 24 * 60 * 60 * 1000 ? 4 : delta >= 60 * 60 * 1000 ? 3 : 2, resolved: true }
+    if (delta < 48 * 60 * 60 * 1000) return null
+    return { key: 'resolved-red', label: 'Resolved Red Flag', detail: 'Previously crossed the 48-hour Red Flag threshold; corrective action completed', rank: 5, resolved: true }
   }
   if (delta >= 48 * 60 * 60 * 1000) return { key: 'permanent-red', label: 'Permanent Red Flag', detail: 'No action for 48+ hours', rank: 5 }
-  if (delta >= 24 * 60 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 24+ hours', rank: 4 }
+  if (delta >= 24 * 60 * 60 * 1000) return { key: 'overdue-24', label: '24 hours overdue', detail: 'Follow-up is overdue but has not reached the 48-hour Red Flag threshold', rank: 4 }
   if (delta >= 60 * 60 * 1000) return { key: 'overdue-60', label: '60 min overdue', detail: 'Third overdue reminder reached', rank: 3 }
   if (delta >= 30 * 60 * 1000) return { key: 'overdue-30', label: '30 min overdue', detail: 'Second reminder window crossed', rank: 2 }
   if (delta >= -30 * 60 * 1000) return { key: 'due-30', label: 'Due in 30 min', detail: 'First reminder window', rank: 1 }
@@ -460,8 +457,8 @@ function buildRedFlagHistory(item = {}, stage = {}) {
   ]
   if (stage.rank >= 2) events.push({ title: '30 min after', detail: 'No action recorded; overdue reminder reached.', at: new Date(dueAt.getTime() + 30 * 60 * 1000) })
   if (stage.rank >= 3) events.push({ title: '60 min after', detail: 'Follow-up remains open; third reminder reached.', at: new Date(dueAt.getTime() + 60 * 60 * 1000) })
-  if (stage.rank >= 4) events.push({ title: '24 hours after', detail: 'Follow-up still open; marked as a red flag.', at: new Date(dueAt.getTime() + 24 * 60 * 60 * 1000) })
-  if (stage.rank >= 5) events.push({ title: '48 hours after', detail: 'No corrective action; permanent red flag applied.', at: new Date(dueAt.getTime() + 48 * 60 * 60 * 1000) })
+  if (stage.rank >= 4) events.push({ title: '24 hours after', detail: 'Follow-up remains overdue; Red Flag threshold not reached yet.', at: new Date(dueAt.getTime() + 24 * 60 * 60 * 1000) })
+  if (stage.rank >= 5) events.push({ title: '48 hours after', detail: 'No corrective action; Red Flag applied.', at: new Date(dueAt.getTime() + 48 * 60 * 60 * 1000) })
   ;(Array.isArray(item.followUpHistory) ? item.followUpHistory : []).forEach((entry) => events.push({
     title: entry.title || entry.reason || 'Follow-up history',
     detail: entry.remarks || entry.description || entry.followUpRemarks || 'Follow-up updated',
@@ -497,7 +494,7 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
         <header>
           <div><span>Action control</span><h2>{title}</h2><p>30 minutes before through the permanent 48-hour red-flag escalation in one place.</p></div>
           <div className="red-flag-audit-summary">
-            <b>{(counts['permanent-red'] || 0) + (counts['red-flag'] || 0)}<small>Red flags</small></b>
+            <b>{counts['permanent-red'] || 0}<small>Red flags</small></b>
             <b>{(counts['overdue-60'] || 0) + (counts['overdue-30'] || 0)}<small>Missed</small></b>
             <b>{counts['due-30'] || 0}<small>Due soon</small></b>
             <b className="is-resolved">{counts['resolved-red'] || 0}<small>Resolved red</small></b>
