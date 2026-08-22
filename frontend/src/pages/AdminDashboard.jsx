@@ -435,7 +435,7 @@ function getRedFlagStage(item = {}, now = new Date()) {
     const previousStage = delta >= 48 * 60 * 60 * 1000 ? 'Permanent Red Flag'
       : delta >= 24 * 60 * 60 * 1000 ? 'Red Flag'
         : delta >= 60 * 60 * 1000 ? '60 min overdue' : '30 min overdue'
-    return { key: 'resolved-green', label: 'Resolved Green', detail: `Previously ${previousStage}; corrective action completed`, rank: delta >= 48 * 60 * 60 * 1000 ? 5 : delta >= 24 * 60 * 60 * 1000 ? 4 : delta >= 60 * 60 * 1000 ? 3 : 2, resolved: true }
+    return { key: 'resolved-red', label: 'Resolved Red Flag', detail: `Previously ${previousStage}; corrective action completed`, rank: delta >= 48 * 60 * 60 * 1000 ? 5 : delta >= 24 * 60 * 60 * 1000 ? 4 : delta >= 60 * 60 * 1000 ? 3 : 2, resolved: true }
   }
   if (delta >= 48 * 60 * 60 * 1000) return { key: 'permanent-red', label: 'Permanent Red Flag', detail: 'No action for 48+ hours', rank: 5 }
   if (delta >= 24 * 60 * 60 * 1000) return { key: 'red-flag', label: 'Red Flag', detail: 'No action for 24+ hours', rank: 4 }
@@ -500,7 +500,7 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
             <b>{(counts['permanent-red'] || 0) + (counts['red-flag'] || 0)}<small>Red flags</small></b>
             <b>{(counts['overdue-60'] || 0) + (counts['overdue-30'] || 0)}<small>Missed</small></b>
             <b>{counts['due-30'] || 0}<small>Due soon</small></b>
-            <b className="is-resolved">{counts['resolved-green'] || 0}<small>Resolved green</small></b>
+            <b className="is-resolved">{counts['resolved-red'] || 0}<small>Resolved red</small></b>
           </div>
         </header>
         <div className="red-flag-table-wrap">
@@ -511,7 +511,7 @@ function RedFlagAuditSection({ items = [], users = [], title = 'Red Flag & Misse
                 const assignee = resolveFollowUpAssignee(item, users)
                 return (
                   <tr key={item.id || item._id || index}>
-                    <td><mark className={`red-flag-stage is-${stage.key}`}>{stage.label}</mark></td>
+                    <td><mark className={`red-flag-stage is-${stage.key}`}><ShieldAlert aria-hidden="true" />{stage.label}</mark></td>
                     <td><strong>{item.title || getCalendarFollowUpCompany(item)}</strong><small>{getCalendarFollowUpCompany(item)}</small></td>
                     <td><span className="red-flag-user"><UserAvatar user={assignee} /><span>{assignee.name}<small>{assignee.email || 'CRM user'}</small></span></span></td>
                     <td><strong>{formatAuditDateTime(getFollowUpDueAt(item))}</strong></td>

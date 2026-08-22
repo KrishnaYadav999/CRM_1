@@ -167,6 +167,18 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   assert.match(page, /Manager Team/);
 });
 
+test('resolved sales red flags retain a red stage with a visible alert icon', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/AdminDashboard.jsx'), 'utf8');
+  const styles = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/11-final-overrides.css'), 'utf8');
+  assert.match(page, /key: 'resolved-red', label: 'Resolved Red Flag'/);
+  assert.match(page, /counts\['resolved-red'\]/);
+  assert.match(page, /<ShieldAlert aria-hidden="true" \/>/);
+  assert.match(styles, /\.red-flag-stage\.is-resolved-red/);
+  assert.doesNotMatch(page, /Resolved Green/);
+});
+
 test('Operations MIS work-report access is limited to administrators and the assigned management hierarchy', () => {
   const manager = { _id: 'manager-1', role: 'manager' };
   const operationHead = { _id: 'head-1', role: 'operation head' };
