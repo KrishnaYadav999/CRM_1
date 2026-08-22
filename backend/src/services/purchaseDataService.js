@@ -11,6 +11,12 @@ const PURCHASE_CHECKLIST_PARTICULARS = [
   'Client Approval on data',
   'Upload Complete'
 ];
+const REQUIRED_NORMAL_CHECKLIST_ROWS = [
+  'Received from client',
+  'Ready to upload',
+  'Client Approval on data',
+  'Upload Complete'
+];
 
 const CATEGORIES = ['Cat-I', 'Cat-II', 'Cat-III', 'Cat-IV'];
 const HEADER_ALIASES = {
@@ -254,19 +260,16 @@ function purchaseReadiness(purchase = {}) {
   const nilRow = checklist.find((row) => row.particular === 'Nil Upload') || {};
   const uploadRow = checklist.find((row) => row.particular === 'Upload Complete') || {};
   const receivedRow = checklist.find((row) => row.particular === 'Received from client') || {};
-  const yesRows = checklist.filter((row) => row.yesNo === 'Yes');
-  const errors = [
-    ...yesRows.filter((row) => !row.date).map((row) => `${row.particular}: date is required.`),
-    ...yesRows.filter((row) => !row.files.length).map((row) => `${row.particular}: proof is required.`)
-  ];
   const nilUpload = nilRow.yesNo === 'Yes';
-  if (nilUpload) {
-    if (!nilRow.remarks) errors.push('Nil Upload remarks or reason is required.');
-    if (!purchase.screenshots?.length) errors.push('Upload All Screenshot evidence is required for Nil Upload.');
-  } else {
-    if (uploadRow.yesNo !== 'Yes') errors.push("Upload Complete must be Yes.");
-    if (!receivedRow.date) errors.push('Received from client date is required.');
-    if (!uploadRow.date) errors.push('Upload Complete date is required.');
+  const requiredNames = nilUpload ? ['Client Approval on data'] : REQUIRED_NORMAL_CHECKLIST_ROWS;
+  const requiredRows = requiredNames.map((name) => checklist.find((row) => row.particular === name) || { particular: name, files: [] });
+  const errors = [];
+  requiredRows.forEach((row) => {
+    if (row.yesNo !== 'Yes') errors.push(`${row.particular}: status must be Yes.`);
+    if (!row.date) errors.push(`${row.particular}: date is required.`);
+    if (!row.files?.length) errors.push(`${row.particular}: proof is required.`);
+  });
+  if (!nilUpload) {
     if (!purchase.baseUpload || purchase.baseUpload.importStatus !== 'Imported') errors.push('Purchase Base Data is required.');
     if (!purchase.portalUpload || purchase.portalUpload.importStatus !== 'Imported') errors.push('Purchase Portal Upload is required.');
     if (purchase.reconciliation?.blockingIssueCount > 0) errors.push('Blocking reconciliation issues must be resolved.');
@@ -287,7 +290,7 @@ function calculatePurchaseStatus(purchase = {}) {
 function checksum(value) { return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
 
 module.exports = {
-  PURCHASE_CHECKLIST_PARTICULARS, CATEGORIES, normalizeHeader, normalizeEntityName, normalizeMaterial, normalizeRegistrationType,
+  PURCHASE_CHECKLIST_PARTICULARS, REQUIRED_NORMAL_CHECKLIST_ROWS, CATEGORIES, normalizeHeader, normalizeEntityName, normalizeMaterial, normalizeRegistrationType,
   normalizeCategory, parseNumber, parseDate, buildHeaderMap, normalizePurchaseRows, reconcilePurchaseRows, defaultChecklist,
   checklistRow, purchaseReadiness, calculatePurchaseStatus, checksum
 };

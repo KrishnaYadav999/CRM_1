@@ -15,12 +15,12 @@ test('Annual Return hides Financials from the visible three-step processing flow
   assert.match(processingTabsBlock, /id:\s*'cpcbLetter'/);
 });
 
-test('Data exposes Portal Data and the Purchase Data Compliance workspace', () => {
-  assert.match(source, /\{ id: 'portal', label: 'Portal Data' \}/);
+test('Data opens the Purchase Data Compliance workspace without exposing Portal Data', () => {
+  assert.doesNotMatch(source, /\{ id: 'portal', label: 'Portal Data' \}/);
   assert.match(source, /\{ id: 'compliance', label: 'Data Compliance' \}/);
-  assert.match(source, /role="tablist" aria-label="Annual return data views"/);
-  assert.match(source, /activeDataSubTab === 'portal'/);
-  assert.match(source, /activeDataSubTab === 'compliance'/);
+  assert.match(source, /useState\('compliance'\)/);
+  assert.doesNotMatch(source, /activeDataSubTab === 'portal'/);
+  assert.doesNotMatch(source, /createProcessingField\('annual\.portalData', 'Portal Data'/);
   assert.match(source, /<PurchaseDataWorkspace/);
   assert.match(source, /financialYear=\{selected\.label\}/);
 });

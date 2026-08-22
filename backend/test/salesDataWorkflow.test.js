@@ -54,7 +54,8 @@ test('Sales UI provides two templates, preview, reconciliation and approval cont
   assert.match(panel, /Upload Complete/);
   assert.match(panel, /!canEdit \|\| !uploadUnlocked/);
   assert.match(checklist, /Sales Data Upload Checklist/);
-  assert.match(checklist, /Every “Yes” row requires a date and supporting proof/);
+  assert.match(checklist, /Normal flow requires four marked rows/);
+  assert.match(checklist, /Nil Upload requires only Client Approval on data/);
 });
 
 test('Sales EML and Outlook MSG proofs use the same decoded mail viewer as Purchase', () => {

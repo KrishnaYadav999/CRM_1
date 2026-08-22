@@ -57,8 +57,8 @@ test('quantity inside tolerance is matched', () => { const summary = reconcilePu
 test('short upload becomes a warning issue', () => { const summary = reconcilePurchaseRows(parsed([baseRow()], 'base').acceptedRows, parsed([portalRow({ 'Total Plastic Qty (Tons)': 9 })], 'portal').acceptedRows); assert.equal(summary.totals.result, 'Short Upload'); assert.equal(summary.warningIssueCount, 1); });
 test('GST difference is detected even when quantity matches', () => { const summary = reconcilePurchaseRows(parsed([baseRow()], 'base').acceptedRows, parsed([portalRow({ 'GST Paid': 1700 })], 'portal').acceptedRows); assert.equal(summary.totals.result, 'GST Mismatch'); });
 test('normal path is not ready until tracker, proof and both imports exist', () => { const value = { checklist: defaultChecklist() }; assert.equal(purchaseReadiness(value).ready, false); assert.match(purchaseReadiness(value).errors.join(' '), /Upload Complete/); });
-test('Nil Upload path requires date, row proof, reason and screenshot evidence', () => { const checklist = defaultChecklist().map((row) => row.particular === 'Nil Upload' ? { ...row, yesNo: 'Yes' } : row); const readiness = purchaseReadiness({ checklist }); assert.equal(readiness.ready, false); assert.equal(readiness.nilUpload, true); assert.equal(readiness.errors.length, 4); });
-test('complete Nil Upload evidence bypasses both Excel files', () => { const checklist = defaultChecklist().map((row) => row.particular === 'Nil Upload' ? { ...row, yesNo: 'Yes', date: '2025-04-10', files: [{ url: 'https://x.test/proof.pdf' }], remarks: 'No purchases' } : row); assert.equal(purchaseReadiness({ checklist, screenshots: [{ url: 'https://x.test/screenshot.png' }] }).ready, true); });
+test('Nil Upload path requires only Client Approval on data', () => { const checklist = defaultChecklist().map((row) => row.particular === 'Nil Upload' ? { ...row, yesNo: 'Yes' } : row); const readiness = purchaseReadiness({ checklist }); assert.equal(readiness.ready, false); assert.equal(readiness.nilUpload, true); assert.deepEqual(readiness.errors, ['Client Approval on data: status must be Yes.', 'Client Approval on data: date is required.', 'Client Approval on data: proof is required.']); });
+test('approved Nil Upload bypasses other tracker rows, evidence and both Excel files', () => { const checklist = defaultChecklist().map((row) => row.particular === 'Nil Upload' ? { ...row, yesNo: 'Yes' } : row.particular === 'Client Approval on data' ? { ...row, yesNo: 'Yes', date: '2025-04-10', files: [{ url: 'https://x.test/proof.pdf' }] } : row); assert.equal(purchaseReadiness({ checklist }).ready, true); });
 test('fully approved status wins over upload status', () => assert.equal(calculatePurchaseStatus({ complianceVerificationStatus: 'Approved' }), 'Fully Approved'));
 test('routes expose import, reconciliation and two-level approvals behind authentication', () => {
   const routes = fs.readFileSync(path.resolve(__dirname, '../src/routes/clients.js'), 'utf8');
@@ -83,12 +83,11 @@ test('frontend mounts Purchase Data inside Data Compliance and exposes all reque
   assert.match(annual, /<PurchaseDataWorkspace/);
   ['Purchase Data','Sales Data','Pre Consumer / State / Annual','EPR Target','EPR CREDIT','Upload All Screenshot'].forEach((tab) => assert.match(workspace, new RegExp(tab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
 });
-test('Yes status displays required date and drag-drop proof validation', () => {
+test('mandatory status displays date and drag-drop proof validation', () => {
   const workspace = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseDataWorkspace.jsx'), 'utf8');
   const dropzone = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseProofDropzone.jsx'), 'utf8');
-  assert.match(workspace, /row\.yesNo === 'Yes'/);
-  assert.match(workspace, /Proof upload is required for a Yes status/);
-  assert.match(workspace, /Date is required\./);
+  assert.match(workspace, /REQUIRED_NORMAL_ROWS\.has\(row\.particular\)/);
+  assert.match(workspace, /Yes, date and supporting proof are mandatory\./);
   assert.match(dropzone, /onDrop=/);
   assert.match(dropzone, /window\.addEventListener\('drop', preventFileNavigation\)/);
   assert.match(dropzone, /event\.stopPropagation\(\)/);

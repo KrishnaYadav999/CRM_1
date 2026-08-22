@@ -520,7 +520,6 @@ export const annualProcessingTabLabels = {
 };
 export const annualProcessingTabIds = Object.keys(annualProcessingTabLabels);
 export const annualDataSubTabs = [
-  { id: 'portal', label: 'Portal Data' },
   { id: 'compliance', label: 'Data Compliance' }
 ];
 
@@ -599,7 +598,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
   const data = readClientData(client);
   const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
   const [activeProcessingTab, setActiveProcessingTab] = useState('basic');
-  const [activeDataSubTab, setActiveDataSubTab] = useState('portal');
+  const [activeDataSubTab, setActiveDataSubTab] = useState('compliance');
   const [activePillSection, setActivePillSection] = useState('');
   const [annualTransitioning, setAnnualTransitioning] = useState(false);
   const [annualDraft, setAnnualDraft] = useState({});
@@ -742,7 +741,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
       nextDraft = dbDraft && typeof dbDraft === 'object' ? dbDraft : {};
     }
     setAnnualDraft(nextDraft);
-    setActiveDataSubTab('portal');
+    setActiveDataSubTab('compliance');
     const completedTabs = getAnnualCompletedTabs(nextDraft);
     const restoredMessage = formatCompletedTabsMessage(completedTabs);
     setConfirmFinancials(false);
@@ -1794,7 +1793,6 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
         fields: [
           createProcessingField('annual.returnYear', 'Annual Return Year', selected?.label || 'Select Hub', CalendarDays),
           createProcessingField('annual.filingStatus', 'Filing Status', data.annualReturn?.status || 'Open', RefreshCw, 'select', ['Open', 'In Progress', 'Filed', 'Submitted', 'Closed']),
-          createProcessingField('annual.portalData', 'Portal Data', documentUrls.length ? `${documentUrls.length} uploaded` : 'Pending Upload', Database),
           createProcessingField('annual.currentSpoc', 'Current SPOC', assignedName, UserRound),
           createProcessingField('annual.previousSpoc', 'Previous SPOC', previousSpocName, UserRound),
           createProcessingField('annual.firstAnnualReturnYear', 'First Annual Return Year', firstAnnualReturnYear, CalendarDays)
@@ -2221,7 +2219,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                   <span className="annual-year-badge"><CalendarDays className="h-4 w-4" /> FY {selected.label}</span>
                 </div>
               </div>
-              {activeProcessingTab === 'data' && (
+              {activeProcessingTab === 'data' && annualDataSubTabs.length > 1 && (
                 <div className="mx-4 mt-4 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2" role="tablist" aria-label="Annual return data views">
                   {annualDataSubTabs.map((subTab) => {
                     const active = activeDataSubTab === subTab.id;
@@ -2241,7 +2239,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                 </div>
               )}
               <div className="annual-section-content space-y-4">
-                {activeSection && (activeProcessingTab !== 'data' || activeDataSubTab === 'portal') && (
+                {activeSection && activeProcessingTab !== 'data' && (
                   <ProcessingSection
                     section={activeSection}
                     sectionTabs={activeSections.map((section) => section.title)}
@@ -2261,25 +2259,13 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                     onSave={() => saveAnnualDraft(activeProcessingTab, activeSection?.title || '')}
                   />
                 )}
-                {activeProcessingTab === 'data' && activeDataSubTab === 'compliance' && (
+                {activeProcessingTab === 'data' && (
                   <PurchaseDataWorkspace clientId={client?._id || client?.id || uniqueId} financialYear={selected.label} currentUser={currentUser} />
                 )}
               </div>
-              {activeProcessingTab === 'data' && activeDataSubTab === 'portal' && (
-                <div className="mx-4 mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.14em] text-[#30737B]">Approval Workflow</p>
-                      <p className="mt-1 text-sm font-black text-slate-700">{formatAnnualWorkflowStatus(approvalWorkflow)}</p>
-                      {annualSubmittedBy && <p className="mt-1 text-xs font-bold text-slate-500">Submitted by: <span className="font-black text-slate-700">{annualSubmittedBy}</span></p>}
-                      {approvalWorkflow.lastRemark && <p className="mt-1 text-xs font-bold text-slate-500">Last remark: {approvalWorkflow.lastRemark}</p>}
-                    </div>
-                  </div>
-                </div>
-              )}
               {saveNotice && <ToastMessage type="success" className="mx-4 mb-3">{saveNotice}</ToastMessage>}
               {annualSaveError && <ToastMessage type="error" className="mx-4 mb-3">{annualSaveError}</ToastMessage>}
-              {(activeProcessingTab !== 'data' || activeDataSubTab === 'portal') && <div className="mt-5 flex flex-wrap justify-end gap-2">
+              {activeProcessingTab !== 'data' && <div className="mt-5 flex flex-wrap justify-end gap-2">
                 <button type="button" disabled={savingAnnual || dataPendingForReview} onClick={handlePrimaryAnnualAction} className={`btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-6 text-sm font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${canViewReviewData ? 'bg-slate-950 shadow-slate-950/20' : 'bg-emerald-600 shadow-emerald-600/20'}`}>{React.createElement(submitButtonIcon, { className: 'h-4 w-4' })}{savingAnnual ? 'Saving...' : submitButtonLabel}</button>
                 {showReviewNextButton && (
                   <button type="button" disabled={savingAnnual} onClick={handleAnnualSubmitNext} className="btn-lift inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-6 text-sm font-black text-slate-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
