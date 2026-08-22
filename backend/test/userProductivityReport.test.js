@@ -167,20 +167,23 @@ test('super admin sales drill-down is wired to API, status filters, risks and re
   assert.match(page, /Manager Team/);
 });
 
-test('resolved sales red flags retain a red stage with a visible alert icon', () => {
+test('resolved sales follow-ups show green before 48 hours and retain red after the threshold', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/AdminDashboard.jsx'), 'utf8');
   const styles = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/11-final-overrides.css'), 'utf8');
+  assert.match(page, /key: 'resolved-green', label: 'Resolved Green'/);
   assert.match(page, /key: 'resolved-red', label: 'Resolved Red Flag'/);
-  assert.match(page, /if \(delta < 48 \* 60 \* 60 \* 1000\) return null/);
+  assert.match(page, /if \(delta < 30 \* 60 \* 1000\) return null/);
+  assert.match(page, /if \(delta < 48 \* 60 \* 60 \* 1000\) return \{ key: 'resolved-green'/);
   assert.match(page, /key: 'overdue-24', label: '24 hours overdue'/);
   assert.match(page, /counts\['permanent-red'\] \|\| 0/);
   assert.doesNotMatch(page, /key: 'red-flag', label: 'Red Flag'/);
   assert.match(page, /counts\['resolved-red'\]/);
-  assert.match(page, /<ShieldAlert aria-hidden="true" \/>/);
+  assert.match(page, /counts\['resolved-green'\]/);
+  assert.match(page, /<CheckCircle2 aria-hidden="true" \/>/);
   assert.match(styles, /\.red-flag-stage\.is-resolved-red/);
-  assert.doesNotMatch(page, /Resolved Green/);
+  assert.match(styles, /\.red-flag-stage\.is-resolved-green/);
 });
 
 test('Operations MIS work-report access is limited to administrators and the assigned management hierarchy', () => {

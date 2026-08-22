@@ -6527,7 +6527,8 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 .red-flag-audit-summary { display: flex; gap: 8px; }
 .red-flag-audit-summary b { min-width: 76px; padding: 9px 12px; border: 1px solid #fecaca; border-radius: 12px; background: rgba(255,255,255,.86); color: #b91c1c; font-size: 20px; text-align: center; }
 .red-flag-audit-summary small { display: block; margin-top: 2px; color: #64748b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
-.red-flag-audit-summary b.is-resolved { border-color: #fecaca; color: #b91c1c; background: #fff7f7; }
+.red-flag-audit-summary b.is-resolved-green { border-color: #a7f3d0; color: #047857; background: #ecfdf5; }
+.red-flag-audit-summary b.is-resolved-red { border-color: #fecaca; color: #b91c1c; background: #fff7f7; }
 .red-flag-table-wrap { overflow-x: auto; }
 .red-flag-audit table { width: 100%; min-width: 1040px; border-collapse: collapse; }
 .red-flag-audit th { padding: 11px 14px; background: #f8fafc; color: #64748b; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
@@ -6546,6 +6547,7 @@ input[type=time].form-input,input[type=time]{color-scheme:light}input[type=time]
 .red-flag-stage.is-overdue-10 { background: #fef3c7; color: #a16207; }
 .red-flag-stage.is-due-10 { background: #e0f2fe; color: #0369a1; }
 .red-flag-stage.is-resolved-red { border-color: #fca5a5; background: #fff1f2; color: #be123c; box-shadow: 0 3px 10px rgba(190, 18, 60, .08); }
+.red-flag-stage.is-resolved-green { border-color: #6ee7b7; background: #ecfdf5; color: #047857; box-shadow: 0 3px 10px rgba(4, 120, 87, .08); }
 .red-flag-user { display: flex !important; align-items: center; gap: 9px; }
 .red-flag-user .followup-flow-avatar { width: 34px !important; height: 34px !important; min-width: 34px; font-size: 12px; }
 .red-flag-eye { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #fecaca; border-radius: 9px; background: #fff1f2; padding: 7px 10px; color: #be123c; font-size: 11px; font-weight: 900; transition: .2s ease; }
