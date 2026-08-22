@@ -3974,7 +3974,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
         <SalesDonutCard title="Quotation Status" total={periodQuotations.length} centerLabel="Total Quotations" rows={quotationRows} actionLabel="View All Quotations" icon={FileCheck2} period={quotationPeriod} onPeriodChange={setQuotationPeriod} onView={() => navigate('/sales/quotations')} pie />
       </div>
 
-      <SalesPurchaseOrderTable rows={purchaseOrderRows} owners={buildSalesLeadMatrixRows(scopedLeads).map((row) => row.owner)} />
+      <SalesPurchaseOrderTable rows={purchaseOrderRows} />
 
       <div className="sales-reference-bottom-grid sales-reference-bottom-single">
         <SalesRecentActivity
@@ -4212,29 +4212,22 @@ function SalesPurchaseOrderFlatTable({ rows = [] }) {
   )
 }
 
-function SalesPurchaseOrderTable({ rows = [], owners = [] }) {
+function SalesPurchaseOrderTable({ rows = [] }) {
   const [expandedOwner, setExpandedOwner] = useState('')
-  const totalValue = rows.reduce((sum, row) => sum + row.amount, 0)
-  const seededGroups = owners.reduce((groups, owner) => {
-    const key = normalizeKey(owner) || 'unassigned'
-    if (!groups[key]) groups[key] = { key, owner: owner || 'Unassigned', rows: [], total: 0 }
-    return groups
-  }, {})
   const ownerGroups = Object.values(rows.reduce((groups, row) => {
     const owner = row.owner || 'Unassigned'
     const key = normalizeKey(owner) || 'unassigned'
-    if (!groups[key]) groups[key] = { key, owner, rows: [], total: 0 }
+    if (!groups[key]) groups[key] = { key, owner, rows: [] }
     groups[key].rows.push(row)
-    groups[key].total += row.amount
     return groups
-  }, seededGroups)).sort((left, right) => right.total - left.total || left.owner.localeCompare(right.owner))
+  }, {})).sort((left, right) => right.rows.length - left.rows.length || left.owner.localeCompare(right.owner))
   return (
     <motion.section className="sales-po-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="sales-section-head"><div><FileCheck2 className="h-4 w-4" /><strong>Purchase Orders by User</strong></div><p>{rows.length} PO records | {formatDashboardInr(totalValue)}</p></div>
+      <div className="sales-section-head"><div><FileCheck2 className="h-4 w-4" /><strong>Purchase Orders by User</strong></div><p>{rows.length} PO records</p></div>
       <div className="sales-po-owner-list">{ownerGroups.length ? ownerGroups.map((group) => {
         const open = expandedOwner === group.key
         const initials = group.owner.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'NA'
-        return <section className="sales-po-owner" key={group.key}><button type="button" aria-expanded={open} onClick={() => setExpandedOwner((current) => current === group.key ? '' : group.key)}><i>{initials}</i><span><strong>{group.owner}</strong><small>{group.rows.length} purchase order{group.rows.length === 1 ? '' : 's'}</small></span><em>{formatDashboardInr(group.total)}</em><ChevronDown aria-hidden="true" /></button><AnimatePresence initial={false}>{open && <motion.div className="sales-po-table-wrap" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: .28 }}><table><thead><tr><th>Company Name</th><th>PO Number</th><th>PO Upload</th><th>Total PO</th></tr></thead><tbody>{group.rows.map((row, index) => <tr key={`${row.company}-${row.poNumber}-${index}`}><td><strong>{row.company}</strong><small>{row.fy || row.source || 'Sales PO'}</small></td><td>{row.poNumber || '-'}</td><td>{row.fileUrl ? <a href={row.fileUrl} target="_blank" rel="noreferrer"><Eye aria-hidden="true" />View PO</a> : <span className="sales-po-pending">Not uploaded</span>}</td><td><strong>{formatDashboardInr(row.amount)}</strong></td></tr>)}</tbody></table></motion.div>}</AnimatePresence></section>
+        return <section className="sales-po-owner" key={group.key}><button type="button" aria-expanded={open} onClick={() => setExpandedOwner((current) => current === group.key ? '' : group.key)}><i>{initials}</i><span><strong>{group.owner}</strong><small>{group.rows.length} purchase order{group.rows.length === 1 ? '' : 's'}</small></span><em>{group.rows.length} PO</em><ChevronDown aria-hidden="true" /></button><AnimatePresence initial={false}>{open && <motion.div className="sales-po-table-wrap" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: .28 }}><table><thead><tr><th>Company Name</th><th>PO Number</th><th>PO Upload</th></tr></thead><tbody>{group.rows.map((row, index) => <tr key={`${row.company}-${row.poNumber}-${index}`}><td><strong>{row.company}</strong><small>{row.fy || row.source || 'Sales PO'}</small></td><td>{row.poNumber || '-'}</td><td>{row.fileUrl ? <a href={row.fileUrl} target="_blank" rel="noreferrer"><Eye aria-hidden="true" />View PO</a> : <span className="sales-po-pending">Not uploaded</span>}</td></tr>)}</tbody></table></motion.div>}</AnimatePresence></section>
       }) : <EmptyOperationState label="No purchase orders found" />}</div>
     </motion.section>
   )
