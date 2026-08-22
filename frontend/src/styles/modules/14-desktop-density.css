@@ -319,3 +319,50 @@
 .sales-reference-analytics-grid>*{height:310px!important;overflow:hidden!important}.sales-reference-analytics-grid>.sales-donut-card{display:flex!important;height:310px!important;flex-direction:column!important}.sales-reference-analytics-grid .sales-donut-head{flex:0 0 auto!important}.sales-reference-analytics-grid .sales-donut-body{display:grid!important;grid-template-columns:220px minmax(0,1fr)!important;min-height:0!important;flex:1!important;align-items:center!important}.sales-reference-analytics-grid .sales-rechart-donut{width:220px!important;height:190px!important}.sales-reference-analytics-grid .sales-donut-legend{max-height:188px!important;overflow:auto!important}.sales-reference-analytics-grid .sales-donut-link{flex:0 0 auto!important}
 .sales-source-table-card{display:flex;flex-direction:column}.sales-source-table-card .sales-section-head>b{border-radius:6px;background:#ecfdf5;padding:5px 8px;color:#0f766e;font-size:9px}.sales-source-table-wrap{min-height:0;flex:1;overflow:auto;padding:0 12px}.sales-source-table-wrap table{width:100%;border-collapse:collapse}.sales-source-table-wrap th{border-bottom:1px solid #e5ecea;padding:9px 8px;color:#64748b;font-size:9px;text-align:left;text-transform:uppercase}.sales-source-table-wrap td{border-bottom:1px solid #eef3f2;padding:8px;color:#334155;font-size:10px}.sales-source-table-wrap td:first-child{display:flex;align-items:center;gap:8px;font-weight:800}.sales-source-table-wrap td:first-child i{width:8px;height:8px;flex:none;border-radius:50%}.sales-source-table-wrap td:nth-child(2){width:70px}.sales-source-table-wrap td:nth-child(3){display:grid;grid-template-columns:minmax(80px,1fr) 42px;align-items:center;gap:8px}.sales-source-table-wrap td:nth-child(3)>div{height:6px;overflow:hidden;border-radius:99px;background:#e8efed}.sales-source-table-wrap td:nth-child(3)>div span{display:block;height:100%;border-radius:inherit}.sales-source-table-wrap td small{color:#64748b;font-size:9px;text-align:right}.sales-source-table-card>.sales-donut-link{flex:0 0 auto}
 @media(max-width:1280px){.sales-reference-middle-grid{grid-template-columns:1fr 1fr}.sales-reference-middle-grid>.sales-lead-breakdown-card{grid-column:1/-1}}@media(max-width:760px){.sales-reference-analytics-grid{grid-template-columns:1fr}.sales-reference-analytics-grid .sales-donut-body{grid-template-columns:1fr!important}.sales-reference-analytics-grid .sales-rechart-donut{margin:auto}}
+
+/* Phone layout: compact navigation, sales cards, and calendar controls. */
+@media(max-width:640px){
+  header.crm-topbar{height:64px!important;background:rgba(255,255,255,.97)!important;backdrop-filter:blur(14px)}
+  header.crm-topbar>div{min-height:64px!important;height:64px!important;gap:6px!important;padding:0 10px!important}
+  header.crm-topbar>div>div:first-child{min-width:0!important;gap:6px!important}
+  header.crm-topbar>div>div:first-child>button:first-child{width:38px!important;height:38px!important;flex:0 0 38px!important;border-radius:10px!important}
+  header.crm-topbar>div>div:first-child>button:last-child{min-width:0!important;padding:0!important}
+  header.crm-topbar>div>div:first-child>button:last-child>span{height:46px!important;max-width:184px!important;gap:7px!important;border-radius:12px!important;padding:0 10px!important;box-shadow:none!important}
+  header.crm-topbar>div>div:first-child>button:last-child>span>span:first-child{width:34px!important;height:34px!important;border-radius:8px!important}
+  header.crm-topbar>div>div:first-child>button:last-child img{width:32px!important;height:32px!important}
+  header.crm-topbar>div>div:first-child>button:last-child strong{overflow:hidden!important;max-width:112px!important;font-size:13px!important;letter-spacing:0!important;text-overflow:ellipsis!important}
+  header.crm-topbar>div>div:first-child>button:last-child small{margin-top:3px!important;font-size:9px!important}
+  header.crm-topbar>div>div:last-child{gap:4px!important}
+  header.crm-topbar>div>div:last-child>button:first-child{display:none!important}
+  header.crm-topbar .btn-lift{width:38px!important;height:38px!important;min-width:38px!important;padding:0!important;border-radius:10px!important}
+  header.crm-topbar .btn-lift svg{width:18px!important;height:18px!important}
+  header.crm-topbar .btn-lift>div:last-child{width:38px!important;height:38px!important;border-width:2px!important}
+  .topbar-reminder-panel{position:fixed!important;top:68px!important;right:8px!important;left:8px!important;width:auto!important;max-height:calc(100dvh - 78px)!important}
+  main.pt-16{padding-top:64px!important}
+
+  .sales-dashboard-page .sales-dashboard{gap:9px!important}
+  .sales-dashboard-page .sales-hero{min-height:0!important;align-items:flex-start!important;flex-direction:column!important;gap:10px!important;padding:10px 2px 4px!important}
+  .sales-dashboard-page .sales-hero h1{font-size:25px!important}.sales-dashboard-page .sales-hero .operations-eyebrow{font-size:8px!important}.sales-dashboard-page .sales-hero>div>p:last-child{font-size:10px!important}
+  .sales-hero-actions{width:100%;gap:7px}.sales-hero-actions button{height:36px;flex:1;justify-content:center;padding:0 8px;font-size:10px}
+  .sales-dashboard-page .sales-metric-card{min-height:94px!important;grid-template-columns:40px minmax(0,1fr) 58px!important;gap:10px!important;padding:11px 12px!important;border-radius:9px!important}
+  .sales-dashboard-page .sales-metric-card>span{width:40px!important;height:40px!important}.sales-dashboard-page .sales-metric-card strong{font-size:23px!important}.sales-dashboard-page .sales-metric-card small{font-size:8px!important}
+  .sales-metric-spark{height:27px;gap:2px}.sales-metric-spark i{width:7px}.sales-metric-spark i:nth-child(2),.sales-metric-spark i:nth-child(5){height:19px}.sales-metric-spark i:nth-child(4),.sales-metric-spark i:nth-child(6){height:25px}
+  .sales-reference-top-grid>.sales-mix-card{min-height:210px!important}.sales-reference-middle-grid>*{min-height:215px!important}.sales-reference-analytics-grid>*{height:290px!important}
+
+  .calendar-page-premium{padding:10px!important}
+  .calendar-command-hero{align-items:stretch!important;gap:12px!important;border-radius:16px!important;padding:16px!important}
+  .calendar-command-hero>div:first-child{min-width:0}.calendar-command-hero .calendar-eyebrow{align-items:center!important;font-size:16px!important;line-height:1.25!important}.calendar-command-hero>div:first-child>p:last-child{margin-top:8px!important;font-size:12px!important;line-height:1.45!important}
+  .calendar-pro-actions{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;width:100%!important;gap:7px!important}
+  .calendar-pro-actions button{width:100%!important;min-width:0!important;min-height:42px!important;justify-content:center!important;gap:5px!important;border-radius:11px!important;padding:0 7px!important;font-size:10px!important;line-height:1.1!important;white-space:nowrap!important}
+  .calendar-pro-actions button svg{width:15px!important;height:15px!important;flex:none!important}
+  .calendar-month-card{overflow:hidden!important;border-radius:14px!important}.calendar-toolbar{gap:7px!important;padding:10px!important}.calendar-toolbar h2{font-size:15px!important}
+  .calendar-weekdays{padding:0!important}.calendar-weekdays span{font-size:10px!important}
+  .calendar-grid{width:100%!important;min-width:0!important}.calendar-grid .calendar-day-card{min-width:0!important;min-height:62px!important;padding:7px 5px!important}
+  .calendar-day-number{font-size:12px!important}.calendar-grid .calendar-day-card .calendar-day-add{top:5px!important;right:4px!important;width:25px!important;height:25px!important;border-radius:50%!important}.calendar-grid .calendar-day-card .calendar-day-add svg{width:14px!important;height:14px!important}
+  .calendar-date-dots{gap:3px!important}.calendar-date-dots i{width:5px!important;height:5px!important}.calendar-day-pills{display:none!important}
+}
+
+@media(max-width:390px){
+  header.crm-topbar>div>div:first-child>button:last-child>span{max-width:150px!important;padding:0 7px!important}header.crm-topbar>div>div:first-child>button:last-child>span>span:first-child{display:none!important}header.crm-topbar>div>div:first-child>button:last-child strong{max-width:128px!important;font-size:12px!important}
+  .calendar-pro-actions{grid-template-columns:1fr!important}.calendar-pro-actions button{min-height:40px!important}.calendar-grid .calendar-day-card{min-height:56px!important;padding:6px 3px!important}.calendar-grid .calendar-day-card .calendar-day-add{width:23px!important;height:23px!important}.calendar-day-number{font-size:11px!important}
+}
