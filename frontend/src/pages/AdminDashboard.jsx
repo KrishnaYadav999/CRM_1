@@ -786,6 +786,26 @@ function getLeadOwnerName(lead = {}) {
   return lead.assignedTo?.name || lead.assignedToText || lead.createdBy?.name || lead.createdBy?.email || lead.referredBy || 'Unassigned'
 }
 
+function getSalesRecordCreatorName(record = {}, users = []) {
+  const creator = record.createdBy && typeof record.createdBy === 'object' ? record.createdBy : {}
+  const creatorKeys = [
+    creator._id,
+    creator.id,
+    creator.email,
+    record.createdById,
+    record.createdByEmail,
+    typeof record.createdBy === 'string' ? record.createdBy : ''
+  ].map(normalizeKey).filter(Boolean)
+  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => creatorKeys.includes(key)))
+  const rawCreator = typeof record.createdBy === 'string' ? record.createdBy.trim() : ''
+  const readableCreator = rawCreator && !/^[a-f0-9]{24}$/i.test(rawCreator) && !rawCreator.includes('@') ? rawCreator : ''
+  const explicitName = record.createdByName || creator.name || creator.fullName || matchedUser?.name || matchedUser?.fullName || readableCreator
+  if (String(explicitName || '').trim()) return String(explicitName).trim()
+  const email = creator.email || record.createdByEmail || matchedUser?.email
+  if (String(email || '').trim()) return String(email).trim()
+  return 'Unassigned'
+}
+
 function getLeadCompanyName(lead = {}) {
   return lead.company || lead.companyName || lead.leadDetails?.companyName || ''
 }
@@ -3843,7 +3863,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       ;(lead.assignments || []).forEach((assignment) => {
         ;(assignment.poYearRows || []).forEach((row) => {
           if (!getPoValue(row.poNumber, row.poFileUrl, row.poAmount)) return
-          records.push({ owner: getLeadOwnerName(lead), company, poNumber: row.poNumber || '', fileUrl: row.poFileUrl || getFileUrl(row.poFile), amount: Number(row.poAmount || row.amount || 0), fy: row.fy || row.fyYear || '', source: 'Lead purchase order' })
+          records.push({ owner: getSalesRecordCreatorName(lead, users), company, poNumber: row.poNumber || '', fileUrl: row.poFileUrl || getFileUrl(row.poFile), amount: Number(row.poAmount || row.amount || 0), fy: row.fy || row.fyYear || '', source: 'Lead purchase order' })
         })
       })
     })
@@ -3852,7 +3872,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       const poNumber = getPoValue(quote.poNumber, quote.poNo, quote.purchaseOrderNo, purchaseOrder.number)
       const file = getPoValue(quote.poFileUrl, quote.poDocument, purchaseOrder.document, purchaseOrder.file)
       if (!poNumber && !file) return
-      records.push({ owner: getQuotationOwnerName(quote), company: quote.leadDetails?.companyName || quote.companyName || 'Quotation company', poNumber, fileUrl: getFileUrl(file), amount: Number(quote.poAmount || purchaseOrder.amount || quote.grandTotal || 0), source: 'Quotation purchase order' })
+      records.push({ owner: getSalesRecordCreatorName(quote, users), company: quote.leadDetails?.companyName || quote.companyName || 'Quotation company', poNumber, fileUrl: getFileUrl(file), amount: Number(quote.poAmount || purchaseOrder.amount || quote.grandTotal || 0), source: 'Quotation purchase order' })
     })
     const unique = new Map()
     records.forEach((row) => {
@@ -3860,7 +3880,7 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       if (!unique.has(key)) unique.set(key, row)
     })
     return [...unique.values()].sort((left, right) => right.amount - left.amount)
-  }, [scopedLeads, scopedQuotations])
+  }, [scopedLeads, scopedQuotations, users])
   const metrics = [
     { label: 'Total Lead', value: scopedLeads.length, note: 'Assigned sales leads', icon: Users, tone: 'teal' },
     { label: 'Quotation Sent', value: quotationSent.length, note: 'Sent / opened / replied', icon: FileText, tone: 'blue' },
@@ -4223,7 +4243,7 @@ function SalesPurchaseOrderTable({ rows = [] }) {
   }, {})).sort((left, right) => right.rows.length - left.rows.length || left.owner.localeCompare(right.owner))
   return (
     <motion.section className="sales-po-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="sales-section-head"><div><FileCheck2 className="h-4 w-4" /><strong>Purchase Orders by User</strong></div><p>{rows.length} PO records</p></div>
+      <div className="sales-section-head"><div><FileCheck2 className="h-4 w-4" /><strong>Purchase Orders by Created By</strong></div><p>{rows.length} PO records</p></div>
       <div className="sales-po-owner-list">{ownerGroups.length ? ownerGroups.map((group) => {
         const open = expandedOwner === group.key
         const initials = group.owner.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'NA'
