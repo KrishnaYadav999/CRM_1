@@ -16,6 +16,7 @@ const { analyzeClientMasterData } = require('../services/userProductivityReport'
 const { normalizeClientMaster, resolveClientMasterData } = require('../services/clientMasterResolver');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { normalizeFinancialYear, resolveAnnualReturnPO } = require('../services/annualReturnPoResolver');
+const { syncStaffOnboardingCpcbStatus } = require('../services/staffOnboardingWorkflow');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -1171,6 +1172,12 @@ exports.updateCpcbOnboarding = async (req, res) => {
   client.data = data;
   client.markModified('data');
   await client.save();
+  await syncStaffOnboardingCpcbStatus({
+    leadKey: client.selectedLead,
+    staffId: req.user?._id,
+    registered,
+    now: changedAt
+  });
   return res.status(creatingClient ? 201 : 200).json({ ok: true, client, identity: normalizeClientMaster(client), resolvedData: resolveClientMasterData(client, assignedServiceId) });
 };
 

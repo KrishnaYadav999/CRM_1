@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Client = require('../models/Client');
 const ClientOnboardingReminder = require('../models/ClientOnboardingReminder');
 const Notification = require('../models/Notification');
 const StaffOnboardingAssignment = require('../models/StaffOnboardingAssignment');
@@ -132,6 +133,37 @@ async function onboardingCompleted(record) {
   });
 }
 
+async function readCpcbPortalRegistration(record) {
+  if (!mongoose.isValidObjectId(record.leadKey)) return undefined;
+  const client = await Client.findOne({
+    selectedLead: record.leadKey,
+    createdBy: record.staffId,
+    'data.cpcbOnboarding.cpcbPortalRegistered': { $type: 'bool' }
+  }).select('data.cpcbOnboarding.cpcbPortalRegistered').sort({ updatedAt: -1 }).lean();
+  return client?.data?.cpcbOnboarding?.cpcbPortalRegistered;
+}
+
+async function syncStaffOnboardingCpcbStatus({ leadKey, staffId, registered, now = new Date() }) {
+  if (!leadKey || !staffId || typeof registered !== 'boolean') return { modifiedCount: 0 };
+  if (!registered) {
+    return StaffOnboardingAssignment.updateMany(
+      { leadKey: String(leadKey), staffId, status: { $in: ['ACTIVE', 'RED_FLAG'] } },
+      {
+        $set: { status: 'CPCB_NOT_REGISTERED' },
+        $unset: { lastReminderAt: 1, redFlaggedAt: 1, emailError: 1 }
+      }
+    );
+  }
+  const dueAt = new Date(now.getTime() + ONBOARDING_LIMIT_MS);
+  return StaffOnboardingAssignment.updateMany(
+    { leadKey: String(leadKey), staffId, status: 'CPCB_NOT_REGISTERED' },
+    {
+      $set: { status: 'ACTIVE', reminderCount: 0, dueAt, nextActionAt: dueAt },
+      $unset: { lastReminderAt: 1, redFlaggedAt: 1, completedAt: 1, emailError: 1 }
+    }
+  );
+}
+
 async function sendWorkflowEmail(record, stage) {
   const redFlag = stage === 'RED_FLAG';
   const subject = redFlag
@@ -161,6 +193,13 @@ async function runStaffOnboardingWorkflow(now = new Date()) {
   const due = await StaffOnboardingAssignment.find({ status: 'ACTIVE', nextActionAt: { $lte: now } });
   let completed = 0; let reminded = 0; let redFlagged = 0;
   for (const record of due) {
+    if (await readCpcbPortalRegistration(record) === false) {
+      record.status = 'CPCB_NOT_REGISTERED';
+      record.lastReminderAt = undefined;
+      record.redFlaggedAt = undefined;
+      await record.save();
+      continue;
+    }
     if (await onboardingCompleted(record)) {
       record.status = 'COMPLETED';
       record.completedAt = now;
@@ -199,7 +238,9 @@ module.exports = {
   ONBOARDING_LIMIT_MS,
   REMINDER_GAP_MS,
   assignmentEmailHtml,
+  readCpcbPortalRegistration,
   registerStaffOnboardingAssignments,
   runStaffOnboardingWorkflow,
+  syncStaffOnboardingCpcbStatus,
   startStaffOnboardingWorkflowScheduler
 };

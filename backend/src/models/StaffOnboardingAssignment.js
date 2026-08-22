@@ -16,7 +16,7 @@ const StaffOnboardingAssignmentSchema = new mongoose.Schema({
   nextActionAt: { type: Date, required: true, index: true },
   reminderCount: { type: Number, default: 0 },
   lastReminderAt: { type: Date },
-  status: { type: String, enum: ['ACTIVE', 'COMPLETED', 'RED_FLAG'], default: 'ACTIVE', index: true },
+  status: { type: String, enum: ['ACTIVE', 'COMPLETED', 'RED_FLAG', 'CPCB_NOT_REGISTERED'], default: 'ACTIVE', index: true },
   completedAt: { type: Date },
   redFlaggedAt: { type: Date },
   assignmentEmailSentAt: { type: Date },

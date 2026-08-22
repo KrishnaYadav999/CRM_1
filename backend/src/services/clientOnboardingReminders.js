@@ -1,4 +1,5 @@
 const ClientOnboardingReminder = require('../models/ClientOnboardingReminder');
+const Client = require('../models/Client');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
@@ -69,7 +70,16 @@ async function notifyRecipient(recipient, rows, audienceLabel) {
 }
 
 async function runClientOnboardingReminders(now = new Date()) {
-  const due = await ClientOnboardingReminder.find({ completed: false, remindedAt: { $exists: false }, firstBasicInfoAt: { $lte: new Date(now.getTime() - 7 * DAY_MS) } }).lean();
+  const candidates = await ClientOnboardingReminder.find({ completed: false, remindedAt: { $exists: false }, firstBasicInfoAt: { $lte: new Date(now.getTime() - 7 * DAY_MS) } }).lean();
+  const due = [];
+  for (const row of candidates) {
+    const notRegistered = mongooseId(row.sourceLeadId) && await Client.exists({
+      selectedLead: row.sourceLeadId,
+      createdBy: row.ownerId,
+      'data.cpcbOnboarding.cpcbPortalRegistered': false
+    });
+    if (!notRegistered) due.push(row);
+  }
   if (!due.length) return { processed: 0 };
   const ownerIds = [...new Set(due.map((row) => String(row.ownerId)))];
   const users = await User.find({ _id: { $in: ownerIds } }).select('name email managerId role').lean();
@@ -88,6 +98,10 @@ async function runClientOnboardingReminders(now = new Date()) {
   for (const { manager, rows } of managerBuckets.values()) await notifyRecipient(manager, rows, 'manager');
   await ClientOnboardingReminder.updateMany({ _id: { $in: due.map((row) => row._id) } }, { $set: { remindedAt: now } });
   return { processed: due.length };
+}
+
+function mongooseId(value) {
+  return /^[a-f\d]{24}$/i.test(String(value || ''));
 }
 
 let started = false;

@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
+    "dev": "node ./node_modules/nodemon/bin/nodemon.js src/index.js",
     "test": "node --test",
     "seed-admin": "node src/seed/adminSeed.js",
     "backfill:ccp": "node src/scripts/backfillCcpToCrm.js",
