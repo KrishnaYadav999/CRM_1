@@ -3836,6 +3836,31 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
       .sort((left, right) => `${right.scheduledDate || ''} ${right.scheduledTime || ''}`.localeCompare(`${left.scheduledDate || ''} ${left.scheduledTime || ''}`))
     return [...open, ...completed].slice(0, 5)
   }, [calendarFollowUps])
+  const purchaseOrderRows = useMemo(() => {
+    const records = []
+    scopedLeads.forEach((lead) => {
+      const company = getLeadCompanyName(lead) || 'Lead company'
+      ;(lead.assignments || []).forEach((assignment) => {
+        ;(assignment.poYearRows || []).forEach((row) => {
+          if (!getPoValue(row.poNumber, row.poFileUrl, row.poAmount)) return
+          records.push({ company, poNumber: row.poNumber || '', fileUrl: row.poFileUrl || getFileUrl(row.poFile), amount: Number(row.poAmount || row.amount || 0), fy: row.fy || row.fyYear || '', source: 'Lead purchase order' })
+        })
+      })
+    })
+    scopedQuotations.forEach((quote) => {
+      const purchaseOrder = quote.purchaseOrder && typeof quote.purchaseOrder === 'object' ? quote.purchaseOrder : {}
+      const poNumber = getPoValue(quote.poNumber, quote.poNo, quote.purchaseOrderNo, purchaseOrder.number)
+      const file = getPoValue(quote.poFileUrl, quote.poDocument, purchaseOrder.document, purchaseOrder.file)
+      if (!poNumber && !file) return
+      records.push({ company: quote.leadDetails?.companyName || quote.companyName || 'Quotation company', poNumber, fileUrl: getFileUrl(file), amount: Number(quote.poAmount || purchaseOrder.amount || quote.grandTotal || 0), source: 'Quotation purchase order' })
+    })
+    const unique = new Map()
+    records.forEach((row) => {
+      const key = `${normalizeBusinessKey(row.company)}:${normalizeKey(row.poNumber) || row.fileUrl}`
+      if (!unique.has(key)) unique.set(key, row)
+    })
+    return [...unique.values()].sort((left, right) => right.amount - left.amount)
+  }, [scopedLeads, scopedQuotations])
   const metrics = [
     { label: 'Total Lead', value: scopedLeads.length, note: 'Assigned sales leads', icon: Users, tone: 'teal' },
     { label: 'Quotation Sent', value: quotationSent.length, note: 'Sent / opened / replied', icon: FileText, tone: 'blue' },
@@ -3948,6 +3973,8 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
         <SalesLeadSourcesTable rows={leadSourceRows} total={periodLeads.length} onView={() => setReportModal({ title: 'Lead Sources', subtitle: `${periodLeads.length} leads in selected period`, columns: ['Referred By', 'Date', 'Lead Source', 'Company'], rows: periodLeads.map((lead) => [getLeadOwnerName(lead), formatShortDate(getLeadCreatedDate(lead)), lead.source || lead.leadSource || '-', getLeadCompanyName(lead) || '-']) })} />
         <SalesDonutCard title="Quotation Status" total={periodQuotations.length} centerLabel="Total Quotations" rows={quotationRows} actionLabel="View All Quotations" icon={FileCheck2} period={quotationPeriod} onPeriodChange={setQuotationPeriod} onView={() => navigate('/sales/quotations')} pie />
       </div>
+
+      <SalesPurchaseOrderTable rows={purchaseOrderRows} />
 
       <div className="sales-reference-bottom-grid sales-reference-bottom-single">
         <SalesRecentActivity
@@ -4168,6 +4195,18 @@ function SalesFollowUps({ leads = [], onView, onCalendar }) {
         }) : <EmptyOperationState label="No follow-ups found" />}
       </div>
       <button type="button" className="sales-donut-link" onClick={onView}>View All Follow-ups <ArrowUpRight className="h-3.5 w-3.5" /></button>
+    </motion.section>
+  )
+}
+
+function SalesPurchaseOrderTable({ rows = [] }) {
+  const totalValue = rows.reduce((sum, row) => sum + row.amount, 0)
+  return (
+    <motion.section className="sales-po-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="sales-section-head"><div><FileCheck2 className="h-4 w-4" /><strong>Purchase Orders</strong></div><p>{rows.length} PO records · {formatDashboardInr(totalValue)}</p></div>
+      <div className="sales-po-table-wrap"><table><thead><tr><th>Company Name</th><th>PO Number</th><th>PO Upload</th><th>Total PO</th></tr></thead><tbody>
+        {rows.length ? rows.map((row, index) => <tr key={`${row.company}-${row.poNumber}-${index}`}><td><strong>{row.company}</strong><small>{row.fy || row.source || 'Sales PO'}</small></td><td>{row.poNumber || '-'}</td><td>{row.fileUrl ? <a href={row.fileUrl} target="_blank" rel="noreferrer"><Eye aria-hidden="true" />View PO</a> : <span className="sales-po-pending">Not uploaded</span>}</td><td><strong>{formatDashboardInr(row.amount)}</strong></td></tr>) : <tr><td colSpan={4}><EmptyOperationState label="No purchase orders found" /></td></tr>}
+      </tbody></table></div>
     </motion.section>
   )
 }
