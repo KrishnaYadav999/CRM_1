@@ -3635,7 +3635,7 @@ function SalesMixAnalytics({ analytics, total }) {
   )
 }
 
-function SalesRiskStrip({ items = [], onView }) {
+function SalesRiskStrip({ items = [], onView, expanded = false }) {
   const stages = items.map(getRedFlagStage).filter(Boolean)
   const redFlags = stages.filter((stage) => stage.key === 'permanent-red').length
   const overdue = stages.filter((stage) => ['overdue-30', 'overdue-60'].includes(stage.key)).length
@@ -3647,8 +3647,20 @@ function SalesRiskStrip({ items = [], onView }) {
       <span><b>{overdue}</b> follow-ups overdue today</span>
       <span><b>{dueSoon}</b> quotations pending &gt; 7 days</span>
       <span><b>{formatDashboardInr(items.reduce((sum, item) => sum + (Number(item.dealValue) || 0), 0))}</b> at risk</span>
-      <button type="button" onClick={onView}>View Details</button>
+      <button type="button" onClick={onView} aria-expanded={expanded}>{expanded ? 'Hide Details' : 'View Details'}<ChevronDown aria-hidden="true" /></button>
     </section>
+  )
+}
+
+function SalesLeadSourcesTable({ rows = [], total = 0, onView }) {
+  return (
+    <motion.section className="sales-source-table-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="sales-section-head"><div><Target className="h-4 w-4" /><strong>Lead Sources / Follow-up Analytics</strong></div><b>{total} leads</b></div>
+      <div className="sales-source-table-wrap"><table><thead><tr><th>Lead Source</th><th>Leads</th><th>Share</th></tr></thead><tbody>
+        {rows.length ? rows.map((row) => <tr key={row.label}><td><i style={{ background: row.color }} />{row.label}</td><td><strong>{row.value}</strong></td><td><div><span style={{ width: `${Math.max(3, Number(row.percent) || 0)}%`, background: row.color }} /></div><small>{row.percent}%</small></td></tr>) : <tr><td colSpan={3}><EmptyOperationState label="No lead source data found" /></td></tr>}
+      </tbody></table></div>
+      <button type="button" className="sales-donut-link" onClick={onView}>View Full Report <ArrowUpRight className="h-3.5 w-3.5" /></button>
+    </motion.section>
   )
 }
 
@@ -3669,6 +3681,7 @@ function SalesCommunicationTerms({ users = [], currentUser = {} }) {
 function SalesDashboard({ leads = [], quotations = [], clients = [], users = [], calendarItems = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
   const navigate = useNavigate()
   const [reportModal, setReportModal] = useState(null)
+  const [redFlagsExpanded, setRedFlagsExpanded] = useState(false)
   const [leadSourcePeriod, setLeadSourcePeriod] = useState(() => `months:m${new Date().getMonth()}`)
   const [quotationPeriod, setQuotationPeriod] = useState(() => `months:m${new Date().getMonth()}`)
   useEffect(() => {
@@ -3823,37 +3836,19 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
         {metrics.map((metric, index) => <SalesMetricCard key={metric.label} metric={metric} index={index} />)}
       </div>
 
-      <SalesRiskStrip items={calendarFollowUps} onView={() => document.getElementById('sales-red-flag-details')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
+      <SalesRiskStrip items={calendarFollowUps} expanded={redFlagsExpanded} onView={() => setRedFlagsExpanded((value) => !value)} />
+
+      <AnimatePresence initial={false}>
+        {redFlagsExpanded && <motion.div id="sales-red-flag-details" className="sales-red-flag-expand" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: .38, ease: [0.22, 1, 0.36, 1] }}><RedFlagAuditSection items={calendarFollowUps} users={users} title="Sales Red Flag & Missed Follow-ups" /></motion.div>}
+      </AnimatePresence>
 
       <div className="sales-reference-top-grid">
         <SalesAnalyticsBars title="Applicant Type" subtitle="PIBO Category" rows={salesMixAnalytics.subApplicantTypes} tone="teal" delay={.04} />
-        <SalesDonutCard
-          title="Lead Sources"
-          total={periodLeads.length}
-          centerLabel="Total Leads"
-          rows={leadSourceRows}
-          actionLabel="View Full Report"
-          icon={Target}
-          period={leadSourcePeriod}
-          onPeriodChange={setLeadSourcePeriod}
-          onView={() => setReportModal({
-            title: 'Lead Sources',
-            subtitle: `${periodLeads.length} leads in selected period`,
-            columns: ['Referred By', 'Date', 'Lead Source', 'Company'],
-            rows: periodLeads.map((lead) => [
-              getLeadOwnerName(lead),
-              formatShortDate(getLeadCreatedDate(lead)),
-              lead.source || lead.leadSource || '-',
-              getLeadCompanyName(lead) || '-'
-            ])
-          })}
-        />
         <SalesAnalyticsBars title="Top Industries" subtitle="Industry concentration" rows={salesMixAnalytics.industries} tone="teal" delay={.08} />
       </div>
 
       <div className="sales-reference-middle-grid">
         <SalesAnalyticsBars title="Top States by Leads" subtitle="Geographic demand" rows={salesMixAnalytics.states} tone="green" delay={.1} />
-        <SalesAnalyticsBars title="Team Workload" subtitle="Leads assigned" rows={salesMixAnalytics.workload} tone="amber" delay={.12} />
         <SalesLeadBreakdownTable rows={buildSalesLeadMatrixRows(scopedLeads)} />
         <SalesFollowUps
           leads={followUps}
@@ -3877,10 +3872,8 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
         />
       </div>
 
-      <div id="sales-red-flag-details"><RedFlagAuditSection items={calendarFollowUps} users={users} title="Sales Red Flag & Missed Follow-ups" /></div>
-
       <div className="sales-reference-analytics-grid">
-        <SalesDonutCard title="Lead Sources / Follow-up Analytics" total={periodLeads.length} centerLabel="Total Leads" rows={leadSourceRows} actionLabel="View Full Report" icon={Target} period={leadSourcePeriod} onPeriodChange={setLeadSourcePeriod} onView={() => navigate('/calendar')} />
+        <SalesLeadSourcesTable rows={leadSourceRows} total={periodLeads.length} onView={() => setReportModal({ title: 'Lead Sources', subtitle: `${periodLeads.length} leads in selected period`, columns: ['Referred By', 'Date', 'Lead Source', 'Company'], rows: periodLeads.map((lead) => [getLeadOwnerName(lead), formatShortDate(getLeadCreatedDate(lead)), lead.source || lead.leadSource || '-', getLeadCompanyName(lead) || '-']) })} />
         <SalesDonutCard title="Quotation Status" total={periodQuotations.length} centerLabel="Total Quotations" rows={quotationRows} actionLabel="View All Quotations" icon={FileCheck2} period={quotationPeriod} onPeriodChange={setQuotationPeriod} onView={() => navigate('/sales/quotations')} />
       </div>
 
@@ -3907,55 +3900,45 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
 function SalesLeadBreakdownTable({ rows = [] }) {
   const rowsPerPage = 5
   const totals = rows.reduce((acc, row) => {
-    salesCommunicationModes.forEach((mode) => { acc.communication[mode] += row.communication[mode] || 0 })
-    salesLeadStatuses.forEach((status) => { acc.statuses[status] += row.statuses[status] || 0 })
+    acc.open += row.statuses['Potential - Interested'] || 0
+    acc.inProgress += row.statuses['Need Assistance'] || 0
+    acc.converted += row.statuses['Existing Client'] || 0
+    acc.lost += (row.statuses.Lost || 0) + (row.statuses['Potential - Not Interested'] || 0)
     acc.total += row.total
     return acc
-  }, {
-    communication: Object.fromEntries(salesCommunicationModes.map((mode) => [mode, 0])),
-    statuses: Object.fromEntries(salesLeadStatuses.map((status) => [status, 0])),
-    total: 0
-  })
+  }, { open: 0, inProgress: 0, converted: 0, lost: 0, total: 0 })
 
   return (
     <motion.section className="sales-lead-breakdown-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.36, delay: 0.08 }}>
       <div className="sales-section-head">
-        <div><ListChecks className="h-4 w-4" /><strong>Lead Breakdown</strong></div>
-        <p>{rows.length > rowsPerPage ? `Showing first ${rowsPerPage}, scroll for ${rows.length - rowsPerPage} more` : `${rows.length} rows`}</p>
+        <div><ListChecks className="h-4 w-4" /><strong>Lead Performance Breakdown</strong></div>
+        <p>{rows.length} owners</p>
       </div>
       <div className="sales-lead-breakdown-wrap">
         <table className="sales-lead-breakdown-table">
           <thead>
-            <tr>
-              <th rowSpan={2}>Referred By</th>
-              <th colSpan={salesCommunicationModes.length}>Lead Client Communication Mode</th>
-              <th colSpan={salesLeadStatuses.length}>Lead Status</th>
-              <th rowSpan={2}>Total</th>
-            </tr>
-            <tr>
-              {salesCommunicationModes.map((mode) => <th key={mode}>{mode}</th>)}
-              {salesLeadStatuses.map((status) => <th key={status}>{status}</th>)}
-            </tr>
+            <tr><th>Referred By</th><th>Total Leads</th><th>Open</th><th>In Progress</th><th>Converted</th><th>Lost</th></tr>
           </thead>
           <tbody>
             {rows.length ? rows.map((row) => (
               <tr key={row.key}>
                 <td><strong>{row.owner}</strong></td>
-                {salesCommunicationModes.map((mode) => <td key={mode}><span>{row.communication[mode] || 0}</span></td>)}
-                {salesLeadStatuses.map((status) => <td key={status}><span>{row.statuses[status] || 0}</span></td>)}
                 <td><b>{row.total}</b></td>
+                <td><span className="is-open">{row.statuses['Potential - Interested'] || 0}</span></td>
+                <td><span className="is-progress">{row.statuses['Need Assistance'] || 0}</span></td>
+                <td><span className="is-converted">{row.statuses['Existing Client'] || 0}</span></td>
+                <td><span className="is-lost">{(row.statuses.Lost || 0) + (row.statuses['Potential - Not Interested'] || 0)}</span></td>
               </tr>
             )) : (
-              <tr><td colSpan={salesCommunicationModes.length + salesLeadStatuses.length + 2}><EmptyOperationState label="No lead breakdown found" /></td></tr>
+              <tr><td colSpan={6}><EmptyOperationState label="No lead breakdown found" /></td></tr>
             )}
           </tbody>
           {rows.length ? (
             <tfoot>
               <tr>
                 <td>Total</td>
-                {salesCommunicationModes.map((mode) => <td key={mode}>{totals.communication[mode]}</td>)}
-                {salesLeadStatuses.map((status) => <td key={status}>{totals.statuses[status]}</td>)}
                 <td>{totals.total}</td>
+                <td>{totals.open}</td><td>{totals.inProgress}</td><td>{totals.converted}</td><td>{totals.lost}</td>
               </tr>
             </tfoot>
           ) : null}
