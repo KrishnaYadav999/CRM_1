@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, FileSpreadsheet, History, Image, Loader2, RefreshCw, Search, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, FileSpreadsheet, History, Loader2, RefreshCw, Search, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
 import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
@@ -8,7 +8,7 @@ import OutlookMsgViewer from './OutlookMsgViewer';
 import PurchaseProofDropzone from './PurchaseProofDropzone';
 import SalesDataPanel from './SalesDataPanel';
 
-const WORKSPACE_TABS = ['Purchase Data', 'Sales Data', 'Pre Consumer / State / Annual', 'EPR Target', 'EPR CREDIT', 'Upload All Screenshot'];
+const WORKSPACE_TABS = ['Purchase Data', 'Sales Data', 'Pre Consumer / State / Annual', 'EPR Target', 'EPR CREDIT'];
 const REQUIRED_NORMAL_ROWS = new Set(['Received from client', 'Ready to upload', 'Client Approval on data', 'Upload Complete']);
 const EMPTY_PAGINATION = { page: 1, pages: 1, total: 0 };
 const statusTone = (value) => {
@@ -102,7 +102,6 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     setPurchase(next);
     clearTimeout(saveTimer.current);
     if (immediate) saveChecklist(next, 'Checklist saved.'); else saveTimer.current = setTimeout(() => saveChecklist(next), 650);
-    if (next.checklist[index].particular === 'Nil Upload' && patch.yesNo === 'Yes') setActiveTab('Upload All Screenshot');
     const changedRow = next.checklist[index];
     const nilSelected = next.checklist.find((row) => row.particular === 'Nil Upload')?.yesNo === 'Yes';
     const mandatory = changedRow.particular === 'Client Approval on data' || (!nilSelected && REQUIRED_NORMAL_ROWS.has(changedRow.particular));
@@ -185,24 +184,6 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     finally { setBusy(''); }
   }, [clientId, financialYear, purchase, rowSearch, rowsSource]);
 
-  const saveScreenshots = async (files) => {
-    setBusy('screenshots');
-    try {
-      const { data } = await api.put(API_ENDPOINTS.clients.purchaseScreenshots(clientId), { financialYear, screenshots: files });
-      setPurchase(data.purchaseData); setNotice({ type: 'success', text: 'Screenshots saved.' });
-    } catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
-    finally { setBusy(''); }
-  };
-
-  const uploadScreenshots = async (fileList) => {
-    if (!fileList?.length) return;
-    setBusy('screenshots');
-    try {
-      const uploaded = await uploadMediaBatch(fileList, `crm/purchase-data/${clientId}/${financialYear}/screenshots`);
-      await saveScreenshots([...(purchase.screenshots || []), ...uploaded].slice(0, 20));
-    } catch (error) { setNotice({ type: 'error', text: errorText(error) }); setBusy(''); }
-  };
-
   const submit = async () => {
     setBusy('submit');
     try { const { data } = await api.post(API_ENDPOINTS.clients.purchaseSubmit(clientId), { financialYear, message: reviewMessage }); setPurchase(data.purchaseData); setNotice({ type: 'success', text: data.duplicateSubmission ? 'Already pending with Manager.' : 'Submitted to Manager for verification.' }); }
@@ -231,11 +212,11 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
   if (!purchase) return <div className="mx-4 rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm font-black text-rose-700">{notice?.text || 'Purchase Data could not be loaded.'}</div>;
 
   return <section role="tabpanel" aria-label="Data Compliance" className="mx-4 overflow-hidden rounded-3xl border border-teal-200 bg-[linear-gradient(145deg,#f0fdfa_0%,#ffffff_42%,#fff7ed_100%)] shadow-[0_18px_55px_rgba(15,118,110,0.10)]">
-    <div className="overflow-x-auto border-b border-teal-200 bg-gradient-to-r from-teal-950 via-teal-800 to-emerald-700 p-2.5"><div className="flex min-w-max gap-2" role="tablist">{WORKSPACE_TABS.map((tab) => <button type="button" role="tab" aria-selected={activeTab === tab} key={tab} onClick={() => setActiveTab(tab)} className={`min-w-44 rounded-xl px-4 py-3 text-xs font-black transition ${activeTab === tab ? 'bg-white text-teal-800 shadow-lg' : 'text-teal-50 hover:bg-white/15'}`}>{tab}</button>)}</div></div>
+    <div className="overflow-x-auto border-b border-teal-200 bg-gradient-to-r from-teal-50 via-cyan-50 to-emerald-50 p-2.5"><div className="flex min-w-max gap-2" role="tablist">{WORKSPACE_TABS.map((tab) => <button type="button" role="tab" aria-selected={activeTab === tab} key={tab} onClick={() => setActiveTab(tab)} className={`min-w-44 rounded-xl border px-4 py-3 text-xs font-black transition ${activeTab === tab ? 'border-teal-300 bg-white text-teal-800 shadow-sm' : 'border-transparent text-slate-600 hover:border-teal-200 hover:bg-white/70 hover:text-teal-700'}`}>{tab}</button>)}</div></div>
     {notice && <div className={`m-4 flex items-start justify-between gap-3 rounded-xl border p-3 text-sm font-bold ${notice.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : notice.type === 'warning' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}><span>{notice.text}</span><button type="button" onClick={() => setNotice(null)}><X className="h-4 w-4" /></button></div>}
 
     {activeTab === 'Purchase Data' && <div className="space-y-4 p-4">
-      <div className="rounded-2xl bg-gradient-to-r from-teal-800 via-emerald-700 to-cyan-700 p-5 text-white shadow-lg"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-100">Purchase progress tracker</p><h5 className="mt-1 text-xl font-black">Purchase Data Upload Checklist</h5><p className="mt-1 text-xs font-bold text-teal-50">Normal flow requires the four marked controls. Nil Upload requires only Client Approval on data.</p></div><div className="flex items-center gap-2"><Badge value={purchase.calculatedStatus}>{purchase.calculatedStatus}</Badge><button type="button" aria-label="Refresh Purchase Data" onClick={() => loadPurchase()} className="rounded-xl border border-white/30 bg-white/10 p-2.5 text-white hover:bg-white/20"><RefreshCw className="h-4 w-4" /></button></div></div></div>
+      <div className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 via-white to-cyan-50 p-5 text-slate-900 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-700">Purchase progress tracker</p><h5 className="mt-1 text-xl font-black">Purchase Data Upload Checklist</h5><p className="mt-1 text-xs font-bold text-slate-600">Normal flow requires the four marked controls. Nil Upload requires only Client Approval on data.</p></div><div className="flex items-center gap-2"><Badge value={purchase.calculatedStatus}>{purchase.calculatedStatus}</Badge><button type="button" aria-label="Refresh Purchase Data" onClick={() => loadPurchase()} className="rounded-xl border border-teal-200 bg-white p-2.5 text-teal-700 hover:bg-teal-50"><RefreshCw className="h-4 w-4" /></button></div></div></div>
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
         {purchase.checklist.map((row, index) => {
           const mandatory = row.particular === 'Client Approval on data' || (!nilUploadSelected && REQUIRED_NORMAL_ROWS.has(row.particular));
@@ -287,10 +268,9 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
       {!!purchase.reviewHistory?.length && <div className="mt-4 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black uppercase text-slate-500"><History className="h-4 w-4" />Audit history</p><div className="space-y-2">{[...purchase.reviewHistory].reverse().map((item, index) => <div key={index} className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600"><strong className="text-slate-900">{item.stage} · {item.decision}</strong> by {item.by?.name || '-'} · {item.at ? new Date(item.at).toLocaleString('en-IN') : '-'}{item.message && <span className="block mt-1">{item.message}</span>}</div>)}</div></div>}</div>
     </div>}
 
-    {activeTab === 'Upload All Screenshot' && <div className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-[#30737B]">Evidence workspace</p><h5 className="mt-1 text-lg font-black">Upload All Screenshot</h5><p className="mt-1 text-sm font-bold text-slate-500">Upload portal screenshots, PDFs or email evidence when available. This is optional for the Nil Upload path.</p></div>{canEdit && <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#087A70] px-4 py-2.5 text-xs font-black text-white"><Upload className="h-4 w-4" />{busy === 'screenshots' ? 'Uploading…' : 'Upload evidence'}<input type="file" multiple accept="image/*,.pdf,.eml" className="hidden" onChange={(event) => uploadScreenshots(event.target.files)} /></label>}</div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{(purchase.screenshots || []).map((file, index) => <article key={`${file.url}-${index}`} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700"><Image className="h-5 w-5" /></span><div className="min-w-0 flex-1"><a href={file.secureUrl || file.url} target="_blank" rel="noreferrer" className="block truncate text-sm font-black text-[#087A70] hover:underline">{file.name}</a><p className="text-[10px] font-bold text-slate-400">{file.uploadedAt ? new Date(file.uploadedAt).toLocaleString('en-IN') : ''}</p></div>{canEdit && <button type="button" onClick={() => saveScreenshots(purchase.screenshots.filter((_, current) => current !== index))} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>}</article>)}{!purchase.screenshots?.length && <div className="col-span-full grid min-h-48 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center"><div><Image className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-2 text-sm font-black text-slate-500">No evidence uploaded</p></div></div>}</div></div>}
 
     {activeTab === 'Sales Data' && <SalesDataPanel clientId={clientId} financialYear={financialYear} />}
-    {!['Purchase Data','Sales Data','Upload All Screenshot'].includes(activeTab) && <div className="grid min-h-72 place-items-center bg-[linear-gradient(135deg,#f0fdfa,#fff,#fff7ed)] p-8 text-center"><div><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-[#30737B] shadow ring-1 ring-teal-100"><FileSpreadsheet className="h-7 w-7" /></span><h5 className="mt-4 text-lg font-black">{activeTab}</h5><p className="mt-2 text-sm font-bold text-slate-500">This Data Compliance module will be configured in the next phase.</p></div></div>}
+    {!['Purchase Data','Sales Data'].includes(activeTab) && <div className="grid min-h-72 place-items-center bg-[linear-gradient(135deg,#f0fdfa,#fff,#fff7ed)] p-8 text-center"><div><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-[#30737B] shadow ring-1 ring-teal-100"><FileSpreadsheet className="h-7 w-7" /></span><h5 className="mt-4 text-lg font-black">{activeTab}</h5><p className="mt-2 text-sm font-bold text-slate-500">This Data Compliance module will be configured in the next phase.</p></div></div>}
     <ImportPreview pending={pendingImport} busy={busy === 'import'} onClose={() => setPendingImport(null)} onConfirm={confirmImport} />
     {mailPreview && <OutlookMsgViewer file={mailPreview} onClose={() => setMailPreview(null)} />}
   </section>;

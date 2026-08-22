@@ -81,7 +81,8 @@ test('frontend mounts Purchase Data inside Data Compliance and exposes all reque
   const annual = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientMasterAnnualReturn.jsx'), 'utf8');
   const workspace = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseDataWorkspace.jsx'), 'utf8');
   assert.match(annual, /<PurchaseDataWorkspace/);
-  ['Purchase Data','Sales Data','Pre Consumer / State / Annual','EPR Target','EPR CREDIT','Upload All Screenshot'].forEach((tab) => assert.match(workspace, new RegExp(tab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
+  ['Purchase Data','Sales Data','Pre Consumer / State / Annual','EPR Target','EPR CREDIT'].forEach((tab) => assert.match(workspace, new RegExp(tab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
+  assert.doesNotMatch(workspace, /Upload All Screenshot/);
 });
 test('mandatory status displays date and drag-drop proof validation', () => {
   const workspace = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/PurchaseDataWorkspace.jsx'), 'utf8');

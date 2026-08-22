@@ -7,9 +7,9 @@ const REQUIRED_NORMAL_ROWS = new Set(['Received from client', 'Ready to upload',
 export default function SalesUploadChecklist({ checklist = [], canEdit, busy, onChange, onUploadProof, onRemoveProof, onPreview, onError }) {
   const nilUpload = checklist.find((row) => row.particular === 'Nil Upload')?.yesNo === 'Yes';
   return <section className="overflow-hidden rounded-3xl border border-indigo-200 bg-white shadow-[0_16px_45px_rgba(79,70,229,0.10)]">
-    <div className="flex items-start gap-3 border-b border-indigo-200 bg-gradient-to-r from-indigo-700 via-violet-700 to-fuchsia-700 p-5 text-white">
+    <div className="flex items-start gap-3 border-b border-indigo-200 bg-gradient-to-r from-indigo-50 via-violet-50 to-fuchsia-50 p-5 text-slate-900">
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/25"><ClipboardCheck className="h-5 w-5" /></span>
-      <div><p className="text-[10px] font-black uppercase tracking-[.2em] text-indigo-100">Sales Data Upload Checklist</p><h6 className="mt-1 text-base font-black">Complete mandatory controls before Excel submission</h6><p className="mt-1 text-xs font-bold text-indigo-100">Normal flow requires four marked rows. Nil Upload requires only Client Approval on data.</p></div>
+      <div><p className="text-[10px] font-black uppercase tracking-[.2em] text-indigo-700">Sales Data Upload Checklist</p><h6 className="mt-1 text-base font-black">Complete mandatory controls before Excel submission</h6><p className="mt-1 text-xs font-bold text-slate-600">Normal flow requires four marked rows. Nil Upload requires only Client Approval on data.</p></div>
     </div>
     <div className="grid gap-3 p-4 lg:grid-cols-2">{checklist.map((row, index) => {
       const required = row.particular === 'Client Approval on data' || (!nilUpload && REQUIRED_NORMAL_ROWS.has(row.particular));
