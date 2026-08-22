@@ -3829,8 +3829,13 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
     ['#0f9f83', '#2563eb', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
   ), [periodQuotations])
   const calendarFollowUps = useMemo(() => getCalendarFollowUpsForUser(currentUser, [...calendarItems, ...buildLeadFollowUpItems(leads)]), [calendarItems, currentUser, leads])
-  const openCalendarFollowUps = useMemo(() => calendarFollowUps.filter((item) => normalizeKey(item.status) !== 'completed'), [calendarFollowUps])
-  const followUps = openCalendarFollowUps.slice(0, 5)
+  const followUps = useMemo(() => {
+    const open = calendarFollowUps.filter((item) => normalizeKey(item.status) !== 'completed')
+    const completed = calendarFollowUps
+      .filter((item) => normalizeKey(item.status) === 'completed')
+      .sort((left, right) => `${right.scheduledDate || ''} ${right.scheduledTime || ''}`.localeCompare(`${left.scheduledDate || ''} ${left.scheduledTime || ''}`))
+    return [...open, ...completed].slice(0, 5)
+  }, [calendarFollowUps])
   const metrics = [
     { label: 'Total Lead', value: scopedLeads.length, note: 'Assigned sales leads', icon: Users, tone: 'teal' },
     { label: 'Quotation Sent', value: quotationSent.length, note: 'Sent / opened / replied', icon: FileText, tone: 'blue' },
@@ -4147,6 +4152,8 @@ function SalesFollowUps({ leads = [], onView, onCalendar }) {
           const owner = getCalendarFollowUpOwner(lead)
           const initials = owner.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'SM'
           const priority = lead.priority || (index < 2 ? 'High' : index < 4 ? 'Medium' : 'Low')
+          const completed = normalizeKey(lead.status) === 'completed'
+          const badge = completed ? 'Completed' : priority
           return (
           <motion.article key={lead._id || lead.id || index} className="sales-follow-item" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.28, delay: index * 0.035 }} whileHover={{ x: 4 }}>
             <time><strong>{String(new Date(followDate).getDate()).padStart(2, '0')}</strong><span>{new Intl.DateTimeFormat('en', { month: 'short' }).format(new Date(followDate))}</span></time>
@@ -4155,7 +4162,7 @@ function SalesFollowUps({ leads = [], onView, onCalendar }) {
               <span>{company}</span>
             </div>
             <small>{initials}</small>
-            <em className={`sales-follow-priority-${String(priority).toLowerCase()}`}>{priority}</em>
+            <em className={completed ? 'sales-follow-status-completed' : `sales-follow-priority-${String(priority).toLowerCase()}`}>{badge}</em>
           </motion.article>
           )
         }) : <EmptyOperationState label="No follow-ups found" />}

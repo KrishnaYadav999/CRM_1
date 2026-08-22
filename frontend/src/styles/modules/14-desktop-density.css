@@ -401,3 +401,5 @@
 @media(max-width:1180px){.sales-states-map-card{grid-column:1/-1!important}.sales-states-map-body{grid-template-columns:minmax(280px,.9fr) minmax(340px,1.1fr)}}
 @media(max-width:760px){.sales-states-map-body{grid-template-columns:1fr}.sales-india-map>svg{height:300px!important}.sales-map-tooltip{left:50%!important;top:auto!important;bottom:14px;transform:translateX(-50%)}}
 @media(max-width:640px){.sales-states-map-card{min-height:0!important}.sales-states-map-body{padding:10px}.sales-india-map{min-height:285px}.sales-india-map>svg{height:280px!important}.sales-state-rank-row{grid-template-columns:27px minmax(0,1fr) 34px 34px;min-height:42px}.sales-states-map-card>header{padding:13px}.sales-states-map-card>header h3{font-size:16px}.sales-states-map-card>header p{font-size:10px}}
+
+.sales-follow-status-completed{border:1px solid #a7e5cf!important;background:#ecfdf5!important;color:#047857!important}
