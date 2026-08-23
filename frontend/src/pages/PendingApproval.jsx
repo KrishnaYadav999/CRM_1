@@ -3,6 +3,7 @@ import { ArrowLeft, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Diam
 import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
+import ApprovalTabs from '../components/dashboard/ApprovalTabs';
 import BrandLoader from '../components/BrandLoader';
 import ToastMessage from '../components/ToastMessage';
 import { adminRoles, isComplianceRole } from '../constants/dashboard';
@@ -292,6 +293,31 @@ export default function PendingApproval() {
   const visibleQuotations = useMemo(() => (
     filteredQuotations.slice((quotePage - 1) * rowsPerPage, quotePage * rowsPerPage)
   ), [filteredQuotations, quotePage]);
+
+  const approvalTabs = useMemo(() => {
+    const list = [];
+    if (canApproveClients) {
+      list.push({ id: 'clients', icon: Clock3, label: 'Pending Clients', count: filteredClients.length });
+    }
+    if (canApproveTemporary) {
+      list.push({ id: 'temporary', icon: Users, label: 'Temporary Assignments', count: filteredTemporary.length });
+    }
+    if (!isComplianceApprovalView) {
+      list.push({ id: 'po', icon: FileCheck2, label: 'PO Approval', count: filteredPoApprovals.length });
+      list.push({ id: 'quotations', icon: FileText, label: 'Pending Quotations', count: filteredQuotations.length });
+      list.push({ id: 'royalty', icon: Users, label: 'Royalty Claims', count: filteredRoyalty.length });
+      list.push({ id: 'services', icon: FileText, label: 'Service Pending', count: filteredServices.length });
+      list.push({ id: 'duplicates', icon: Users, label: 'Special Approvals', count: filteredDuplicateLeads.length });
+    }
+    return list;
+  }, [canApproveClients, canApproveTemporary, isComplianceApprovalView, filteredClients.length, filteredTemporary.length, filteredPoApprovals.length, filteredQuotations.length, filteredRoyalty.length, filteredServices.length, filteredDuplicateLeads.length]);
+
+  function handleTabChange(tabId) {
+    if (tabId && typeof tabId === 'string') {
+      setActiveTab(tabId);
+      setTypeFilter(tabId);
+    }
+  }
 
   useEffect(() => {
     loadPage({ silent: Boolean(cachedApprovalData) });
@@ -877,57 +903,11 @@ export default function PendingApproval() {
               </button>
             </div>
             <div className="pending-tabs-wrap">
-              <div className="pending-tabs">
-                {canApproveClients && <ApprovalTab
-                  active={activeTab === 'clients'}
-                  icon={Clock3}
-                  label="Pending Clients"
-                  count={filteredClients.length}
-                  onClick={() => setActiveTab('clients')}
-                />}
-                {canApproveTemporary && <ApprovalTab
-                  active={activeTab === 'temporary'}
-                  icon={Users}
-                  label="Temporary Assignments"
-                  count={filteredTemporary.length}
-                  onClick={() => setActiveTab('temporary')}
-                />}
-                {!isComplianceApprovalView && <ApprovalTab
-                  active={activeTab === 'po'}
-                  icon={FileCheck2}
-                  label="PO Approval"
-                  count={filteredPoApprovals.length}
-                  onClick={() => setActiveTab('po')}
-                />}
-                {!isComplianceApprovalView && <ApprovalTab
-                  active={activeTab === 'quotations'}
-                  icon={FileText}
-                  label="Pending Quotations"
-                  count={filteredQuotations.length}
-                  onClick={() => setActiveTab('quotations')}
-                />}
-                {!isComplianceApprovalView && <ApprovalTab
-                  active={activeTab === 'royalty'}
-                  icon={Users}
-                  label="Royalty Claims"
-                  count={filteredRoyalty.length}
-                  onClick={() => setActiveTab('royalty')}
-                />}
-                {!isComplianceApprovalView && <ApprovalTab
-                  active={activeTab === 'services'}
-                  icon={FileText}
-                  label="Service Pending"
-                  count={filteredServices.length}
-                  onClick={() => setActiveTab('services')}
-                />}
-                {!isComplianceApprovalView && <ApprovalTab
-                  active={activeTab === 'duplicates'}
-                  icon={Users}
-                  label="Special Approvals"
-                  count={filteredDuplicateLeads.length}
-                  onClick={() => setActiveTab('duplicates')}
-                />}
-              </div>
+              <ApprovalTabs
+                tabs={approvalTabs}
+                activeTab={activeTab}
+                onTabChange={handleTabChange}
+              />
             </div>
 
             {activeTab === 'po' ? (
