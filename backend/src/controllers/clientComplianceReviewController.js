@@ -4,6 +4,7 @@ const PendingApproval = require('../models/PendingApproval');
 const ClientComplianceReview = require('../models/ClientComplianceReview');
 const { notifyClientApprovalDecision } = require('../services/clientApprovalDecisionNotifications');
 const { getAssignedServiceId, resolveClientMasterData } = require('../services/clientMasterResolver');
+const { analyzeClientMasterData } = require('../services/userProductivityReport');
 
 const REVIEW_SECTIONS = [
   ['companyOverview', 'Company Overview'], ['basic', 'Client Basic Info'], ['addressDetails', 'Address Details'],
@@ -16,6 +17,35 @@ function defaultSections() { return REVIEW_SECTIONS.map(([key, label]) => ({ key
 function progress(sections = []) {
   const reviewed = sections.filter((item) => ['VERIFIED', 'NOT_APPLICABLE'].includes(item.status)).length;
   return { reviewed, total: REVIEW_SECTIONS.length, percentage: Math.round((reviewed / REVIEW_SECTIONS.length) * 100), issues: sections.filter((item) => item.status === 'CHANGES_REQUIRED').length };
+}
+function percentage(filled, total) { return total ? Math.round((filled / total) * 100) : 0; }
+function rowCompletion(rows = [], keys = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  const total = list.length * keys.length;
+  const filled = list.reduce((sum, row) => sum + keys.filter((key) => {
+    const value = row?.[key];
+    return Array.isArray(value) ? value.length > 0 : value && typeof value === 'object' ? Boolean(value.url || value.secureUrl || value.dataUrl || value.path || value.name || value.fileName) : String(value ?? '').trim();
+  }).length, 0);
+  return percentage(filled, total);
+}
+function completionByReviewSection(data = {}) {
+  const analysis = analyzeClientMasterData(data);
+  const byName = new Map(analysis.sections.map((section) => [section.name, section]));
+  const combine = (...names) => {
+    const rows = names.map((name) => byName.get(name)).filter(Boolean);
+    return percentage(rows.reduce((sum, row) => sum + row.filled, 0), rows.reduce((sum, row) => sum + row.total, 0));
+  };
+  return {
+    companyOverview: combine('Company Overview'),
+    basic: combine('Client Basic Info'),
+    addressDetails: combine('Registered Address', 'Communication Address'),
+    documents: combine('Documents', 'MSME Details'),
+    cteCtoCca: combine('CTE & CTO / CCA'),
+    cpcbCredentials: combine('CPCB Credentials'),
+    cpcbScreenshots: rowCompletion(data.cpcbScreenshots, ['name', 'file']),
+    processFlowDiagrams: rowCompletion(data.processDiagrams, ['name', 'file']),
+    authorizedPersons: combine('Authorized Person Details')
+  };
 }
 async function readClient(id) {
   if (!mongoose.Types.ObjectId.isValid(id)) return null;
@@ -36,7 +66,7 @@ exports.getReview = async (req, res) => {
   client.data = resolveClientMasterData(client, getAssignedServiceId(client));
   const review = await getOrCreateReview(client._id);
   await review.populate([{ path: 'assignedReviewer', select: 'name email' }, { path: 'sections.reviewedBy', select: 'name email' }, { path: 'history.actionBy', select: 'name email' }]);
-  return res.json({ client, review, progress: progress(review.sections) });
+  return res.json({ client, review, progress: progress(review.sections), completionBySection: completionByReviewSection(client.data) });
 };
 
 exports.updateSection = async (req, res) => {

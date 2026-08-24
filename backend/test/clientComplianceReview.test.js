@@ -43,7 +43,11 @@ test('compliance review workspace exposes uploaded images and documents securely
 
 test('compliance review resolves the same assigned-service data used by Client Master', () => {
   const reviewController = fs.readFileSync(path.join(__dirname, '../src/controllers/clientComplianceReviewController.js'), 'utf8');
+  const workspace = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/ClientComplianceReview.jsx'), 'utf8');
   assert.match(reviewController, /resolveClientMasterData\(client, getAssignedServiceId\(client\)\)/);
+  assert.match(reviewController, /completionBySection: completionByReviewSection\(client\.data\)/);
+  assert.match(reviewController, /analyzeClientMasterData\(data\)/);
+  assert.match(workspace, /payload\?\.completionBySection\?\.\[section\.key\]/);
 });
 
 test('Client Master submit requires 60 percent completion and review includes process diagrams', () => {
