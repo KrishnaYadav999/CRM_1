@@ -24,6 +24,14 @@ test('pending approval shows only client review to compliance-family and adminis
   assert.match(controller, /source: 'indexed-pending-approvals'/);
 });
 
+test('pending approvals can be filtered by the responsible user', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
+  assert.match(page, /const \[userFilter, setUserFilter\]/);
+  assert.match(page, /const userMatches = userFilter === 'all'/);
+  assert.match(page, /aria-label="Filter by user"/);
+  assert.match(page, /All Users/);
+});
+
 test('legacy purchase order approvals recover the lead id from their source key', () => {
   const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
   assert.match(controller, /sourceClientId \|\| ''\)\.split\(':po:'\)\[0\]/);

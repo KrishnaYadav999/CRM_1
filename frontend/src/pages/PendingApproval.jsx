@@ -237,6 +237,7 @@ export default function PendingApproval() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [piboFilter, setPiboFilter] = useState('all');
+  const [userFilter, setUserFilter] = useState('all');
   const loadRequestRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
@@ -260,22 +261,25 @@ export default function PendingApproval() {
       .filter((value) => value && value !== '-');
     return [...new Set(values)].sort((a, b) => a.localeCompare(b));
   }, [allApprovalRows]);
+  const approvalUserName = (row) => formatApprovalValue(row?.createdBy || row?.submittedBy || row?.createdByName || row?.userName || row?.claimedBy || row?.leadGeneratedBy);
+  const userOptions = useMemo(() => [...new Set(allApprovalRows.map(approvalUserName).filter((value) => value && value !== '-'))].sort((a, b) => a.localeCompare(b)), [allApprovalRows]);
   const filterRow = (row) => {
     const statusMatches = statusFilter === 'all' || getApprovalStatus(row) === statusFilter;
     const piboMatches = piboFilter === 'all' || formatApprovalValue(row?.piboCategory) === piboFilter;
-    return statusMatches && piboMatches && rowMatchesSearch(row, searchTerm);
+    const userMatches = userFilter === 'all' || approvalUserName(row) === userFilter;
+    return statusMatches && piboMatches && userMatches && rowMatchesSearch(row, searchTerm);
   };
   const filteredClients = useMemo(() => (
     !['all', 'clients'].includes(typeFilter) ? [] : pendingClients.filter(filterRow)
-  ), [pendingClients, searchTerm, statusFilter, piboFilter, typeFilter]);
+  ), [pendingClients, searchTerm, statusFilter, piboFilter, userFilter, typeFilter]);
   const filteredQuotations = useMemo(() => (
     !['all', 'quotations'].includes(typeFilter) ? [] : pendingQuotations.filter(filterRow)
-  ), [pendingQuotations, searchTerm, statusFilter, piboFilter, typeFilter]);
-  const filteredDuplicateLeads = useMemo(() => !['all', 'duplicates'].includes(typeFilter) ? [] : duplicateLeadApprovals.filter(filterRow), [duplicateLeadApprovals, searchTerm, statusFilter, typeFilter]);
-  const filteredRoyalty = useMemo(() => !['all', 'royalty'].includes(typeFilter) ? [] : royaltyApprovals.filter(filterRow), [royaltyApprovals, searchTerm, statusFilter, typeFilter]);
-  const filteredServices = useMemo(() => !['all', 'services'].includes(typeFilter) ? [] : serviceApprovals.filter(filterRow), [serviceApprovals, searchTerm, statusFilter, typeFilter]);
-  const filteredTemporary = useMemo(() => !['all', 'temporary'].includes(typeFilter) ? [] : temporaryApprovals.filter(filterRow), [temporaryApprovals, searchTerm, statusFilter, typeFilter]);
-  const filteredPoApprovals = useMemo(() => !['all', 'po'].includes(typeFilter) ? [] : poApprovals.filter(filterRow), [poApprovals, searchTerm, statusFilter, piboFilter, typeFilter]);
+  ), [pendingQuotations, searchTerm, statusFilter, piboFilter, userFilter, typeFilter]);
+  const filteredDuplicateLeads = useMemo(() => !['all', 'duplicates'].includes(typeFilter) ? [] : duplicateLeadApprovals.filter(filterRow), [duplicateLeadApprovals, searchTerm, statusFilter, userFilter, typeFilter]);
+  const filteredRoyalty = useMemo(() => !['all', 'royalty'].includes(typeFilter) ? [] : royaltyApprovals.filter(filterRow), [royaltyApprovals, searchTerm, statusFilter, userFilter, typeFilter]);
+  const filteredServices = useMemo(() => !['all', 'services'].includes(typeFilter) ? [] : serviceApprovals.filter(filterRow), [serviceApprovals, searchTerm, statusFilter, userFilter, typeFilter]);
+  const filteredTemporary = useMemo(() => !['all', 'temporary'].includes(typeFilter) ? [] : temporaryApprovals.filter(filterRow), [temporaryApprovals, searchTerm, statusFilter, userFilter, typeFilter]);
+  const filteredPoApprovals = useMemo(() => !['all', 'po'].includes(typeFilter) ? [] : poApprovals.filter(filterRow), [poApprovals, searchTerm, statusFilter, piboFilter, userFilter, typeFilter]);
   const approvedTodayCount = useMemo(() => (
     allApprovalRows.filter((row) => getApprovalStatus(row) === 'APPROVED').length
   ), [allApprovalRows]);
@@ -337,13 +341,14 @@ export default function PendingApproval() {
   useEffect(() => {
     setClientPage(1);
     setQuotePage(1);
-  }, [searchTerm, typeFilter, statusFilter, piboFilter]);
+  }, [searchTerm, typeFilter, statusFilter, piboFilter, userFilter]);
 
   function resetFilters() {
     setSearchTerm('');
     setTypeFilter(isComplianceApprovalView ? 'clients' : 'all');
     setStatusFilter('all');
     setPiboFilter('all');
+    setUserFilter('all');
   }
 
   function openMetric(type, status = 'PENDING') {
@@ -353,6 +358,7 @@ export default function PendingApproval() {
     setStatusFilter(status);
     setSearchTerm('');
     setPiboFilter('all');
+    setUserFilter('all');
     document.querySelector('.pending-approval-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -887,6 +893,10 @@ export default function PendingApproval() {
                 {piboOptions.map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
+              </select>
+              <select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} aria-label="Filter by user">
+                <option value="all">All Users</option>
+                {userOptions.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
               <button type="button" className="pending-reset-button" onClick={resetFilters}>
                 <RotateCcw className="h-4 w-4" />

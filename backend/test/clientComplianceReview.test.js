@@ -34,6 +34,9 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /\['pan', 'PAN', 'PAN Document Date'\]/);
   assert.match(workspace, /\['factoryLicense', 'Factory License No\.', 'Factory License Document Date'\]/);
   assert.match(workspace, /function CteReviewTables/);
+  assert.match(workspace, /function PeopleReviewTable/);
+  assert.match(workspace, /Additional Authorised Person/);
+  assert.match(workspace, /Name Of Product/);
   assert.match(workspace, /Partially Approve/);
   assert.match(workspace, /Final Approve/);
 });
