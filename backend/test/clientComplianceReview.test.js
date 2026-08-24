@@ -17,10 +17,9 @@ test('Client Master approval requires a complete tab-wise compliance review', ()
 test('compliance review workspace exposes uploaded images and documents securely', () => {
   const workspace = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/ClientComplianceReview.jsx'), 'utf8');
   assert.match(workspace, /secureUrl \|\| value\.url \|\| value\.fileUrl \|\| value\.dataUrl/);
-  assert.match(workspace, /Uploaded Images & Documents/);
-  assert.match(workspace, /View Full Image/);
-  assert.match(workspace, /Open Document/);
-  assert.match(workspace, /noopener noreferrer/);
+  assert.match(workspace, /Preview inside this page/);
+  assert.match(workspace, /<iframe src=\{preview\.url\}/);
+  assert.doesNotMatch(workspace, /window\.open\(file\.url/);
   assert.match(workspace, /password\|secret\|token/i);
   assert.match(workspace, /removedReviewFields/);
   assert.match(workspace, /!removedReviewFields\.has\(key\) && populated\(value\)/);
@@ -34,6 +33,9 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /\['gst', 'GST Number', 'GST Certificate Date'\]/);
   assert.match(workspace, /\['pan', 'PAN', 'PAN Document Date'\]/);
   assert.match(workspace, /\['factoryLicense', 'Factory License No\.', 'Factory License Document Date'\]/);
+  assert.match(workspace, /function CteReviewTables/);
+  assert.match(workspace, /Partially Approve/);
+  assert.match(workspace, /Final Approve/);
 });
 
 test('compliance review resolves the same assigned-service data used by Client Master', () => {

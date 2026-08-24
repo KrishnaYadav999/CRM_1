@@ -57,6 +57,7 @@ exports.updateSection = async (req, res) => {
 
 exports.completeReview = async (req, res) => {
   const decision = String(req.body.decision || '').toUpperCase();
+  const approvalMode = String(req.body.approvalMode || '').toUpperCase();
   const remarks = String(req.body.remarks || '').trim();
   if (!['APPROVED', 'CHANGES_REQUIRED', 'REJECTED'].includes(decision)) return res.status(400).json({ error: 'Invalid review decision' });
   if (!remarks) return res.status(400).json({ error: 'Final compliance remarks are required' });
@@ -73,9 +74,8 @@ exports.completeReview = async (req, res) => {
   client.data = { ...(client.data || {}), approvalMeta: { status: approvalStatus, actionBy: req.user._id, actionAt: new Date(), remarks, complianceReviewId: review._id } };
   client.markModified('data'); await client.save();
   await PendingApproval.findOneAndUpdate({ sourceClientId: String(client._id), approvalStatus: 'PENDING' }, { approvalStatus, actionBy: req.user._id, actionAt: new Date(), remarks, nextReminderAt: decision === 'CHANGES_REQUIRED' ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null });
-  const notification = decision === 'CHANGES_REQUIRED'
-    ? { sent: false, reason: 'correction_notification_pending' }
-    : await notifyClientApprovalDecision({ record: { clientName: client.data?.basic?.clientLegalName }, client, status: approvalStatus, remarks, reviewer: req.user }).catch((error) => ({ sent: false, reason: error.message }));
+  const notificationMode = approvalMode || (decision === 'CHANGES_REQUIRED' ? 'CORRECTION' : decision);
+  const notification = await notifyClientApprovalDecision({ record: { clientName: client.data?.basic?.clientLegalName }, client, status: approvalStatus, remarks, reviewer: req.user, sections: review.sections, approvalMode: notificationMode }).catch((error) => ({ sent: false, reason: error.message }));
   return res.json({ ok: true, review, client, notification });
 };
 
