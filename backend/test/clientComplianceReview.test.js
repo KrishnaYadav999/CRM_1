@@ -25,6 +25,11 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /removedReviewFields/);
   assert.match(workspace, /!removedReviewFields\.has\(key\) && populated\(value\)/);
   assert.match(workspace, /'otp', 'otpContacts', 'authorised', 'authorisedPersons'/);
+  assert.match(workspace, /function cteFieldsFor/);
+  assert.match(workspace, /cte\.plantWiseDetails/);
+  assert.match(workspace, /cteProductionRows/);
+  assert.match(workspace, /ctoProductRows/);
+  assert.match(workspace, /CTO\/CCA Consent Order No/);
 });
 
 test('compliance review resolves the same assigned-service data used by Client Master', () => {

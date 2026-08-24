@@ -7,7 +7,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints'
 
 const sectionSources = {
   companyOverview: ['companyOverview'], basic: ['basic'], addressDetails: ['registeredAddress', 'communicationAddress'],
-  documents: ['compliance'], cteCtoCca: ['cte', 'ctoCca', 'plantLocations', 'productionRows'],
+  documents: ['compliance'], cteCtoCca: ['cte', 'cteCtoCca'],
   cpcbCredentials: ['cpcb'], cpcbScreenshots: ['cpcbScreenshots'], processFlowDiagrams: ['processDiagrams', 'processFlowFiles'],
   authorizedPersons: ['otp', 'otpContacts', 'authorised', 'authorisedPersons', 'coordinating', 'coordinatingPersons']
 }
@@ -54,7 +54,38 @@ function attachmentsFrom(value, label, seen = new Set()) {
   }
   return rows
 }
+function reviewField(id, label, value) {
+  return populated(value) ? { id, label, value: displayValue(id, value), filled: true } : null
+}
+function cteFieldsFor(data = {}) {
+  const cte = data.cte || data.cteCtoCca || {}
+  const inferredApplicability = cte.cteApplicable || (populated(cte.numberOfPlantsLocations) || populated(cte.plantWiseDetails) ? 'Yes' : '')
+  const fields = [
+    reviewField('cte.cteApplicable', 'CTE Applicable', inferredApplicability),
+    reviewField('cte.numberOfPlantsLocations', 'Number Of Plant Locations', cte.numberOfPlantsLocations)
+  ]
+  const plantFields = [
+    ['plantName', 'Plant Name'], ['cteConsentNo', 'CTE Consent No.'], ['cteCategory', 'CTE Category'],
+    ['cteIssuedDate', 'CTE Issued Date'], ['cteValidDate', 'CTE Valid Upto'], ['plantLocation', 'Plant Location'],
+    ['cteDocument', 'CTE Document'], ['ctoOrderNo', 'CTO/CCA Consent Order No.'],
+    ['ctoIssueDate', 'CTO/CCA Date Of Issue'], ['ctoValidDate', 'CTO/CCA Valid Upto'], ['ctoDocument', 'CTO/CCA Document']
+  ]
+  const plants = Array.isArray(cte.plantWiseDetails) ? cte.plantWiseDetails : []
+  plants.forEach((plant, plantIndex) => {
+    plantFields.forEach(([key, label]) => fields.push(reviewField(`cte.plantWiseDetails.${plantIndex}.${key}`, `Plant ${plantIndex + 1} · ${label}`, plant?.[key])))
+    ;(plant?.cteProductionRows || []).forEach((row, rowIndex) => {
+      fields.push(reviewField(`cte.plantWiseDetails.${plantIndex}.cteProductionRows.${rowIndex}.productName`, `Plant ${plantIndex + 1} · CTE Product ${rowIndex + 1}`, row?.productName))
+      fields.push(reviewField(`cte.plantWiseDetails.${plantIndex}.cteProductionRows.${rowIndex}.capacity`, `Plant ${plantIndex + 1} · CTE Capacity ${rowIndex + 1}`, row?.capacity))
+    })
+    ;(plant?.ctoProductRows || []).forEach((row, rowIndex) => {
+      fields.push(reviewField(`cte.plantWiseDetails.${plantIndex}.ctoProductRows.${rowIndex}.productName`, `Plant ${plantIndex + 1} · CTO/CCA Product ${rowIndex + 1}`, row?.productName))
+      fields.push(reviewField(`cte.plantWiseDetails.${plantIndex}.ctoProductRows.${rowIndex}.quantity`, `Plant ${plantIndex + 1} · CTO/CCA Quantity ${rowIndex + 1}`, row?.quantity))
+    })
+  })
+  return fields.filter(Boolean)
+}
 function fieldsFor(data, sectionKey) {
+  if (sectionKey === 'cteCtoCca') return cteFieldsFor(data)
   return (sectionSources[sectionKey] || []).flatMap((sourceKey) => {
     const source = data?.[sourceKey]
     if (!source || typeof source !== 'object') return []
