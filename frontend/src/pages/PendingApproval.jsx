@@ -306,7 +306,7 @@ export default function PendingApproval() {
       list.push({ id: 'po', icon: FileCheck2, label: 'PO Approval', count: filteredPoApprovals.length });
       list.push({ id: 'quotations', icon: FileText, label: 'Pending Quotations', count: filteredQuotations.length });
       list.push({ id: 'royalty', icon: Users, label: 'Royalty Claims', count: filteredRoyalty.length });
-      list.push({ id: 'services', icon: FileText, label: 'Service Pending', count: filteredServices.length });
+      list.push({ id: 'services', icon: FileText, label: 'Pending Service Approvals', count: filteredServices.length });
       list.push({ id: 'duplicates', icon: Users, label: 'Special Approvals', count: filteredDuplicateLeads.length });
     }
     return list;
@@ -872,7 +872,7 @@ export default function PendingApproval() {
                 <option value="clients">Clients</option>
                 <option value="quotations">Quotations</option>
                 <option value="duplicates">Special Approvals</option>
-                <option value="services">Service Pending</option>
+                <option value="services">Pending Service Approvals</option>
                 <option value="royalty">Royalty Claims</option>
                 {canApproveTemporary && <option value="temporary">Temporary Assignments</option>}
               </select>}
@@ -958,7 +958,7 @@ export default function PendingApproval() {
                   This is a preliminary decision made by the assigned user. The final approval authority rests with the Admin/Super Admin.
                 </div>
                 <ApprovalTable
-                title="Service Pending"
+                title="Pending Service Approvals"
                 columns={['Company', 'Service Added By', 'Original Creator', 'Services Added', 'Creator Decision', 'Final Decision', 'Actions']}
                 emptyText="No service approval requests found."
                 page={1}

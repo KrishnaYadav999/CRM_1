@@ -2793,11 +2793,7 @@ export default function ClientMaster() {
                   >
                     <span className="client-progress-tab-icon"><Icon className="h-5 w-5" /></span>
                     <span className="client-progress-tab-copy"><strong>{tab.label}</strong><small>{tab.locked ? 'Locked' : tab.notApplicable ? 'Not applicable' : `${tab.percent}%`}</small></span>
-                    <span className="client-progress-tab-fill" aria-hidden="true">
-                      <i className="client-progress-tab-liquid client-progress-tab-liquid-primary" />
-                      <i className="client-progress-tab-liquid client-progress-tab-liquid-secondary" />
-                      <i className="client-progress-tab-liquid-shine" />
-                    </span>
+                    <span className="client-progress-tab-fill" aria-hidden="true" />
                   </button>
                 );
               })}
