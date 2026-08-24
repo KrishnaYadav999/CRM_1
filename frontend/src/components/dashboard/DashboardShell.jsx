@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 
-export default function DashboardShell({ currentUser, onOpenProfile, onLogout, children }) {
+export default function DashboardShell({ currentUser, onOpenProfile, onLogout, children, hideSidebar = false }) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -39,11 +39,11 @@ export default function DashboardShell({ currentUser, onOpenProfile, onLogout, c
       <Topbar
         currentUser={currentUser}
         onOpenProfile={onOpenProfile}
-        onOpenSidebar={() => setSidebarOpen(true)}
+        onOpenSidebar={() => { if (!hideSidebar) setSidebarOpen(true); }}
         onLogout={handleLogout}
       />
       <div className="flex min-h-[calc(100vh-5rem)]">
-        <aside
+        {!hideSidebar && <aside
           className={`fixed bottom-0 left-0 top-20 z-40 w-[296px] border-r border-emerald-100 bg-white shadow-xl shadow-emerald-900/5 transition-all duration-300 ease-out lg:translate-x-0 ${
             sidebarCollapsed ? 'lg:w-[84px]' : 'lg:w-[296px]'
           } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
@@ -55,7 +55,7 @@ export default function DashboardShell({ currentUser, onOpenProfile, onLogout, c
             onClose={() => setSidebarOpen(false)}
             onLogout={handleLogout}
           />
-        </aside>
+        </aside>}
 
         {sidebarOpen && (
           <button
@@ -66,7 +66,7 @@ export default function DashboardShell({ currentUser, onOpenProfile, onLogout, c
           />
         )}
 
-        <section className={`min-w-0 flex-1 transition-all duration-300 ease-out ${sidebarCollapsed ? 'lg:ml-[84px]' : 'lg:ml-[296px]'}`}>
+        <section className={`min-w-0 flex-1 transition-all duration-300 ease-out ${hideSidebar ? '' : sidebarCollapsed ? 'lg:ml-[84px]' : 'lg:ml-[296px]'}`}>
           {children}
         </section>
       </div>

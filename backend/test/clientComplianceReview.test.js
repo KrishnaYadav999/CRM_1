@@ -45,6 +45,8 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /Partially Approve/);
   assert.match(workspace, /Final Approve/);
   assert.match(workspace, /hover:-translate-y-0\.5 hover:shadow-md/);
+  assert.match(workspace, /DashboardShell currentUser=\{currentUser\} hideSidebar/);
+  assert.match(workspace, /w-full max-w-none space-y-4/);
   assert.match(workspace, /allTabRemarksComplete/);
   assert.match(workspace, /disabled=\{saving === 'section' \|\| !draft\.remarks\.trim\(\)\}/);
   assert.doesNotMatch(workspace, /\['NOT_APPLICABLE','Not Applicable'/);

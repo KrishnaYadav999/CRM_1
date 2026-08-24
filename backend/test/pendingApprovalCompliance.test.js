@@ -34,11 +34,13 @@ test('pending approvals can be filtered by the responsible user', () => {
 
 test('pending client rows clearly show compliance approval state', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
-  assert.match(page, /getApprovalStatus\(client\) === 'APPROVED'/);
+  assert.match(page, /const approvalState = getApprovalStatus\(client\)/);
   assert.match(page, /aria-label="Compliance approved"/);
   assert.match(page, /aria-label="Compliance approval pending"/);
   assert.doesNotMatch(page, /bg-rose-50\/80 hover:bg-rose-100/);
   assert.match(page, /fill-amber-100 text-amber-500/);
+  assert.match(page, /fill-rose-100 text-rose-600/);
+  assert.match(page, /aria-label="Compliance partially approved"/);
   assert.match(page, /Client approval status tabs/);
   assert.match(page, /client-status-tab-label/);
   assert.match(page, /PARTIALLY_APPROVED/);
@@ -46,9 +48,11 @@ test('pending client rows clearly show compliance approval state', () => {
 });
 
 test('Pending Approval header is integrated without a white card background', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
   const styles = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/11-final-overrides.css'), 'utf8');
   assert.match(styles, /\.pending-approval-hero \{[\s\S]*?background: transparent !important;/);
   assert.match(styles, /\.pending-table-head \.client-status-tab-label \{[\s\S]*?display: inline-flex !important;/);
+  assert.match(page, /border-rose-600 bg-rose-600 text-white/);
 });
 
 test('client approval list includes pending, partial and approved compliance records', () => {
