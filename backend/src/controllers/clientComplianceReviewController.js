@@ -15,7 +15,7 @@ const REVIEW_SECTIONS = [
 
 function defaultSections() { return REVIEW_SECTIONS.map(([key, label]) => ({ key, label, status: 'NOT_REVIEWED', remarks: '' })); }
 function progress(sections = []) {
-  const reviewed = sections.filter((item) => ['VERIFIED', 'NOT_APPLICABLE'].includes(item.status)).length;
+  const reviewed = sections.filter((item) => item.status === 'VERIFIED').length;
   return { reviewed, total: REVIEW_SECTIONS.length, percentage: Math.round((reviewed / REVIEW_SECTIONS.length) * 100), issues: sections.filter((item) => item.status === 'CHANGES_REQUIRED').length };
 }
 function percentage(filled, total) { return total ? Math.round((filled / total) * 100) : 0; }
@@ -72,8 +72,8 @@ exports.getReview = async (req, res) => {
 exports.updateSection = async (req, res) => {
   const status = String(req.body.status || '').toUpperCase();
   const remarks = String(req.body.remarks || '').trim();
-  if (!['VERIFIED', 'CHANGES_REQUIRED', 'NOT_APPLICABLE'].includes(status)) return res.status(400).json({ error: 'Select a valid verification status' });
-  if (status === 'CHANGES_REQUIRED' && !remarks) return res.status(400).json({ error: 'Remarks are required when changes are requested' });
+  if (!['VERIFIED', 'CHANGES_REQUIRED'].includes(status)) return res.status(400).json({ error: 'Select Verified or Changes Required' });
+  if (!remarks) return res.status(400).json({ error: 'Tab remarks are required before saving this review' });
   const review = await getOrCreateReview(req.params.id);
   const section = review.sections.find((item) => item.key === req.params.sectionKey);
   if (!section) return res.status(404).json({ error: 'Verification section not found' });
@@ -95,6 +95,8 @@ exports.completeReview = async (req, res) => {
   if (!client) return res.status(404).json({ error: 'Client Master not found' });
   const review = await getOrCreateReview(client._id);
   const summary = progress(review.sections);
+  const everyTabHasRemarks = review.sections.every((section) => String(section.remarks || '').trim());
+  if (decision === 'APPROVED' && !everyTabHasRemarks) return res.status(409).json({ error: 'Add and save remarks for every tab before approving the client' });
   if (decision === 'APPROVED' && (summary.reviewed !== summary.total || summary.issues > 0)) return res.status(409).json({ error: 'Verify every applicable tab and resolve all requested changes before approval' });
   review.status = decision; review.finalRemarks = remarks; review.assignedReviewer = review.assignedReviewer || req.user._id;
   review.history.push({ action: decision, remarks, actionBy: req.user._id });

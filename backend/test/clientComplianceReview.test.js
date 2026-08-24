@@ -10,6 +10,8 @@ test('Client Master approval requires a complete tab-wise compliance review', ()
   assert.match(controller, /Complete all Compliance Verification tabs/);
   assert.match(reviewController, /Verify every applicable tab/);
   assert.match(reviewController, /CHANGES_REQUIRED/);
+  assert.match(reviewController, /Tab remarks are required before saving this review/);
+  assert.match(reviewController, /Add and save remarks for every tab before approving the client/);
   assert.match(routes, /compliance-review\/sections/);
   assert.match(routes, /compliance-review\/decision/);
 });
@@ -40,6 +42,15 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /Partially Approve/);
   assert.match(workspace, /Final Approve/);
   assert.match(workspace, /hover:-translate-y-0\.5 hover:shadow-md/);
+  assert.match(workspace, /allTabRemarksComplete/);
+  assert.match(workspace, /disabled=\{saving === 'section' \|\| !draft\.remarks\.trim\(\)\}/);
+  assert.doesNotMatch(workspace, /\['NOT_APPLICABLE','Not Applicable'/);
+  assert.match(workspace, /const sectionIcons =/);
+});
+
+test('dashboard brand identifies the e-connect workspace', () => {
+  const topbar = fs.readFileSync(path.join(__dirname, '../../frontend/src/components/dashboard/Topbar.jsx'), 'utf8');
+  assert.match(topbar, />e-connect<\/small>/);
 });
 
 test('compliance review resolves the same assigned-service data used by Client Master', () => {

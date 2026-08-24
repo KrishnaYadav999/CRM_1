@@ -35,8 +35,9 @@ test('pending approvals can be filtered by the responsible user', () => {
 test('pending client rows clearly show compliance approval state', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
   assert.match(page, /getApprovalStatus\(client\) === 'APPROVED'/);
-  assert.match(page, /bg-emerald-50 hover:bg-emerald-100/);
-  assert.match(page, /bg-rose-50\/80 hover:bg-rose-100/);
+  assert.match(page, /aria-label="Compliance approved"/);
+  assert.match(page, /aria-label="Compliance approval pending"/);
+  assert.doesNotMatch(page, /bg-rose-50\/80 hover:bg-rose-100/);
 });
 
 test('duplicate Client Master services open an applicant type chooser', () => {

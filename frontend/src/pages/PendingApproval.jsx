@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Diamond, Edit3, Eye, FileCheck2, FileText, RefreshCw, RotateCcw, Search, X, XCircle, Users } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Diamond, Edit3, Eye, FileCheck2, FileText, RefreshCw, RotateCcw, Search, X, XCircle, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -949,9 +949,10 @@ export default function PendingApproval() {
                 onNext={() => setClientPage((value) => Math.min(clientTotalPages, value + 1))}
                 actions={<span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Full verification required</span>}
               >
-                {visibleClients.map((client) => (
-                  <tr key={client.id} className={`transition-colors ${getApprovalStatus(client) === 'APPROVED' ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-rose-50/80 hover:bg-rose-100'}`}>
-                    <Cell strong><button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></Cell>
+                {visibleClients.map((client) => {
+                  const complianceApproved = getApprovalStatus(client) === 'APPROVED';
+                  return <tr key={client.id} className="transition-colors hover:bg-slate-50">
+                    <Cell strong><span className="flex items-center gap-2"><button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button>{complianceApproved ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Compliance approved" /> : <AlertTriangle className="h-4 w-4 shrink-0 fill-rose-100 text-rose-600" aria-label="Compliance approval pending" />}</span></Cell>
                     <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{client.reminderFlag === 'RED' && <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">48H RED FLAG</span>}</div></Cell>
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>
@@ -959,7 +960,7 @@ export default function PendingApproval() {
                     <Cell>{[formatApprovalValue(client.requestDate), formatApprovalValue(client.requestTime)].filter((item) => item !== '-').join(' ')}</Cell>
                     <Cell><button type="button" onClick={() => openClientMaster(client)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white"><FileCheck2 className="h-4 w-4" />Review</button></Cell>
                   </tr>
-                ))}
+                })}
               </ApprovalTable>
             ) : activeTab === 'services' ? (
               <div className="grid gap-4">
