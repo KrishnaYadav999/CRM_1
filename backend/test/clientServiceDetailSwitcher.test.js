@@ -16,6 +16,19 @@ test('Client Master detail can switch between records for multiple assigned serv
   assert.match(page, /onServiceChange=\{openClientView\}/);
 });
 
+test('Client Master directory hides PIBO and chooser prefers exact persisted company records', () => {
+  const directory = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientDirectoryView.jsx'), 'utf8');
+  const table = directory.slice(directory.indexOf('client-directory-table-shell'), directory.indexOf('function ClientFilterSelect'));
+  const chooser = page.slice(page.indexOf('function getRelatedClientServices'), page.indexOf('function getClientServiceViewKey'));
+
+  assert.doesNotMatch(table, /['"]PIBO['"]/);
+  assert.match(table, /colSpan=\{12\}/);
+  assert.match(chooser, /persistedRecords\.length > 1/);
+  assert.match(chooser, /clientMasterId: recordId/);
+  assert.match(chooser, /assignedServiceId,/);
+  assert.ok(chooser.indexOf('persistedRecords.length > 1') < chooser.indexOf('populatedLead'));
+});
+
 test('service resolver never falls through to generic CPCB data for a mismatched assignment', () => {
   const resolver = page.slice(page.indexOf('function activateAssignedService'), page.indexOf('export default function ClientMaster'));
   assert.match(resolver, /allowLegacy && hasDataCpcb/);
