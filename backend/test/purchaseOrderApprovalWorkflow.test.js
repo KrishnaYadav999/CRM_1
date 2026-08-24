@@ -39,7 +39,7 @@ test('PO approval is persisted and restricted to Admin and Super Admin', () => {
 
 test('Pending Approval exposes PO approve reject and revision actions', () => {
   const page = read('../../frontend/src/pages/PendingApproval.jsx');
-  assert.match(page, /label="PO Approval"/);
+  assert.match(page, /label: 'PO Approval'/);
   assert.match(page, /Purchase Order Approvals/);
   assert.match(page, /REVISION_REQUIRED/);
   assert.doesNotMatch(page, /Upload correction screenshot \(required\)/);
