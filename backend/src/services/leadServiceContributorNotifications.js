@@ -14,6 +14,32 @@ function clean(value) {
   return String(value || '').trim();
 }
 
+function identityTokens(...values) {
+  return [...new Set(values.flatMap((value) => value && typeof value === 'object'
+    ? [value._id, value.id, value.crmUserId, value.userId, value.email, value.name]
+    : [value]).map((value) => clean(value).toLowerCase()).filter(Boolean))];
+}
+
+function serviceWasDelegatedToOriginalCreator({ beforeLead = {}, afterLead = {}, actor = {}, creator = {} }) {
+  const originalTokens = identityTokens(
+    creator,
+    beforeLead.createdBy,
+    beforeLead.createdByCrmUserId,
+    beforeLead.createdByEmail,
+    beforeLead.createdByName,
+    beforeLead.importedCreatedBy
+  );
+  const selectedOwnerTokens = identityTokens(
+    afterLead.generatedForUser,
+    afterLead.generatedForName,
+    afterLead.generatedForEmail
+  );
+  const actorTokens = identityTokens(actor);
+  const selectedOriginalCreator = selectedOwnerTokens.some((token) => originalTokens.includes(token));
+  const selectedActor = selectedOwnerTokens.some((token) => actorTokens.includes(token));
+  return selectedOriginalCreator && !selectedActor;
+}
+
 function serviceSignature(row = {}) {
   return [
     row.industryType,
@@ -94,6 +120,9 @@ async function notifyAdditionalLeadServices({ beforeLead, afterLead, actor }) {
   ].map(clean).filter(Boolean);
   if (actorTokens.some((token) => creatorTokens.some((creatorToken) => creatorToken.toLowerCase() === token.toLowerCase()))) {
     return { ok: false, reason: 'original_creator_added_service' };
+  }
+  if (serviceWasDelegatedToOriginalCreator({ beforeLead, afterLead, actor, creator })) {
+    return { ok: false, reason: 'service_delegated_to_original_creator' };
   }
 
   const admins = await User.find({
@@ -220,5 +249,6 @@ module.exports = {
   groupServicesByUser,
   newlyAddedServices,
   notifyAdditionalLeadServices,
-  serviceSignature
+  serviceSignature,
+  serviceWasDelegatedToOriginalCreator
 };

@@ -3769,7 +3769,7 @@ function SalesCommunicationTerms({ users = [], currentUser = {} }) {
   )
 }
 
-function SalesDashboard({ leads = [], quotations = [], clients = [], users = [], calendarItems = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue }) {
+function SalesDashboard({ leads = [], quotations = [], clients = [], users = [], calendarItems = [], currentUser = {}, onOpenTodayLeads, onOpenSalesValue, onRefresh, refreshing = false }) {
   const navigate = useNavigate()
   const [reportModal, setReportModal] = useState(null)
   const [redFlagsExpanded, setRedFlagsExpanded] = useState(false)
@@ -3946,6 +3946,12 @@ function SalesDashboard({ leads = [], quotations = [], clients = [], users = [],
           <p className="operations-eyebrow">Sales command center</p>
           <h1>Sales Dashboard</h1>
           <p>Real-time overview of your sales pipeline and performance.</p>
+        </div>
+        <div className="sales-hero-actions">
+          <button type="button" onClick={onRefresh} disabled={refreshing} aria-label="Refresh Sales Dashboard">
+            <RefreshCw className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
       </div>
 
@@ -5487,6 +5493,8 @@ export default function AdminDashboard() {
                     currentUser={currentUser}
                     onOpenTodayLeads={() => setTodayLeadsOpen(true)}
                     onOpenSalesValue={() => setSalesValueDrawerOpen(true)}
+                    onRefresh={() => loadDashboard({ force: true })}
+                    refreshing={loading}
                   />
                 ) : (
                   <>

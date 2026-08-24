@@ -21,10 +21,11 @@
     zoom: var(--crm-desktop-scale);
   }
 
-  /* Sales uses the full-size command-center composition from the approved UI.
-     The general 75% operations density makes this page unreadably small. */
+  /* Keep Sales slightly roomier than operations without making its cards and
+     typography look browser-zoomed compared with the rest of the CRM. */
   body.sales-dashboard-page #root {
-    zoom: 1;
+    zoom: 0.85;
+    width: 117.6471%;
   }
 
   body.sales-dashboard-page .sales-dashboard {

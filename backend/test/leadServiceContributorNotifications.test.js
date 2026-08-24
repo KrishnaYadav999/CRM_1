@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   groupServicesByUser,
-  newlyAddedServices
+  newlyAddedServices,
+  serviceWasDelegatedToOriginalCreator
 } = require('../src/services/leadServiceContributorNotifications');
 
 test('additional service detection returns only rows added after the existing lead snapshot', () => {
@@ -35,4 +36,24 @@ test('user-wise service summary keeps original creator and contributor counts se
     ['Gaurav Chandra', 2],
     ['Kshitij Trimukhe', 1]
   ]);
+});
+
+test('service delegated by another user back to the original creator does not require approval', () => {
+  const delegated = serviceWasDelegatedToOriginalCreator({
+    beforeLead: { createdByCrmUserId: 'user-a', createdByName: 'User A' },
+    afterLead: { generatedForUser: 'user-a', generatedForName: 'User A' },
+    actor: { _id: 'user-b', name: 'User B' },
+    creator: { _id: 'user-a', name: 'User A' }
+  });
+  assert.equal(delegated, true);
+});
+
+test('service added by another user for themselves still requires approval', () => {
+  const delegated = serviceWasDelegatedToOriginalCreator({
+    beforeLead: { createdByCrmUserId: 'user-a', createdByName: 'User A' },
+    afterLead: { generatedForUser: 'user-b', generatedForName: 'User B' },
+    actor: { _id: 'user-b', name: 'User B' },
+    creator: { _id: 'user-a', name: 'User A' }
+  });
+  assert.equal(delegated, false);
 });

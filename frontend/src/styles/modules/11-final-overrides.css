@@ -1986,7 +1986,7 @@ body:has(.annual-review-backdrop) .client-detail-card {
 
 .pending-filter-bar {
   display: grid;
-  grid-template-columns: minmax(250px, 1.35fr) repeat(3, minmax(150px, 0.55fr)) auto auto;
+  grid-template-columns: minmax(250px, 1.35fr) repeat(4, minmax(140px, 0.55fr)) auto auto;
   gap: 10px;
   border-bottom: 1px solid #f3f4f6;
   padding: 14px;
@@ -2072,6 +2072,9 @@ body:has(.annual-review-backdrop) .client-detail-card {
 }
 
 .pending-refresh-button-compact {
+  width: auto !important;
+  min-width: 96px !important;
+  justify-content: center !important;
   min-height: 38px !important;
   padding: 0 14px !important;
   border-radius: 8px !important;

@@ -659,7 +659,7 @@ function normalizeQuotationCompany(value) {
 
 function getClientQuotationContext(client) {
   const data = readClientData(client);
-  const lead = typeof client?.selectedLead === 'object' ? client.selectedLead : {};
+  const lead = client?.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {};
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || '';
   const clientId = client?._id || client?.id || '';
   const clientUniqueId = data.importMeta?.uniqueId || getClientUniqueId(client);

@@ -52,7 +52,7 @@ test('Pending Approval header is integrated without a white card background', ()
   const styles = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/11-final-overrides.css'), 'utf8');
   assert.match(styles, /\.pending-approval-hero \{[\s\S]*?background: transparent !important;/);
   assert.match(styles, /\.pending-table-head \.client-status-tab-label \{[\s\S]*?display: inline-flex !important;/);
-  assert.match(page, /border-rose-600 bg-rose-600 text-white/);
+  assert.match(page, /border-rose-200 bg-rose-100 text-rose-700/);
 });
 
 test('client approval list includes pending, partial and approved compliance records', () => {
