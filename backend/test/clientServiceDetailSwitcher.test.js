@@ -39,6 +39,17 @@ test('directory eye action discovers every company applicant type before opening
   assert.ok(handler.indexOf('setPendingServiceView') < handler.indexOf('await openClientView'));
 });
 
+test('applicant chooser uses responsive applicant-specific premium cards', () => {
+  const chooser = page.slice(page.indexOf('function getApplicantCardTheme'), page.indexOf('const emptyClient'));
+
+  assert.match(chooser, /normalized\.includes\('brand'\)/);
+  assert.match(chooser, /normalized\.includes\('producer'\)/);
+  assert.match(chooser, /md:grid-cols-2/);
+  assert.match(chooser, /Service-specific record available/);
+  assert.match(chooser, /You can switch between this company/);
+  assert.match(chooser, /aria-labelledby="client-service-view-title"/);
+});
+
 test('service resolver never falls through to generic CPCB data for a mismatched assignment', () => {
   const resolver = page.slice(page.indexOf('function activateAssignedService'), page.indexOf('export default function ClientMaster'));
   assert.match(resolver, /allowLegacy && hasDataCpcb/);

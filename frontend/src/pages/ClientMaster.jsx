@@ -708,6 +708,81 @@ function getClientServiceOptionLabel(item = {}, index = 0) {
   return [applicant, serviceCategory, serviceName].filter(Boolean).join(' · ') || `Service ${index + 1}`;
 }
 
+function getApplicantCardTheme(applicantType = '') {
+  const normalized = String(applicantType || '').trim().toLowerCase();
+  if (normalized.includes('brand')) {
+    return {
+      icon: ShieldCheck,
+      iconClass: 'bg-blue-50 text-blue-700 ring-blue-100',
+      badgeClass: 'bg-blue-50 text-blue-700 ring-blue-100',
+      buttonClass: 'from-blue-700 to-indigo-700 shadow-blue-900/20',
+      hoverClass: 'hover:border-blue-300 hover:shadow-blue-100'
+    };
+  }
+  if (normalized.includes('producer') || normalized.includes('manufacturer')) {
+    return {
+      icon: Factory,
+      iconClass: 'bg-orange-50 text-orange-600 ring-orange-100',
+      badgeClass: 'bg-orange-50 text-orange-700 ring-orange-100',
+      buttonClass: 'from-orange-500 to-orange-600 shadow-orange-900/20',
+      hoverClass: 'hover:border-orange-300 hover:shadow-orange-100'
+    };
+  }
+  return {
+    icon: Building2,
+    iconClass: 'bg-emerald-50 text-teal-700 ring-emerald-100',
+    badgeClass: 'bg-emerald-50 text-teal-700 ring-emerald-100',
+    buttonClass: 'from-teal-700 to-emerald-600 shadow-emerald-900/20',
+    hoverClass: 'hover:border-emerald-300 hover:shadow-emerald-100'
+  };
+}
+
+function ClientServiceChooserModal({ selection, onClose, onSelect }) {
+  return (
+    <div className="fixed inset-0 z-[10000] grid place-items-center overflow-y-auto bg-slate-950/65 p-4 backdrop-blur-md sm:p-6" role="dialog" aria-modal="true" aria-labelledby="client-service-view-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="relative my-auto w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.35)]">
+        <div className="pointer-events-none absolute -right-16 top-24 h-64 w-64 rounded-full bg-emerald-50/70 blur-3xl" />
+        <header className="relative flex items-start gap-4 border-b border-slate-100 px-5 py-6 sm:px-8 sm:py-7">
+          <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-teal-700 ring-1 ring-emerald-100">
+            <Briefcase className="h-7 w-7" />
+          </span>
+          <div className="min-w-0 pr-10">
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-teal-700">Select Applicant Type</p>
+            <h2 id="client-service-view-title" className="mt-2 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Which Client Master do you want to view?</h2>
+            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500 sm:text-base">This company has multiple service-specific records. Select an applicant type to open only its exact Client Master data.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close applicant type selection" className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md sm:right-7 sm:top-7"><X className="h-5 w-5" /></button>
+        </header>
+
+        <div className="relative grid max-h-[62vh] gap-4 overflow-y-auto p-5 sm:p-8 md:grid-cols-2">
+          {selection.services.map((service, index) => {
+            const serviceData = readClientData(service);
+            const applicantType = serviceData.basic?.piboCategory || serviceData.selectedLeadSnapshot?.subApplicantType || `Service ${index + 1}`;
+            const category = serviceData.basic?.eprCategory || serviceData.selectedLeadSnapshot?.eprCategory || 'Service category not provided';
+            const theme = getApplicantCardTheme(applicantType);
+            const ApplicantIcon = theme.icon;
+            return (
+              <article key={getClientServiceViewKey(service) || index} className={`group flex min-h-72 flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-xl ${theme.hoverClass}`}>
+                <span className={`grid h-16 w-16 place-items-center rounded-2xl ring-1 ${theme.iconClass}`}><ApplicantIcon className="h-8 w-8" /></span>
+                <h3 className="mt-5 text-2xl font-black tracking-tight text-slate-950">{applicantType}</h3>
+                <span className={`mt-3 w-fit rounded-xl px-3 py-2 text-sm font-black ring-1 ${theme.badgeClass}`}>{category}</span>
+                <div className="my-4 h-px bg-slate-100" />
+                <p className="flex items-center gap-2 text-sm font-bold text-slate-500"><ShieldCheck className="h-5 w-5 text-slate-500" />Service-specific record available</p>
+                <button type="button" onClick={() => onSelect(service)} className={`mt-auto inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r px-4 text-sm font-black text-white shadow-lg transition group-hover:brightness-105 ${theme.buttonClass}`}>View {applicantType}<ChevronRight className="h-5 w-5" /></button>
+              </article>
+            );
+          })}
+        </div>
+
+        <footer className="relative flex items-center gap-3 border-t border-emerald-100 bg-gradient-to-r from-emerald-50/80 to-cyan-50/60 px-5 py-4 text-sm font-bold text-slate-600 sm:px-8">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-teal-700 shadow-sm ring-1 ring-emerald-100"><ShieldCheck className="h-5 w-5" /></span>
+          You can switch between this company&apos;s Client Master records at any time.
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 const emptyClient = {
   selectedLead: '',
   assignedServiceId: '',
@@ -2630,7 +2705,16 @@ export default function ClientMaster() {
             selectOptions={selectOptions}
           />
         )}
-        {pendingServiceView && <div className="fixed inset-0 z-[10000] grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="client-service-view-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingServiceView(null); }}><section className="w-full max-w-xl rounded-3xl border border-emerald-100 bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-emerald-700">Select Applicant Type</p><h2 id="client-service-view-title" className="mt-2 text-2xl font-black text-slate-950">Which Client Master do you want to view?</h2><p className="mt-2 text-sm font-semibold text-slate-500">This company has multiple service-specific records. Select one to open its exact data.</p></div><button type="button" onClick={() => setPendingServiceView(null)} aria-label="Close applicant type selection" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200"><X className="h-5 w-5" /></button></div><div className="mt-6 grid gap-3 sm:grid-cols-2">{pendingServiceView.services.map((service, index) => { const serviceData = readClientData(service); const applicantType = serviceData.basic?.piboCategory || serviceData.selectedLeadSnapshot?.subApplicantType || `Service ${index + 1}`; const category = serviceData.basic?.eprCategory || serviceData.selectedLeadSnapshot?.eprCategory || 'Service category not provided'; return <button type="button" key={getClientServiceViewKey(service) || index} onClick={() => { setPendingServiceView(null); openClientView(service); }} className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-lg"><span className="grid h-11 w-11 place-items-center rounded-xl bg-white text-emerald-700 shadow-sm"><Eye className="h-5 w-5" /></span><strong className="mt-4 block text-lg text-slate-950">{applicantType}</strong><span className="mt-1 block text-xs font-bold text-slate-500">{category}</span><span className="mt-4 inline-flex rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white">View {applicantType}</span></button> })}</div></section></div>}
+        {pendingServiceView && (
+          <ClientServiceChooserModal
+            selection={pendingServiceView}
+            onClose={() => setPendingServiceView(null)}
+            onSelect={(service) => {
+              setPendingServiceView(null);
+              openClientView(service);
+            }}
+          />
+        )}
         {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
       </DashboardShell>
     );
