@@ -232,26 +232,27 @@ function mapFlatClientData(item) {
   };
 }
 
+function mergeHydratedClientValue(primary, fallback) {
+  if (Array.isArray(primary)) return primary.length ? primary : (Array.isArray(fallback) ? fallback : primary);
+  if (primary instanceof Date) return primary;
+  if (primary && typeof primary === 'object') {
+    const fallbackObject = fallback && typeof fallback === 'object' && !Array.isArray(fallback) ? fallback : {};
+    return [...new Set([...Object.keys(fallbackObject), ...Object.keys(primary)])].reduce((result, key) => {
+      result[key] = mergeHydratedClientValue(primary[key], fallbackObject[key]);
+      return result;
+    }, {});
+  }
+  if (primary === false || primary === 0) return primary;
+  if (primary !== undefined && primary !== null && String(primary).trim() !== '') return primary;
+  return fallback;
+}
+
 function mergeClientData(primary = {}, fallback = {}) {
-  return {
-    ...fallback,
-    ...primary,
-    companyOverview: { ...(fallback.companyOverview || {}), ...(primary.companyOverview || {}) },
-    basic: { ...(fallback.basic || {}), ...(primary.basic || {}) },
-    registeredAddress: { ...(fallback.registeredAddress || {}), ...(primary.registeredAddress || {}) },
-    communicationAddress: { ...(fallback.communicationAddress || {}), ...(primary.communicationAddress || {}) },
-    compliance: { ...(fallback.compliance || {}), ...(primary.compliance || {}) },
-    cpcb: { ...(fallback.cpcb || {}), ...(primary.cpcb || {}) },
-    cte: { ...(fallback.cte || {}), ...(primary.cte || {}) },
-    validation: { ...(fallback.validation || {}), ...(primary.validation || {}) },
-    otp: { ...(fallback.otp || {}), ...(primary.otp || {}) },
-    authorised: { ...(fallback.authorised || {}), ...(primary.authorised || {}) },
-    coordinating: { ...(fallback.coordinating || {}), ...(primary.coordinating || {}) },
-    financials: { ...(fallback.financials || {}), ...(primary.financials || {}) },
-    annualReturn: { ...(fallback.annualReturn || {}), ...(primary.annualReturn || {}) },
-    importMeta: { ...(fallback.importMeta || {}), ...(primary.importMeta || {}) },
-    msmeRows: Array.isArray(primary.msmeRows) && primary.msmeRows.length ? primary.msmeRows : (fallback.msmeRows || [])
-  };
+  // Client Master records exist in current nested data, legacy/root fields,
+  // and assigned-service snapshots. Hydration must cover every current tab,
+  // including document arrays and additional contacts, without allowing an
+  // empty source value to erase a populated saved value.
+  return mergeHydratedClientValue(primary || {}, fallback || {}) || {};
 }
 
 function readClientData(item) {

@@ -2029,7 +2029,9 @@ export default function ClientMaster() {
     const storedAssignedServiceId = String(exactClient.assignedServiceId || exactData.assignedServiceId || exactData.selectedLeadSnapshot?.assignedServiceId || '').trim();
     return {
       ...exactClient,
-      ...(resolvedData && typeof resolvedData === 'object' ? { data: resolvedData } : {}),
+      ...(resolvedData && typeof resolvedData === 'object'
+        ? { data: mergeClientData(resolvedData, exactData) }
+        : { data: exactData }),
       _serviceViewKey: item?._serviceViewKey || assignedServiceId || storedAssignedServiceId || clientMasterId,
       activeAssignedServiceId: assignedServiceId || storedAssignedServiceId,
       assignedServiceId: storedAssignedServiceId || assignedServiceId

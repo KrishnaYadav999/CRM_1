@@ -88,6 +88,41 @@ test('requested service id deterministically selects a nested service without ch
   assert.equal(normalizeClientMaster(record).clientMasterId, record._id);
 });
 
+test('service hydration preserves populated legacy fields when scoped values are blank', () => {
+  const record = {
+    _id: '000000000000000000000014',
+    data: {
+      registeredAddress: { addressLine1: 'Legacy address', state: 'Gujarat' },
+      cpcb: { status: 'Approved', credentials: { username: 'legacy-user', password: 'secret' } },
+      cpcbScreenshots: [{ documentId: 'legacy-screenshot' }],
+      authorisedPersons: [{ name: 'Legacy Person' }],
+      serviceDetailsByAssignedServiceId: {
+        'svc-14': {
+          registeredAddress: { addressLine1: '', district: 'Ahmedabad' },
+          authorisedPersons: []
+        }
+      },
+      cpcbDataByAssignedServiceId: {
+        'svc-14': {
+          cpcb: { status: '', credentials: { username: 'scoped-user', password: '' } },
+          cpcbScreenshots: []
+        }
+      }
+    }
+  };
+
+  const resolved = resolveClientMasterData(record, 'svc-14');
+  assert.deepEqual(resolved.registeredAddress, {
+    addressLine1: 'Legacy address',
+    state: 'Gujarat',
+    district: 'Ahmedabad'
+  });
+  assert.deepEqual(resolved.cpcb.credentials, { username: 'scoped-user', password: 'secret' });
+  assert.equal(resolved.cpcb.status, 'Approved');
+  assert.deepEqual(resolved.cpcbScreenshots, [{ documentId: 'legacy-screenshot' }]);
+  assert.deepEqual(resolved.authorisedPersons, [{ name: 'Legacy Person' }]);
+});
+
 test('Mongoose ObjectId-like selectedLead values normalize to strings', () => {
   const selectedLead = { toHexString: () => '100000000000000000000012' };
   const result = normalizeClientMaster({ _id: '000000000000000000000012', selectedLead, data: {} });

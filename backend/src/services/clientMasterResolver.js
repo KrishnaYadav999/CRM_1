@@ -21,6 +21,21 @@ function firstText(...values) {
   return value === undefined ? '' : String(value).trim();
 }
 
+function mergePopulated(primary, fallback) {
+  if (Array.isArray(primary)) return primary.length ? primary : (Array.isArray(fallback) ? fallback : primary);
+  if (primary instanceof Date || Buffer.isBuffer(primary) || typeof primary?.toHexString === 'function') return primary;
+  if (isObject(primary)) {
+    const base = isObject(fallback) ? fallback : {};
+    return [...new Set([...Object.keys(base), ...Object.keys(primary)])].reduce((result, key) => {
+      result[key] = mergePopulated(primary[key], base[key]);
+      return result;
+    }, {});
+  }
+  if (primary === false || primary === 0) return primary;
+  if (primary !== undefined && primary !== null && String(primary).trim() !== '') return primary;
+  return fallback;
+}
+
 function getClientMasterId(record = {}) {
   const raw = plainRecord(record);
   return stringId(raw._id || raw.id);
@@ -123,11 +138,11 @@ function resolveClientMasterData(record = {}, requestedAssignedServiceId = '') {
       ? cpcbScope
       : undefined;
     const specific = serviceScope?.[section] || cpcbScope?.[section] || directCpcbScope;
-    if (isObject(specific)) data[section] = { ...(isObject(data[section]) ? data[section] : {}), ...specific };
+    if (isObject(specific)) data[section] = mergePopulated(specific, data[section]);
   });
   SCOPED_ARRAY_SECTIONS.forEach((section) => {
     const specific = serviceScope?.[section] || cpcbScope?.[section];
-    if (Array.isArray(specific)) data[section] = specific;
+    if (Array.isArray(specific)) data[section] = specific.length ? specific : (Array.isArray(data[section]) ? data[section] : specific);
   });
   return data;
 }
