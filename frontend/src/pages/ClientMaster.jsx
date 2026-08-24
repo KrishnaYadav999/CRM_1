@@ -740,7 +740,7 @@ function getApplicantCardTheme(applicantType = '') {
 function ClientServiceChooserModal({ selection, onClose, onSelect }) {
   return (
     <div className="fixed inset-0 z-[10000] grid place-items-center overflow-y-auto bg-slate-950/65 p-4 backdrop-blur-md sm:p-6" role="dialog" aria-modal="true" aria-labelledby="client-service-view-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="relative my-auto w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.35)]">
+      <section className="relative my-auto w-full max-w-6xl overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.35)]">
         <div className="pointer-events-none absolute -right-16 top-24 h-64 w-64 rounded-full bg-emerald-50/70 blur-3xl" />
         <header className="relative flex items-start gap-4 border-b border-slate-100 px-5 py-6 sm:px-8 sm:py-7">
           <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-teal-700 ring-1 ring-emerald-100">
@@ -754,7 +754,7 @@ function ClientServiceChooserModal({ selection, onClose, onSelect }) {
           <button type="button" onClick={onClose} aria-label="Close applicant type selection" className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md sm:right-7 sm:top-7"><X className="h-5 w-5" /></button>
         </header>
 
-        <div className="relative grid max-h-[62vh] gap-4 overflow-y-auto p-5 sm:p-8 md:grid-cols-2">
+        <div className="relative grid gap-4 p-5 sm:p-8 md:grid-cols-3">
           {selection.services.map((service, index) => {
             const serviceData = readClientData(service);
             const applicantType = serviceData.basic?.piboCategory || serviceData.selectedLeadSnapshot?.subApplicantType || `Service ${index + 1}`;
@@ -762,7 +762,7 @@ function ClientServiceChooserModal({ selection, onClose, onSelect }) {
             const theme = getApplicantCardTheme(applicantType);
             const ApplicantIcon = theme.icon;
             return (
-              <article key={getClientServiceViewKey(service) || index} className={`group flex min-h-72 flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-xl ${theme.hoverClass}`}>
+              <article key={getClientServiceViewKey(service) || index} className={`group flex min-h-[270px] flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-xl ${theme.hoverClass}`}>
                 <span className={`grid h-16 w-16 place-items-center rounded-2xl ring-1 ${theme.iconClass}`}><ApplicantIcon className="h-8 w-8" /></span>
                 <h3 className="mt-5 text-2xl font-black tracking-tight text-slate-950">{applicantType}</h3>
                 <span className={`mt-3 w-fit rounded-xl px-3 py-2 text-sm font-black ring-1 ${theme.badgeClass}`}>{category}</span>

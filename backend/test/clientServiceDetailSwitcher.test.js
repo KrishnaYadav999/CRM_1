@@ -44,7 +44,9 @@ test('applicant chooser uses responsive applicant-specific premium cards', () =>
 
   assert.match(chooser, /normalized\.includes\('brand'\)/);
   assert.match(chooser, /normalized\.includes\('producer'\)/);
-  assert.match(chooser, /md:grid-cols-2/);
+  assert.match(chooser, /max-w-6xl/);
+  assert.match(chooser, /md:grid-cols-3/);
+  assert.doesNotMatch(chooser, /max-h-\[62vh\]/);
   assert.match(chooser, /Service-specific record available/);
   assert.match(chooser, /You can switch between this company/);
   assert.match(chooser, /aria-labelledby="client-service-view-title"/);
