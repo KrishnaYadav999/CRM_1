@@ -51,6 +51,7 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /getMsmeRows\(data\)/);
   assert.match(workspace, /Classification Year/);
   assert.match(workspace, /Turnover \(CR\.\)/);
+  assert.match(workspace, /<MsmeReviewTable data=\{payload\?\.client\?\.data\} \/>\}\s*<section className="mt-6/);
   assert.match(workspace, /w-full max-w-none space-y-4/);
   assert.match(workspace, /allTabRemarksComplete/);
   assert.match(workspace, /disabled=\{saving === 'section' \|\| !draft\.remarks\.trim\(\)\}/);

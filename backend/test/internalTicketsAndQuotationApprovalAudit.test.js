@@ -84,6 +84,16 @@ test('Sales Dashboard uses the full available width beside the sidebar', () => {
   assert.match(density, /body\.sales-dashboard-page \.sales-dashboard \{[\s\S]*?max-width: none !important;[\s\S]*?margin-left: 0 !important;/);
 });
 
+test('Sales activity is readable and map hover details remain inside the map card', () => {
+  const density = read('frontend/src/styles/modules/14-desktop-density.css');
+  const dashboard = read('frontend/src/pages/AdminDashboard.jsx');
+  assert.match(density, /\.sales-reference-bottom-grid th\{[^}]*font-size:11px!important/);
+  assert.match(density, /\.sales-reference-bottom-grid td\{[^}]*font-size:12px!important/);
+  assert.match(density, /\.sales-map-tooltip\{position:absolute/);
+  assert.match(dashboard, /container\.offsetWidth - 150/);
+  assert.match(dashboard, /showMapTooltip\(event, details\)/);
+});
+
 test('operations dashboard uses the compact PO-first reference composition', () => {
   const dashboard = read('frontend/src/pages/AdminDashboard.jsx');
   const density = read('frontend/src/styles/modules/14-desktop-density.css');

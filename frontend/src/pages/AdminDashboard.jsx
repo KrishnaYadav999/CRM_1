@@ -3682,6 +3682,16 @@ function SalesRiskStrip({ items = [], onView, expanded = false }) {
 
 function SalesStatesMapCard({ rows = [], delay = 0 }) {
   const [hoveredState, setHoveredState] = useState(null)
+  const showMapTooltip = (event, details) => {
+    const container = event.currentTarget.closest('.sales-india-map')
+    if (!container) return setHoveredState(details)
+    const bounds = container.getBoundingClientRect()
+    const scaleX = container.offsetWidth / Math.max(bounds.width, 1)
+    const scaleY = container.offsetHeight / Math.max(bounds.height, 1)
+    const x = Math.min(Math.max(8, (event.clientX - bounds.left) * scaleX + 12), Math.max(8, container.offsetWidth - 150))
+    const y = Math.min(Math.max(8, (event.clientY - bounds.top) * scaleY + 12), Math.max(8, container.offsetHeight - 76))
+    setHoveredState({ ...details, x, y })
+  }
   const normalizeState = (value = '') => {
     const key = String(value).trim().toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim()
     const aliases = { orissa: 'odisha', uttaranchal: 'uttarakhand', 'nct of delhi': 'delhi', 'jammu and kashmir': 'jammu and kashmir', 'dadra and nagar haveli and daman and diu': 'dadra and nagar haveli and daman and diu' }
@@ -3724,11 +3734,12 @@ function SalesStatesMapCard({ rows = [], delay = 0 }) {
               const key = normalizeState(geo.properties.ST_NM || geo.properties.st_nm || geo.properties.NAME_1)
               const value = stateValues[key] || 0
               const percentage = total ? ((value / total) * 100).toFixed(1) : '0.0'
-              return <Geography key={geo.rsmKey} geography={geo} fill={colorForValue(value)} stroke="#d5e0dc" strokeWidth={.55} tabIndex={0} aria-label={`${displayState(key)}, ${value} leads, ${percentage}% of total`} onMouseEnter={(event) => setHoveredState({ name: displayState(key), value, percentage, x: event.clientX, y: event.clientY })} onMouseMove={(event) => setHoveredState((current) => current ? { ...current, x: event.clientX, y: event.clientY } : current)} onMouseLeave={() => setHoveredState(null)} onFocus={() => setHoveredState({ name: displayState(key), value, percentage })} onBlur={() => setHoveredState(null)} style={{ default: { outline: 'none' }, hover: { fill: '#0a7150', outline: 'none', cursor: 'pointer' }, pressed: { outline: 'none' } }} />
+              const details = { name: displayState(key), value, percentage }
+              return <Geography key={geo.rsmKey} geography={geo} fill={colorForValue(value)} stroke="#d5e0dc" strokeWidth={.55} tabIndex={0} aria-label={`${displayState(key)}, ${value} leads, ${percentage}% of total`} onMouseEnter={(event) => showMapTooltip(event, details)} onMouseMove={(event) => showMapTooltip(event, details)} onMouseLeave={() => setHoveredState(null)} onFocus={() => setHoveredState(details)} onBlur={() => setHoveredState(null)} style={{ default: { outline: 'none' }, hover: { fill: '#0a7150', outline: 'none', cursor: 'pointer' }, pressed: { outline: 'none' } }} />
             })}</Geographies>
             {topRows.map((row) => markerCoordinates[row.key] && <Marker key={row.key} coordinates={markerCoordinates[row.key]}><circle r={9} className={rankByState[row.key] === 1 ? 'map-rank-first' : 'map-rank'} /><text y={3.2}>{rankByState[row.key]}</text></Marker>)}
           </ComposableMap>
-          {hoveredState && <div className="sales-map-tooltip" style={hoveredState.x ? { left: hoveredState.x, top: hoveredState.y } : undefined}><strong>{hoveredState.name}</strong><span>{hoveredState.value} Leads</span><small>{hoveredState.percentage}% of Total</small></div>}
+          {hoveredState && <div className="sales-map-tooltip" style={hoveredState.x !== undefined ? { left: hoveredState.x, top: hoveredState.y } : undefined}><strong>{hoveredState.name}</strong><span>{hoveredState.value} Leads</span><small>{hoveredState.percentage}% of Total</small></div>}
           <div className="sales-map-scale"><span>Lead Count</span><i /><small><em>Low</em><em>High</em></small></div>
         </div>
         <div className="sales-state-ranking">
