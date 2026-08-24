@@ -38,6 +38,18 @@ test('pending client rows clearly show compliance approval state', () => {
   assert.match(page, /aria-label="Compliance approved"/);
   assert.match(page, /aria-label="Compliance approval pending"/);
   assert.doesNotMatch(page, /bg-rose-50\/80 hover:bg-rose-100/);
+  assert.match(page, /fill-amber-100 text-amber-500/);
+  assert.match(page, /Client approval status tabs/);
+  assert.match(page, /PARTIALLY_APPROVED/);
+  assert.match(page, /Partially Approved/);
+});
+
+test('client approval list includes pending, partial and approved compliance records', () => {
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
+  assert.match(controller, /ClientComplianceReview\.find/);
+  assert.match(controller, /reviewStatusByClient/);
+  assert.match(controller, /PARTIALLY_APPROVED/);
+  assert.match(controller, /record\.type === 'quotation' && record\.approvalStatus === 'PENDING'/);
 });
 
 test('duplicate Client Master services open an applicant type chooser', () => {

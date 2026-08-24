@@ -21,6 +21,9 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /secureUrl \|\| value\.url \|\| value\.fileUrl \|\| value\.dataUrl/);
   assert.match(workspace, /Preview inside this page/);
   assert.match(workspace, /<iframe src=\{preview\.url\}/);
+  assert.match(workspace, /h-\[94vh\]/);
+  assert.match(workspace, /View Full Image/);
+  assert.match(workspace, /target="_blank"/);
   assert.doesNotMatch(workspace, /window\.open\(file\.url/);
   assert.match(workspace, /password\|secret\|token/i);
   assert.match(workspace, /removedReviewFields/);

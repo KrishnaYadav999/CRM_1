@@ -2448,6 +2448,12 @@ body:has(.annual-review-backdrop) .client-detail-card {
   border: 1px solid #a7f3d0 !important;
 }
 
+.pending-status-partial {
+  background: #fffbeb !important;
+  color: #b45309 !important;
+  border: 1px solid #fcd34d !important;
+}
+
 .pending-status-rejected {
   background: #fef2f2 !important;
   color: #b91c1c !important;

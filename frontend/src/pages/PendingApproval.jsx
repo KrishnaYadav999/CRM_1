@@ -44,8 +44,8 @@ function writePendingApprovalCache(data) {
 
 function statusBadge(value) {
   const status = String(value || 'PENDING').toUpperCase();
-  const tone = status === 'APPROVED' ? 'approved' : status === 'REJECTED' ? 'rejected' : 'pending';
-  return <span className={`pending-status pending-status-${tone}`}>{status}</span>;
+  const tone = status === 'APPROVED' ? 'approved' : status === 'PARTIALLY_APPROVED' ? 'partial' : status === 'REJECTED' ? 'rejected' : 'pending';
+  return <span className={`pending-status pending-status-${tone}`}>{status === 'PARTIALLY_APPROVED' ? 'PARTIALLY APPROVED' : status}</span>;
 }
 
 function formatApprovalValue(value) {
@@ -320,6 +320,7 @@ export default function PendingApproval() {
     if (tabId && typeof tabId === 'string') {
       setActiveTab(tabId);
       setTypeFilter(tabId);
+      if (tabId === 'clients') setStatusFilter('PENDING');
     }
   }
 
@@ -332,6 +333,7 @@ export default function PendingApproval() {
     if (isComplianceApprovalView) {
       setActiveTab('clients');
       setTypeFilter('clients');
+      setStatusFilter('PENDING');
       return;
     }
     if (tab === 'clients' || tab === 'quotations' || tab === 'duplicates' || tab === 'royalty' || tab === 'services' || tab === 'po') setActiveTab(tab);
@@ -346,7 +348,7 @@ export default function PendingApproval() {
   function resetFilters() {
     setSearchTerm('');
     setTypeFilter(isComplianceApprovalView ? 'clients' : 'all');
-    setStatusFilter('all');
+    setStatusFilter(isComplianceApprovalView ? 'PENDING' : 'all');
     setPiboFilter('all');
     setUserFilter('all');
   }
@@ -854,7 +856,7 @@ export default function PendingApproval() {
           {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
 
           <div className="pending-metrics">
-            {canApproveClients && <Metric icon={Users} label="Pending Clients" value={pendingClients.length} hint="Needs your review" tone="mint" onClick={() => openMetric('clients')} />}
+            {canApproveClients && <Metric icon={Users} label="Pending Clients" value={pendingClients.filter((client) => getApprovalStatus(client) === 'PENDING').length} hint="Needs your review" tone="mint" onClick={() => openMetric('clients')} />}
             {!isComplianceApprovalView && <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.length} hint="Needs your review" tone="blue" onClick={() => openMetric('quotations')} />}
             {!isComplianceApprovalView && <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" onClick={() => openMetric('duplicates')} />}
             {!isComplianceApprovalView && <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" onClick={() => openMetric('royalty')} />}
@@ -885,6 +887,7 @@ export default function PendingApproval() {
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter approval status">
                 <option value="all">All Status</option>
                 <option value="PENDING">Pending</option>
+                <option value="PARTIALLY_APPROVED">Partially Approved</option>
                 <option value="APPROVED">Approved</option>
                 <option value="REJECTED">Rejected</option>
               </select>
@@ -947,12 +950,16 @@ export default function PendingApproval() {
                 total={filteredClients.length}
                 onPrev={() => setClientPage((value) => Math.max(1, value - 1))}
                 onNext={() => setClientPage((value) => Math.min(clientTotalPages, value + 1))}
-                actions={<span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Full verification required</span>}
+                actions={<div className="flex flex-wrap gap-2" aria-label="Client approval status tabs">{[
+                  ['PENDING', 'Pending'],
+                  ['PARTIALLY_APPROVED', 'Partially Approved'],
+                  ['APPROVED', 'Approved']
+                ].map(([status, label]) => { const count = pendingClients.filter((client) => getApprovalStatus(client) === status).length; return <button type="button" key={status} onClick={() => setStatusFilter(status)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black transition ${statusFilter === status ? status === 'APPROVED' ? 'border-emerald-600 bg-emerald-600 text-white' : status === 'PARTIALLY_APPROVED' ? 'border-amber-500 bg-amber-500 text-white' : 'border-slate-700 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300'}`}><span>{label}</span><b className={`rounded-full px-2 py-0.5 ${statusFilter === status ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>{count}</b></button> })}</div>}
               >
                 {visibleClients.map((client) => {
                   const complianceApproved = getApprovalStatus(client) === 'APPROVED';
                   return <tr key={client.id} className="transition-colors hover:bg-slate-50">
-                    <Cell strong><span className="flex items-center gap-2"><button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button>{complianceApproved ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Compliance approved" /> : <AlertTriangle className="h-4 w-4 shrink-0 fill-rose-100 text-rose-600" aria-label="Compliance approval pending" />}</span></Cell>
+                    <Cell strong><span className="flex items-center gap-2">{complianceApproved ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Compliance approved" /> : <AlertTriangle className="h-4 w-4 shrink-0 fill-amber-100 text-amber-500" aria-label="Compliance approval pending" />}<button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></span></Cell>
                     <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{client.reminderFlag === 'RED' && <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">48H RED FLAG</span>}</div></Cell>
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>

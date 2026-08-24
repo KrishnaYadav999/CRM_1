@@ -850,7 +850,7 @@ async function syncPendingApprovalRows(rows, type = 'client') {
 }
 
 async function readStoredPendingApprovals() {
-  const records = await PendingApproval.find({ approvalStatus: 'PENDING' })
+  const records = await PendingApproval.find({ $or: [{ type: 'client' }, { approvalStatus: 'PENDING' }] })
     .sort({ createdAt: -1 })
     .limit(1000)
     .lean();
@@ -859,10 +859,19 @@ async function readStoredPendingApprovals() {
   const sourceClientIds = clientRecords.map((record) => record.sourceClientId).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
   const submittedClients = await Client.find({ _id: { $in: sourceClientIds }, workflowStatus: 'submitted' }).select('_id').lean();
   const submittedIds = new Set(submittedClients.map((client) => String(client._id)));
+  const complianceReviews = await ClientComplianceReview.find({ client: { $in: sourceClientIds } }).select('client status').lean();
+  const reviewStatusByClient = new Map(complianceReviews.map((review) => [String(review.client), review.status]));
+  const clientRows = clientRecords
+    .filter((record) => submittedIds.has(String(record.sourceClientId)))
+    .map((record) => {
+      const row = mapPendingApprovalRecord(record);
+      if (row.approvalStatus === 'PENDING' && reviewStatusByClient.get(String(record.sourceClientId)) === 'CHANGES_REQUIRED') row.approvalStatus = 'PARTIALLY_APPROVED';
+      return row;
+    });
 
   return {
-    pendingClients: clientRecords.filter((record) => submittedIds.has(String(record.sourceClientId))).map(mapPendingApprovalRecord),
-    pendingQuotations: records.filter((record) => record.type === 'quotation').map(mapPendingApprovalRecord)
+    pendingClients: clientRows,
+    pendingQuotations: records.filter((record) => record.type === 'quotation' && record.approvalStatus === 'PENDING').map(mapPendingApprovalRecord)
   };
 }
 
