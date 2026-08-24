@@ -30,6 +30,10 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /cteProductionRows/);
   assert.match(workspace, /ctoProductRows/);
   assert.match(workspace, /CTO\/CCA Consent Order No/);
+  assert.match(workspace, /function documentFieldsFor/);
+  assert.match(workspace, /\['gst', 'GST Number', 'GST Certificate Date'\]/);
+  assert.match(workspace, /\['pan', 'PAN', 'PAN Document Date'\]/);
+  assert.match(workspace, /\['factoryLicense', 'Factory License No\.', 'Factory License Document Date'\]/);
 });
 
 test('compliance review resolves the same assigned-service data used by Client Master', () => {

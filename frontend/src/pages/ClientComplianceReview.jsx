@@ -84,7 +84,32 @@ function cteFieldsFor(data = {}) {
   })
   return fields.filter(Boolean)
 }
+function documentFieldsFor(data = {}) {
+  const compliance = data.compliance || {}
+  const groups = [
+    ['gst', 'GST Number', 'GST Certificate Date'],
+    ['cin', 'CIN', 'CIN Document Date'],
+    ['pan', 'PAN', 'PAN Document Date'],
+    ['factoryLicense', 'Factory License No.', 'Factory License Document Date'],
+    ['eprCertificate', 'EPR Certificate No.', 'EPR Certificate File Date'],
+    ['iec', 'IEC Certificate', 'IEC Certificate Date'],
+    ['dicDcssi', 'DIC/DCSSI Certificate No.', 'DIC/DCSSI Certificate Date']
+  ]
+  const fields = []
+  groups.forEach(([key, numberLabel, dateLabel]) => {
+    const numberValue = compliance[`${key}Number`] || compliance[key]
+    const dateValue = compliance[`${key}Date`]
+    const fileValue = compliance[`${key}File`]
+    if (!populated(numberValue) && !populated(dateValue) && !populated(fileValue)) return
+    fields.push(reviewField(`compliance.${key}Number`, numberLabel, numberValue))
+    fields.push(reviewField(`compliance.${key}Date`, dateLabel, dateValue))
+  })
+  if (populated(compliance.brandOwnerProductionFacility)) fields.push(reviewField('compliance.brandOwnerProductionFacility', 'Brand Owner Production Facility', compliance.brandOwnerProductionFacility))
+  if (populated(compliance.msmeApplicable)) fields.push(reviewField('compliance.msmeApplicable', 'MSME Applicable', compliance.msmeApplicable))
+  return fields.filter(Boolean)
+}
 function fieldsFor(data, sectionKey) {
+  if (sectionKey === 'documents') return documentFieldsFor(data)
   if (sectionKey === 'cteCtoCca') return cteFieldsFor(data)
   return (sectionSources[sectionKey] || []).flatMap((sourceKey) => {
     const source = data?.[sourceKey]
