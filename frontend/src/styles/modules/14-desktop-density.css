@@ -21,11 +21,11 @@
     zoom: var(--crm-desktop-scale);
   }
 
-  /* Keep Sales slightly roomier than operations without making its cards and
-     typography look browser-zoomed compared with the rest of the CRM. */
+  /* Sales follows the same compact desktop canvas as the rest of the CRM so
+     its fixed sidebar, cards, and tables stay aligned without horizontal crop. */
   body.sales-dashboard-page #root {
-    zoom: 0.85;
-    width: 117.6471%;
+    zoom: var(--crm-desktop-scale);
+    width: 100%;
   }
 
   body.sales-dashboard-page .sales-dashboard {

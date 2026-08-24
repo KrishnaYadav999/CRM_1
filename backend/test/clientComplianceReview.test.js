@@ -45,7 +45,12 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /Partially Approve/);
   assert.match(workspace, /Final Approve/);
   assert.match(workspace, /hover:-translate-y-0\.5 hover:shadow-md/);
-  assert.match(workspace, /DashboardShell currentUser=\{currentUser\} hideSidebar/);
+  assert.doesNotMatch(workspace, /DashboardShell currentUser=\{currentUser\} hideSidebar/);
+  assert.match(workspace, /function MsmeReviewTable/);
+  assert.match(workspace, /Registered MSME \/ Udyam Records/);
+  assert.match(workspace, /getMsmeRows\(data\)/);
+  assert.match(workspace, /Classification Year/);
+  assert.match(workspace, /Turnover \(CR\.\)/);
   assert.match(workspace, /w-full max-w-none space-y-4/);
   assert.match(workspace, /allTabRemarksComplete/);
   assert.match(workspace, /disabled=\{saving === 'section' \|\| !draft\.remarks\.trim\(\)\}/);
