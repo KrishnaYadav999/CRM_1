@@ -27,7 +27,13 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.doesNotMatch(workspace, /window\.open\(file\.url/);
   assert.match(workspace, /password\|secret\|token/i);
   assert.match(workspace, /removedReviewFields/);
-  assert.match(workspace, /!removedReviewFields\.has\(key\) && populated\(value\)/);
+  assert.match(workspace, /Data not filled/);
+  assert.match(workspace, /function cpcbFieldsFor/);
+  assert.match(workspace, /\['registrationNumber', 'CPCB Registration Number'\]/);
+  assert.match(workspace, /\['applicationNumber', 'Application Number'\]/);
+  assert.match(workspace, /\['applicationDate', 'Date Of Application'\]/);
+  assert.match(workspace, /\['approvalDate', 'Date Of Application Approval'\]/);
+  assert.match(workspace, /if \(sectionKey === 'cpcbCredentials'\) return cpcbFieldsFor\(data\)/);
   assert.match(workspace, /'otp', 'otpContacts', 'authorised', 'authorisedPersons'/);
   assert.match(workspace, /function cteFieldsFor/);
   assert.match(workspace, /cte\.plantWiseDetails/);
