@@ -17,7 +17,7 @@ test('pending approval shows only client review to compliance-family and adminis
   assert.match(page, /isComplianceApprovalView = isComplianceRole\(currentUser\?\.role\) && !canApprove/);
   assert.match(page, /canApproveClients = canApprove \|\| isComplianceApprovalView/);
   assert.match(page, /canApproveClients && <Metric[^\n]+Pending Clients/);
-  assert.match(page, /!isComplianceApprovalView && <ApprovalTab/);
+  assert.match(page, /if \(!isComplianceApprovalView\) \{[\s\S]*list\.push\(\{ id: 'quotations'/);
   assert.match(controller, /requesterRole\.includes\('compliance'\)/);
   assert.match(controller, /pendingClients: isClientReviewer \? storedFallback\.pendingClients : \[\]/);
   assert.match(controller, /pendingQuotations: isAdministrativeReviewer \? storedFallback\.pendingQuotations : \[\]/);
@@ -30,6 +30,21 @@ test('pending approvals can be filtered by the responsible user', () => {
   assert.match(page, /const userMatches = userFilter === 'all'/);
   assert.match(page, /aria-label="Filter by user"/);
   assert.match(page, /All Users/);
+});
+
+test('pending client rows clearly show compliance approval state', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
+  assert.match(page, /getApprovalStatus\(client\) === 'APPROVED'/);
+  assert.match(page, /bg-emerald-50 hover:bg-emerald-100/);
+  assert.match(page, /bg-rose-50\/80 hover:bg-rose-100/);
+});
+
+test('duplicate Client Master services open an applicant type chooser', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  assert.match(page, /openDirectoryClientView/);
+  assert.match(page, /getRelatedClientServices\(clients, selectedClient\)/);
+  assert.match(page, /Which Client Master do you want to view/);
+  assert.match(page, /View \{applicantType\}/);
 });
 
 test('legacy purchase order approvals recover the lead id from their source key', () => {

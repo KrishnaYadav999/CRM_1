@@ -950,7 +950,7 @@ export default function PendingApproval() {
                 actions={<span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Full verification required</span>}
               >
                 {visibleClients.map((client) => (
-                  <tr key={client.id}>
+                  <tr key={client.id} className={`transition-colors ${getApprovalStatus(client) === 'APPROVED' ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-rose-50/80 hover:bg-rose-100'}`}>
                     <Cell strong><button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></Cell>
                     <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{client.reminderFlag === 'RED' && <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">48H RED FLAG</span>}</div></Cell>
                     <Cell>{client.piboCategory}</Cell>

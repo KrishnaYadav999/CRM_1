@@ -39,6 +39,7 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /Name Of Product/);
   assert.match(workspace, /Partially Approve/);
   assert.match(workspace, /Final Approve/);
+  assert.match(workspace, /hover:-translate-y-0\.5 hover:shadow-md/);
 });
 
 test('compliance review resolves the same assigned-service data used by Client Master', () => {

@@ -1098,6 +1098,7 @@ export default function ClientMaster() {
   const [activeTab, setActiveTab] = useState('companyOverview');
   const [viewMode, setViewMode] = useState('list');
   const [pendingLeadServices, setPendingLeadServices] = useState(null);
+  const [pendingServiceView, setPendingServiceView] = useState(null);
   const [pendingCpcbOnboarding, setPendingCpcbOnboarding] = useState(null);
   const [saving, setSaving] = useState(false);
   const [savingMode, setSavingMode] = useState('');
@@ -2538,6 +2539,15 @@ export default function ClientMaster() {
     )));
   }
 
+  function openDirectoryClientView(selectedClient) {
+    const relatedServices = getRelatedClientServices(clients, selectedClient);
+    if (relatedServices.length <= 1) {
+      openClientView(selectedClient);
+      return;
+    }
+    setPendingServiceView({ client: selectedClient, services: relatedServices });
+  }
+
   if (viewMode === 'list') {
     return (
       <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
@@ -2569,13 +2579,14 @@ export default function ClientMaster() {
             error={error}
             notice={notice}
             onRefresh={loadPage}
-            onView={openClientView}
+            onView={openDirectoryClientView}
             onEdit={openClientEdit}
             canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
             onCreate={openClientForm}
             selectOptions={selectOptions}
           />
         )}
+        {pendingServiceView && <div className="fixed inset-0 z-[10000] grid place-items-center bg-slate-950/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingServiceView(null); }}><section className="w-full max-w-xl rounded-3xl border border-emerald-100 bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-emerald-700">Select Applicant Type</p><h2 className="mt-2 text-2xl font-black text-slate-950">Which Client Master do you want to view?</h2><p className="mt-2 text-sm font-semibold text-slate-500">This company has multiple service-specific records. Select one to open its exact data.</p></div><button type="button" onClick={() => setPendingServiceView(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200"><X className="h-5 w-5" /></button></div><div className="mt-6 grid gap-3 sm:grid-cols-2">{pendingServiceView.services.map((service, index) => { const serviceData = readClientData(service); const applicantType = serviceData.basic?.piboCategory || serviceData.selectedLeadSnapshot?.subApplicantType || `Service ${index + 1}`; const category = serviceData.basic?.eprCategory || serviceData.selectedLeadSnapshot?.eprCategory || 'Service category not provided'; return <button type="button" key={getClientServiceViewKey(service) || index} onClick={() => { setPendingServiceView(null); openClientView(service); }} className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-lg"><span className="grid h-11 w-11 place-items-center rounded-xl bg-white text-emerald-700 shadow-sm"><Eye className="h-5 w-5" /></span><strong className="mt-4 block text-lg text-slate-950">{applicantType}</strong><span className="mt-1 block text-xs font-bold text-slate-500">{category}</span><span className="mt-4 inline-flex rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white">View {applicantType}</span></button> })}</div></section></div>}
         {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
       </DashboardShell>
     );
