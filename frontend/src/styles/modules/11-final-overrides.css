@@ -1830,11 +1830,11 @@ body:has(.annual-review-backdrop) .client-detail-card {
   align-items: center !important;
   justify-content: space-between !important;
   gap: 14px !important;
-  border: 1px solid #dbe7e5 !important;
-  border-radius: 12px !important;
-  background: #ffffff !important;
-  padding: 12px 14px !important;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 8px 2px !important;
+  box-shadow: none !important;
 }
 
 .pending-approval-hero::before,
@@ -2350,6 +2350,19 @@ body:has(.annual-review-backdrop) .client-detail-card {
 
 .pending-table-head span {
   display: none !important;
+}
+
+.pending-table-head .client-status-tab-label {
+  display: inline-flex !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
 }
 
 .pending-approve-all {

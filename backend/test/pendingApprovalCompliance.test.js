@@ -40,8 +40,15 @@ test('pending client rows clearly show compliance approval state', () => {
   assert.doesNotMatch(page, /bg-rose-50\/80 hover:bg-rose-100/);
   assert.match(page, /fill-amber-100 text-amber-500/);
   assert.match(page, /Client approval status tabs/);
+  assert.match(page, /client-status-tab-label/);
   assert.match(page, /PARTIALLY_APPROVED/);
   assert.match(page, /Partially Approved/);
+});
+
+test('Pending Approval header is integrated without a white card background', () => {
+  const styles = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/11-final-overrides.css'), 'utf8');
+  assert.match(styles, /\.pending-approval-hero \{[\s\S]*?background: transparent !important;/);
+  assert.match(styles, /\.pending-table-head \.client-status-tab-label \{[\s\S]*?display: inline-flex !important;/);
 });
 
 test('client approval list includes pending, partial and approved compliance records', () => {
