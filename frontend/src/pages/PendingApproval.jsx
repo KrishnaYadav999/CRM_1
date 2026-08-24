@@ -958,7 +958,7 @@ export default function PendingApproval() {
                   This is a preliminary decision made by the assigned user. The final approval authority rests with the Admin/Super Admin.
                 </div>
                 <ApprovalTable
-                title="Service Pending Approvals"
+                title="Service Pending"
                 columns={['Company', 'Service Added By', 'Original Creator', 'Services Added', 'Creator Decision', 'Final Decision', 'Actions']}
                 emptyText="No service approval requests found."
                 page={1}

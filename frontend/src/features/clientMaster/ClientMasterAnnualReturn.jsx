@@ -593,7 +593,7 @@ function PoDetailItem({ label, value, wide = false }) {
   return <div className={`rounded-xl border border-slate-200 bg-slate-50/70 p-4 ${wide ? 'sm:col-span-2' : ''}`}><span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</span><strong className="mt-1 block break-words text-sm font-black text-slate-800">{value || '-'}</strong></div>;
 }
 
-export function AnnualReturnHistory({ client, quotations = [], proformaInvoices = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
+export function AnnualReturnHistory({ client, quotations = [], proformaInvoices = [], staff = [], years, selectedYear, currentUser, onSelectYear, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
   const firstAnnualReturnYear = getFirstAnnualReturnYear(client, data);
@@ -632,9 +632,11 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
   const [poRefreshToken, setPoRefreshToken] = useState(0);
   const [poApprovalPreviewOpen, setPoApprovalPreviewOpen] = useState(false);
   const [poValidationError, setPoValidationError] = useState('');
-  const assignedName = getAssignedName(client);
+  const assignedName = getAssignedName(client, staff);
   const rawPreviousSpoc = String(data.importMeta?.previousSpoc || '').trim();
-  const previousSpocName = rawPreviousSpoc && rawPreviousSpoc.toUpperCase() !== 'N/A' ? rawPreviousSpoc : assignedName;
+  const previousSpocName = rawPreviousSpoc && rawPreviousSpoc.toUpperCase() !== 'N/A'
+    ? getAssignedName({ adminControls: { assignedTo: rawPreviousSpoc } }, staff)
+    : assignedName;
   const msmeRows = getMsmeRows(data);
   const plants = data.cte?.plantWiseDetails || [];
   const rawDocumentUrls = data.validation?.documentUrls;

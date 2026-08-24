@@ -499,19 +499,49 @@ function getVisibilityStatus(item) {
   return normalizeVisibility(item?.adminControls?.visibilityStatus || data.importMeta?.visibilityStatus || 'LIVE');
 }
 
-function getAssignedName(item) {
+function resolvePersonName(value, people = []) {
+  if (value && typeof value === 'object') {
+    const directName = value.name || value.fullName || value.displayName || value.email;
+    if (directName) return directName;
+    return resolvePersonName(value._id || value.id || value.userId || value.crmUserId, people);
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const normalized = raw.toLowerCase();
+  const person = people.find((user) => [
+    user?._id,
+    user?.id,
+    user?.userId,
+    user?.crmUserId,
+    user?.email
+  ].some((candidate) => String(candidate || '').trim().toLowerCase() === normalized));
+  if (person) return person.name || person.fullName || person.displayName || person.email || '';
+  // Never leak database/user identifiers into a display-name column. Older
+  // imports may contain an ObjectId/CRM user id without a populated user.
+  if (/^[a-f\d]{16,}$/i.test(raw) || /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(raw)) return '';
+  return raw;
+}
+
+function getAssignedName(item, people = []) {
   const assigned = item?.adminControls?.assignedTo;
-  if (assigned && typeof assigned === 'object') return assigned.name || assigned.email || '-';
   const data = readClientData(item);
   const selectedLeadAssigned = item?.selectedLead?.assignedTo;
-  return data.importMeta?.assignedTo
-    || item?.assignedToText
-    || item?.assignedToName
-    || (typeof assigned === 'string' ? assigned : '')
-    || item?.selectedLead?.assignedToText
-    || (typeof selectedLeadAssigned === 'object' ? selectedLeadAssigned?.name || selectedLeadAssigned?.email : selectedLeadAssigned)
-    || data.importMeta?.createdBy
-    || 'Not assigned';
+  const candidates = [
+    assigned,
+    data.importMeta?.assignedToName,
+    data.importMeta?.assignedTo,
+    item?.assignedToName,
+    item?.assignedToText,
+    item?.selectedLead?.assignedToName,
+    item?.selectedLead?.assignedToText,
+    selectedLeadAssigned,
+    data.importMeta?.createdBy
+  ];
+  for (const candidate of candidates) {
+    const name = resolvePersonName(candidate, people);
+    if (name) return name;
+  }
+  return 'Not assigned';
 }
 
 function getCpcbStatus(data = {}) {
@@ -794,10 +824,10 @@ function matchesAssignedStaff(item, staff, staffFilter) {
   const assignedId = getAssignedId(item);
   if (String(assignedId) === String(staffFilter)) return true;
   if (String(staffFilter).startsWith('name:')) {
-    return normalizePersonName(getAssignedName(item)) === normalizePersonName(String(staffFilter).slice(5));
+    return normalizePersonName(getAssignedName(item, staff)) === normalizePersonName(String(staffFilter).slice(5));
   }
   const selectedStaff = staff.find((user) => String(user._id || user.id) === String(staffFilter));
-  const assignedName = normalizePersonName(getAssignedName(item));
+  const assignedName = normalizePersonName(getAssignedName(item, staff));
   return Boolean(selectedStaff && assignedName !== '-' && (
     assignedName === normalizePersonName(selectedStaff.name)
   ));

@@ -24,7 +24,7 @@ function buildStaffFilterOptions(staff = [], clients = []) {
     if (id && label) options.set(String(id), { value: String(id), label });
   });
   clients.forEach((item) => {
-    const label = getAssignedName(item);
+    const label = getAssignedName(item, staff);
     if (label && label !== '-') options.set(`name:${label.toLowerCase()}`, { value: `name:${label}`, label });
   });
   return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
@@ -55,7 +55,7 @@ function collectClientSearchValues(value, values = [], depth = 0) {
   return values;
 }
 
-function clientMatchesSearch(item, term) {
+function clientMatchesSearch(item, term, staff = []) {
   const normalizedTerm = normalizeClientSearchText(term);
   if (!normalizedTerm) return true;
   const data = readClientData(item);
@@ -84,7 +84,7 @@ function clientMatchesSearch(item, term) {
     data.communicationAddress?.city,
     data.communicationAddress?.state,
     getVisibilityStatus(item),
-    getAssignedName(item),
+    getAssignedName(item, staff),
     data.basic?.piboCategory,
     data.basic?.eprCategory,
     getMsmeSummary(data),
@@ -113,7 +113,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
     return clients.filter((item) => {
       const data = readClientData(item);
       const visibility = getVisibilityStatus(item);
-      const matchesSearch = clientMatchesSearch(item, term);
+      const matchesSearch = clientMatchesSearch(item, term, staff);
       const cpcbStatus = readClientData(item).cpcb?.status;
       const matchesVisibility = !visibilityFilter || visibility === visibilityFilter;
       const matchesStaff = matchesAssignedStaff(item, staff, staffFilter);
@@ -168,7 +168,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
         'Visibility Status': getVisibilityStatus(item),
         'Created By': data.importMeta?.createdBy || '',
         'Creation Date': data.importMeta?.creationDate || item.createdAt || '',
-        'Assigned To': getAssignedName(item).replace(/^-$/, ''),
+        'Assigned To': getAssignedName(item, staff).replace(/^-$/, ''),
         'Client Name': data.basic?.clientLegalName || '',
         State: data.registeredAddress?.state || '',
         'City with PIN': `${data.registeredAddress?.city || ''} ${data.registeredAddress?.pincode || ''}`.trim(),
@@ -288,7 +288,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
                       <td className="px-5 py-4 font-black uppercase text-slate-600"><span className="cell-clamp">{data.basic?.clientLegalName || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.tradeName || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.registeredAddress?.state || '-'}</span></td>
-                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getAssignedName(item)}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getAssignedName(item, staff)}</span></td>
                       <td className="px-5 py-4"><span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">{getVisibilityStatus(item)}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.piboCategory || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.eprCategory || '-'}</span></td>

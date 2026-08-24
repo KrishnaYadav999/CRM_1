@@ -2793,7 +2793,11 @@ export default function ClientMaster() {
                   >
                     <span className="client-progress-tab-icon"><Icon className="h-5 w-5" /></span>
                     <span className="client-progress-tab-copy"><strong>{tab.label}</strong><small>{tab.locked ? 'Locked' : tab.notApplicable ? 'Not applicable' : `${tab.percent}%`}</small></span>
-                    <span className="client-progress-tab-fill" aria-hidden="true" />
+                    <span className="client-progress-tab-fill" aria-hidden="true">
+                      <i className="client-progress-tab-liquid client-progress-tab-liquid-primary" />
+                      <i className="client-progress-tab-liquid client-progress-tab-liquid-secondary" />
+                      <i className="client-progress-tab-liquid-shine" />
+                    </span>
                   </button>
                 );
               })}
@@ -2995,7 +2999,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     || serviceClients.find((item) => String(item?._id || item?.id || '') === String(client?._id || client?.id || ''));
   const selectedServiceKey = getClientServiceViewKey(selectedServiceClient || client);
   const cityPin = `${data.registeredAddress?.city || ''} ${data.registeredAddress?.pincode || ''}`.trim();
-  const assignedName = getAssignedName(client);
+  const assignedName = getAssignedName(client, staff);
   const visibility = getVisibilityStatus(client);
   const rawDocumentUrls = data.validation?.documentUrls;
   const documentUrls = Array.isArray(rawDocumentUrls)
@@ -3571,6 +3575,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                       client={client}
                       quotations={clientQuotations.length ? clientQuotations : quotations}
                       proformaInvoices={proformaInvoices}
+                      staff={staff}
                       years={annualYears}
                       selectedYear={selectedAnnualYear}
                       currentUser={currentUser}
