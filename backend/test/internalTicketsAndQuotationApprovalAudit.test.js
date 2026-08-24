@@ -79,6 +79,11 @@ test('desktop CRM uses a compact 100-percent browser density without changing pr
   assert.match(density, /zoom: 1 !important/);
 });
 
+test('Sales Dashboard uses the full available width beside the sidebar', () => {
+  const density = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/14-desktop-density.css'), 'utf8');
+  assert.match(density, /body\.sales-dashboard-page \.sales-dashboard \{[\s\S]*?max-width: none !important;[\s\S]*?margin-left: 0 !important;/);
+});
+
 test('operations dashboard uses the compact PO-first reference composition', () => {
   const dashboard = read('frontend/src/pages/AdminDashboard.jsx');
   const density = read('frontend/src/styles/modules/14-desktop-density.css');

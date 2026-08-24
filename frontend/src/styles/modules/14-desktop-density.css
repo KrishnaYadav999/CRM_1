@@ -30,7 +30,9 @@
 
   body.sales-dashboard-page .sales-dashboard {
     width: 100%;
-    max-width: 1600px !important;
+    max-width: none !important;
+    margin-right: 0 !important;
+    margin-left: 0 !important;
   }
 
   body.sales-dashboard-page .sales-dashboard .sales-metric-card {
