@@ -9,11 +9,18 @@ const sectionSources = {
   companyOverview: ['companyOverview'], basic: ['basic'], addressDetails: ['registeredAddress', 'communicationAddress'],
   documents: ['compliance'], cteCtoCca: ['cte', 'ctoCca', 'plantLocations', 'productionRows'],
   cpcbCredentials: ['cpcb'], cpcbScreenshots: ['cpcbScreenshots'], processFlowDiagrams: ['processDiagrams', 'processFlowFiles'],
-  authorizedPersons: ['otpContact', 'authorizedPersons', 'coordinatingPersons', 'authorizedPerson', 'coordinatingPerson']
+  authorizedPersons: ['otp', 'otpContacts', 'authorised', 'authorisedPersons', 'coordinating', 'coordinatingPersons']
 }
+
+const removedReviewFields = new Set(['productManufacturer', 'numberOfEmployees'])
 
 function titleize(value) { return String(value || '').replace(/([A-Z])/g, ' $1').replace(/[_-]+/g, ' ').replace(/^./, (letter) => letter.toUpperCase()) }
 function present(value) { return value !== undefined && value !== null && String(value).trim() !== '' }
+function populated(value) {
+  if (Array.isArray(value)) return value.some(populated)
+  if (value && typeof value === 'object') return Object.entries(value).some(([key, nested]) => !/^_/.test(key) && populated(nested))
+  return present(value)
+}
 function displayValue(key, value) {
   if (/password|secret|token/i.test(key) && present(value)) return '••••••••'
   if (Array.isArray(value)) return value.length ? `${value.length} record${value.length === 1 ? '' : 's'}` : 'Not provided'
@@ -51,7 +58,9 @@ function fieldsFor(data, sectionKey) {
   return (sectionSources[sectionKey] || []).flatMap((sourceKey) => {
     const source = data?.[sourceKey]
     if (!source || typeof source !== 'object') return []
-    return Object.entries(source).filter(([key]) => !/^_/.test(key)).map(([key, value]) => ({ id: `${sourceKey}.${key}`, label: `${titleize(sourceKey)} · ${titleize(key)}`, value: displayValue(key, value), filled: present(value) && (!Array.isArray(value) || value.length > 0) }))
+    return Object.entries(source)
+      .filter(([key, value]) => !/^_/.test(key) && !removedReviewFields.has(key) && populated(value))
+      .map(([key, value]) => ({ id: `${sourceKey}.${key}`, label: `${titleize(sourceKey)} · ${titleize(key)}`, value: displayValue(key, value), filled: true }))
   })
 }
 

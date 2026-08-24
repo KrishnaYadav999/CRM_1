@@ -3,6 +3,7 @@ const Client = require('../models/Client');
 const PendingApproval = require('../models/PendingApproval');
 const ClientComplianceReview = require('../models/ClientComplianceReview');
 const { notifyClientApprovalDecision } = require('../services/clientApprovalDecisionNotifications');
+const { getAssignedServiceId, resolveClientMasterData } = require('../services/clientMasterResolver');
 
 const REVIEW_SECTIONS = [
   ['companyOverview', 'Company Overview'], ['basic', 'Client Basic Info'], ['addressDetails', 'Address Details'],
@@ -32,6 +33,7 @@ async function getOrCreateReview(clientId) {
 exports.getReview = async (req, res) => {
   const client = await readClient(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client Master not found' });
+  client.data = resolveClientMasterData(client, getAssignedServiceId(client));
   const review = await getOrCreateReview(client._id);
   await review.populate([{ path: 'assignedReviewer', select: 'name email' }, { path: 'sections.reviewedBy', select: 'name email' }, { path: 'history.actionBy', select: 'name email' }]);
   return res.json({ client, review, progress: progress(review.sections) });

@@ -22,6 +22,14 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /Open Document/);
   assert.match(workspace, /noopener noreferrer/);
   assert.match(workspace, /password\|secret\|token/i);
+  assert.match(workspace, /removedReviewFields/);
+  assert.match(workspace, /!removedReviewFields\.has\(key\) && populated\(value\)/);
+  assert.match(workspace, /'otp', 'otpContacts', 'authorised', 'authorisedPersons'/);
+});
+
+test('compliance review resolves the same assigned-service data used by Client Master', () => {
+  const reviewController = fs.readFileSync(path.join(__dirname, '../src/controllers/clientComplianceReviewController.js'), 'utf8');
+  assert.match(reviewController, /resolveClientMasterData\(client, getAssignedServiceId\(client\)\)/);
 });
 
 test('Client Master submit requires 60 percent completion and review includes process diagrams', () => {
