@@ -2559,13 +2559,37 @@ export default function ClientMaster() {
     )));
   }
 
-  function openDirectoryClientView(selectedClient) {
-    const relatedServices = getRelatedClientServices(clients, selectedClient);
-    if (relatedServices.length <= 1) {
-      openClientView(selectedClient);
-      return;
+  async function openDirectoryClientView(selectedClient) {
+    const lookupId = ++clientRecordRequestRef.current;
+    setError('');
+    try {
+      const selectedData = readClientData(selectedClient);
+      const clientMasterId = String(selectedClient?._id || selectedClient?.id || selectedClient?.clientMasterId || '').trim();
+      const selectedLeadId = String(selectedClient?.selectedLead?._id || selectedClient?.selectedLead || selectedData.selectedLead || '').trim();
+      const identity = clientMasterId ? `client:${clientMasterId}` : selectedLeadId;
+      const response = identity
+        ? await api.get(API_ENDPOINTS.clients.discoveryServices, { params: { identity } })
+        : null;
+      if (lookupId !== clientRecordRequestRef.current) return;
+
+      const discoveredServices = Array.isArray(response?.data?.services) ? response.data.services : [];
+      const serviceSource = discoveredServices.length ? discoveredServices : clients;
+      const selectedService = discoveredServices.find((service) => String(service.clientMasterId || service._id || service.id || '') === clientMasterId) || selectedClient;
+      const relatedServices = getRelatedClientServices(serviceSource, selectedService);
+      if (relatedServices.length > 1) {
+        setPendingServiceView({ client: selectedClient, services: relatedServices });
+        return;
+      }
+      await openClientView(relatedServices[0] || selectedClient);
+    } catch (err) {
+      if (lookupId !== clientRecordRequestRef.current) return;
+      const relatedServices = getRelatedClientServices(clients, selectedClient);
+      if (relatedServices.length > 1) {
+        setPendingServiceView({ client: selectedClient, services: relatedServices });
+        return;
+      }
+      setError(err?.response?.data?.error || 'Unable to load applicant types for this company. Please try again.');
     }
-    setPendingServiceView({ client: selectedClient, services: relatedServices });
   }
 
   if (viewMode === 'list') {

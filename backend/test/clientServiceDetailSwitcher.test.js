@@ -29,6 +29,16 @@ test('Client Master directory hides PIBO and chooser prefers exact persisted com
   assert.ok(chooser.indexOf('persistedRecords.length > 1') < chooser.indexOf('populatedLead'));
 });
 
+test('directory eye action discovers every company applicant type before opening details', () => {
+  const handler = page.slice(page.indexOf('async function openDirectoryClientView'), page.indexOf("if (viewMode === 'list')"));
+
+  assert.match(handler, /API_ENDPOINTS\.clients\.discoveryServices/);
+  assert.match(handler, /identity = clientMasterId \? `client:\$\{clientMasterId\}` : selectedLeadId/);
+  assert.match(handler, /discoveredServices\.length \? discoveredServices : clients/);
+  assert.match(handler, /if \(relatedServices\.length > 1\)/);
+  assert.ok(handler.indexOf('setPendingServiceView') < handler.indexOf('await openClientView'));
+});
+
 test('service resolver never falls through to generic CPCB data for a mismatched assignment', () => {
   const resolver = page.slice(page.indexOf('function activateAssignedService'), page.indexOf('export default function ClientMaster'));
   assert.match(resolver, /allowLegacy && hasDataCpcb/);
