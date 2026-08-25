@@ -618,6 +618,33 @@ function getClientServiceIdentityTokens(item = {}) {
   ].filter(Boolean))];
 }
 
+function normalizeChooserServiceCategory(value = '') {
+  const token = String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (token.includes('plastic')) return 'plastic-waste';
+  if (token.includes('ewaste') || token.includes('electronic')) return 'e-waste';
+  if (token.includes('battery')) return 'battery-waste';
+  if (token.includes('tyre') || token.includes('tire')) return 'tyre-waste';
+  if (token.includes('usedoil')) return 'used-oil-waste';
+  return token;
+}
+
+function dedupeClientServiceChooserOptions(services = []) {
+  const optionsByApplicantAndCategory = new Map();
+  services.forEach((service, index) => {
+    const data = readClientData(service);
+    const applicant = String(data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const category = data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || '';
+    const categoryKey = normalizeChooserServiceCategory(category);
+    const semanticKey = applicant && categoryKey ? `${applicant}:${categoryKey}` : `record:${getClientServiceViewKey(service) || index}`;
+    const canonicalCategory = /^EPR\s*-\s*(?:Plastic|E-Waste|Battery|Tyre|Used Oil)\s+Waste$/i.test(String(category).trim());
+    const score = (canonicalCategory ? 100 : 0)
+      + [data.basic?.clientLegalName, data.basic?.tradeName, data.importMeta?.uniqueId, data.cpcb?.status].filter((value) => String(value || '').trim()).length;
+    const current = optionsByApplicantAndCategory.get(semanticKey);
+    if (!current || score > current.score) optionsByApplicantAndCategory.set(semanticKey, { service, score });
+  });
+  return [...optionsByApplicantAndCategory.values()].map(({ service }) => service);
+}
+
 function getRelatedClientServices(clients = [], selectedClient = null) {
   if (!selectedClient) return [];
   const selectedTokens = new Set(getClientServiceIdentityTokens(selectedClient));
@@ -642,7 +669,7 @@ function getRelatedClientServices(clients = [], selectedClient = null) {
   // When separate Client Master documents exist for the same company, keep
   // those exact records as the chooser options. Rebuilding them from a Lead's
   // services can mix an Importer record with a Brand Owner record.
-  if (persistedRecords.length > 1) return persistedRecords;
+  if (persistedRecords.length > 1) return dedupeClientServiceChooserOptions(persistedRecords);
   const populatedLead = clientRows.map((item) => item?.selectedLead).find((lead) => lead && typeof lead === 'object' && Array.isArray(lead.serviceSelections));
   const services = populatedLead?.serviceSelections || [];
   if (services.length < 2) return clientRows;
@@ -653,7 +680,7 @@ function getRelatedClientServices(clients = [], selectedClient = null) {
     service.eprCategory,
     service.servicesOffered
   ].map(normalize).filter(Boolean).join(':');
-  return services.map((service, index) => {
+  return dedupeClientServiceChooserOptions(services.map((service, index) => {
     const assignedServiceId = readAssignedServiceId(service);
     const exactMatches = clientRows.filter((item) => {
       const data = readClientData(item);
@@ -692,7 +719,7 @@ function getRelatedClientServices(clients = [], selectedClient = null) {
         }
       }
     };
-  });
+  }));
 }
 
 function getClientServiceViewKey(item = {}) {
