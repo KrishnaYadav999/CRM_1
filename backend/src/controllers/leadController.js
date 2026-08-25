@@ -371,6 +371,41 @@ function validateClosureAssignments(data = {}) {
   return '';
 }
 
+function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
+  if (!Array.isArray(nextData.assignments)) return nextData;
+  const previousAssignments = Array.isArray(beforeData.assignments) ? beforeData.assignments : [];
+  nextData.assignments = nextData.assignments.map((row, index) => {
+    const serviceId = String(row?.assignedServiceId || '').trim();
+    const indexedPrevious = previousAssignments[index];
+    const previous = previousAssignments.find((item) => serviceId && String(item?.assignedServiceId || '').trim() === serviceId)
+      || (indexedPrevious && String(indexedPrevious?.assignedServiceId || '').trim() === serviceId ? indexedPrevious : null);
+    if (!previous) return row;
+    const previousPoRows = Array.isArray(previous.poYearRows) ? previous.poYearRows : [];
+    const nextPoRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
+    const mergedPoRows = nextPoRows.length ? nextPoRows.map((po, poIndex) => {
+      const saved = previousPoRows.find((item) => po?.poNumber && item?.poNumber === po.poNumber) || previousPoRows[poIndex] || {};
+      return {
+        ...saved,
+        ...po,
+        poAmount: Number(po?.poAmount) > 0 ? po.poAmount : saved.poAmount,
+        poFileUrl: po?.poFileUrl || saved.poFileUrl,
+        poFileName: po?.poFileName || saved.poFileName,
+        services: Array.isArray(po?.services) && po.services.length ? po.services : saved.services
+      };
+    }) : previousPoRows;
+    return {
+      ...row,
+      poStatus: row.poStatus || previous.poStatus,
+      poYearRows: mergedPoRows,
+      poApprovalStatus: row.poApprovalStatus || previous.poApprovalStatus,
+      closureApprovalProofUrl: row.closureApprovalProofUrl || previous.closureApprovalProofUrl,
+      closureApprovalProofName: row.closureApprovalProofName || previous.closureApprovalProofName,
+      provisionalCloseExpiresAt: row.provisionalCloseExpiresAt || previous.provisionalCloseExpiresAt
+    };
+  });
+  return nextData;
+}
+
 function buildPurchaseOrderEmail({ eyebrow, title, message, clientName, leadCode, rows = [], remarks = '', status = 'PENDING', actionUrl = '' }) {
   const tone = status === 'APPROVED' ? '#059669' : status === 'REJECTED' ? '#dc2626' : status === 'REVISION_REQUIRED' ? '#ea580c' : '#2563eb';
   const safeRows = rows.length ? rows : [{}];
@@ -884,7 +919,7 @@ exports.updateLead = async (req, res) => {
     }
 
     const sendIntroductionEmail = req.body?.sendIntroductionEmail === true;
-    const data = cleanBody(req.body);
+    const data = preserveExistingClosureEvidence(beforeLead, cleanBody(req.body));
     delete data.sendIntroductionEmail;
     const followUpChangedIndexes = changedFollowUpIndexes(beforeLead, data);
     if (followUpChangedIndexes.length) {

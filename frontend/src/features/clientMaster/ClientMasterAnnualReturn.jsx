@@ -1923,6 +1923,10 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
     const clientKey = client?._id || client?.id || data.importMeta?.uniqueId || getClientUniqueId(client);
     const nextYear = year?.label || '';
     const poState = poStateForYear(nextYear);
+    if (poState.poStatus !== 'received') {
+      setAnnualToast({ type: 'error', message: `Annual Return ${nextYear} can open only after its Purchase Order is received.` });
+      return;
+    }
     if (isAnnualYearLocked(nextYear)) {
       if (poState.poStatus === 'pending') {
         setAnnualToast({ type: 'error', message: `PO details are required before starting Annual Return ${nextYear}.` });
@@ -2011,7 +2015,7 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                   <div className="mt-4 min-h-16 rounded-xl border border-white/80 bg-white/75 p-3">
                     {poState.poStatus === 'received' && <><span className="text-[10px] font-black uppercase tracking-widest text-slate-400">PO Number</span><strong className="mt-1 block break-words text-sm font-black text-slate-800">{poState.po?.number || 'Document received'}</strong>{poState.po?.fileName && <span className="mt-1 block truncate text-xs font-semibold text-slate-500" title={poState.po.fileName}>{poState.po.fileName}</span>}</>}
                     {poState.poStatus === 'pending' && <p className="text-xs font-bold leading-5 text-amber-700">PO details are required before starting this Annual Return.</p>}
-                    {poState.poStatus === 'not_required' && <p className="text-xs font-bold leading-5 text-slate-500">This year is available without a purchase order.</p>}
+                    {poState.poStatus === 'not_required' && <p className="text-xs font-bold leading-5 text-red-600">Purchase Order is required before this Annual Return can be opened.</p>}
                     {poState.poStatus === 'unlinked' && <p className="text-xs font-bold leading-5 text-slate-500">The Client Master has no valid source Lead relationship.</p>}
                     {poState.poStatus === 'conflict' && <p className="text-xs font-bold leading-5 text-orange-700">Multiple PO records found. Please review PO details.</p>}
                     {poState.poStatus === 'loading' && <div className="space-y-2"><span className="block h-3 w-32 animate-pulse rounded bg-teal-100" /><span className="block h-3 w-48 animate-pulse rounded bg-slate-100" /></div>}
@@ -2022,7 +2026,8 @@ export function AnnualReturnHistory({ client, quotations = [], proformaInvoices 
                     {poState.poStatus === 'error' && <button type="button" onClick={() => setPoRefreshToken((value) => value + 1)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600">Retry</button>}
                     {poState.poStatus === 'pending' && <button type="button" onClick={() => { setPoDraft(poWorkflow.confirmed ? poWorkflow : {}); setPoValidationError(''); setPoModalOpen(true); }} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-black text-white">Add PO</button>}
                     {poState.poStatus === 'conflict' && <button type="button" onClick={() => setPoDetails(poState)} className="rounded-lg bg-orange-600 px-3 py-2 text-xs font-black text-white">Review Details</button>}
-                    {!['error', 'pending', 'conflict'].includes(poState.poStatus) && <button type="button" disabled={locked} onClick={() => openAnnualYear(year)} className="rounded-lg bg-[#30737B] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-45">Open Annual Return</button>}
+                    {poState.poStatus === 'received' && <button type="button" disabled={locked} onClick={() => openAnnualYear(year)} className="rounded-lg bg-[#30737B] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-45">Open Annual Return</button>}
+                    {poState.poStatus === 'not_required' && <button type="button" disabled className="cursor-not-allowed rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white opacity-90" title="Purchase Order is required">Open Annual Return</button>}
                   </div>
                 </article>
               );

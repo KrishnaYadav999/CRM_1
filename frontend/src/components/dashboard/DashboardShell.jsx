@@ -39,18 +39,22 @@ export default function DashboardShell({ currentUser, onOpenProfile, onLogout, c
       <Topbar
         currentUser={currentUser}
         onOpenProfile={onOpenProfile}
-        onOpenSidebar={() => { if (!hideSidebar) setSidebarOpen(true); }}
+        onOpenSidebar={() => {
+          if (hideSidebar) return;
+          setSidebarCollapsed(false);
+          setSidebarOpen(true);
+        }}
         onLogout={handleLogout}
       />
       <div className="flex min-h-[calc(100vh-5rem)]">
         {!hideSidebar && <aside
-          className={`fixed bottom-0 left-0 top-20 z-40 w-[296px] border-r border-emerald-100 bg-white shadow-xl shadow-emerald-900/5 transition-all duration-300 ease-out lg:translate-x-0 ${
+          className={`fixed bottom-0 left-0 top-20 z-40 w-[min(88vw,320px)] overflow-hidden rounded-tr-3xl border-r border-emerald-100 bg-white shadow-2xl shadow-slate-950/25 transition-all duration-300 ease-out lg:w-[296px] lg:translate-x-0 lg:rounded-none lg:shadow-xl ${
             sidebarCollapsed ? 'lg:w-[84px]' : 'lg:w-[296px]'
           } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
         >
           <Sidebar
             currentUser={currentUser}
-            collapsed={sidebarCollapsed}
+            collapsed={sidebarCollapsed && !sidebarOpen}
             onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
             onClose={() => setSidebarOpen(false)}
             onLogout={handleLogout}

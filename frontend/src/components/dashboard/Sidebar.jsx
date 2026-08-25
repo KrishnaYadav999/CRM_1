@@ -52,7 +52,8 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-visible bg-[#0f5d46] pt-4 text-white">
+    <div className="relative flex h-full min-h-0 flex-col overflow-visible bg-gradient-to-b from-[#0f684f] via-[#0f5d46] to-[#093f32] pt-4 text-white">
+      {!collapsed && <div className="border-b border-white/10 px-5 pb-4 pr-16 lg:hidden"><p className="text-[10px] font-black uppercase tracking-[.22em] text-emerald-200">Workspace</p><strong className="mt-1 block text-lg font-black">CRM Navigation</strong><span className="mt-1 block truncate text-xs font-semibold text-emerald-100/70">{currentUser?.name || currentUser?.email}</span></div>}
       <div className={`pointer-events-none absolute top-4 z-50 flex items-center ${collapsed ? 'left-1/2 -translate-x-1/2' : 'right-3'}`}>
         <button
           type="button"

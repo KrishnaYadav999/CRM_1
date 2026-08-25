@@ -5,8 +5,6 @@ import ToastMessage from '../../components/ToastMessage';
 import {
   getAssignedName,
   getCpcbStatus,
-  getOtpMobile,
-  getOtpName,
   getClientUniqueId,
   getFirstAnnualReturnYear,
   getMsmeRows,
@@ -271,15 +269,15 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
         <DirectoryTableHeader showing={visibleClients.length} total={filteredClients.length} label="clients" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="client-directory-table-shell overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="hidden-scrollbar max-h-[520px] overflow-auto">
-            <table className="crm-data-table w-full min-w-[1180px] table-fixed text-left text-sm">
+            <table className="crm-data-table w-full min-w-[1040px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
-                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'Service Category', 'MSME', 'CPCB Approval', 'OTP Mobile', 'OTP Name', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
+                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'Service Category', 'MSME', 'CPCB Approval', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {visibleClients.length === 0 ? (
-                  loading ? <ClientTableLoadingRows /> : <tr><td colSpan={12} className="px-5 py-12 text-center font-black text-slate-400">No clients found.</td></tr>
+                  loading ? <ClientTableLoadingRows /> : <tr><td colSpan={10} className="px-5 py-12 text-center font-black text-slate-400">No clients found.</td></tr>
                 ) : visibleClients.map((item) => {
                   const data = readClientData(item);
                   return (
@@ -293,8 +291,6 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.eprCategory || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getMsmeSummary(data)}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getCpcbStatus(data)}</span></td>
-                      <td className="px-5 py-4 font-black text-slate-500"><span className="cell-clip">{getOtpMobile(data)}</span></td>
-                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getOtpName(data)}</span></td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
@@ -468,13 +464,13 @@ function ClientMetricOutputCard({ stat, clients, onClose, onExport }) {
         </div>
       </div>
       <div className="hidden-scrollbar max-h-[320px] overflow-auto">
-        <table className="crm-data-table w-full min-w-[900px] table-fixed text-left text-sm">
+        <table className="crm-data-table w-full min-w-[760px] table-fixed text-left text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500">
-            <tr>{['Unique ID', 'Legal Name', 'State', 'Visibility', 'CPCB', 'OTP Mobile'].map((header) => <th key={header} className="px-4 py-3">{header}</th>)}</tr>
+            <tr>{['Unique ID', 'Legal Name', 'State', 'Visibility', 'CPCB'].map((header) => <th key={header} className="px-4 py-3">{header}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {preview.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center font-black text-slate-400">No records found.</td></tr>
+              <tr><td colSpan={5} className="px-4 py-8 text-center font-black text-slate-400">No records found.</td></tr>
             ) : preview.map((item) => {
               const data = readClientData(item);
               return (
@@ -484,7 +480,6 @@ function ClientMetricOutputCard({ stat, clients, onClose, onExport }) {
                   <td className="px-4 py-3 font-black uppercase text-slate-500"><span className="cell-clip">{data.registeredAddress?.state || '-'}</span></td>
                   <td className="px-4 py-3"><span className="rounded-lg bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{getVisibilityStatus(item)}</span></td>
                   <td className="px-4 py-3 font-black uppercase text-slate-500"><span className="cell-clip">{data.cpcb?.status || '-'}</span></td>
-                  <td className="px-4 py-3 font-black text-slate-500"><span className="cell-clip">{data.otp?.mobile || '-'}</span></td>
                 </tr>
               );
             })}
@@ -500,10 +495,10 @@ function ClientMetricOutputCard({ stat, clients, onClose, onExport }) {
 function ClientTableLoadingRows() {
   return Array.from({ length: 6 }, (_, rowIndex) => (
     <tr key={rowIndex} className="client-table-loading-row">
-      {Array.from({ length: 12 }, (_, cellIndex) => (
+      {Array.from({ length: 10 }, (_, cellIndex) => (
         <td key={cellIndex} className="px-5 py-4">
           <span
-            className={`table-skeleton ${cellIndex === 1 || cellIndex === 2 || cellIndex === 6 ? 'table-skeleton-wide' : ''} ${cellIndex === 11 ? 'table-skeleton-action' : ''}`}
+            className={`table-skeleton ${cellIndex === 1 || cellIndex === 2 || cellIndex === 6 ? 'table-skeleton-wide' : ''} ${cellIndex === 9 ? 'table-skeleton-action' : ''}`}
           />
         </td>
       ))}

@@ -3504,11 +3504,13 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                   </div>
                 </div>
                 <div className="rounded-xl border border-white/80 bg-white/80 p-3 shadow-sm shadow-teal-900/5 backdrop-blur xl:min-w-[640px]">
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     <InlineClientMeta label="Unique ID" value={getClientUniqueId(client)} icon={FileText} />
                     <InlineClientMeta label="Visibility" value={visibility} icon={Eye} status />
                     <InlineClientMeta label="Assigned To" value={assignedName} icon={UserRound} />
                     <InlineClientMeta label="CPCB" value={data.cpcb?.status || '-'} icon={ShieldCheck} />
+                    <InlineClientMeta label="OTP Mobile" value={data.otp?.mobile || '-'} icon={KeyRound} />
+                    <InlineClientMeta label="OTP Name" value={data.otp?.personName || '-'} icon={UserRound} />
                   </div>
                 </div>
               </div>

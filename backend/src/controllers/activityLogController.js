@@ -4,6 +4,10 @@ const User = require('../models/User');
 
 const safeText = (value, max = 120) => String(value || '').trim().slice(0, max);
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const properUserName = (value) => {
+  const name = safeText(value);
+  return name && !/^crm user$/i.test(name) ? name : '';
+};
 
 function dateRange(query) {
   const range = {};
@@ -29,13 +33,38 @@ function buildQuery(req) {
 
 exports.list = async (req, res) => {
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-  const limit = [25, 50, 100].includes(Number(req.query.limit)) ? Number(req.query.limit) : 25;
+  const limit = [10, 25, 50, 100].includes(Number(req.query.limit)) ? Number(req.query.limit) : 10;
   const query = buildQuery(req);
-  const [logs, total] = await Promise.all([
-    AuditLog.find(query).sort({ occurredAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-    AuditLog.countDocuments(query)
+  const [logs, total, requestedUser] = await Promise.all([
+    AuditLog.find(query).sort({ occurredAt: -1 }).skip((page - 1) * limit).limit(limit)
+      .populate('userId', 'name email role team').lean(),
+    AuditLog.countDocuments(query),
+    req.query.userId && mongoose.isValidObjectId(req.query.userId)
+      ? User.findById(req.query.userId).select('name email role team').lean()
+      : null
   ]);
-  res.json({ ok: true, logs, pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) } });
+  const missingSnapshotIds = [...new Set(logs.filter((log) => !log.userName && log.userId).map((log) => String(log.userId?._id || log.userId)))];
+  const snapshotRows = missingSnapshotIds.length ? await AuditLog.find({
+    userId: { $in: missingSnapshotIds }, userName: { $exists: true, $nin: ['', null] }
+  }).select('userId userName userEmail role department').sort({ occurredAt: -1 }).lean() : [];
+  const snapshotsByUser = new Map();
+  snapshotRows.forEach((row) => {
+    const key = String(row.userId || '');
+    if (key && !snapshotsByUser.has(key)) snapshotsByUser.set(key, row);
+  });
+  const hydratedLogs = logs.map((log) => {
+    const linkedUser = log.userId && typeof log.userId === 'object' ? log.userId : null;
+    const historicalUser = snapshotsByUser.get(String(linkedUser?._id || log.userId || ''));
+    return {
+      ...log,
+      userId: linkedUser?._id || log.userId,
+      userName: properUserName(log.userName) || properUserName(linkedUser?.name) || properUserName(historicalUser?.userName) || properUserName(requestedUser?.name) || linkedUser?.email || historicalUser?.userEmail || requestedUser?.email || '',
+      userEmail: log.userEmail || linkedUser?.email || historicalUser?.userEmail || requestedUser?.email || '',
+      role: log.role || linkedUser?.role || historicalUser?.role || requestedUser?.role || '',
+      department: log.department || linkedUser?.team || historicalUser?.department || requestedUser?.team || ''
+    };
+  });
+  res.json({ ok: true, logs: hydratedLogs, pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) } });
 };
 
 exports.detail = async (req, res) => {
@@ -57,7 +86,7 @@ exports.stats = async (req, res) => {
   ]);
   const actionCount = (name) => todayRows.filter((row) => row.action === name).length;
   res.json({ ok: true, stats: { total, today: todayRows.length, activeUsersToday: new Set(todayRows.map((row) => String(row.userId))).size,
-    leadsCreated: actionCount('LEAD_CREATED'), followUpsAdded: actionCount('FOLLOW_UP_ADDED'), clientsUpdated: actionCount('CLIENT_UPDATED'),
+    usersCreated: actionCount('USER_CREATED') + actionCount('AUTH_CREATED'), leadsCreated: actionCount('LEAD_CREATED'), followUpsAdded: actionCount('FOLLOW_UP_ADDED'), clientsUpdated: actionCount('CLIENT_UPDATED'),
     quotationsCreated: actionCount('QUOTATION_CREATED'), supportTicketsRaised: actionCount('SUPPORT_TICKET_RAISED') }, byModule, byAction, trend });
 };
 

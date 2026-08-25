@@ -17,6 +17,7 @@ import './styles/modules/11-final-overrides.css'
 import './styles/modules/12-typography-system.css'
 import './styles/modules/13-internal-teams.css'
 import './styles/modules/14-desktop-density.css'
+import './styles/modules/15-mobile-system.css'
 import { applyThemeSettings } from './components/dashboard/SettingsDrawer'
 
 window.addEventListener('unhandledrejection', (event) => {

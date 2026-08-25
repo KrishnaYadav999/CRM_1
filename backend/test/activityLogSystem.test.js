@@ -19,8 +19,12 @@ test('admin activity route provides server filters, pagination, KPI and details 
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ActivityLogs.jsx'), 'utf8');
   assert.match(controller, /\.skip\(\(page - 1\) \* limit\)\.limit\(limit\)/);
   assert.match(controller, /activeUsersToday/);
+  assert.match(controller, /requestedUser/);
+  assert.match(controller, /\[10, 25, 50, 100\]/);
   assert.match(page, /Activity Logs & Audit Trail/);
   assert.match(page, /Support Tickets Raised|Tickets Raised/);
   assert.match(page, /ChevronLeft/);
+  assert.match(page, /paginationPages/);
+  assert.doesNotMatch(page, /'CRM User'/);
   assert.match(page, /Changes/);
 });

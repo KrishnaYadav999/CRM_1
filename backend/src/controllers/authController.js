@@ -403,7 +403,8 @@ exports.verifyOtp = async (req, res) => {
   });
   await AuditLog.create({
     userId: user._id, sessionId, action: 'LOGIN', module: 'Authentication', method: 'POST',
-    path: '/api/auth/verify-otp', statusCode: 200, description: 'Logged in to CRM', ipAddress: clientIp(req)
+    path: '/api/auth/verify-otp', statusCode: 200, description: 'Logged in to CRM', ipAddress: clientIp(req),
+    userName: user.name || user.email, userEmail: user.email, role: user.role, department: user.team
   });
   const token = jwt.sign({ sub: user._id, role: user.role, email: user.email, sid: sessionId }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
   console.info('OTP verified', { email, userId: String(user._id), role: user.role });
@@ -590,7 +591,8 @@ exports.logout = async (req, res) => {
   await AuditLog.create({
     userId: req.user._id, sessionId: req.authSessionId, action: 'LOGOUT', module: 'Authentication',
     method: 'POST', path: '/api/auth/logout', statusCode: 200,
-    description: inactivityLogout ? 'Automatically logged out after 30 minutes of inactivity' : 'Logged out of CRM', ipAddress: clientIp(req)
+    description: inactivityLogout ? 'Automatically logged out after 30 minutes of inactivity' : 'Logged out of CRM', ipAddress: clientIp(req),
+    userName: req.user.name || req.user.email, userEmail: req.user.email, role: req.user.role, department: req.user.team
   });
   res.json({ ok: true });
 };
