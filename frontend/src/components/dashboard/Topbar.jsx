@@ -246,8 +246,8 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
             aria-label="Go to dashboard"
           >
             <span className="flex h-12 shrink-0 items-center gap-2 bg-white px-1 sm:gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden bg-white">
-                <img src={brand.logoUrl} alt="Anant Tattva logo" className="h-9 w-10 object-contain" />
+              <span className="grid h-10 w-16 shrink-0 place-items-center overflow-hidden bg-white sm:w-20">
+                <img src={brand.logoUrl} alt="Anant Tattva logo" className="h-10 w-16 object-contain sm:w-20" />
               </span>
               <span className="min-w-0 text-left leading-none">
                 <strong className="block whitespace-nowrap text-base font-black tracking-wide text-orange-600 sm:text-lg">e-Connect</strong>
