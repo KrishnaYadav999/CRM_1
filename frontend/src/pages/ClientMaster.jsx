@@ -642,7 +642,8 @@ function dedupeClientServiceChooserOptions(services = []) {
     const categoryKey = normalizeChooserServiceCategory(category);
     const semanticKey = groupedIdentity || (applicant && categoryKey ? `${applicant}:${categoryKey}` : `record:${getClientServiceViewKey(service) || index}`);
     const canonicalCategory = /^EPR\s*-\s*(?:Plastic|E-Waste|Battery|Tyre|Used Oil)\s+Waste$/i.test(String(category).trim());
-    const score = (canonicalCategory ? 100 : 0)
+    const score = (String(service.workflowStatus || '').toLowerCase() === 'submitted' ? 10000 : 0)
+      + (canonicalCategory ? 100 : 0)
       + [data.basic?.clientLegalName, data.basic?.tradeName, data.importMeta?.uniqueId, data.cpcb?.status].filter((value) => String(value || '').trim()).length;
     const current = optionsByApplicantAndCategory.get(semanticKey);
     if (!current || score > current.score) optionsByApplicantAndCategory.set(semanticKey, { service, score });
@@ -1487,15 +1488,23 @@ export default function ClientMaster() {
           subApplicantType: row.piboCategory,
           serviceCategory: row.eprCategory,
           _existingClientMaster: true
-        }))
+        })).sort((left, right) => {
+          const workflowDifference = (String(right.workflowStatus || '').toLowerCase() === 'submitted' ? 1 : 0)
+            - (String(left.workflowStatus || '').toLowerCase() === 'submitted' ? 1 : 0);
+          return workflowDifference;
+        })
       : [];
     if (hasAuthoritativeLeadServices) {
       const usedStoredIndexes = new Set();
       rows = uniqueClientMasterServices(rows).map((currentService) => {
         const assignedServiceId = readAssignedServiceId(currentService);
-        let storedIndex = assignedServiceId
-          ? storedServices.findIndex((stored, index) => !usedStoredIndexes.has(index) && readAssignedServiceId(stored) === assignedServiceId)
+        const groupingIdentity = clientMasterGroupingIdentity(currentService);
+        let storedIndex = groupingIdentity
+          ? storedServices.findIndex((stored, index) => !usedStoredIndexes.has(index) && clientMasterGroupingIdentity(stored) === groupingIdentity)
           : -1;
+        if (storedIndex < 0 && assignedServiceId) {
+          storedIndex = storedServices.findIndex((stored, index) => !usedStoredIndexes.has(index) && readAssignedServiceId(stored) === assignedServiceId);
+        }
         if (storedIndex < 0) {
           storedIndex = storedServices.findIndex((stored, index) => (
             !usedStoredIndexes.has(index)

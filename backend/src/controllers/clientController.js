@@ -1098,7 +1098,7 @@ exports.listClientMasterServices = async (req, res) => {
         companyIdentity: 1, companyName: 1, clientLegalName: 1, tradeName: 1,
         piboCategory: 1, eprCategory: 1, servicesOffered: 1, plantUnit: 1,
         industryType: 1, applicantType: 1
-      } }).sort({ updatedAt: -1 }).toArray()
+      } }).sort({ workflowStatus: -1, updatedAt: -1 }).toArray()
     : [];
   const services = records.map(normalizeClientMaster).filter((item) => item.clientMasterId);
   return res.json({ ok: true, lead, services, count: services.length });
