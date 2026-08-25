@@ -79,6 +79,8 @@ function normalizeClientMaster(record = {}) {
   const raw = plainRecord(record);
   const data = isObject(raw.data) ? raw.data : {};
   const assignedServiceId = getAssignedServiceId(raw);
+  const resolvedData = resolveClientMasterData(raw, assignedServiceId);
+  const cpcb = isObject(resolvedData.cpcb) ? resolvedData.cpcb : {};
   return {
     clientMasterId: getClientMasterId(raw),
     selectedLead: getSelectedLeadId(raw),
@@ -100,6 +102,8 @@ function normalizeClientMaster(record = {}) {
       ? data.cpcbOnboarding.cpcbPortalRegistered
       : undefined,
     cpcbApplicationStatus: firstText(data.cpcbOnboarding?.cpcbApplicationStatus) || null,
+    ceprUserId: firstText(cpcb.ceprUserId) || null,
+    ceprPassword: firstText(cpcb.ceprPassword) || null,
     workflowStatus: firstText(raw.workflowStatus, 'draft'),
     legacy: !assignedServiceId
   };

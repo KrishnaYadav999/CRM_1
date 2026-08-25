@@ -97,6 +97,29 @@ function clientMatchesSearch(item, term, staff = []) {
     compactHaystack.includes(compactTerm);
 }
 
+function directoryClientIdentity(item = {}) {
+  const data = readClientData(item);
+  const uniqueId = getClientUniqueId(item).replace(/^-$/, '').trim().toLowerCase();
+  if (uniqueId) return `unique:${uniqueId}`;
+  const leadId = String(item.selectedLead?._id || item.selectedLead || data.selectedLead || '').trim().toLowerCase();
+  if (leadId) return `lead:${leadId}`;
+  const company = normalizeClientSearchText(data.basic?.clientLegalName || data.basic?.tradeName || item.companyName || item.company).replace(/\s+/g, '');
+  return company ? `company:${company}` : `record:${item._id || item.id || ''}`;
+}
+
+function dedupeDirectoryClients(clients = []) {
+  const grouped = new Map();
+  clients.forEach((item) => {
+    const key = directoryClientIdentity(item);
+    const data = readClientData(item);
+    const score = (String(item.workflowStatus || '').toLowerCase() === 'submitted' ? 1000 : 0)
+      + [data.basic?.clientLegalName, data.basic?.tradeName, data.registeredAddress?.state, data.cpcb?.status].filter(Boolean).length;
+    const current = grouped.get(key);
+    if (!current || score > current.score) grouped.set(key, { item, score });
+  });
+  return [...grouped.values()].map(({ item }) => item);
+}
+
 function ClientDirectoryView({ clients, staff, currentUser, loading, error, notice, onRefresh, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
@@ -106,9 +129,10 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
   const [page, setPage] = useState(1);
   const deferredQuery = useDeferredValue(query);
 
+  const directoryClients = useMemo(() => dedupeDirectoryClients(clients), [clients]);
   const filteredClients = useMemo(() => {
     const term = deferredQuery.trim();
-    return clients.filter((item) => {
+    return directoryClients.filter((item) => {
       const data = readClientData(item);
       const visibility = getVisibilityStatus(item);
       const matchesSearch = clientMatchesSearch(item, term, staff);
@@ -126,7 +150,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
         (metricFilter === 'discontinued' && ['DISCONTINUED', 'SUSPENDED'].includes(visibility));
       return matchesSearch && matchesVisibility && matchesStaff && matchesMetric;
     });
-  }, [clients, deferredQuery, metricFilter, staff, staffFilter, visibilityFilter]);
+  }, [deferredQuery, directoryClients, metricFilter, staff, staffFilter, visibilityFilter]);
 
   useEffect(() => {
     setPage(1);
@@ -134,16 +158,16 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
 
   const totalPages = Math.max(1, Math.ceil(filteredClients.length / rowsPerPage));
   const visibleClients = filteredClients.slice((page - 1) * rowsPerPage, page * rowsPerPage);
-  const staffFilterOptions = useMemo(() => buildStaffFilterOptions(staff, clients), [clients, staff]);
+  const staffFilterOptions = useMemo(() => buildStaffFilterOptions(staff, directoryClients), [directoryClients, staff]);
   const metricStats = useMemo(() => {
-    const portalApproved = clients.filter((item) => getCpcbStatus(readClientData(item)) === 'Approved').length;
-    const pending = clients.filter((item) => ['Not Started', 'Applied', 'Under Review'].includes(getCpcbStatus(readClientData(item)))).length;
-    const inProgress = clients.filter((item) => getCpcbStatus(readClientData(item)) === 'Under Review').length;
-    const rejected = clients.filter((item) => getCpcbStatus(readClientData(item)) === 'Rejected').length;
-    const discontinued = clients.filter((item) => ['DISCONTINUED', 'SUSPENDED'].includes(getVisibilityStatus(item))).length;
-    const annualReturn = clients.filter((item) => getFirstAnnualReturnYear(item)).length;
+    const portalApproved = directoryClients.filter((item) => getCpcbStatus(readClientData(item)) === 'Approved').length;
+    const pending = directoryClients.filter((item) => ['Not Started', 'Applied', 'Under Review'].includes(getCpcbStatus(readClientData(item)))).length;
+    const inProgress = directoryClients.filter((item) => getCpcbStatus(readClientData(item)) === 'Under Review').length;
+    const rejected = directoryClients.filter((item) => getCpcbStatus(readClientData(item)) === 'Rejected').length;
+    const discontinued = directoryClients.filter((item) => ['DISCONTINUED', 'SUSPENDED'].includes(getVisibilityStatus(item))).length;
+    const annualReturn = directoryClients.filter((item) => getFirstAnnualReturnYear(item)).length;
     return [
-      { label: 'Live Applications', value: totalClientCount || clients.length, note: 'Active client records', icon: Building2, tone: 'emerald', filter: 'live' },
+      { label: 'Live Applications', value: directoryClients.length, note: 'Unique client records', icon: Building2, tone: 'emerald', filter: 'live' },
       { label: 'Annual Return', value: annualReturn, note: 'Return year mapped', icon: FileText, tone: 'violet', filter: 'annual' },
       { label: 'Processed Apps', value: portalApproved, note: 'CPCB approved', icon: CheckCircle2, tone: 'teal', filter: 'processed' },
       { label: 'Pending Apps', value: pending, note: 'ATPL pending', icon: FileCheck2, tone: 'amber', filter: 'pending' },
@@ -151,7 +175,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
       { label: 'Rejected', value: rejected, note: 'Portal rejected', icon: X, tone: 'rose', filter: 'rejected' },
       { label: 'Discontinued', value: discontinued, note: 'Hidden or archived', icon: FolderCheck, tone: 'orange', filter: 'discontinued' }
     ];
-  }, [clients, totalClientCount]);
+  }, [directoryClients]);
   const selectedMetric = metricStats.find((stat) => stat.filter === metricFilter);
 
   function exportExcel() {

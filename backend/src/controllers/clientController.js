@@ -1107,6 +1107,8 @@ exports.listClientMasterServices = async (req, res) => {
         'data.basic.clientLegalName': 1, 'data.basic.tradeName': 1, 'data.basic.piboCategory': 1,
         'data.basic.eprCategory': 1, 'data.basic.servicesOffered': 1, 'data.basic.plantUnit': 1,
         'data.basic.companyIndustry': 1, 'data.companyOverview.companyName': 1,
+        'data.cpcb.ceprUserId': 1, 'data.cpcb.ceprPassword': 1,
+        'data.cpcbDataByAssignedServiceId': 1, 'data.serviceDetailsByAssignedServiceId.cpcb': 1,
         'data.importMeta.companyName': 1, 'data.importMeta.leadNumber': 1, 'data.importMeta.uniqueId': 1,
         'data.cpcbOnboarding': 1,
         companyIdentity: 1, companyName: 1, clientLegalName: 1, tradeName: 1,

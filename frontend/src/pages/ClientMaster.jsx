@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Briefcase, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, Factory, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Package, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Tag, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Building2, Briefcase, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, EyeOff, Factory, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Package, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Tag, Trash2, Upload, UserRound, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -771,6 +771,12 @@ function getApplicantCardTheme(applicantType = '') {
 }
 
 function ClientServiceChooserModal({ selection, onClose, onSelect }) {
+  const [visibleCredentials, setVisibleCredentials] = useState(() => new Set());
+  const toggleCredential = (key) => setVisibleCredentials((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
   return (
     <div className="fixed inset-0 z-[10000] grid place-items-center overflow-y-auto bg-slate-950/65 p-4 backdrop-blur-md sm:p-6" role="dialog" aria-modal="true" aria-labelledby="client-service-view-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="relative my-auto w-full max-w-6xl overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.35)]">
@@ -794,9 +800,17 @@ function ClientServiceChooserModal({ selection, onClose, onSelect }) {
             const category = serviceData.basic?.eprCategory || serviceData.selectedLeadSnapshot?.eprCategory || 'Service category not provided';
             const theme = getApplicantCardTheme(applicantType);
             const ApplicantIcon = theme.icon;
+            const ceprUserId = service.ceprUserId || serviceData.cpcb?.ceprUserId || '';
+            const ceprPassword = service.ceprPassword || serviceData.cpcb?.ceprPassword || '';
+            const credentialKey = `${getClientServiceViewKey(service) || index}:password`;
+            const passwordVisible = visibleCredentials.has(credentialKey);
             return (
-              <article key={getClientServiceViewKey(service) || index} className={`group flex min-h-[270px] flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-xl ${theme.hoverClass}`}>
+              <article key={getClientServiceViewKey(service) || index} className={`group relative flex min-h-[270px] flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-xl ${theme.hoverClass}`}>
                 <span className={`grid h-16 w-16 place-items-center rounded-2xl ring-1 ${theme.iconClass}`}><ApplicantIcon className="h-8 w-8" /></span>
+                {(ceprUserId || ceprPassword) && <div className="absolute right-5 top-5 max-w-[58%] space-y-1.5 text-right">
+                  {ceprUserId && <p className="truncate text-[10px] font-black text-slate-500" title={ceprUserId}>CEPR ID: <span className="text-slate-900">{ceprUserId}</span></p>}
+                  {ceprPassword && <div className="flex items-center justify-end gap-1 text-[10px] font-black text-slate-500"><span>CEPR Password:</span><span className="max-w-20 truncate text-slate-900">{passwordVisible ? ceprPassword : '••••••••'}</span><button type="button" onClick={(event) => { event.stopPropagation(); toggleCredential(credentialKey); }} className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label={passwordVisible ? 'Hide CEPR password' : 'View CEPR password'}>{passwordVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</button></div>}
+                </div>}
                 <h3 className="mt-5 text-2xl font-black tracking-tight text-slate-950">{applicantType}</h3>
                 <span className={`mt-3 w-fit rounded-xl px-3 py-2 text-sm font-black ring-1 ${theme.badgeClass}`}>{category}</span>
                 <div className="my-4 h-px bg-slate-100" />
@@ -1234,6 +1248,7 @@ export default function ClientMaster() {
   const [editingClientId, setEditingClientId] = useState('');
   const [editingWorkflowStatus, setEditingWorkflowStatus] = useState('draft');
   const [viewClient, setViewClient] = useState(null);
+  const [viewServiceClients, setViewServiceClients] = useState([]);
   const [viewLoading, setViewLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('companyOverview');
   const [viewMode, setViewMode] = useState('list');
@@ -2192,8 +2207,9 @@ export default function ClientMaster() {
     };
   }
 
-  async function openClientView(item) {
+  async function openClientView(item, availableServices = null) {
     const requestId = ++clientRecordRequestRef.current;
+    if (Array.isArray(availableServices) && availableServices.length) setViewServiceClients(availableServices);
     setViewClient(null);
     setViewLoading(true);
     setError('');
@@ -2678,6 +2694,7 @@ export default function ClientMaster() {
   function closeViewClient() {
     clientRecordRequestRef.current += 1;
     setViewClient(null);
+    setViewServiceClients([]);
     setViewLoading(false);
     if (routeClientKey) navigate('/sales/client-master', { replace: true });
   }
@@ -2709,14 +2726,16 @@ export default function ClientMaster() {
       const serviceSource = discoveredServices.length ? discoveredServices : clients;
       const selectedService = discoveredServices.find((service) => String(service.clientMasterId || service._id || service.id || '') === clientMasterId) || selectedClient;
       const relatedServices = getRelatedClientServices(serviceSource, selectedService);
+      setViewServiceClients(relatedServices);
       if (relatedServices.length > 1) {
         setPendingServiceView({ client: selectedClient, services: relatedServices });
         return;
       }
-      await openClientView(relatedServices[0] || selectedClient);
+      await openClientView(relatedServices[0] || selectedClient, relatedServices);
     } catch (err) {
       if (lookupId !== clientRecordRequestRef.current) return;
       const relatedServices = getRelatedClientServices(clients, selectedClient);
+      setViewServiceClients(relatedServices);
       if (relatedServices.length > 1) {
         setPendingServiceView({ client: selectedClient, services: relatedServices });
         return;
@@ -2735,7 +2754,7 @@ export default function ClientMaster() {
         ) : viewClient ? (
           <ClientViewModal
             client={viewClient}
-            serviceClients={getRelatedClientServices(clients, viewClient)}
+            serviceClients={viewServiceClients.length ? viewServiceClients : getRelatedClientServices(clients, viewClient)}
             onServiceChange={openClientView}
             quotations={quotations}
             proformaInvoices={proformaInvoices}
@@ -2768,8 +2787,9 @@ export default function ClientMaster() {
             selection={pendingServiceView}
             onClose={() => setPendingServiceView(null)}
             onSelect={(service) => {
+              const availableServices = pendingServiceView.services;
               setPendingServiceView(null);
-              openClientView(service);
+              openClientView(service, availableServices);
             }}
           />
         )}
@@ -3391,6 +3411,15 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['EPR Certificate No', data.compliance?.eprCertificate, ShieldCheck, docLinks.epr],
     ...(docLinks.application ? [['Application Page', 'Uploaded document', FileText, docLinks.application]] : [])
   ];
+  const sharedComplianceRows = [
+    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, docLinks.gst],
+    ['GST Certificate Date', data.compliance?.gstDate ? formatDisplayDate(data.compliance.gstDate) : '', CalendarDays, docLinks.gst],
+    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, docLinks.pan],
+    ['PAN Document Date', data.compliance?.panDate ? formatDisplayDate(data.compliance.panDate) : '', CalendarDays, docLinks.pan],
+    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, docLinks.cin],
+    ['CIN Document Date', data.compliance?.cinDate ? formatDisplayDate(data.compliance.cinDate) : '', CalendarDays, docLinks.cin],
+    ['MSME', getMsmeSummary(data), FileCheck2, docLinks.msme]
+  ];
   const detailTabs = [
     { id: 'basic', label: 'Basic Info', icon: Building2 },
     { id: 'company', label: 'Company History', icon: Building2, title: 'Company History', message: 'No company history entries yet.' },
@@ -3727,18 +3756,14 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                         </DetailSheet>
                       </DetailAccordion>
 
-                      <DetailAccordion title="Shared Compliance Documents (GST, PAN, CIN, MSME)" open={Boolean(openDetailGroups.companyDocs)} onToggle={() => toggleDetailGroup('companyDocs')}>
-                        <DetailSheet columns={2}>
-                          {[...companyWideComplianceRows, ...docRows.filter((row) => {
-                            const lbl = String(row?.[0] || '').toLowerCase();
-                            return !lbl.includes('factory') && !lbl.includes('epr');
-                          })].map(([label, value, Icon, actionUrl]) => <DetailValue key={`sh-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
-                        </DetailSheet>
-                      </DetailAccordion>
-
                       <DetailAccordion title="Currently Selected Service — Basic Info" open={Boolean(openDetailGroups.basic)} onToggle={() => toggleDetailGroup('basic')}>
                         <DetailSheet columns={2}>
                           {profileRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={label} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
+                        </DetailSheet>
+                      </DetailAccordion>
+                      <DetailAccordion title="Shared Compliance Documents (GST, PAN, CIN, MSME)" open={Boolean(openDetailGroups.companyDocs)} onToggle={() => toggleDetailGroup('companyDocs')}>
+                        <DetailSheet columns={2}>
+                          {sharedComplianceRows.map(([label, value, Icon, actionUrl]) => <DetailValue key={`sh-${label}`} label={label} value={value} icon={Icon} actionUrl={actionUrl} />)}
                         </DetailSheet>
                       </DetailAccordion>
                       <DetailAccordion title="Currently Selected Service — Registered and communication addresses" open={Boolean(openDetailGroups.addresses)} onToggle={() => toggleDetailGroup('addresses')}>

@@ -229,7 +229,7 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
   return (
     <>
     <header className="crm-topbar fixed left-0 right-0 top-0 z-[60] border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-      <div className="flex min-h-20 items-center justify-between gap-4 px-4 sm:px-5 lg:px-7">
+      <div className="flex min-h-16 items-center justify-between gap-4 px-4 sm:px-5 lg:px-7">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
@@ -242,16 +242,15 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
           <button
             type="button"
             onClick={() => navigate('/dashboard')}
-            className="btn-lift flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1 transition hover:bg-teal-50"
+            className="btn-lift flex min-w-0 items-center px-1 py-1 transition hover:bg-teal-50"
             aria-label="Go to dashboard"
           >
-            <span className="flex h-16 shrink-0 items-center gap-3 rounded-2xl border border-orange-100 bg-white px-3.5 pr-5 shadow-md shadow-slate-950/5">
-              <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white">
-                <img src={brand.logoUrl} alt="Anant Tattva logo" className="h-11 w-11 object-contain" />
+            <span className="flex h-12 shrink-0 items-center gap-2 bg-white px-1 sm:gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden bg-white">
+                <img src={brand.logoUrl} alt="Anant Tattva logo" className="h-9 w-10 object-contain" />
               </span>
               <span className="min-w-0 text-left leading-none">
-                <strong className="block whitespace-nowrap text-lg font-black tracking-wide text-orange-600">ANANTTATTVA</strong>
-                <small className="mt-1.5 block whitespace-nowrap text-xs font-black tracking-[.08em] text-slate-700">e-connect</small>
+                <strong className="block whitespace-nowrap text-base font-black tracking-wide text-orange-600 sm:text-lg">e-Connect</strong>
               </span>
             </span>
           </button>
