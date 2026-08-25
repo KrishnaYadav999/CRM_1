@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const AuditLog = require('../models/AuditLog');
 const UserSession = require('../models/UserSession');
 const Lead = require('../models/Lead');
+const SupportTicket = require('../models/SupportTicket');
 const { clientIp } = require('../middleware/activityAudit');
 const { getUserProductivityReport, getUserWorkReport } = require('../services/userProductivityReport');
  
@@ -20,6 +21,7 @@ const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const PASSWORD_RESET_EXPIRY_MS = 10 * 60 * 1000;
 const APP_NAME = 'CRM';
 const ADMIN_LOGIN_ROLES = ['admin', 'superadmin'];
+const SUPPORT_TICKET_100_MILESTONE = 'support_tickets_100_v1';
 
 function roleLabel(name) {
   const fixed = { superadmin: 'Super Admin', compliance: 'Compliance Manager' };
@@ -518,6 +520,38 @@ exports.createRole = async (req, res) => {
  
 exports.me = async (req, res) => {
   res.json({ ok: true, user: publicUser(req.user) });
+};
+
+exports.claimMilestone = async (req, res) => {
+  try {
+    const milestoneKey = String(req.params.key || '').trim();
+    if (milestoneKey !== SUPPORT_TICKET_100_MILESTONE) {
+      return res.status(404).json({ error: 'Milestone not found' });
+    }
+
+    const ticketCount = await SupportTicket.countDocuments({});
+    if (ticketCount < 100) {
+      return res.json({ ok: true, eligible: false, claimed: false, milestoneKey, ticketCount });
+    }
+
+    const seenAt = new Date();
+    const result = await User.updateOne(
+      { _id: req.user._id, 'milestoneAcknowledgements.key': { $ne: milestoneKey } },
+      { $push: { milestoneAcknowledgements: { key: milestoneKey, seenAt } } }
+    );
+
+    return res.json({
+      ok: true,
+      eligible: true,
+      claimed: result.modifiedCount === 1,
+      milestoneKey,
+      ticketCount,
+      seenAt: result.modifiedCount === 1 ? seenAt : null
+    });
+  } catch (error) {
+    console.error('Milestone claim failed:', error);
+    return res.status(500).json({ error: 'Unable to check milestone status' });
+  }
 };
  
 exports.updateMe = async (req, res) => {

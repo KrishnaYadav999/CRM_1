@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 
+const MilestoneAcknowledgementSchema = new mongoose.Schema({
+  key: { type: String, required: true, trim: true },
+  seenAt: { type: Date, required: true, default: Date.now }
+}, { _id: false });
+
 const UserSchema = new mongoose.Schema({
   name: { type: String, trim: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -20,7 +25,10 @@ const UserSchema = new mongoose.Schema({
   passwordResetRequestedAt: { type: Date },
   passwordResetAttempts: { type: Number, default: 0, select: false },
   isActive: { type: Boolean, default: true },
-  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  milestoneAcknowledgements: { type: [MilestoneAcknowledgementSchema], default: [] }
 }, { timestamps: true });
+
+UserSchema.index({ _id: 1, 'milestoneAcknowledgements.key': 1 });
 
 module.exports = mongoose.model('User', UserSchema);

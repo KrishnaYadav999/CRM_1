@@ -26,6 +26,7 @@ import InternalTickets from './pages/InternalTickets'
 import SuperAdminDashboard from './pages/SuperAdminDashboard'
 import ActivityLogs from './pages/ActivityLogs'
 import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
+import SupportTicketMilestoneCelebration from './components/SupportTicketMilestoneCelebration'
 
 function ActiveCrmTracker() {
   useEffect(() => {
@@ -76,6 +77,7 @@ function App(){
     <div className="min-h-screen bg-emerald-50">
       <ScrollToTop />
       <ActiveCrmTracker />
+      <SupportTicketMilestoneCelebration />
       <Routes>
         <Route path="/" element={<Login/>} />
         <Route path="/verify" element={<VerifyOtp/>} />
