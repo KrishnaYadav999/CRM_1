@@ -356,11 +356,27 @@ function validateDuplicateServiceSelections(data = {}) {
   return '';
 }
 
-function validateClosureAssignments(data = {}) {
+function findExistingAssignment(previousAssignments = [], row = {}, index = -1) {
+  const serviceId = String(row?.assignedServiceId || '').trim();
+  const byServiceId = previousAssignments.find((item) => serviceId && String(item?.assignedServiceId || '').trim() === serviceId);
+  if (byServiceId) return byServiceId;
+
+  const indexedPrevious = previousAssignments[index];
+  if (!indexedPrevious) return null;
+  const previousServiceId = String(indexedPrevious?.assignedServiceId || '').trim();
+  const isLegacyClosedRow = Boolean(indexedPrevious.closedBy && row?.closedBy && (!serviceId || !previousServiceId));
+  return isLegacyClosedRow ? indexedPrevious : null;
+}
+
+function validateClosureAssignments(data = {}, previousData = null) {
   const rows = Array.isArray(data.assignments) ? data.assignments : [];
+  const previousAssignments = Array.isArray(previousData?.assignments) ? previousData.assignments : [];
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index] || {};
     if (!row.closedBy) continue;
+    // An already-closed service may be edited without re-entering legacy PO
+    // fields. A newly appended service has no previous match and remains strict.
+    if (findExistingAssignment(previousAssignments, row, index)?.closedBy) continue;
     if (row.poStatus === 'received') {
       const poRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
       if (!poRows.length || poRows.some((po) => !po.fy || !po.poNumber || !(Number(po.poAmount) > 0) || !po.poFileUrl || !Array.isArray(po.services) || !po.services.length)) return `Assignment row ${index + 1}: complete every PO detail, including PO Amount, before closing.`;
@@ -375,10 +391,7 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
   if (!Array.isArray(nextData.assignments)) return nextData;
   const previousAssignments = Array.isArray(beforeData.assignments) ? beforeData.assignments : [];
   nextData.assignments = nextData.assignments.map((row, index) => {
-    const serviceId = String(row?.assignedServiceId || '').trim();
-    const indexedPrevious = previousAssignments[index];
-    const previous = previousAssignments.find((item) => serviceId && String(item?.assignedServiceId || '').trim() === serviceId)
-      || (indexedPrevious && String(indexedPrevious?.assignedServiceId || '').trim() === serviceId ? indexedPrevious : null);
+    const previous = findExistingAssignment(previousAssignments, row, index);
     if (!previous) return row;
     const previousPoRows = Array.isArray(previous.poYearRows) ? previous.poYearRows : [];
     const nextPoRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
@@ -932,7 +945,7 @@ exports.updateLead = async (req, res) => {
       const removalPermissionError = validateServiceRemovalPermission(beforeLead, data.serviceSelections, req.user);
       if (removalPermissionError) return res.status(403).json({ error: removalPermissionError, code: 'SERVICE_REMOVAL_FORBIDDEN' });
     }
-    const closureError = validateClosureAssignments({ ...lead.toObject(), ...data });
+    const closureError = validateClosureAssignments({ ...lead.toObject(), ...data }, beforeLead);
     if (closureError) return res.status(400).json({ error: closureError, code: 'INVALID_LEAD_CLOSURE' });
     if (Object.prototype.hasOwnProperty.call(data, 'company')) {
       data.companyIdentity = normalizeCompanyIdentity(data.company);
