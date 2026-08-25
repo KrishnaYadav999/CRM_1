@@ -24,7 +24,9 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
     if (!hasChildren) return
 
     if (collapsed) {
-      setActiveFlyout((value) => (value === label ? null : label))
+      setActiveFlyout(null)
+      setOpenGroups((value) => ({ ...value, [label]: true }))
+      onToggleCollapsed?.()
       return
     }
 
