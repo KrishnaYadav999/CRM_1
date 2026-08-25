@@ -1496,12 +1496,16 @@ export default function ClientMaster() {
       : [];
     if (hasAuthoritativeLeadServices) {
       const usedStoredIndexes = new Set();
-      rows = uniqueClientMasterServices(rows).map((currentService) => {
+      const groupedLeadServices = uniqueClientMasterServices(rows);
+      rows = groupedLeadServices.map((currentService) => {
         const assignedServiceId = readAssignedServiceId(currentService);
         const groupingIdentity = clientMasterGroupingIdentity(currentService);
-        let storedIndex = groupingIdentity
-          ? storedServices.findIndex((stored, index) => !usedStoredIndexes.has(index) && clientMasterGroupingIdentity(stored) === groupingIdentity)
+        let storedIndex = groupedLeadServices.length === 1
+          ? storedServices.findIndex((stored) => String(stored.workflowStatus || '').toLowerCase() === 'submitted')
           : -1;
+        if (storedIndex < 0 && groupingIdentity) {
+          storedIndex = storedServices.findIndex((stored, index) => !usedStoredIndexes.has(index) && clientMasterGroupingIdentity(stored) === groupingIdentity);
+        }
         if (storedIndex < 0 && assignedServiceId) {
           storedIndex = storedServices.findIndex((stored, index) => !usedStoredIndexes.has(index) && readAssignedServiceId(stored) === assignedServiceId);
         }

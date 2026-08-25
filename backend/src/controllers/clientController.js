@@ -961,6 +961,19 @@ function clientDiscoveryProjection() {
   ].join(' ');
 }
 
+function clientMasterGroupCountForLead(lead = {}) {
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const services = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
+  const groups = new Set();
+  services.forEach((service, index) => {
+    const applicantType = normalize(service?.applicantType || service?.piboParent || service?.piboCategoryParent);
+    const subApplicantType = normalize(service?.subApplicantType || service?.piboCategory || 'not-applicable') || 'notapplicable';
+    const plantUnit = normalize(service?.plantUnit);
+    groups.add(applicantType && plantUnit ? `${applicantType}:${subApplicantType}:${plantUnit}` : `service:${index}`);
+  });
+  return groups.size;
+}
+
 exports.searchClientMasterCompanies = async (req, res) => {
   const startedAt = Date.now();
   const query = String(req.query.q || '').trim();
@@ -989,7 +1002,7 @@ exports.searchClientMasterCompanies = async (req, res) => {
 
   const [leads, clientRecords] = await Promise.all([
     Lead.find(leadFilter)
-      .select('_id leadCode sourceLeadId company companyIdentity')
+      .select('_id leadCode sourceLeadId company companyIdentity serviceSelections')
       .limit(limit)
       .lean(),
     Client.find(clientFilter)
@@ -1007,6 +1020,7 @@ exports.searchClientMasterCompanies = async (req, res) => {
       clientMasterId: null,
       companyName: String(lead.company || '').trim(),
       leadCode: String(lead.leadCode || lead.sourceLeadId || '').trim(),
+      serviceGroupCount: clientMasterGroupCountForLead(lead),
       clientMasterIds: new Set()
     });
   });
@@ -1040,7 +1054,7 @@ exports.searchClientMasterCompanies = async (req, res) => {
     clientMasterId: item.clientMasterId,
     companyName: item.companyName,
     leadCode: item.leadCode,
-    clientMasterCount: item.clientMasterIds.size
+    clientMasterCount: item.serviceGroupCount || item.clientMasterIds.size
     }));
   return res.json({ ok: true, items: responseItems, count: responseItems.length, queryMs: Date.now() - startedAt });
 };
