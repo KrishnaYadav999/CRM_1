@@ -632,10 +632,15 @@ function dedupeClientServiceChooserOptions(services = []) {
   const optionsByApplicantAndCategory = new Map();
   services.forEach((service, index) => {
     const data = readClientData(service);
+    const groupedIdentity = clientMasterGroupingIdentity({
+      applicantType: data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || data.selectedLeadSnapshot?.piboCategoryParent,
+      subApplicantType: data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory,
+      plantUnit: data.selectedLeadSnapshot?.plantUnit
+    });
     const applicant = String(data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const category = data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || '';
     const categoryKey = normalizeChooserServiceCategory(category);
-    const semanticKey = applicant && categoryKey ? `${applicant}:${categoryKey}` : `record:${getClientServiceViewKey(service) || index}`;
+    const semanticKey = groupedIdentity || (applicant && categoryKey ? `${applicant}:${categoryKey}` : `record:${getClientServiceViewKey(service) || index}`);
     const canonicalCategory = /^EPR\s*-\s*(?:Plastic|E-Waste|Battery|Tyre|Used Oil)\s+Waste$/i.test(String(category).trim());
     const score = (canonicalCategory ? 100 : 0)
       + [data.basic?.clientLegalName, data.basic?.tradeName, data.importMeta?.uniqueId, data.cpcb?.status].filter((value) => String(value || '').trim()).length;
@@ -917,6 +922,15 @@ function clientMasterServiceFingerprint(service = {}) {
   ].map(normalize).join(':');
 }
 
+function clientMasterGroupingIdentity(service = {}) {
+  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const applicantType = normalize(service.applicantType || service.piboParent || service.piboCategoryParent);
+  const subApplicantType = normalize(service.subApplicantType || service.piboCategory || 'not-applicable') || 'notapplicable';
+  const plantUnit = normalize(service.plantUnit);
+  if (!applicantType || !plantUnit) return '';
+  return `${applicantType}:${subApplicantType}:${plantUnit}`;
+}
+
 function legacyServiceFingerprintCompatible(lhsRaw, rhsRaw) {
   const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   const build = (svc = {}) => [
@@ -949,9 +963,12 @@ function uniqueClientMasterServices(services = []) {
   const seen = new Set();
   return services.filter((service, index) => {
     const fingerprint = clientMasterServiceFingerprint(service);
-    const key = service.clientMasterId
-      ? `client-master:${service.clientMasterId}`
-      : (readAssignedServiceId(service) || (fingerprint.replace(/:/g, '') ? fingerprint : `service-${index}`));
+    const groupingIdentity = clientMasterGroupingIdentity(service);
+    const key = groupingIdentity
+      ? `client-master-group:${groupingIdentity}`
+      : (service.clientMasterId
+          ? `client-master:${service.clientMasterId}`
+          : (readAssignedServiceId(service) || (fingerprint.replace(/:/g, '') ? fingerprint : `service-${index}`)));
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -1482,8 +1499,8 @@ export default function ClientMaster() {
         if (storedIndex < 0) {
           storedIndex = storedServices.findIndex((stored, index) => (
             !usedStoredIndexes.has(index)
-            && (!assignedServiceId || !readAssignedServiceId(stored))
-            && legacyServiceFingerprintCompatible(stored, currentService)
+            && ((clientMasterGroupingIdentity(stored) && clientMasterGroupingIdentity(stored) === clientMasterGroupingIdentity(currentService))
+              || ((!assignedServiceId || !readAssignedServiceId(stored)) && legacyServiceFingerprintCompatible(stored, currentService)))
           ));
         }
         if (storedIndex < 0) return currentService;
@@ -1506,7 +1523,8 @@ export default function ClientMaster() {
         const assignedServiceId = readAssignedServiceId(row);
         if (assignedServiceId && storedAssignmentIds.has(assignedServiceId)) return false;
         const representedByLegacyRecord = storedServices.some((stored) => (
-          !readAssignedServiceId(stored) && legacyServiceFingerprintCompatible(stored, row)
+          (clientMasterGroupingIdentity(stored) && clientMasterGroupingIdentity(stored) === clientMasterGroupingIdentity(row))
+          || (!readAssignedServiceId(stored) && legacyServiceFingerprintCompatible(stored, row))
         ));
         return !representedByLegacyRecord;
       });
