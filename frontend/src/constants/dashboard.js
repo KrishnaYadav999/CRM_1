@@ -98,14 +98,12 @@ export const navSections = [
         path: '/help-yourself'
       },
       {
-        label: 'Internal Tickets',
+        label: 'Tickets',
         icon: MessagesSquare,
-        path: '/internal-tickets'
-      },
-      {
-        label: 'Support Tickets',
-        icon: LifeBuoy,
-        path: '/support-tickets'
+        children: [
+          { label: 'Internal Tickets', icon: MessagesSquare, path: '/internal-tickets' },
+          { label: 'Support Tickets', icon: LifeBuoy, path: '/support-tickets' }
+        ]
       }
     ]
   }

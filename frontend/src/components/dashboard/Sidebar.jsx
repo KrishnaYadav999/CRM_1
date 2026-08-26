@@ -11,7 +11,10 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   const [activeFlyout, setActiveFlyout] = useState(null)
   const [activeItem, setActiveItem] = useState('User Management')
   const [dashboardChoicesOpen, setDashboardChoicesOpen] = useState(false)
-  const [nestedChoicesOpen, setNestedChoicesOpen] = useState(() => location.pathname.startsWith('/pending-leads'))
+  const [openNestedGroups, setOpenNestedGroups] = useState(() => ({
+    'Pending Leads': location.pathname.startsWith('/pending-leads'),
+    Tickets: location.pathname.includes('tickets')
+  }))
 
   function toggleGroup(item, hasChildren) {
     const label = item.label
@@ -126,11 +129,11 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                 const nestedActive = child.children.some((entry) => pathMatches(entry.path))
                                 return (
                                   <div key={child.label}>
-                                    <button type="button" onClick={() => setNestedChoicesOpen((value) => !value)} className={`sidebar-child-button flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm font-black transition ${nestedActive ? 'bg-white/14 text-white' : 'text-emerald-50/78 hover:bg-white/10 hover:text-white'}`}>
+                                    <button type="button" onClick={() => setOpenNestedGroups((value) => ({ ...value, [child.label]: !value[child.label] }))} className={`sidebar-child-button flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm font-black transition ${nestedActive ? 'bg-white/14 text-white' : 'text-emerald-50/78 hover:bg-white/10 hover:text-white'}`}>
                                       <span className="flex items-center gap-3"><ChildIcon className="h-4 w-4 shrink-0" />{child.label}</span>
-                                      <ChevronDown className={`h-4 w-4 transition ${nestedChoicesOpen ? 'rotate-180' : ''}`} />
+                                      <ChevronDown className={`h-4 w-4 transition ${openNestedGroups[child.label] ? 'rotate-180' : ''}`} />
                                     </button>
-                                    {nestedChoicesOpen && <div className="mt-1 grid gap-1 pl-6">{child.children.map((entry) => { const EntryIcon = entry.icon; return <button type="button" key={entry.label} onClick={() => { setActiveItem(entry.label); navigate(entry.path); onClose?.() }} className={`flex min-h-9 items-center gap-2 rounded-xl px-3 text-left text-xs font-black ${pathMatches(entry.path) ? 'bg-[#f45b0b] text-white' : 'text-emerald-50/75 hover:bg-white/10'}`}><EntryIcon className="h-3.5 w-3.5" />{entry.label}</button> })}</div>}
+                                    {openNestedGroups[child.label] && <div className="mt-1 grid gap-1 pl-6">{child.children.map((entry) => { const EntryIcon = entry.icon; return <button type="button" key={entry.label} onClick={() => { setActiveItem(entry.label); navigate(entry.path); onClose?.() }} className={`flex min-h-9 items-center gap-2 rounded-xl px-3 text-left text-xs font-black ${pathMatches(entry.path) ? 'bg-[#f45b0b] text-white' : 'text-emerald-50/75 hover:bg-white/10'}`}><EntryIcon className="h-3.5 w-3.5" />{entry.label}</button> })}</div>}
                                   </div>
                                 )
                               }

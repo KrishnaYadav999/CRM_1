@@ -1,192 +1,239 @@
-/* Enterprise typography system. Loaded last so every CRM module shares one hierarchy. */
+/* Centralized CRM typography system. Keep this module loaded last. */
 :root {
-  --crm-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --crm-text-body: 14px;
-  --crm-leading-body: 1.5;
+  --font-primary: "Roboto", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --crm-font-sans: var(--font-primary);
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
 }
 
 html,
 body,
 #root,
-#root * {
-  font-family: var(--crm-font-sans) !important;
-}
+#root * { font-family: var(--font-primary) !important; }
 
-body {
-  font-size: var(--crm-text-body);
-  font-weight: 400;
-  line-height: var(--crm-leading-body);
-  color: #334155;
+html,
+body,
+#root {
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
+body { color: #334155; }
+
 h1,
 .page-title {
-  font-size: clamp(24px, 2vw, 28px) !important;
-  font-weight: 700 !important;
-  line-height: 1.2 !important;
-  letter-spacing: -0.025em;
+  font-size: var(--text-xl) !important;
+  font-weight: var(--weight-semibold) !important;
+  line-height: 32px !important;
+  letter-spacing: -0.2px !important;
 }
 
 h2,
 .section-title {
-  font-size: clamp(18px, 1.5vw, 20px) !important;
-  font-weight: 600 !important;
-  line-height: 1.3 !important;
-  letter-spacing: -0.015em;
+  font-size: var(--text-lg) !important;
+  font-weight: var(--weight-semibold) !important;
+  line-height: 26px !important;
+  letter-spacing: 0 !important;
 }
 
 h3,
 h4,
 .card-title,
 .subheading {
-  font-size: 16px !important;
-  font-weight: 600 !important;
-  line-height: 1.35 !important;
+  font-size: var(--text-md) !important;
+  font-weight: var(--weight-medium) !important;
+  line-height: 24px !important;
 }
 
 p,
 .body-text {
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 1.5;
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  line-height: 21px;
 }
 
 small,
-.helper-text {
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.45;
+.helper-text,
+.validation-text,
+.form-help {
+  font-size: var(--text-xs) !important;
+  font-weight: var(--weight-regular) !important;
+  line-height: 18px !important;
 }
 
 label,
 .form-label {
-  font-size: 13px;
-  font-weight: 500 !important;
-  line-height: 1.4;
+  font-size: var(--text-sm) !important;
+  font-weight: var(--weight-medium) !important;
+  line-height: 18px !important;
 }
 
 button,
 [role="button"],
 .button-text {
-  font-size: 14px;
-  font-weight: 600 !important;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium) !important;
+  line-height: 20px;
   letter-spacing: 0;
 }
 
 input,
 select,
 textarea,
-.form-input {
-  font-size: 14px !important;
-  font-weight: 400 !important;
-  line-height: 1.45;
-}
+.form-input { font: var(--weight-regular) var(--text-base)/20px var(--font-primary) !important; }
 
 input::placeholder,
 textarea::placeholder {
   color: #94a3b8;
-  font-weight: 400;
+  font-weight: var(--weight-regular);
   opacity: 1;
 }
 
 table {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
 table th,
 .table-header {
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  line-height: 1.35;
-  letter-spacing: 0.035em;
+  font-size: var(--text-xs) !important;
+  font-weight: var(--weight-semibold) !important;
+  line-height: 18px !important;
 }
 
 table td,
 .table-cell {
-  font-size: 13px !important;
-  font-weight: 400;
-  line-height: 1.45;
+  font-size: var(--text-sm) !important;
+  font-weight: var(--weight-regular) !important;
+  line-height: 20px !important;
 }
 
-table td strong {
-  font-weight: 600 !important;
-}
+table td strong { font-weight: var(--weight-medium) !important; }
 
 .kpi-value,
 .pending-hero-summary strong,
 [class*="metric"] strong {
-  font-size: clamp(24px, 2vw, 32px);
-  font-weight: 700 !important;
-  line-height: 1.1;
+  font-size: 28px;
+  font-weight: var(--weight-semibold) !important;
+  line-height: 34px;
+  letter-spacing: -0.5px;
   font-variant-numeric: tabular-nums;
 }
 
 .kpi-label,
 .card-label {
-  font-size: 13px;
-  font-weight: 500 !important;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium) !important;
+  line-height: 18px;
 }
 
 .pending-status,
 [class*="badge"],
 [class*="status-badge"] {
-  font-size: 11px;
-  font-weight: 600 !important;
-  line-height: 1.3;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium) !important;
+  line-height: 18px;
 }
 
+.sidebar-menu-button,
 .sidebar-nav-label,
 aside nav a,
 aside nav button {
-  font-size: 14px !important;
-  font-weight: 500 !important;
+  font-size: var(--text-base) !important;
+  font-weight: var(--weight-regular) !important;
+  line-height: 20px !important;
 }
+
+aside nav .sidebar-menu-button-active,
+aside nav .sidebar-child-button-current,
+aside nav .sidebar-dashboard-choice-active,
+aside nav [aria-current="page"] { font-weight: var(--weight-medium) !important; }
 
 .sidebar-section-label,
-aside nav small {
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.06em;
+aside nav small,
+aside nav p {
+  font-size: var(--text-xs) !important;
+  font-weight: var(--weight-medium) !important;
+  line-height: 18px !important;
 }
 
-/* Existing JSX uses these utilities heavily. Normalize them to the 400–700 system. */
+[role="tab"],
+.tab-button {
+  font-size: var(--text-base) !important;
+  font-weight: var(--weight-regular) !important;
+}
+
+[role="tab"][aria-selected="true"],
+.tab-button.active,
+.tab-button.is-active { font-weight: var(--weight-medium) !important; }
+
+[role="dialog"] h1,
+[role="dialog"] h2,
+.modal-title,
+.drawer-title {
+  font-size: var(--text-lg) !important;
+  font-weight: var(--weight-semibold) !important;
+  line-height: 26px !important;
+}
+
+[role="dialog"],
+.modal-body,
+.drawer-body {
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  line-height: 21px;
+}
+
+[role="alert"] strong,
+.toast-title,
+.notification-title {
+  font-size: var(--text-base) !important;
+  font-weight: var(--weight-semibold) !important;
+  line-height: 20px !important;
+}
+
+[role="alert"],
+.toast-description,
+.notification-description {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  line-height: 20px;
+}
+
+/* Reduce legacy over-emphasis without rewriting business components. */
 .font-black,
-.font-extrabold {
-  font-weight: 700 !important;
-}
-
-.font-bold {
-  font-weight: 700 !important;
-}
-
-.font-semibold {
-  font-weight: 600 !important;
-}
-
-.font-medium {
-  font-weight: 500 !important;
-}
+.font-extrabold,
+.font-bold { font-weight: var(--weight-semibold) !important; }
+.font-semibold { font-weight: var(--weight-semibold) !important; }
+.font-medium { font-weight: var(--weight-medium) !important; }
+.font-normal { font-weight: var(--weight-regular) !important; }
 
 .recharts-wrapper,
-.recharts-wrapper * {
-  font-family: var(--crm-font-sans) !important;
-}
+.recharts-wrapper *,
+.react-datepicker,
+.react-datepicker *,
+.fc,
+.fc *,
+[data-radix-popper-content-wrapper],
+[data-radix-popper-content-wrapper] * { font-family: var(--font-primary) !important; }
 
 @media (max-width: 640px) {
-  body,
-  p,
-  .body-text,
-  button,
-  input,
-  select,
-  textarea {
-    font-size: 14px !important;
-  }
-
-  table th { font-size: 12px !important; }
-  table td { font-size: 13px !important; }
+  h1,
+  .page-title { font-size: 22px !important; line-height: 30px !important; }
+  h2,
+  .section-title { font-size: 18px !important; line-height: 26px !important; }
+  table th { font-size: var(--text-xs) !important; }
+  table td { font-size: var(--text-sm) !important; }
 }
