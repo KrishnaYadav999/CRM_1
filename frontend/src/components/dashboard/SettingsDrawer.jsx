@@ -7,7 +7,7 @@ export const defaultThemeSettings = {
   layoutWidth: 'fluid',
   cardLayout: 'bordered',
   sidebarSize: 'default',
-  sidebarColor: '#0f5d46',
+  sidebarColor: '#16805f',
   topbarColor: '#ffffff',
   themeColor: '#30737B'
 }
@@ -30,6 +30,7 @@ const sidebarSizes = ['Default', 'Compact', 'Hover View']
 function normalizeSettings(value = {}) {
   const next = { ...defaultThemeSettings, ...value }
   if (String(next.themeColor).toLowerCase() === '#ef1d0f') next.themeColor = defaultThemeSettings.themeColor
+  if (String(next.sidebarColor).toLowerCase() === '#0f5d46') next.sidebarColor = defaultThemeSettings.sidebarColor
   return next
 }
 

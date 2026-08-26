@@ -162,13 +162,13 @@ export default function SupportTickets() {
     <DashboardShell currentUser={currentUser}>
       <div className="min-h-[calc(100vh-4rem)] bg-[#f4f8f7] px-3 py-5 sm:px-5 lg:px-7">
         <div className="w-full space-y-5">
-          <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#083f32] via-[#0f684e] to-[#13805f] p-6 text-white shadow-xl shadow-emerald-950/10 sm:p-8">
-            <div className="absolute -right-12 -top-16 h-60 w-60 rounded-full bg-white/10 blur-2xl" />
+          <section className="relative overflow-hidden rounded-[28px] border border-[#e8e2da] bg-gradient-to-r from-[#fff8ed] via-white to-[#fffaf2] p-6 text-slate-900 shadow-lg shadow-slate-900/5 sm:p-8">
+            <div className="absolute -right-12 -top-16 h-60 w-60 rounded-full bg-orange-100/55 blur-2xl" />
             <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div className="max-w-3xl">
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-black uppercase tracking-[0.2em]"><LifeBuoy className="h-4 w-4" />Help desk</span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black uppercase tracking-[0.2em] text-emerald-800"><LifeBuoy className="h-4 w-4" />Help desk</span>
                 <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">How can we help you?</h1>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-50/85 sm:text-base">If you have a question, an access issue, or need help with any CRM process, raise a support ticket. Track every update and reply in one place.</p>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">If you have a question, an access issue, or need help with any CRM process, raise a support ticket. Track every update and reply in one place.</p>
               </div>
               <button type="button" onClick={() => setFormOpen(true)} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#f45b0b] px-5 font-black text-white shadow-lg shadow-orange-950/20 transition hover:-translate-y-0.5 hover:bg-orange-600"><Plus className="h-5 w-5" />Raise New Ticket</button>
             </div>

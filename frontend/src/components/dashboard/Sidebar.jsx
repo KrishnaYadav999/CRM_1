@@ -54,13 +54,14 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-visible bg-gradient-to-b from-[#0f684f] via-[#0f5d46] to-[#093f32] pt-4 text-white">
+    <div className="relative flex h-full min-h-0 flex-col overflow-visible bg-[#16805f] pt-4 text-white">
       {!collapsed && <div className="border-b border-white/10 px-5 pb-4 pr-16 lg:hidden"><p className="text-[10px] font-black uppercase tracking-[.22em] text-emerald-200">Workspace</p><strong className="mt-1 block text-lg font-black">CRM Navigation</strong><span className="mt-1 block truncate text-xs font-semibold text-emerald-100/70">{currentUser?.name || currentUser?.email}</span></div>}
-      <div className={`pointer-events-none absolute top-4 z-50 flex items-center ${collapsed ? 'left-1/2 -translate-x-1/2' : 'right-3'}`}>
+      <div className={`relative z-50 hidden h-9 shrink-0 items-center lg:flex ${collapsed ? 'justify-center px-2' : 'justify-between px-5'}`}>
+        {!collapsed && <p className="text-xs font-black uppercase leading-none tracking-[0.24em] text-emerald-100/70">Navigation</p>}
         <button
           type="button"
           onClick={onToggleCollapsed}
-          className={`btn-lift pointer-events-auto hidden h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[#0b4938] text-white shadow-lg shadow-slate-950/20 transition hover:bg-[#0a3f31] lg:inline-flex ${collapsed ? 'rotate-180' : ''}`}
+          className={`btn-lift inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-[#116c51] text-white shadow-lg shadow-emerald-950/15 transition hover:bg-[#0f6048] ${collapsed ? 'rotate-180' : ''}`}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
@@ -69,17 +70,17 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
         <button
           type="button"
           onClick={onClose}
-          className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/15 lg:hidden"
+          className="absolute right-3 top-0 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/15 lg:hidden"
           aria-label="Close sidebar"
         >
           <X className="h-5 w-5" />
         </button>
       </div>
 
-      <nav className={`sidebar-scrollbar flex-1 space-y-5 px-3 pb-5 ${collapsed ? 'overflow-visible px-2 pt-12' : 'overflow-y-auto px-4 pt-5'}`}>
+      <nav className={`sidebar-scrollbar flex-1 space-y-5 px-3 pb-5 ${collapsed ? 'overflow-visible px-2 pt-5' : 'overflow-y-auto px-4 pt-5'}`}>
         {navSections.map((section) => (
           <div key={section.label}>
-            {!collapsed && <p className="mb-4 px-1 text-xs font-black uppercase tracking-[0.24em] text-emerald-100/60">{section.label === 'Operations' ? 'Navigation' : section.label}</p>}
+            {!collapsed && section.label !== 'Operations' && <p className="mb-4 px-1 text-xs font-black uppercase tracking-[0.24em] text-emerald-100/70">{section.label}</p>}
             <div className="space-y-2">
               {section.items.filter(canShowItem).map((item) => {
                 const Icon = item.icon
