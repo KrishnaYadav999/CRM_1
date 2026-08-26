@@ -850,7 +850,9 @@ async function syncPendingApprovalRows(rows, type = 'client') {
 }
 
 async function readStoredPendingApprovals() {
-  const records = await PendingApproval.find({ $or: [{ type: 'client' }, { approvalStatus: 'PENDING' }] })
+  const records = await PendingApproval.find({
+    $or: [{ type: 'client' }, { type: 'quotation' }, { approvalStatus: 'PENDING' }]
+  })
     .sort({ createdAt: -1 })
     .limit(1000)
     .lean();
@@ -871,7 +873,7 @@ async function readStoredPendingApprovals() {
 
   return {
     pendingClients: clientRows,
-    pendingQuotations: records.filter((record) => record.type === 'quotation' && record.approvalStatus === 'PENDING').map(mapPendingApprovalRecord)
+    pendingQuotations: records.filter((record) => record.type === 'quotation').map(mapPendingApprovalRecord)
   };
 }
 

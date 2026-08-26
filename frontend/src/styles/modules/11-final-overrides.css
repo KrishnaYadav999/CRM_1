@@ -2071,6 +2071,60 @@ body:has(.annual-review-backdrop) .client-detail-card {
   border-color: #d1d5db;
 }
 
+.pending-status-quick-filters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 14px;
+  background: #fbfefd;
+}
+
+.pending-status-quick-filters > span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.pending-status-quick-filters button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #a7f3d0;
+  border-radius: 9px;
+  background: #ecfdf5;
+  padding: 0 11px;
+  color: #047857;
+  transition: 150ms ease;
+}
+
+.pending-status-quick-filters button:hover,
+.pending-status-quick-filters button.is-active {
+  border-color: #059669;
+  background: #059669;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.18);
+}
+
+.pending-status-quick-filters button b {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  padding-inline: 5px;
+  color: #047857;
+  font-size: 12px;
+}
+
+.pending-status-quick-filters button.is-active b {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
 .pending-refresh-button-compact {
   width: auto !important;
   min-width: 96px !important;
@@ -2677,6 +2731,10 @@ body:has(.annual-review-backdrop) .client-detail-card {
 
   .pending-tab {
     flex: 1 1 0 !important;
+  }
+
+  .pending-status-quick-filters {
+    justify-content: flex-start;
   }
 }
 
