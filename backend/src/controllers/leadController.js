@@ -264,10 +264,19 @@ function cleanBody(body) {
             services: Array.isArray(po?.services) ? po.services.map((service) => String(service || '').trim()).filter(Boolean) : [],
             quotationId: String(po?.quotationId || '').trim(), quotationNumber: String(po?.quotationNumber || '').trim(),
             quotationItems: Array.isArray(po?.quotationItems) ? po.quotationItems.slice(0, 25) : [],
+            quotationSent: ['yes', 'no'].includes(String(po?.quotationSent || '').toLowerCase()) ? String(po.quotationSent).toLowerCase() : '',
+            quotationBasicAmount: Math.max(0, Number(po?.quotationBasicAmount) || 0),
+            earlierQuotationProofUrl: String(po?.earlierQuotationProofUrl || '').trim(),
+            earlierQuotationProofName: String(po?.earlierQuotationProofName || '').trim(),
             quotationCreatedById: String(po?.quotationCreatedById || '').trim(),
             quotationCreatedByEmail: String(po?.quotationCreatedByEmail || '').trim().toLowerCase()
           })) : [],
           poApprovalStatus: ['PENDING', 'APPROVED', 'REJECTED', 'REVISION_REQUIRED'].includes(String(row?.poApprovalStatus || '').toUpperCase()) ? String(row.poApprovalStatus).toUpperCase() : '',
+          quotationSent: ['yes', 'no'].includes(String(row?.quotationSent || '').toLowerCase()) ? String(row.quotationSent).toLowerCase() : '',
+          earlierQuotationProofUrl: String(row?.earlierQuotationProofUrl || '').trim(),
+          earlierQuotationProofName: String(row?.earlierQuotationProofName || '').trim(),
+          closureRequestedBy: String(row?.closureRequestedBy || '').trim(),
+          closureRequestedByText: String(row?.closureRequestedByText || '').trim(),
           closureApprovalProofUrl: String(row?.closureApprovalProofUrl || '').trim(),
           closureApprovalProofName: String(row?.closureApprovalProofName || '').trim(),
           provisionalCloseExpiresAt: String(row?.provisionalCloseExpiresAt || '').trim(),
@@ -1043,8 +1052,9 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
   const index = Number(approval.payload?.assignmentIndex);
   if (!lead.assignments?.[index]) return res.status(404).json({ error: 'Lead assignment not found.' });
   lead.assignments[index].poApprovalStatus = status;
-  if (status === 'APPROVED' && lead.assignments[index].closureRequestedBy) {
-    lead.assignments[index].closedBy = lead.assignments[index].closureRequestedBy;
+  const closureRequestedBy = lead.assignments[index].closureRequestedBy || approval.payload?.closureRequestedBy;
+  if (status === 'APPROVED' && closureRequestedBy) {
+    lead.assignments[index].closedBy = closureRequestedBy;
     lead.assignments[index].closedByText = lead.assignments[index].closureRequestedByText || approval.payload?.closureRequestedByText || '';
     lead.assignments[index].closedAt = new Date();
     lead.assignments[index].closureRequestedBy = '';

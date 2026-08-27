@@ -503,6 +503,11 @@ function createAssignmentRow(source = {}) {
     poStatus: source.poStatus || '',
     poYearRows: Array.isArray(source.poYearRows) ? source.poYearRows : [],
     poApprovalStatus: source.poApprovalStatus || '',
+    quotationSent: source.quotationSent || '',
+    earlierQuotationProofUrl: source.earlierQuotationProofUrl || '',
+    earlierQuotationProofName: source.earlierQuotationProofName || '',
+    closureRequestedBy: source.closureRequestedBy?._id || source.closureRequestedBy || '',
+    closureRequestedByText: source.closureRequestedByText || source.closureRequestedBy?.name || '',
     closureApprovalProofUrl: source.closureApprovalProofUrl || '',
     closureApprovalProofName: source.closureApprovalProofName || '',
     provisionalCloseExpiresAt: source.provisionalCloseExpiresAt || '',
@@ -1133,7 +1138,7 @@ export default function LeadGeneration() {
       if (closureDialog.quotationSent === 'no' && !closureDialog.earlierQuotationProofUrl) return showToast('Upload the earlier quotation proof before entering PO details.', 'warning');
       const incomplete = closureDialog.poYearRows.some((row) => !row.fy || !row.poNumber.trim() || !(Number(row.poAmount) > 0) || !row.poFileUrl || !row.services.length);
       if (incomplete) return showToast('Complete FY Year, PO Number, PO Amount, PO Upload, and Services for every PO row.', 'warning');
-      closurePatch = { poStatus: 'received', poApprovalStatus: 'PENDING', quotationSent: closureDialog.quotationSent, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '', poYearRows: closureDialog.poYearRows.map((row) => ({ ...row, quotationSent: closureDialog.quotationSent, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '' })), closureRequestedBy: closureDialog.value, closureRequestedByText: currentUser?.name || currentUser?.email || '', closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' };
+      closurePatch = { poStatus: 'received', poApprovalStatus: 'PENDING', quotationSent: closureDialog.quotationSent, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '', poYearRows: closureDialog.poYearRows.map((row) => ({ ...row, quotationSent: closureDialog.quotationSent, quotationBasicAmount: closureDialog.quotationSent === 'no' ? 0 : row.quotationBasicAmount, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '' })), closureRequestedBy: closureDialog.value, closureRequestedByText: currentUser?.name || currentUser?.email || '', closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' };
     } else {
       if (!closureDialog.approvalProofUrl) return showToast('Upload Super Admin approval proof before closing without PO.', 'warning');
       closurePatch = { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), kickoffEmailConsent: '' };

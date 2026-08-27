@@ -26,8 +26,12 @@ test('PO received closure asks whether quotation was sent and supports earlier q
   assert.match(leadPage, /No — Use Earlier Quotation Proof/);
   assert.match(leadPage, /earlierQuotationProofUrl/);
   assert.match(leadController, /closureRequestedBy/);
+  assert.match(leadController, /closureRequestedBy: String\(row\?\.closureRequestedBy/);
+  assert.match(leadController, /poFileUrl: String\(po\?\.poFileUrl/);
   assert.match(leadController, /status === 'APPROVED'.*closureRequestedBy/s);
+  assert.match(leadController, /approval\.payload\?\.closureRequestedBy/);
   assert.match(pendingApprovalPage, /View earlier quotation proof/);
+  assert.match(pendingApprovalPage, /row\.quotationSent === 'no' \? 0/);
 });
 
 test('PO approval is persisted and restricted to Admin and Super Admin', () => {
