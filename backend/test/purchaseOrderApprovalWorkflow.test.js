@@ -17,6 +17,19 @@ test('lead closure auto-fetches quotation fields and supports one or multiple PO
   assert.match(page, /api\.put\(API_ENDPOINTS\.leads\.detail\(editingLeadId\), payload\)/);
 });
 
+test('PO received closure asks whether quotation was sent and supports earlier quotation proof', () => {
+  const leadPage = read('../../frontend/src/pages/LeadGeneration.jsx');
+  const leadController = read('../src/controllers/leadController.js');
+  const pendingApprovalPage = read('../../frontend/src/pages/PendingApproval.jsx');
+  assert.match(leadPage, /Was a quotation sent to the customer\?/);
+  assert.match(leadPage, /Yes — Quotation Sent/);
+  assert.match(leadPage, /No — Use Earlier Quotation Proof/);
+  assert.match(leadPage, /earlierQuotationProofUrl/);
+  assert.match(leadController, /closureRequestedBy/);
+  assert.match(leadController, /status === 'APPROVED'.*closureRequestedBy/s);
+  assert.match(pendingApprovalPage, /View earlier quotation proof/);
+});
+
 test('PO approval is persisted and restricted to Admin and Super Admin', () => {
   const model = read('../src/models/PendingApproval.js');
   const routes = read('../src/routes/leads.js');

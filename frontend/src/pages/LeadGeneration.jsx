@@ -1105,7 +1105,7 @@ export default function LeadGeneration() {
     const savedPoRows = Array.isArray(matchingAssignment.poYearRows) ? matchingAssignment.poYearRows : [];
     const hydratedPoRows = fetchedPoRows.map((row, rowIndex) => ({ ...row, ...(savedPoRows[rowIndex] || {}) }));
     const poYearRows = [...hydratedPoRows, ...savedPoRows.slice(fetchedPoRows.length)];
-    setClosureDialog({ index, value, reviewMode, choice: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, approvalProofUrl: '', approvalProofName: '' });
+    setClosureDialog({ index, value, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
   }
 
   async function uploadClosureFile(event, type, rowIndex = 0) {
@@ -1117,7 +1117,9 @@ export default function LeadGeneration() {
       const uploaded = await uploadMedia(file, type === 'po' ? 'crm/leads/purchase-orders' : 'crm/leads/closure-approvals');
       setClosureDialog((current) => type === 'po'
         ? { ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, poFileUrl: uploaded.secureUrl, poFileName: uploaded.name || file.name, poFileMimeType: uploaded.type || file.type || '', poFileSize: Number.isFinite(uploaded.bytes) ? uploaded.bytes : (Number.isFinite(uploaded.size) ? uploaded.size : null), poReceivedDate: row.poReceivedDate || new Date().toISOString(), currency: row.currency || 'INR' } : row) }
-        : { ...current, approvalProofUrl: uploaded.secureUrl, approvalProofName: file.name });
+        : type === 'quotation'
+          ? { ...current, earlierQuotationProofUrl: uploaded.secureUrl, earlierQuotationProofName: uploaded.name || file.name }
+          : { ...current, approvalProofUrl: uploaded.secureUrl, approvalProofName: file.name });
     } catch (uploadError) {
       showToast(uploadError?.message || 'File upload failed.', 'error');
     } finally { setClosureUploading(false); }
@@ -1127,14 +1129,21 @@ export default function LeadGeneration() {
     if (!closureDialog?.choice) return showToast('Please select Yes or No.', 'warning');
     let closurePatch;
     if (closureDialog.choice === 'yes') {
+      if (!closureDialog.quotationSent) return showToast('Please select whether a quotation was sent.', 'warning');
+      if (closureDialog.quotationSent === 'no' && !closureDialog.earlierQuotationProofUrl) return showToast('Upload the earlier quotation proof before entering PO details.', 'warning');
       const incomplete = closureDialog.poYearRows.some((row) => !row.fy || !row.poNumber.trim() || !(Number(row.poAmount) > 0) || !row.poFileUrl || !row.services.length);
       if (incomplete) return showToast('Complete FY Year, PO Number, PO Amount, PO Upload, and Services for every PO row.', 'warning');
-      closurePatch = { poStatus: 'received', poApprovalStatus: 'PENDING', poYearRows: closureDialog.poYearRows, closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' };
+      closurePatch = { poStatus: 'received', poApprovalStatus: 'PENDING', quotationSent: closureDialog.quotationSent, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '', poYearRows: closureDialog.poYearRows.map((row) => ({ ...row, quotationSent: closureDialog.quotationSent, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '' })), closureRequestedBy: closureDialog.value, closureRequestedByText: currentUser?.name || currentUser?.email || '', closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' };
     } else {
       if (!closureDialog.approvalProofUrl) return showToast('Upload Super Admin approval proof before closing without PO.', 'warning');
       closurePatch = { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), kickoffEmailConsent: '' };
     }
     const nextAssignments = buildUpdatedAssignmentRows(closureDialog.index, 'closedBy', closureDialog.value, closurePatch);
+    if (closureDialog.choice === 'yes') {
+      nextAssignments[closureDialog.index].closedBy = '';
+      nextAssignments[closureDialog.index].closedByText = '';
+      nextAssignments[closureDialog.index].closedByEmail = '';
+    }
     if (!editingLeadId) return showToast('Save the lead before recording closure details.', 'warning');
     setClosureSaving(true);
     try {
@@ -1154,7 +1163,7 @@ export default function LeadGeneration() {
       if (!savedLead || !Array.isArray(savedLead.assignments)) throw new Error('CRM did not return saved PO details.');
       setLead((current) => ({ ...current, ...savedLead, assignments: savedLead.assignments }));
       setClosureDialog(null);
-      showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database.', 'success');
+      showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database after admin approval. Approval is pending.', 'success');
     } catch (saveError) {
       showToast(saveError?.response?.data?.error || saveError.message || 'Unable to save PO details.', 'error');
     } finally {
@@ -2654,7 +2663,7 @@ export default function LeadGeneration() {
             <div className="flex-1 overflow-y-auto p-6 lg:px-10">
               {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes', poModeConfirmed: true, poMode: 'quotation' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter PO details against every quotation service.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
               {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 10-minute deadline to keep it closed.</p></div>}
-              {closureDialog.choice === 'yes' && <div className="mt-6"><QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} /></div>}
+              {closureDialog.choice === 'yes' && <div className="mt-6 space-y-5"><section className="rounded-2xl border border-blue-200 bg-blue-50 p-5"><h3 className="font-black text-blue-950">Was a quotation sent to the customer?</h3><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, quotationSent: 'yes' }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-white bg-white text-slate-700'}`}>Yes — Quotation Sent</button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, quotationSent: 'no' }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'no' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-white bg-white text-slate-700'}`}>No — Use Earlier Quotation Proof</button></div>{closureDialog.quotationSent === 'no' && <div className="mt-4"><p className="mb-3 text-sm font-bold text-amber-900">Upload proof of the earlier quotation. PO details can then be entered manually and sent to Admin for approval.</p><label className="flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.earlierQuotationProofName || 'Upload Earlier Quotation Proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'quotation')} /></label></div>}</section>{closureDialog.quotationSent === 'yes' && <QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}{closureDialog.quotationSent === 'no' && closureDialog.earlierQuotationProofUrl && <QuotationClosureSummary quotation={{ quotationNumber: 'Earlier quotation proof attached' }} items={closureDialog.quotationItems.length ? closureDialog.quotationItems : closureDialog.poYearRows.map(() => ({}))} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}</div>}
               {closureDialog.choice === 'no' && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Close under special approval</h3><p className="mt-2 text-sm font-bold leading-6 text-amber-900">This service will be closed provisionally and the user and Super Admin will be notified by email. The PO must be uploaded within 10 minutes. If it is still missing after the deadline, only this service will reopen automatically; services with received POs will remain closed.</p><label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.approvalProofName || 'Upload Super Admin approval proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'approval')} /></label><p className="mt-2 text-xs font-bold text-amber-700">Accepted formats: image or PDF.</p></div>}
             </div>
             <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" disabled={closureSaving} onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black disabled:opacity-50">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading || closureSaving} onClick={confirmLeadClosure} className="rounded-xl bg-[#0f5d46] px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : closureSaving ? 'Saving PO...' : 'Confirm & Save Closure'}</button></footer>

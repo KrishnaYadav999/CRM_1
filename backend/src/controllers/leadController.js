@@ -373,7 +373,7 @@ function validateClosureAssignments(data = {}, previousData = null) {
   const previousAssignments = Array.isArray(previousData?.assignments) ? previousData.assignments : [];
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index] || {};
-    if (!row.closedBy) continue;
+    if (!row.closedBy && !row.closureRequestedBy) continue;
     // An already-closed service may be edited without re-entering legacy PO
     // fields. A newly appended service has no previous match and remains strict.
     if (findExistingAssignment(previousAssignments, row, index)?.closedBy) continue;
@@ -413,6 +413,11 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
       poApprovalStatus: row.poApprovalStatus || previous.poApprovalStatus,
       closureApprovalProofUrl: row.closureApprovalProofUrl || previous.closureApprovalProofUrl,
       closureApprovalProofName: row.closureApprovalProofName || previous.closureApprovalProofName,
+      quotationSent: row.quotationSent || previous.quotationSent,
+      earlierQuotationProofUrl: row.earlierQuotationProofUrl || previous.earlierQuotationProofUrl,
+      earlierQuotationProofName: row.earlierQuotationProofName || previous.earlierQuotationProofName,
+      closureRequestedBy: row.closureRequestedBy || previous.closureRequestedBy,
+      closureRequestedByText: row.closureRequestedByText || previous.closureRequestedByText,
       provisionalCloseExpiresAt: row.provisionalCloseExpiresAt || previous.provisionalCloseExpiresAt
     };
   });
@@ -454,7 +459,7 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
   const beforeRows = Array.isArray(beforeLead.assignments) ? beforeLead.assignments : [];
   const rows = Array.isArray(lead.assignments) ? lead.assignments : [];
   await Promise.all(rows.map(async (row, index) => {
-    if (row.poStatus !== 'received' || !row.closedBy) return;
+    if (row.poStatus !== 'received' || (!row.closedBy && !row.closureRequestedBy)) return;
     const before = beforeRows[index] || {};
     const changed = JSON.stringify(before.poYearRows || []) !== JSON.stringify(row.poYearRows || []);
     if (!changed && row.poApprovalStatus) return;
@@ -468,7 +473,7 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
         piboCategory: service.subApplicantType || service.piboCategory || service.applicantType || '',
         eprCategory: service.eprCategory || '', createdByName: actor?.name || actor?.email || '',
         requestDate: new Date().toLocaleDateString('en-GB'), requestTime: new Date().toLocaleTimeString('en-US'),
-        payload: { leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex: index, assignedServiceId: row.assignedServiceId || '', service, poYearRows: row.poYearRows || [], poSubmittedById: String(actor?._id || actor?.id || ''), poSubmittedByEmail: actor?.email || '', poSubmittedByName: actor?.name || actor?.email || '', leadCreatorId: String(lead.createdBy?._id || lead.createdBy || ''), leadCreatorEmail: lead.createdBy?.email || lead.createdByEmail || '', quotationCreatorIds: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedById).filter(Boolean))], quotationCreatorEmails: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedByEmail).filter(Boolean))] },
+        payload: { leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex: index, assignedServiceId: row.assignedServiceId || '', service, poYearRows: row.poYearRows || [], quotationSent: row.quotationSent || '', earlierQuotationProofUrl: row.earlierQuotationProofUrl || '', earlierQuotationProofName: row.earlierQuotationProofName || '', closureRequestedBy: row.closureRequestedBy || '', closureRequestedByText: row.closureRequestedByText || '', poSubmittedById: String(actor?._id || actor?.id || ''), poSubmittedByEmail: actor?.email || '', poSubmittedByName: actor?.name || actor?.email || '', leadCreatorId: String(lead.createdBy?._id || lead.createdBy || ''), leadCreatorEmail: lead.createdBy?.email || lead.createdByEmail || '', quotationCreatorIds: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedById).filter(Boolean))], quotationCreatorEmails: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedByEmail).filter(Boolean))] },
         actionBy: null, actionAt: null, remarks: ''
       } }, { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -1038,6 +1043,13 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
   const index = Number(approval.payload?.assignmentIndex);
   if (!lead.assignments?.[index]) return res.status(404).json({ error: 'Lead assignment not found.' });
   lead.assignments[index].poApprovalStatus = status;
+  if (status === 'APPROVED' && lead.assignments[index].closureRequestedBy) {
+    lead.assignments[index].closedBy = lead.assignments[index].closureRequestedBy;
+    lead.assignments[index].closedByText = lead.assignments[index].closureRequestedByText || approval.payload?.closureRequestedByText || '';
+    lead.assignments[index].closedAt = new Date();
+    lead.assignments[index].closureRequestedBy = '';
+    lead.assignments[index].closureRequestedByText = '';
+  }
   lead.markModified('assignments');
   await lead.save();
   approval.approvalStatus = status;
