@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
 const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+const directory = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/features/clientMaster/ClientDirectoryView.jsx'), 'utf8');
 
 test('Client Master discovery reads only lightweight identity metadata', () => {
   const catalog = controller.slice(
@@ -69,6 +70,15 @@ test('Client directory query excludes heavy files and only populates lead summar
   assert.match(list, /-data\.processDiagrams/);
   assert.match(list, /-data\.cpcbDataByAssignedServiceId/);
   assert.match(list, /populate\('selectedLead', 'leadCode company status'\)/);
+  assert.match(list, /populate\('createdBy', 'name email role avatarUrl'\)/);
+  assert.doesNotMatch(list, /workflowStatus: 'submitted'/);
   assert.match(list, /\.lean\(\)/);
   assert.doesNotMatch(list, /serviceSelections addresses contacts assignments/);
+});
+
+test('Client Master directory searches creators and deduplicates staff labels', () => {
+  assert.match(directory, /item\.createdBy\?\.name/);
+  assert.match(directory, /item\.createdBy\?\.email/);
+  assert.match(directory, /options\.get\(normalizedLabel\)/);
+  assert.match(directory, /if \(!current \|\| preferred\) options\.set\(normalizedLabel/);
 });

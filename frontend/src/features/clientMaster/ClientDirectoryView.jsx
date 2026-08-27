@@ -16,14 +16,20 @@ import {
 
 function buildStaffFilterOptions(staff = [], clients = []) {
   const options = new Map();
+  const add = (value, label, preferred = false) => {
+    const normalizedLabel = normalizeClientSearchText(label);
+    if (!value || !normalizedLabel) return;
+    const current = options.get(normalizedLabel);
+    if (!current || preferred) options.set(normalizedLabel, { value: String(value), label: String(label).trim() });
+  };
   staff.forEach((user) => {
     const id = user._id || user.id || user.name || user.email;
     const label = user.name || user.email;
-    if (id && label) options.set(String(id), { value: String(id), label });
+    add(id, label, true);
   });
   clients.forEach((item) => {
     const label = getAssignedName(item, staff);
-    if (label && label !== '-') options.set(`name:${label.toLowerCase()}`, { value: `name:${label}`, label });
+    if (label && label !== '-') add(`name:${label}`, label);
   });
   return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -70,6 +76,8 @@ function clientMatchesSearch(item, term, staff = []) {
     item.selectedLead?.company,
     item.selectedLead?.companyName,
     item.selectedLead?.leadCode,
+    item.createdBy?.name,
+    item.createdBy?.email,
     data.basic?.clientLegalName,
     data.basic?.tradeName,
     data.basic?.companyName,

@@ -893,7 +893,6 @@ function backgroundSyncPendingApprovals(clientRows = [], quotationRows = []) {
 exports.listClients = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
   const clients = await Client.find({
-    workflowStatus: 'submitted',
     'data.importMeta.approvalOverride': { $ne: true },
     ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
       'data.importMeta.assignedTo'
@@ -912,6 +911,7 @@ exports.listClients = async (req, res) => {
       '-data.authorisedPersons.panDocument'
     ].join(' '))
     .populate('selectedLead', 'leadCode company status')
+    .populate('createdBy', 'name email role avatarUrl')
     .populate('adminControls.assignedTo', 'name email role avatarUrl')
     .sort({ createdAt: -1 })
     .lean();
