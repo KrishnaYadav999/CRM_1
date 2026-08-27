@@ -4,6 +4,7 @@ import { Building2, CheckCircle2, ChevronDown, Download, Edit3, Eye, FileCheck2,
 import ToastMessage from '../../components/ToastMessage';
 import {
   getAssignedName,
+  getAssignedStaffNames,
   getCpcbStatus,
   getClientUniqueId,
   getFirstAnnualReturnYear,
@@ -91,6 +92,7 @@ function clientMatchesSearch(item, term, staff = []) {
     data.communicationAddress?.state,
     getVisibilityStatus(item),
     getAssignedName(item, staff),
+    ...getAssignedStaffNames(item, staff),
     data.basic?.piboCategory,
     data.basic?.eprCategory,
     getMsmeSummary(data),
@@ -199,6 +201,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
         'Created By': data.importMeta?.createdBy || '',
         'Creation Date': data.importMeta?.creationDate || item.createdAt || '',
         'Assigned To': getAssignedName(item, staff).replace(/^-$/, ''),
+        'Assigned Staff': getAssignedStaffNames(item, staff).join(', '),
         'Client Name': data.basic?.clientLegalName || '',
         State: data.registeredAddress?.state || '',
         'City with PIN': `${data.registeredAddress?.city || ''} ${data.registeredAddress?.pincode || ''}`.trim(),
@@ -304,12 +307,12 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
             <table className="crm-data-table w-full min-w-[1040px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
-                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'Service Category', 'MSME', 'CPCB Approval', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
+                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Assigned Staff', 'Visibility Status', 'Service Category', 'MSME', 'CPCB Approval', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {visibleClients.length === 0 ? (
-                  loading ? <ClientTableLoadingRows /> : <tr><td colSpan={10} className="px-5 py-12 text-center font-black text-slate-400">No clients found.</td></tr>
+                  loading ? <ClientTableLoadingRows /> : <tr><td colSpan={11} className="px-5 py-12 text-center font-black text-slate-400">No clients found.</td></tr>
                 ) : visibleClients.map((item) => {
                   const data = readClientData(item);
                   return (
@@ -319,6 +322,7 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.tradeName || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.registeredAddress?.state || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getAssignedName(item, staff)}</span></td>
+                      <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{getAssignedStaffNames(item, staff).join(', ') || '-'}</span></td>
                       <td className="px-5 py-4"><span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">{getVisibilityStatus(item)}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.eprCategory || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getMsmeSummary(data)}</span></td>

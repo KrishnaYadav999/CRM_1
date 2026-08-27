@@ -64,16 +64,16 @@ test('Server discovery is projected, capped, and supports legacy and modern Clie
   assert.match(services, /records\.map\(normalizeClientMaster\)/);
 });
 
-test('Client directory query excludes heavy files and only populates lead summary fields', () => {
+test('Client directory query excludes heavy files and includes assignment ownership fields', () => {
   const list = controller.slice(controller.indexOf('exports.listClients'), controller.indexOf('exports.listClientMasterCatalog'));
   assert.match(list, /-data\.cpcbScreenshots/);
   assert.match(list, /-data\.processDiagrams/);
   assert.match(list, /-data\.cpcbDataByAssignedServiceId/);
-  assert.match(list, /populate\('selectedLead', 'leadCode company status'\)/);
+  assert.match(list, /populate\('selectedLead', 'leadCode company status createdBy createdByName createdByEmail importedCreatedBy assignedStaff assignedStaffText assignedStaffEmail assignments'\)/);
   assert.match(list, /populate\('createdBy', 'name email role avatarUrl'\)/);
   assert.doesNotMatch(list, /workflowStatus: 'submitted'/);
   assert.match(list, /\.lean\(\)/);
-  assert.doesNotMatch(list, /serviceSelections addresses contacts assignments/);
+  assert.doesNotMatch(list, /serviceSelections addresses contacts/);
 });
 
 test('Client Master directory searches creators and deduplicates staff labels', () => {
@@ -81,4 +81,6 @@ test('Client Master directory searches creators and deduplicates staff labels', 
   assert.match(directory, /item\.createdBy\?\.email/);
   assert.match(directory, /options\.get\(normalizedLabel\)/);
   assert.match(directory, /if \(!current \|\| preferred\) options\.set\(normalizedLabel/);
+  assert.match(directory, /Assigned Staff/);
+  assert.match(directory, /getAssignedStaffNames/);
 });

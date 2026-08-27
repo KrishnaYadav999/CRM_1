@@ -545,6 +545,23 @@ function getAssignedName(item, people = []) {
   return 'Not assigned';
 }
 
+function getAssignedStaffNames(item, people = []) {
+  const assignments = [
+    ...(Array.isArray(item?.assignments) ? item.assignments : []),
+    ...(Array.isArray(item?.selectedLead?.assignments) ? item.selectedLead.assignments : [])
+  ];
+  const candidates = [
+    item?.assignedStaff,
+    item?.assignedStaffText,
+    item?.assignedStaffEmail,
+    item?.selectedLead?.assignedStaff,
+    item?.selectedLead?.assignedStaffText,
+    item?.selectedLead?.assignedStaffEmail,
+    ...assignments.flatMap((row) => [row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail])
+  ];
+  return [...new Set(candidates.map((value) => resolvePersonName(value, people)).filter(Boolean))];
+}
+
 function getCpcbStatus(data = {}) {
   return data.cpcb?.status
     || data.cpcb?.approvalStatus
@@ -822,16 +839,23 @@ function buildAnnualReturnYears(firstAnnualReturnYear) {
 
 function matchesAssignedStaff(item, staff, staffFilter) {
   if (!staffFilter) return true;
-  const assignedId = getAssignedId(item);
-  if (String(assignedId) === String(staffFilter)) return true;
-  if (String(staffFilter).startsWith('name:')) {
-    return normalizePersonName(getAssignedName(item, staff)) === normalizePersonName(String(staffFilter).slice(5));
-  }
-  const selectedStaff = staff.find((user) => String(user._id || user.id) === String(staffFilter));
-  const assignedName = normalizePersonName(getAssignedName(item, staff));
-  return Boolean(selectedStaff && assignedName !== '-' && (
-    assignedName === normalizePersonName(selectedStaff.name)
-  ));
+  const selectedStaff = staff.find((user) => [user?._id, user?.id, user?.crmUserId, user?.userId].some((value) => String(value || '') === String(staffFilter)));
+  const targetTokens = String(staffFilter).startsWith('name:')
+    ? [String(staffFilter).slice(5)]
+    : [staffFilter, selectedStaff?._id, selectedStaff?.id, selectedStaff?.crmUserId, selectedStaff?.userId, selectedStaff?.name, selectedStaff?.email];
+  const assignments = [...(Array.isArray(item?.assignments) ? item.assignments : []), ...(Array.isArray(item?.selectedLead?.assignments) ? item.selectedLead.assignments : [])];
+  const candidates = [
+    getAssignedId(item), getAssignedName(item, staff), item?.createdBy, item?.createdBy?.name, item?.createdBy?.email,
+    readClientData(item).importMeta?.createdBy, item?.selectedLead?.createdBy, item?.selectedLead?.createdByName,
+    item?.selectedLead?.createdByEmail, item?.selectedLead?.importedCreatedBy,
+    ...getAssignedStaffNames(item, staff),
+    ...assignments.flatMap((row) => [row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail])
+  ];
+  const normalizedTargets = targetTokens.map(normalizePersonName).filter(Boolean);
+  return candidates.some((candidate) => {
+    if (candidate && typeof candidate === 'object') return [candidate._id, candidate.id, candidate.crmUserId, candidate.userId, candidate.name, candidate.email].some((value) => normalizedTargets.includes(normalizePersonName(value)));
+    return normalizedTargets.includes(normalizePersonName(candidate));
+  });
 }
 
 function normalizeApproval(value) {
@@ -1069,6 +1093,7 @@ export {
   normalizePersonName,
   getVisibilityStatus,
   getAssignedName,
+  getAssignedStaffNames,
   getCpcbStatus,
   getOtpMobile,
   getOtpName,

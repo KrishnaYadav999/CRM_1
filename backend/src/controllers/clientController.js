@@ -910,7 +910,7 @@ exports.listClients = async (req, res) => {
       '-data.cte.plantWiseDetails.ctoDocument', '-data.authorised.panDocument',
       '-data.authorisedPersons.panDocument'
     ].join(' '))
-    .populate('selectedLead', 'leadCode company status')
+    .populate('selectedLead', 'leadCode company status createdBy createdByName createdByEmail importedCreatedBy assignedStaff assignedStaffText assignedStaffEmail assignments')
     .populate('createdBy', 'name email role avatarUrl')
     .populate('adminControls.assignedTo', 'name email role avatarUrl')
     .sort({ createdAt: -1 })
