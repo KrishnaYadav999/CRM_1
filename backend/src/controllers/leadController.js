@@ -277,6 +277,7 @@ function cleanBody(body) {
           earlierQuotationProofName: String(row?.earlierQuotationProofName || '').trim(),
           closureRequestedBy: String(row?.closureRequestedBy || '').trim(),
           closureRequestedByText: String(row?.closureRequestedByText || '').trim(),
+          closureFinalizedByManager: Boolean(row?.closureFinalizedByManager),
           closureApprovalProofUrl: String(row?.closureApprovalProofUrl || '').trim(),
           closureApprovalProofName: String(row?.closureApprovalProofName || '').trim(),
           provisionalCloseExpiresAt: String(row?.provisionalCloseExpiresAt || '').trim(),
@@ -427,6 +428,7 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
       earlierQuotationProofName: row.earlierQuotationProofName || previous.earlierQuotationProofName,
       closureRequestedBy: row.closureRequestedBy || previous.closureRequestedBy,
       closureRequestedByText: row.closureRequestedByText || previous.closureRequestedByText,
+      closureFinalizedByManager: Boolean(row.closureFinalizedByManager || previous.closureFinalizedByManager),
       provisionalCloseExpiresAt: row.provisionalCloseExpiresAt || previous.provisionalCloseExpiresAt
     };
   });
@@ -985,6 +987,13 @@ exports.updateLead = async (req, res) => {
       data.subApplicantType = selection.piboCategory;
     }
 
+    if (Array.isArray(data.assignments)) {
+      data.assignments = data.assignments.map((row) => {
+        const approved = String(row?.poApprovalStatus || '').toUpperCase() === 'APPROVED';
+        if (!approved || !row?.assignedTo || !row?.closureRequestedBy || row?.closedBy) return row;
+        return { ...row, closedBy: row.closureRequestedBy, closedByText: row.closureRequestedByText || '', closedAt: new Date().toISOString(), closureFinalizedByManager: true };
+      });
+    }
     Object.assign(lead, data);
     if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
       lead.piboCategory = undefined;
@@ -1016,10 +1025,11 @@ exports.updateLead = async (req, res) => {
         manager: req.user
       }).catch((error) => console.error('Staff onboarding assignment notification failed', error));
     }
-    const managerId = String(req.body?.assignedToCrmUserId || req.body?.assignedTo || lead.assignedTo || '').trim();
-    if (managerId) {
-      await notifyLeadAssignment({ lead: lead.toObject(), managerId, assignedBy: req.user }).catch((error) => console.error('Lead assignment notification failed', error));
-    }
+    const savedLead = lead.toObject();
+    const beforeAssignments = Array.isArray(beforeLead.assignments) ? beforeLead.assignments : [];
+    const changedManagerRows = (savedLead.assignments || []).map((row, index) => ({ row, index })).filter(({ row, index }) => row?.assignedTo && String(row.assignedTo) !== String(beforeAssignments[index]?.assignedTo || ''));
+    await Promise.all(changedManagerRows.map(({ row, index }) => notifyLeadAssignment({ lead: savedLead, managerId: row.assignedTo, assignedBy: req.user, assignmentIndex: index })
+      .catch((error) => console.error('Lead assignment notification failed', error))));
     const introductionEmail = sendIntroductionEmail && lead.workflowStatus === 'submitted'
       ? await sendIntroductionWhenRequested(lead, req.user)
       : { requested: sendIntroductionEmail, sent: false, status: sendIntroductionEmail ? 'skipped' : 'not-requested', reason: sendIntroductionEmail ? 'not-submitted' : undefined };
@@ -1054,11 +1064,14 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
   lead.assignments[index].poApprovalStatus = status;
   const closureRequestedBy = lead.assignments[index].closureRequestedBy || approval.payload?.closureRequestedBy;
   if (status === 'APPROVED' && closureRequestedBy) {
-    lead.assignments[index].closedBy = closureRequestedBy;
-    lead.assignments[index].closedByText = lead.assignments[index].closureRequestedByText || approval.payload?.closureRequestedByText || '';
-    lead.assignments[index].closedAt = new Date();
-    lead.assignments[index].closureRequestedBy = '';
-    lead.assignments[index].closureRequestedByText = '';
+    lead.assignments[index].closureRequestedBy = closureRequestedBy;
+    lead.assignments[index].closureRequestedByText = lead.assignments[index].closureRequestedByText || approval.payload?.closureRequestedByText || '';
+    if (lead.assignments[index].assignedTo) {
+      lead.assignments[index].closedBy = closureRequestedBy;
+      lead.assignments[index].closedByText = lead.assignments[index].closureRequestedByText;
+      lead.assignments[index].closedAt = new Date();
+      lead.assignments[index].closureFinalizedByManager = true;
+    }
   }
   lead.markModified('assignments');
   await lead.save();

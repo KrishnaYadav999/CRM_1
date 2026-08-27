@@ -30,8 +30,23 @@ test('PO received closure asks whether quotation was sent and supports earlier q
   assert.match(leadController, /poFileUrl: String\(po\?\.poFileUrl/);
   assert.match(leadController, /status === 'APPROVED'.*closureRequestedBy/s);
   assert.match(leadController, /approval\.payload\?\.closureRequestedBy/);
+  assert.doesNotMatch(leadController, /status === 'APPROVED'[\s\S]{0,300}closureRequestedBy = ''/);
+  assert.match(leadController, /poApprovalStatus[\s\S]*assignedTo[\s\S]*closureRequestedBy[\s\S]*closureFinalizedByManager/);
   assert.match(pendingApprovalPage, /View earlier quotation proof/);
   assert.match(pendingApprovalPage, /row\.quotationSent === 'no' \? 0/);
+});
+
+test('approved PO unlocks manager assignment and manager assignment closes the service', () => {
+  const leadPage = read('../../frontend/src/pages/LeadGeneration.jsx');
+  const leadController = read('../src/controllers/leadController.js');
+  const managerNotifications = read('../src/services/leadAssignmentNotifications.js');
+  const staffWorkflow = read('../src/services/staffOnboardingWorkflow.js');
+  assert.match(leadPage, /managerAssignmentReady/);
+  assert.match(leadPage, /Select manager to close service/);
+  assert.match(leadController, /changedManagerRows/);
+  assert.match(managerNotifications, /assignmentIndex/);
+  assert.match(staffWorkflow, /A new client is assigned to you/);
+  assert.match(staffWorkflow, /await sendMail\(/);
 });
 
 test('PO approval is persisted and restricted to Admin and Super Admin', () => {

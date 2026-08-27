@@ -9,11 +9,11 @@ function escapeHtml(value) {
   }[character]));
 }
 
-function latestFinancialYearRow(lead = {}) {
+function latestFinancialYearRow(lead = {}, assignmentIndex = null) {
   const services = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
-  const service = [...services].reverse().find((row) => row?.firstAnnualReturnYearApplicable) || {};
+  const service = Number.isInteger(assignmentIndex) ? (services[assignmentIndex] || {}) : ([...services].reverse().find((row) => row?.firstAnnualReturnYearApplicable) || {});
   const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
-  const assignment = assignments[assignments.length - 1] || lead;
+  const assignment = Number.isInteger(assignmentIndex) ? (assignments[assignmentIndex] || lead) : (assignments[assignments.length - 1] || lead);
   return {
     fy: service.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable || '-',
     industryType: service.industryType || '-',
@@ -36,7 +36,7 @@ async function resolveManager(value) {
   return User.findOne({ $or: query, role: 'manager', isActive: { $ne: false } }).select('_id name email role').lean();
 }
 
-async function notifyLeadAssignment({ lead, managerId, assignedBy }) {
+async function notifyLeadAssignment({ lead, managerId, assignedBy, assignmentIndex = null }) {
   const manager = await resolveManager(managerId);
   if (!manager) return { ok: false, reason: 'manager_not_found' };
 
@@ -44,14 +44,15 @@ async function notifyLeadAssignment({ lead, managerId, assignedBy }) {
   const leadCode = String(lead?.leadCode || lead?.leadNumber || '').trim();
   const company = String(lead?.company || lead?.companyName || 'a company').trim();
   const creatorName = String(assignedBy?.name || assignedBy?.email || 'A CRM user').trim();
-  const fyRow = latestFinancialYearRow(lead);
+  const fyRow = latestFinancialYearRow(lead, assignmentIndex);
   fyRow.generatedBy = creatorName;
   const existing = await Notification.findOne({
     kind: 'lead_assigned_to_manager',
     audience: manager._id,
     'metadata.leadId': leadId,
     'metadata.managerId': String(manager._id),
-    'metadata.financialYear': fyRow.fy
+    'metadata.financialYear': fyRow.fy,
+    'metadata.assignmentIndex': Number.isInteger(assignmentIndex) ? assignmentIndex : -1
   }).lean();
   if (existing) return { ok: true, skipped: true };
 
@@ -64,7 +65,7 @@ async function notifyLeadAssignment({ lead, managerId, assignedBy }) {
     createdBy: assignedBy?._id,
     createdByName: creatorName,
     audience: [manager._id],
-    metadata: { leadId, leadCode, company, managerId: String(manager._id), assignedBy: creatorName, financialYear: fyRow.fy, rows: [fyRow] }
+    metadata: { leadId, leadCode, company, managerId: String(manager._id), assignedBy: creatorName, financialYear: fyRow.fy, assignmentIndex: Number.isInteger(assignmentIndex) ? assignmentIndex : -1, rows: [fyRow] }
   });
   notification.crmNotificationId = String(notification._id);
   await notification.save();
