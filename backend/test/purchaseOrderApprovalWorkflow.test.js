@@ -38,6 +38,8 @@ test('PO received closure asks whether quotation was sent and supports earlier q
   assert.doesNotMatch(leadController, /status === 'APPROVED'[\s\S]{0,300}closureRequestedBy = ''/);
   assert.match(leadController, /poApprovalStatus[\s\S]*assignedTo[\s\S]*closureRequestedBy[\s\S]*closureFinalizedByManager/);
   assert.match(pendingApprovalPage, /View earlier quotation proof/);
+  assert.match(pendingApprovalPage, /const poRows = normalizedPoRows\.length/);
+  assert.match(pendingApprovalPage, /Upload Missing PO Proof/);
   assert.match(pendingApprovalPage, /row\.quotationSent === 'no' \? 0/);
 });
 
