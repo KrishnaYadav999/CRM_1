@@ -178,6 +178,7 @@ async function scheduleLinkedLeadFollowUp(item, user) {
     if (!temporaryLead) return null;
     if (!Array.isArray(temporaryLead.followUpHistory)) temporaryLead.followUpHistory = [];
     const calendarItemId = String(raw._id || raw.externalId || '');
+    temporaryLead.followUpHistory = temporaryLead.followUpHistory.map((entry) => String(entry.status || '').toLowerCase() === 'open' && String(entry.calendarItemId || '') !== calendarItemId ? { ...entry, status: 'updated', updatedAt: new Date().toISOString(), updatedBy: user?.name || user?.email || raw.createdBy || '' } : entry);
     if (!temporaryLead.followUpHistory.some((entry) => String(entry.calendarItemId || '') === calendarItemId)) temporaryLead.followUpHistory.unshift({ calendarItemId, scheduledDate: raw.scheduledDate || '', scheduledTime: raw.scheduledTime || '', remarks: raw.updateReason || raw.description || raw.title || '', priority: raw.priority || 'Medium', status: 'open', createdAt: new Date().toISOString(), createdBy: user?.name || user?.email || raw.createdBy || '' });
     temporaryLead.nextFollowUpDate = raw.scheduledDate || '';
     temporaryLead.nextFollowUpTime = raw.scheduledTime || '';

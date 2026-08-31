@@ -56,3 +56,17 @@ test('Calendar supports temporary client selection, follow-up creation and clean
   assert.match(controller, /temporaryLead\.followUpHistory/);
   assert.match(controller, /scheduleLinkedLeadFollowUp[\s\S]*ATPL-TEMP-/);
 });
+
+test('temporary lead follow-ups use the full upcoming and previous tracker workflow', () => {
+  const page = read('../../frontend/src/pages/LeadGeneration.jsx');
+  const temporaryController = read('../src/controllers/temporaryLeadController.js');
+  const calendarController = read('../src/controllers/calendarItemController.js');
+  assert.match(page, /TemporaryLeadFollowUpTracker/);
+  assert.match(page, /Upcoming Follow-Ups/);
+  assert.match(page, /Previous Follow-Ups/);
+  assert.match(page, /Add Follow-Up/);
+  assert.match(page, /No upcoming follow-ups\./);
+  assert.match(page, /No previous follow-ups\./);
+  assert.match(temporaryController, /String\(entry\.status[\s\S]*=== 'open'[\s\S]*status: 'updated'/);
+  assert.match(calendarController, /String\(entry\.status[\s\S]*=== 'open'[\s\S]*status: 'updated'/);
+});
