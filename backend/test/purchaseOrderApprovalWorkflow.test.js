@@ -30,6 +30,9 @@ test('PO received closure asks whether quotation was sent and supports earlier q
   assert.match(leadController, /const poProofManifest = poRowsSnapshot\.map/);
   assert.match(leadController, /poFileUrl: String\(po\.poFileUrl/);
   assert.match(leadController, /poYearRows: poRowsSnapshot, poProofManifest/);
+  assert.match(leadController, /submittedAssignments: data\.assignments/);
+  assert.match(leadController, /const snapshotSource = Array\.isArray\(submittedRow\?\.poYearRows\)/);
+  assert.match(leadController, /const proof = resolvePoProof\(po\)/);
   assert.match(leadController, /status === 'APPROVED'.*closureRequestedBy/s);
   assert.match(leadController, /approval\.payload\?\.closureRequestedBy/);
   assert.doesNotMatch(leadController, /status === 'APPROVED'[\s\S]{0,300}closureRequestedBy = ''/);

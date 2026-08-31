@@ -467,7 +467,7 @@ function buildPurchaseOrderEmail({ eyebrow, title, message, clientName, leadCode
   </div>`;
 }
 
-async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
+async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor, submittedAssignments = [] }) {
   const beforeRows = Array.isArray(beforeLead.assignments) ? beforeLead.assignments : [];
   const rows = Array.isArray(lead.assignments) ? lead.assignments : [];
   await Promise.all(rows.map(async (row, index) => {
@@ -478,7 +478,19 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
     row.poApprovalStatus = 'PENDING';
     const service = (lead.serviceSelections || [])[index] || {};
     const sourceClientId = `${lead._id}:po:${row.assignedServiceId || index}`;
-    const poRowsSnapshot = (Array.isArray(row.poYearRows) ? row.poYearRows : []).map((po) => ({ ...po }));
+    // Build the approval snapshot from the validated request rows. Using the
+    // hydrated Mongoose array here could retain the numeric PO fields while
+    // losing newly uploaded proof metadata before the approval was persisted.
+    const submittedRow = Array.isArray(submittedAssignments) ? submittedAssignments[index] : null;
+    const snapshotSource = Array.isArray(submittedRow?.poYearRows) && submittedRow.poYearRows.length
+      ? submittedRow.poYearRows
+      : (Array.isArray(row.poYearRows) ? row.poYearRows : []);
+    const poRowsSnapshot = snapshotSource.map((po) => {
+      const proof = resolvePoProof(po);
+      return { ...po, poFileUrl: proof.url, poFileName: proof.name || String(po?.poFileName || '').trim() };
+    });
+    const missingProofRows = poRowsSnapshot.filter((po) => !po.poFileUrl).map((po) => po.poNumber || '(no PO number)');
+    if (missingProofRows.length) console.error('[purchase-order-approval] validated PO proof missing from snapshot', { leadCode: lead.leadCode, assignmentIndex: index, poNumbers: missingProofRows });
     const poProofManifest = poRowsSnapshot.map((po, rowIndex) => ({ rowIndex, poNumber: String(po.poNumber || '').trim(), poFileUrl: String(po.poFileUrl || '').trim(), poFileName: String(po.poFileName || '').trim(), poFileMimeType: String(po.poFileMimeType || '').trim(), poFileSize: po.poFileSize ?? null }));
     const savedApproval = await PendingApproval.findOneAndUpdate(
       { type: 'purchase_order', source: 'crm', sourceClientId },
@@ -1003,7 +1015,7 @@ exports.updateLead = async (req, res) => {
     }
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
-    await upsertPurchaseOrderApprovals({ beforeLead, lead, actor: req.user });
+    await upsertPurchaseOrderApprovals({ beforeLead, lead, actor: req.user, submittedAssignments: data.assignments });
     await lead.save();
     if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
       await Lead.collection.updateOne({ _id: lead._id }, { $unset: { piboCategory: '' } });
