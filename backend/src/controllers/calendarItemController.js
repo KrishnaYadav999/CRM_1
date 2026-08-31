@@ -146,7 +146,7 @@ async function closeLinkedLeadFollowUp(item, user) {
     const closedAt = String(raw.completedAt || new Date().toISOString());
     if (!Array.isArray(temporaryLead.followUpHistory)) temporaryLead.followUpHistory = [];
     temporaryLead.followUpHistory.unshift({ calendarItemId: String(raw._id || ''), scheduledDate: raw.scheduledDate || temporaryLead.nextFollowUpDate || '', scheduledTime: raw.scheduledTime || temporaryLead.nextFollowUpTime || '', remarks: raw.completionRemarks || temporaryLead.followUpRemarks || 'Follow-up completed', priority: raw.priority || temporaryLead.followUpPriority || 'Medium', status: 'closed', closedAt, closedBy: user?.name || user?.email || raw.assignedToName || 'CRM User' });
-    temporaryLead.nextFollowUpDate = ''; temporaryLead.nextFollowUpTime = ''; temporaryLead.followUpRemarks = '';
+    temporaryLead.nextFollowUpDate = ''; temporaryLead.nextFollowUpTime = ''; temporaryLead.followUpRemarks = ''; temporaryLead.followUpFlag = 'GREEN';
     await temporaryLead.save();
     return temporaryLead;
   }
@@ -184,6 +184,7 @@ async function scheduleLinkedLeadFollowUp(item, user) {
     temporaryLead.nextFollowUpTime = raw.scheduledTime || '';
     temporaryLead.followUpRemarks = raw.updateReason || raw.description || raw.title || '';
     temporaryLead.followUpPriority = raw.priority || 'Medium';
+    temporaryLead.followUpFlag = 'GREEN';
     await temporaryLead.save();
     return temporaryLead;
   }

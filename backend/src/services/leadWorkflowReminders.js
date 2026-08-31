@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Lead = require('../models/Lead');
+const TemporaryLead = require('../models/TemporaryLead');
 const Notification = require('../models/Notification');
 const PendingApproval = require('../models/PendingApproval');
 const Quotation = require('../models/Quotation');
@@ -426,6 +427,64 @@ async function remindOldDraftsLegacy(leads, now) {
   await Promise.allSettled(recipients.filter((user) => user.email).map((user) => sendMail(user.email, `30-day Unclosed Leads (${rows.length})`, html, { branded: false })));
 }
 
+async function temporaryLeadOwner(row) {
+  const options = [];
+  const id = String(row.createdBy || '').trim();
+  const email = String(row.createdByEmail || '').trim().toLowerCase();
+  const name = String(row.createdByName || '').trim();
+  if (id) {
+    options.push({ crmUserId: id });
+    if (mongoose.isValidObjectId(id)) options.push({ _id: id });
+  }
+  if (email) options.push({ email });
+  if (name) options.push({ name });
+  return options.length ? User.findOne({ $or: options, isActive: { $ne: false } }).select('_id name email').lean() : null;
+}
+
+async function remindTemporaryLeadFollowUps(now) {
+  const rows = await TemporaryLead.find({ status: 'DRAFT', nextFollowUpDate: { $exists: true, $nin: ['', null] } }).lean();
+  for (const row of rows) {
+    const due = new Date(`${row.nextFollowUpDate}T${row.nextFollowUpTime || '09:00'}:00`);
+    if (!due.getTime()) continue;
+    const stage = followUpEscalationStage(due.getTime(), now);
+    if (!stage) continue;
+    const key = `${row.tempLeadCode}:${row.nextFollowUpDate}:${row.nextFollowUpTime || ''}:${stage}`;
+    if (await Notification.exists({ kind: 'temporary_lead_followup_escalation', 'metadata.key': key })) continue;
+    const owner = await temporaryLeadOwner(row);
+    if (!owner) continue;
+    const labels = {
+      DUE_IN_30M: 'is due within 30 minutes', OVERDUE_30M: 'is overdue by at least 30 minutes',
+      OVERDUE_60M: 'is overdue by at least 60 minutes', RED_FLAG_24H: 'is overdue by 24 hours and has been red-flagged',
+      PERMANENT_RED_48H: 'is overdue by 48 hours and now has a permanent red flag'
+    };
+    const isPermanentRed = stage === 'PERMANENT_RED_48H';
+    const isRedFlag = stage === 'RED_FLAG_24H' || isPermanentRed;
+    const description = `${row.tempLeadCode} · ${row.clientName} temporary lead follow-up ${labels[stage]}. ${row.followUpRemarks || 'Follow-up action is pending.'}`;
+    const item = await Notification.create({
+      title: isPermanentRed ? 'PERMANENT RED FLAG: Temporary lead follow-up not completed' : isRedFlag ? 'RED FLAG: Temporary lead follow-up overdue' : 'Temporary lead follow-up reminder',
+      description,
+      tag: isPermanentRed ? 'Permanent Red Flag' : isRedFlag ? 'Red Flag' : 'Follow-Up',
+      kind: 'temporary_lead_followup_escalation',
+      audience: [owner._id],
+      visibleToRoles: [],
+      metadata: { key, stage, temporaryLeadId: String(row._id), tempLeadCode: row.tempLeadCode, dueAt: due.toISOString(), priority: row.followUpPriority || 'Medium' }
+    });
+    item.crmNotificationId = String(item._id); await item.save();
+    if (owner.email) {
+      const html = buildFollowUpReminderEmail({ company: `${row.clientName} (${row.tempLeadCode})`, description, date: row.nextFollowUpDate, time: row.nextFollowUpTime || '', priority: row.followUpPriority || 'Medium', isRedFlag });
+      try {
+        await sendMail(owner.email, `${isPermanentRed ? 'PERMANENT RED FLAG' : isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${row.clientName} (${row.tempLeadCode})`, html, { branded: false });
+      } catch (error) {
+        await Notification.deleteOne({ _id: item._id }).catch(() => null);
+        console.error(`Temporary lead follow-up email failed for ${row.tempLeadCode}; it will be retried.`, error.message);
+        continue;
+      }
+    }
+    if (isRedFlag) await TemporaryLead.updateOne({ _id: row._id }, { $set: { followUpFlag: isPermanentRed ? 'PERMANENT_RED' : 'RED' } });
+  }
+  return rows.length;
+}
+
 function buildMonthEndSummaryEmail({ monthKey, openCount, closedCount }) {
   const appUrl = String(process.env.FRONTEND_URL || process.env.APP_URL || 'https://crmananttattva.vercel.app').trim().replace(/\/$/, '');
   const reviewUrl = `${appUrl}/pending-leads/open`;
@@ -478,10 +537,11 @@ async function runLeadWorkflowReminders() {
     const leads = await getCcpLeads();
     await remindManagers(leads, now);
     await remindFollowUps(leads, now);
+    const temporaryLeadFollowUps = await remindTemporaryLeadFollowUps(now);
     await remindApprovals(now);
     await remindOldDrafts(leads, now);
     const serviceEndReminders = await remindServiceEndDates(now);
-    return { leads: leads.length, serviceEndReminders };
+    return { leads: leads.length, temporaryLeadFollowUps, serviceEndReminders };
   } finally { running = false; }
 }
 
@@ -497,5 +557,5 @@ function startLeadWorkflowReminderScheduler() {
 module.exports = {
   runLeadWorkflowReminders,
   startLeadWorkflowReminderScheduler,
-  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr, followUpEscalationStage, indiaMonthKeyOnFirst, indiaMonthEndKey, buildMonthEndSummaryEmail }
+  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr, followUpEscalationStage, indiaMonthKeyOnFirst, indiaMonthEndKey, buildMonthEndSummaryEmail, remindTemporaryLeadFollowUps }
 };

@@ -70,3 +70,23 @@ test('getCcpLeads does not turn database failures into false zero-count summarie
   assert.match(fetchBlock, /throw error/);
   assert.doesNotMatch(fetchBlock, /return \[\]/);
 });
+
+test('temporary lead follow-ups receive every reminder stage by owner email without duplicates', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
+  const block = source.match(/async function remindTemporaryLeadFollowUps[\s\S]*?\n}\n\nfunction buildMonthEndSummaryEmail/)?.[0] || '';
+  assert.match(block, /TemporaryLead\.find\(\{ status: 'DRAFT'/);
+  assert.match(block, /temporary_lead_followup_escalation/);
+  assert.match(block, /Notification\.exists/);
+  assert.match(block, /sendMail\(owner\.email/);
+  assert.match(block, /Notification\.deleteOne/);
+  assert.match(block, /it will be retried/);
+  assert.match(block, /DUE_IN_30M/);
+  assert.match(block, /OVERDUE_30M/);
+  assert.match(block, /OVERDUE_60M/);
+  assert.match(block, /RED_FLAG_24H/);
+  assert.match(block, /PERMANENT_RED_48H/);
+  assert.doesNotMatch(block, /admins\(/);
+  assert.match(source, /await remindTemporaryLeadFollowUps\(now\)/);
+});

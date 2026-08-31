@@ -15,6 +15,7 @@ const TemporaryLeadSchema = new mongoose.Schema({
   nextFollowUpTime: { type: String, trim: true },
   followUpRemarks: { type: String, trim: true },
   followUpPriority: { type: String, trim: true, default: 'Medium' },
+  followUpFlag: { type: String, trim: true, default: 'GREEN' },
   followUpHistory: { type: Array, default: [] }
 }, { timestamps: true });
 
