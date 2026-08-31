@@ -21,8 +21,14 @@ const FILE_FIELDS = [
 function firstText(source, fields) {
   if (!source || typeof source !== 'object') return '';
   for (const field of fields) {
-    const value = text(source[field]);
-    if (value && value !== '[object Object]') return value;
+    const raw = source[field];
+    if (raw === null || raw === undefined) continue;
+    if (Array.isArray(raw)) continue;
+    if (typeof raw === 'object') continue;
+    const value = text(raw);
+    if (!value) continue;
+    if (/\[object/.test(value)) continue;
+    return value;
   }
   return '';
 }

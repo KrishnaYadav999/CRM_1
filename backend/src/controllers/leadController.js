@@ -407,14 +407,35 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
     const previousPoRows = Array.isArray(previous.poYearRows) ? previous.poYearRows : [];
     const nextPoRows = Array.isArray(row.poYearRows) ? row.poYearRows : [];
     const mergedPoRows = nextPoRows.length ? nextPoRows.map((po, poIndex) => {
-      const saved = previousPoRows.find((item) => po?.poNumber && item?.poNumber === po.poNumber) || previousPoRows[poIndex] || {};
+      // Match by poNumber only when both sides carry a non-empty poNumber; avoid accidental positional reuse.
+      let saved = {};
+      if (po?.poNumber) {
+        saved = previousPoRows.find((item) => item && item.poNumber === po.poNumber) || {};
+      }
+      if (
+        !saved
+        && previousPoRows.length > 0
+        && previousPoRows.length === nextPoRows.length
+        && (!po?.poNumber || (previousPoRows[poIndex] && previousPoRows[poIndex].poNumber === po.poNumber))
+      ) {
+        saved = previousPoRows[poIndex] || {};
+      }
+      const finalProof = resolvePoProof(po, saved);
       return {
         ...saved,
         ...po,
-        poAmount: Number(po?.poAmount) > 0 ? po.poAmount : saved.poAmount,
-        poFileUrl: resolvePoProof(po, saved).url,
-        poFileName: resolvePoProof(po, saved).name,
-        services: Array.isArray(po?.services) && po.services.length ? po.services : saved.services
+        poYear: String(po?.poYear || saved?.poYear || '').trim(),
+        poNumber: String(po?.poNumber || saved?.poNumber || '').trim(),
+        poAmount: Math.max(
+          0,
+          Number(Number.isFinite(Number(po?.poAmount)) ? po.poAmount : null)
+          || Number(Number.isFinite(Number(saved?.poAmount)) ? saved.poAmount : null)
+          || 0
+        ),
+        poReceivedDate: po?.poReceivedDate || saved?.poReceivedDate || null,
+        poFileUrl: finalProof.url || '',
+        poFileName: finalProof.name || '',
+        services: Array.isArray(po?.services) && po.services.length ? po.services : (saved.services || [])
       };
     }) : previousPoRows;
     return {
@@ -1461,27 +1482,31 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         : Array.isArray(assignment?.poRows) ? assignment.poRows
           : Array.isArray(assignment?.purchaseOrders) ? assignment.purchaseOrders : [];
       const poYearRows = (liveRows.length ? liveRows : snapshotRows).map((liveRow, rowIndex) => {
-        const snapshot = snapshotRows.find((row) => row.poNumber && row.poNumber === liveRow.poNumber) || snapshotRows[rowIndex] || {};
+        const snapshot = snapshotRows.find((row) => row && liveRow?.poNumber && row.poNumber === liveRow.poNumber)
+                      || snapshotRows[rowIndex]
+                      || {};
         const row = { ...snapshot, ...liveRow };
         const quotation = quoteForRow(row, lead);
         const poAmount = Number(liveRow.poAmount) > 0 ? Number(liveRow.poAmount)
           : Number(snapshot.poAmount) > 0 ? Number(snapshot.poAmount)
             : Number(quotation?.grandTotal) || null;
-        const normalizedProof = resolveApprovalPoProof({ approval, normalizedRow: row, rowIndex });
+        const normalizedProof = resolveApprovalPoProof({ approval, normalizedRow: { ...snapshot, ...liveRow }, rowIndex });
         const savedQuotationItems = Array.isArray(liveRow.quotationItems) && liveRow.quotationItems.length
           ? liveRow.quotationItems
           : Array.isArray(snapshot.quotationItems) && snapshot.quotationItems.length ? snapshot.quotationItems : [];
         return {
           ...row,
           poAmount,
+          poFileUrl: normalizedProof.poFileUrl || row.poFileUrl || snapshot.poFileUrl || liveRow.poFileUrl || '',
+          poFileName: normalizedProof.poFileName || row.poFileName || snapshot.poFileName || liveRow.poFileName || '',
           ...normalizedProof,
           currency: row.currency || 'INR',
           quotationId: row.quotationId || (quotation?._id ? String(quotation._id) : ''),
           quotationNumber: row.quotationNumber || quotation?.quotationNumber || '',
           quotationItems: savedQuotationItems.length ? savedQuotationItems : (quotation?.items || []),
           quotationBasicAmount: Number(quotation?.combinedBasicAmount) || Number(quotation?.subtotal) || Number(quotation?.grandTotal) || null,
-          poFileMimeType: normalizedProof.poFileMimeType || row.poFileMimeType || '',
-          poFileSize: normalizedProof.poFileSize ?? row.poFileSize ?? null
+          poFileMimeType: normalizedProof.poFileMimeType || row.poFileMimeType || snapshot.poFileMimeType || liveRow.poFileMimeType || '',
+          poFileSize: normalizedProof.poFileSize ?? row.poFileSize ?? snapshot.poFileSize ?? liveRow.poFileSize ?? null
         };
       });
       const resolvedIndex = assignments.indexOf(assignment);

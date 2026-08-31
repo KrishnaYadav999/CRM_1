@@ -64,20 +64,46 @@ function formatAmount(value) {
   return amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function _isUsableProofValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/\[object/i.test(trimmed)) return false;
+  return true;
+}
+
+function _firstUsable(values, fallback = '') {
+  for (const value of values) {
+    if (_isUsableProofValue(value)) return typeof value === 'number' ? String(value) : String(value).trim();
+  }
+  return fallback;
+}
+
 function getPoProofUrl(row = {}) {
+  if (!row || typeof row !== 'object') return '';
   const nestedUrl = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment]
-    .filter((value) => value && typeof value === 'object')
-    .map((value) => value.poFileUrl || value.fileUrl || value.secureUrl || value.secure_url || value.url)
-    .find((value) => String(value || '').trim());
-  return String(row.poFileUrl || row.poProofUrl || row.poDocumentUrl || row.poUploadUrl || row.poAttachmentUrl || row.uploadedDocumentUrl || row.documentUrl || row.fileUrl || row.secureUrl || row.secure_url || nestedUrl || '').trim();
+    .filter((value) => value && typeof value === 'object' && !Array.isArray(value))
+    .map((value) => _firstUsable([value.poFileUrl, value.proofUrl, value.fileUrl, value.secureUrl, value.secure_url, value.url]))
+    .find((value) => value);
+  return _firstUsable([
+    row.poFileUrl, row.poProofUrl, row.poDocumentUrl, row.poUploadUrl, row.poAttachmentUrl,
+    row.uploadedDocumentUrl, row.documentUrl, row.fileUrl, row.secureUrl, row.secure_url,
+    row.url, nestedUrl
+  ]);
 }
 
 function getPoProofName(row = {}) {
+  if (!row || typeof row !== 'object') return 'PO proof';
   const nestedName = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment]
-    .filter((value) => value && typeof value === 'object')
-    .map((value) => value.poFileName || value.fileName || value.originalName || value.name)
-    .find((value) => String(value || '').trim());
-  return String(row.poFileName || row.poProofName || row.poDocumentName || row.poUploadName || row.poAttachmentName || row.uploadedDocumentName || row.documentName || row.fileName || nestedName || 'PO proof').trim();
+    .filter((value) => value && typeof value === 'object' && !Array.isArray(value))
+    .map((value) => _firstUsable([value.poFileName, value.proofName, value.fileName, value.originalName, value.name]))
+    .find((value) => value);
+  return _firstUsable([
+    row.poFileName, row.poProofName, row.poDocumentName, row.poUploadName, row.poAttachmentName,
+    row.uploadedDocumentName, row.documentName, row.fileName, nestedName
+  ], 'PO proof');
 }
 
 function getApprovalPoRows(payload = {}) {
@@ -97,17 +123,39 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
     const indexedPoNumber = String(entry?.poNumber || '').trim();
     return entry && (!poNumber || !indexedPoNumber || indexedPoNumber === poNumber) ? entry : null;
   };
-  const sources = [normalizedRow, indexedForPo(payloadRows), payloadRows.find(matchesPoNumber), indexedForPo(manifest), manifest.find(matchesPoNumber), payload, approval].filter(Boolean);
+  // Mirror backend: merge snapshot (payload rows / manifest) with live normalizedRow, then scan.
+  // The key: both sides participate — an empty normalizedRow can no longer beat a valid manifest/snapshot URL.
+  const snapshotForProof =
+    indexedForPo(payloadRows)
+    || payloadRows.find(matchesPoNumber)
+    || indexedForPo(manifest)
+    || manifest.find(matchesPoNumber)
+    || null;
+  const compositeRow = { ...(snapshotForProof || {}), ...(normalizedRow || {}) };
+  const sources = [
+    compositeRow,
+    normalizedRow,
+    snapshotForProof,
+    indexedForPo(payloadRows),
+    payloadRows.find(matchesPoNumber),
+    indexedForPo(manifest),
+    manifest.find(matchesPoNumber),
+    payload,
+    approval,
+  ].filter(Boolean);
+
   const proofSource = sources.find((source) => getPoProofUrl(source)) || {};
   const poFileUrl = getPoProofUrl(proofSource);
+  const compositeForMetadata = { ...(normalizedRow || {}), ...(proofSource || {}) };
   return {
     ...normalizedRow,
     approvalId: String(approval._id || approval.id || ''),
     leadCode: String(payload.leadCode || approval.uniqueId || ''),
     rowIndex,
     poFileUrl,
-    poFileName: getPoProofName(proofSource),
-    poFileMimeType: String(proofSource.poFileMimeType || proofSource.poProof?.mimeType || ''),
+    poFileName: getPoProofName(proofSource) || getPoProofName(normalizedRow) || getPoProofName(snapshotForProof || {}),
+    poFileMimeType: String(compositeForMetadata.poFileMimeType || compositeForMetadata.poProof?.mimeType || compositeForMetadata.mimeType || ''),
+    poFileSize: compositeForMetadata.poFileSize != null && Number.isFinite(Number(compositeForMetadata.poFileSize)) ? Number(compositeForMetadata.poFileSize) : null,
     hasPoFileUrl: Boolean(poFileUrl)
   };
 }
