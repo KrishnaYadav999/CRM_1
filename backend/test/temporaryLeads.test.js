@@ -28,9 +28,13 @@ test('temporary lead APIs support list, create, filters and conversion', () => {
 
 test('lead directory exposes the complete temporary lead workspace', () => {
   const page = read('../../frontend/src/pages/LeadGeneration.jsx');
+  const app = read('../../frontend/src/App.jsx');
   assert.match(page, /Temporary Leads/);
   assert.match(page, /Submit Temp Lead/);
   assert.match(page, /Convert to Lead/);
   assert.match(page, /Ready to Convert/);
   assert.match(page, /10 per page/);
+  assert.match(page, /Back to Leads/);
+  assert.match(app, /sales\/lead-generation\/temporary/);
+  assert.doesNotMatch(page, /fixed inset-0 z-\[140\]/);
 });

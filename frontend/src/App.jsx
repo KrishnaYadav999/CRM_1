@@ -99,6 +99,7 @@ function App(){
         <Route path="/calendar" element={<ProtectedRoute><CalendarTodo/></ProtectedRoute>} />
         <Route path="/assistant" element={<ProtectedRoute><AssistantPage/></ProtectedRoute>} />
         <Route path="/sales/lead-generation" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
+        <Route path="/sales/lead-generation/temporary" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/sales/compliance-health-report/:leadId" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/compliance/health-report" element={<ProtectedRoute><ComplianceHealthDashboard/></ProtectedRoute>} />
         <Route path="/sales/client-master" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, BadgeIndianRupee, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -601,6 +601,7 @@ export default function LeadGeneration() {
   const [serviceRemoveIndex, setServiceRemoveIndex] = useState(null);
   const [addRowConfirmation, setAddRowConfirmation] = useState(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const { leadId: complianceRouteLeadId } = useParams();
 
   const resolvedPiboParent = lead.piboParent || lead.piboCategoryParent || inferPiboParent(lead.piboCategory);
@@ -2229,6 +2230,9 @@ export default function LeadGeneration() {
           loading={loading}
           error={error}
           onRefresh={loadPage}
+          temporaryMode={location.pathname.endsWith('/temporary')}
+          onTemporaryOpen={() => navigate('/sales/lead-generation/temporary')}
+          onTemporaryClose={() => navigate('/sales/lead-generation')}
           onView={setViewLead}
           onEdit={(item) => {
             const normalizedServices = normalizeLegacyServiceSelections(item).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? item.firstAnnualReturnYearApplicable : '') }));
@@ -3351,8 +3355,7 @@ function StaffFilterSelect({ value, options, onChange }) {
   );
 }
 
-function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, canEdit = false }) {
-  const [temporaryLeadsOpen, setTemporaryLeadsOpen] = useState(false);
+function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, temporaryMode = false, onTemporaryOpen, onTemporaryClose, canEdit = false }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -3429,6 +3432,8 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
   ];
   const selectedMetric = metricStats.find((stat) => stat.filter === metricFilter);
 
+  if (temporaryMode) return <TemporaryLeadsWorkspace onClose={onTemporaryClose} onConverted={onRefresh} />;
+
   function exportExcel() {
     const rows = filteredLeads.map((item) => ({
       'Lead ID': displayLeadId(item),
@@ -3495,7 +3500,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
           <StaffFilterSelect value={staffFilter} options={staffFilterOptions} onChange={setStaffFilter} />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 xl:flex xl:justify-end">
             <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Lead</button>
-            <button type="button" onClick={() => setTemporaryLeadsOpen(true)} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-black text-violet-700 hover:bg-violet-100"><Clock3 className="h-4 w-4" />Temp Lead</button>
+            <button type="button" onClick={onTemporaryOpen} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-black text-violet-700 hover:bg-violet-100"><Clock3 className="h-4 w-4" />Temp Lead</button>
             <button type="button" onClick={() => { setQuery(''); setStatusFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
             <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
@@ -3551,7 +3556,6 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         </div>
         <LeadDirectoryPagination page={page} totalPages={totalPages} setPage={setPage} />
       </div>
-      {temporaryLeadsOpen && <TemporaryLeadsWorkspace onClose={() => setTemporaryLeadsOpen(false)} onConverted={onRefresh} />}
     </div>
   );
 }
@@ -3608,9 +3612,9 @@ function TemporaryLeadsWorkspace({ onClose, onConverted }) {
   }
 
   const counts = data.counts || {};
-  return <div className="fixed inset-0 z-[140] overflow-y-auto bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="mx-auto min-h-[calc(100vh-48px)] max-w-7xl overflow-hidden rounded-3xl border border-white/60 bg-[#f6faf9] shadow-2xl">
-      <header className="relative overflow-hidden border-b border-emerald-100 bg-white px-5 py-5 sm:px-7"><div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-emerald-500 to-teal-700"/><div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.2em] text-emerald-700"><Clock3 className="h-4 w-4"/>Quick capture workspace</div><h2 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Temporary Leads</h2><p className="mt-1 text-sm font-semibold text-slate-500">Capture a client name now and complete the full lead whenever you are ready.</p></div><button type="button" onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-50"><X className="h-5 w-5"/></button></div></header>
+  return <div className="lead-directory-page min-h-[calc(100vh-72px)] bg-[#f6faf9] px-4 py-6 sm:px-6 lg:px-8">
+    <section className="mx-auto max-w-[1700px] overflow-hidden rounded-3xl border border-slate-200 bg-[#f6faf9] shadow-sm">
+      <header className="relative overflow-hidden border-b border-emerald-100 bg-white px-5 py-5 sm:px-7"><div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-emerald-500 to-teal-700"/><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.2em] text-emerald-700"><Clock3 className="h-4 w-4"/>Quick capture workspace</div><h1 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Temporary Leads</h1><p className="mt-1 text-sm font-semibold text-slate-500">Capture a client name now and complete the full lead whenever you are ready.</p></div><button type="button" onClick={onClose} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4"/>Back to Leads</button></div></header>
       <div className="space-y-4 p-4 sm:p-6">
         <div className="grid gap-3 sm:grid-cols-3">{[[counts.total,'Total Captured','bg-slate-950 text-white'],[counts.draft,'Ready to Convert','bg-amber-50 text-amber-800 border border-amber-200'],[counts.converted,'Converted Leads','bg-emerald-50 text-emerald-800 border border-emerald-200']].map(([value,label,tone]) => <article key={label} className={`rounded-2xl p-4 shadow-sm ${tone}`}><span className="text-[10px] font-black uppercase tracking-wider opacity-70">{label}</span><strong className="mt-1 block text-3xl font-black">{Number(value || 0).toLocaleString('en-IN')}</strong></article>)}</div>
         <form onSubmit={saveTemporaryLead} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"><label className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Client name</label><div className="mt-2 flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Building2 className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"/><input autoFocus value={clientName} maxLength={240} onChange={(event) => setClientName(event.target.value)} placeholder="Enter company or client name" className="h-12 w-full rounded-xl border border-slate-200 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"/></div><button disabled={saving || clientName.trim().length < 2} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-40"><Plus className="h-4 w-4"/>{saving ? 'Saving...' : 'Submit Temp Lead'}</button></div><p className="mt-2 text-xs font-semibold text-slate-400">A unique ID such as ATPL-TEMP-0001 is generated automatically.</p></form>
