@@ -35,7 +35,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "https://crm-1-4prf.onrender.com/api/$1"
+      "dest": "https://crm-1-9uw2.onrender.com/api/$1"
     },
     {
       "handle": "filesystem"
