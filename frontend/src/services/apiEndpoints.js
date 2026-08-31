@@ -44,6 +44,7 @@ const API_ENDPOINTS = {
     ,temporaryLeads: '/leads/temporary'
     ,convertTemporaryLead: (id) => `/leads/temporary/${encodePathValue(id)}/convert`
     ,temporaryLeadFollowUp: (id) => `/leads/temporary/${encodePathValue(id)}/follow-up`
+    ,temporaryLeadFollowUpClose: (id) => `/leads/temporary/${encodePathValue(id)}/follow-up/close`
     ,purchaseOrderApprovalDecision: (id) => `/leads/purchase-order-approvals/${encodePathValue(id)}`
   },
   clients: {

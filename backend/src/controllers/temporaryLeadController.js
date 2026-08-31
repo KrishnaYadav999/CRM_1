@@ -87,4 +87,36 @@ exports.saveFollowUp = async (req, res) => {
   res.json({ ok: true, temporaryLead: row, calendarItem });
 };
 
+exports.closeFollowUp = async (req, res) => {
+  const row = await TemporaryLead.findById(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Temporary lead not found.' });
+  const remarks = String(req.body.remarks || '').trim();
+  if (!remarks) return res.status(400).json({ error: 'Closing remarks are required.' });
+  if (!row.nextFollowUpDate && !row.nextFollowUpTime && !row.followUpRemarks) return res.status(409).json({ error: 'No open follow-up was found.' });
+  const closedAt = new Date().toISOString();
+  const closedBy = req.user.name || req.user.email || 'CRM User';
+  const calendarItem = await CalendarItem.findOne({ temporaryLeadId: String(row._id), status: { $ne: 'completed' } }).sort({ createdAt: -1 });
+  if (calendarItem) {
+    calendarItem.status = 'completed';
+    calendarItem.completedAt = closedAt;
+    calendarItem.completionRemarks = remarks;
+    calendarItem.completionHistory = [{ remarks, completedBy: closedBy, completedAt: closedAt }, ...(calendarItem.completionHistory || [])];
+    await calendarItem.save();
+  }
+  if (!Array.isArray(row.followUpHistory)) row.followUpHistory = [];
+  const calendarItemId = String(calendarItem?._id || '');
+  let closedExisting = false;
+  row.followUpHistory = row.followUpHistory.map((entry) => {
+    const matchesCurrent = String(entry.status || '').toLowerCase() === 'open'
+      && (!calendarItemId || !entry.calendarItemId || String(entry.calendarItemId) === calendarItemId);
+    if (!matchesCurrent) return entry;
+    closedExisting = true;
+    return { ...entry, remarks, status: 'closed', closedAt, closedBy };
+  });
+  if (!closedExisting) row.followUpHistory.unshift({ calendarItemId, scheduledDate: row.nextFollowUpDate, scheduledTime: row.nextFollowUpTime, remarks, priority: row.followUpPriority || 'Medium', status: 'closed', closedAt, closedBy });
+  row.nextFollowUpDate = ''; row.nextFollowUpTime = ''; row.followUpRemarks = ''; row.followUpFlag = 'GREEN';
+  await row.save();
+  res.json({ ok: true, temporaryLead: row, calendarItem });
+};
+
 exports.__test = { nextTemporaryLeadCode };

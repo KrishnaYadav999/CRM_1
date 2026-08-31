@@ -25,7 +25,11 @@ test('temporary lead APIs support list, create, filters and conversion', () => {
   assert.match(controller, /createLeadRecordInternal/);
   assert.match(controller, /DUPLICATE_LEAD_COMPANY/);
   assert.match(routes, /temporary\/:id\/follow-up/);
+  assert.match(routes, /temporary\/:id\/follow-up\/close/);
   assert.match(controller, /CalendarItem\.create/);
+  assert.match(controller, /exports\.closeFollowUp/);
+  assert.match(controller, /Closing remarks are required/);
+  assert.match(controller, /status = 'completed'/);
 });
 
 test('lead directory exposes the complete temporary lead workspace', () => {
@@ -67,6 +71,8 @@ test('temporary lead follow-ups use the full upcoming and previous tracker workf
   assert.match(page, /Add Follow-Up/);
   assert.match(page, /No upcoming follow-ups\./);
   assert.match(page, /No previous follow-ups\./);
+  assert.match(page, /Close Temporary Lead Follow-Up/);
+  assert.match(page, /temporaryLeadFollowUpClose/);
   assert.match(temporaryController, /String\(entry\.status[\s\S]*=== 'open'[\s\S]*status: 'updated'/);
   assert.match(calendarController, /String\(entry\.status[\s\S]*=== 'open'[\s\S]*status: 'updated'/);
 });
