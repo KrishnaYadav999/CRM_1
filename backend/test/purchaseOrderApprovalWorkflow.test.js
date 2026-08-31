@@ -14,7 +14,8 @@ test('lead closure auto-fetches quotation fields and supports one or multiple PO
   assert.match(page, /quotation service row/);
   assert.match(page, /Confirm & Save Closure/);
   assert.match(page, /Lead closed and PO details saved in the database/);
-  assert.match(page, /api\.put\(API_ENDPOINTS\.leads\.detail\(editingLeadId\), payload\)/);
+  assert.match(page, /api\.put\(API_ENDPOINTS\.leads\.detail\(editingLeadId\), payload, \{ headers: \{ 'X-PO-Debug-ID': poDebugId \} \}\)/);
+  assert.match(page, /\[POProof:closure:submit\]/);
 });
 
 test('PO received closure asks whether quotation was sent and supports earlier quotation proof', () => {

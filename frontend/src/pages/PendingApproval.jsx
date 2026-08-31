@@ -105,6 +105,7 @@ function getApprovalPoRows(payload = {}) {
 
 function PoProof({ row, onUpload, uploading = false }) {
   const url = getPoProofUrl(row);
+  console.debug('[POProof:render:cell]', { poNumber: row?.poNumber || '', hasResolvedUrl: Boolean(url), proofKeys: Object.keys(row || {}).filter((key) => /proof|file|document|upload|attachment|url/i.test(key)) });
   if (!url) return <label className="inline-flex min-h-9 cursor-pointer items-center rounded-lg border border-dashed border-orange-300 bg-orange-50 px-3 text-xs font-black text-orange-700">{uploading ? 'Uploading...' : 'Upload Missing PO Proof'}<input type="file" accept="image/*,.pdf" className="sr-only" disabled={uploading} onChange={onUpload}/></label>;
   const name = getPoProofName(row);
   const mime = String(row?.poFileMimeType || row?.poProof?.mimeType || '').toLowerCase();
@@ -443,6 +444,8 @@ export default function PendingApproval() {
 
       const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
       const approvalsResponse = approvalsResult.status === 'fulfilled' ? approvalsResult.value : null;
+      const poStorage = duplicateResult.status === 'fulfilled' ? duplicateResult.value.data?.poStorage : null;
+      if (poStorage) console.info('[POProof:database:locations]', poStorage);
       const crmLeads = [];
 
       if (meResponse?.data?.user) {
@@ -505,7 +508,14 @@ export default function PendingApproval() {
       setServiceApprovals(leadApprovals.filter((row) => row.type === 'lead_service'));
       setRoyaltyApprovals(leadApprovals.filter((row) => row.type === 'lead_royalty'));
       setTemporaryApprovals(leadApprovals.filter((row) => row.type === 'lead_temporary'));
-      setPoApprovals(leadApprovals.filter((row) => row.type === 'purchase_order'));
+      const normalizedPoApprovals = leadApprovals.filter((row) => row.type === 'purchase_order');
+      setPoApprovals(normalizedPoApprovals);
+      console.groupCollapsed('[POProof:list:normalized]');
+      console.table(normalizedPoApprovals.flatMap((approval) => {
+        const rows = getApprovalPoRows(approval.payload);
+        return (rows.length ? rows : [{}]).map((po, rowIndex) => ({ approvalId: approval._id || approval.id, leadCode: approval.payload?.leadCode || approval.uniqueId || '', clientName: approval.clientName || '', rowIndex, poNumber: po.poNumber || '', poAmount: po.poAmount ?? '', hasPoFileUrl: Boolean(getPoProofUrl(po)), proofKeys: Object.keys(po || {}).filter((key) => /proof|file|document|upload|attachment|url/i.test(key)).join(',') }));
+      }));
+      console.groupEnd();
       setDebugInfo(snapshot.debug);
       console.info('[PendingApproval:loaded]', {
         clients: snapshot.pendingClients.length,
@@ -635,11 +645,16 @@ export default function PendingApproval() {
     setSavingId(`po-proof-${id}-${rowIndex}`);
     setError('');
     try {
+      const poDebugId = globalThis.crypto?.randomUUID?.() || `po-repair-${Date.now()}`;
+      console.info('[POProof:repair:start]', { poDebugId, approvalId: id, rowIndex, fileName: file.name, fileSize: file.size });
       const uploaded = await uploadMedia(file, 'crm/leads/purchase-orders');
-      await api.patch(API_ENDPOINTS.leads.purchaseOrderApprovalProof(id), { rowIndex, poFileUrl: uploaded.secureUrl, poFileName: uploaded.name || file.name, poFileMimeType: uploaded.type || file.type || '', poFileSize: uploaded.bytes || uploaded.size || file.size || null });
+      console.info('[POProof:repair:cloudinary]', { poDebugId, approvalId: id, rowIndex, hasSecureUrl: Boolean(uploaded.secureUrl), publicId: uploaded.publicId || '' });
+      const response = await api.patch(API_ENDPOINTS.leads.purchaseOrderApprovalProof(id), { rowIndex, poFileUrl: uploaded.secureUrl, poFileName: uploaded.name || file.name, poFileMimeType: uploaded.type || file.type || '', poFileSize: uploaded.bytes || uploaded.size || file.size || null }, { headers: { 'X-PO-Debug-ID': poDebugId } });
+      console.info('[POProof:repair:saved]', { poDebugId, approvalId: id, rowIndex, approvalHasProof: Boolean(response.data?.approval?.payload?.poYearRows?.[rowIndex]?.poFileUrl), leadUpdated: response.data?.leadUpdated === true });
       setNotice('PO proof uploaded and saved to both the approval record and linked Lead.');
       await loadPage({ force: true, silent: true });
     } catch (err) {
+      console.error('[POProof:repair:error]', { approvalId: id, rowIndex, status: err?.response?.status, message: readError(err, 'Unable to upload and save the missing PO proof.') });
       setError(readError(err, 'Unable to upload and save the missing PO proof.'));
     } finally { setSavingId(''); }
   }

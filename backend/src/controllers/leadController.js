@@ -467,7 +467,7 @@ function buildPurchaseOrderEmail({ eyebrow, title, message, clientName, leadCode
   </div>`;
 }
 
-async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor, submittedAssignments = [] }) {
+async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor, submittedAssignments = [], poDebugId = '' }) {
   const beforeRows = Array.isArray(beforeLead.assignments) ? beforeLead.assignments : [];
   const rows = Array.isArray(lead.assignments) ? lead.assignments : [];
   await Promise.all(rows.map(async (row, index) => {
@@ -492,6 +492,7 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor, subm
     const missingProofRows = poRowsSnapshot.filter((po) => !po.poFileUrl).map((po) => po.poNumber || '(no PO number)');
     if (missingProofRows.length) console.error('[purchase-order-approval] validated PO proof missing from snapshot', { leadCode: lead.leadCode, assignmentIndex: index, poNumbers: missingProofRows });
     const poProofManifest = poRowsSnapshot.map((po, rowIndex) => ({ rowIndex, poNumber: String(po.poNumber || '').trim(), poFileUrl: String(po.poFileUrl || '').trim(), poFileName: String(po.poFileName || '').trim(), poFileMimeType: String(po.poFileMimeType || '').trim(), poFileSize: po.poFileSize ?? null }));
+    console.info('[POProof:approval:snapshot]', { poDebugId, leadCode: lead.leadCode || '', assignmentIndex: index, sourceClientId, rows: poRowsSnapshot.map((po, rowIndex) => ({ rowIndex, poNumber: po.poNumber || '', poAmount: po.poAmount ?? null, hasPoFileUrl: Boolean(po.poFileUrl), poFileName: po.poFileName || '' })) });
     const savedApproval = await PendingApproval.findOneAndUpdate(
       { type: 'purchase_order', source: 'crm', sourceClientId },
       { $setOnInsert: { type: 'purchase_order', source: 'crm', sourceClientId }, $set: {
@@ -503,6 +504,7 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor, subm
         actionBy: null, actionAt: null, remarks: ''
       } }, { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+    console.info('[POProof:approval:persisted]', { poDebugId, approvalId: String(savedApproval?._id || ''), leadCode: lead.leadCode || '', assignmentIndex: index, collection: PendingApproval.collection.collectionName, rowCount: poRowsSnapshot.length, proofCount: poProofManifest.filter((po) => po.poFileUrl).length });
     try {
       const notificationUsers = await User.find({ $or: [
         { role: { $in: ADMIN_ROLES }, isActive: { $ne: false } },
@@ -963,7 +965,9 @@ exports.updateLead = async (req, res) => {
     }
 
     const sendIntroductionEmail = req.body?.sendIntroductionEmail === true;
+    const poDebugId = String(req.get('x-po-debug-id') || '').trim().slice(0, 100);
     const data = preserveExistingClosureEvidence(beforeLead, cleanBody(req.body));
+    if (poDebugId) console.info('[POProof:lead:sanitized]', { poDebugId, leadId: String(lead._id), leadCode: lead.leadCode || '', collection: Lead.collection.collectionName, assignments: (data.assignments || []).map((row, assignmentIndex) => ({ assignmentIndex, poStatus: row.poStatus || '', rows: (row.poYearRows || []).map((po, rowIndex) => ({ rowIndex, poNumber: po.poNumber || '', poAmount: po.poAmount ?? null, hasPoFileUrl: Boolean(po.poFileUrl), poFileName: po.poFileName || '' })) })) });
     delete data.sendIntroductionEmail;
     const followUpChangedIndexes = changedFollowUpIndexes(beforeLead, data);
     if (followUpChangedIndexes.length) {
@@ -1015,8 +1019,9 @@ exports.updateLead = async (req, res) => {
     }
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     if (data.closedBy && !lead.closedAt) lead.closedAt = new Date();
-    await upsertPurchaseOrderApprovals({ beforeLead, lead, actor: req.user, submittedAssignments: data.assignments });
+    await upsertPurchaseOrderApprovals({ beforeLead, lead, actor: req.user, submittedAssignments: data.assignments, poDebugId });
     await lead.save();
+    if (poDebugId) console.info('[POProof:lead:persisted]', { poDebugId, leadId: String(lead._id), leadCode: lead.leadCode || '', collection: Lead.collection.collectionName, assignments: (lead.assignments || []).map((row, assignmentIndex) => ({ assignmentIndex, proofCount: (row.poYearRows || []).filter((po) => resolvePoProof(po).url).length, rowCount: (row.poYearRows || []).length })) });
     if (Object.prototype.hasOwnProperty.call(data, 'subApplicantType') || Array.isArray(data.serviceSelections)) {
       await Lead.collection.updateOne({ _id: lead._id }, { $unset: { piboCategory: '' } });
     }
@@ -1516,7 +1521,13 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       ...approval.poDebug
     })));
   }
-  res.json({ ok: true, approvals });
+  res.json({ ok: true, approvals, poStorage: {
+    binaryStore: 'Cloudinary: crm/leads/purchase-orders',
+    leadCollection: Lead.collection.collectionName,
+    leadPath: 'assignments[].poYearRows[].poFileUrl',
+    approvalCollection: PendingApproval.collection.collectionName,
+    approvalPaths: ['payload.poYearRows[].poFileUrl', 'payload.poProofManifest[].poFileUrl']
+  } });
 };
 
 exports.updateDuplicateLeadApproval = async (req, res) => {
@@ -1699,6 +1710,7 @@ exports.addServiceCatalogOffering = async (req, res) => {
 };
 
 exports.uploadPurchaseOrderProof = async (req, res) => {
+  const poDebugId = String(req.get('x-po-debug-id') || '').trim().slice(0, 100);
   const approval = await PendingApproval.findOne({ _id: req.params.id, type: 'purchase_order' });
   if (!approval) return res.status(404).json({ error: 'Purchase Order approval not found.' });
   const poFileUrl = String(req.body.poFileUrl || '').trim();
@@ -1707,6 +1719,7 @@ exports.uploadPurchaseOrderProof = async (req, res) => {
   const poFileSize = Number.isFinite(Number(req.body.poFileSize)) ? Number(req.body.poFileSize) : null;
   const rowIndex = Math.max(0, Number.parseInt(req.body.rowIndex, 10) || 0);
   if (!/^https:\/\//i.test(poFileUrl)) return res.status(400).json({ error: 'A valid uploaded PO proof URL is required.' });
+  console.info('[POProof:repair:received]', { poDebugId, approvalId: req.params.id, rowIndex, hasPoFileUrl: Boolean(poFileUrl), poFileName, poFileSize });
   const payload = approval.payload || {};
   const snapshotRows = Array.isArray(payload.poYearRows) && payload.poYearRows.length ? payload.poYearRows
     : Array.isArray(payload.poRows) && payload.poRows.length ? payload.poRows
@@ -1731,9 +1744,11 @@ exports.uploadPurchaseOrderProof = async (req, res) => {
       assignment.poYearRows[rowIndex] = { ...assignment.poYearRows[rowIndex], poFileUrl, poFileName, poFileMimeType, poFileSize };
       lead.markModified('assignments');
       await lead.save();
+      console.info('[POProof:repair:lead-persisted]', { poDebugId, approvalId: req.params.id, leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex, rowIndex, collection: Lead.collection.collectionName });
     }
   }
-  res.json({ ok: true, approval });
+  console.info('[POProof:repair:approval-persisted]', { poDebugId, approvalId: String(approval._id), rowIndex, collection: PendingApproval.collection.collectionName, hasPoFileUrl: Boolean(approval.payload?.poYearRows?.[rowIndex]?.poFileUrl) });
+  res.json({ ok: true, approval, leadUpdated: Boolean(lead) });
 };
 
 // Shared only with the temporary-lead conversion controller so conversion

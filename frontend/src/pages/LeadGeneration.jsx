@@ -1120,14 +1120,17 @@ export default function LeadGeneration() {
     event.target.value = '';
     if (!file) return;
     setClosureUploading(true);
+    console.info('[POProof:upload:start]', { type, rowIndex, fileName: file.name, fileType: file.type, fileSize: file.size });
     try {
       const uploaded = await uploadMedia(file, type === 'po' ? 'crm/leads/purchase-orders' : 'crm/leads/closure-approvals');
+      console.info('[POProof:upload:complete]', { type, rowIndex, fileName: uploaded.name || file.name, hasSecureUrl: Boolean(uploaded.secureUrl), publicId: uploaded.publicId || '' });
       setClosureDialog((current) => type === 'po'
         ? { ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, poFileUrl: uploaded.secureUrl, poFileName: uploaded.name || file.name, poFileMimeType: uploaded.type || file.type || '', poFileSize: Number.isFinite(uploaded.bytes) ? uploaded.bytes : (Number.isFinite(uploaded.size) ? uploaded.size : null), poReceivedDate: row.poReceivedDate || new Date().toISOString(), currency: row.currency || 'INR' } : row) }
         : type === 'quotation'
           ? { ...current, earlierQuotationProofUrl: uploaded.secureUrl, earlierQuotationProofName: uploaded.name || file.name }
           : { ...current, approvalProofUrl: uploaded.secureUrl, approvalProofName: file.name });
     } catch (uploadError) {
+      console.error('[POProof:upload:error]', { type, rowIndex, message: uploadError?.message || 'File upload failed' });
       showToast(uploadError?.message || 'File upload failed.', 'error');
     } finally { setClosureUploading(false); }
   }
@@ -1154,6 +1157,7 @@ export default function LeadGeneration() {
     if (!editingLeadId) return showToast('Save the lead before recording closure details.', 'warning');
     setClosureSaving(true);
     try {
+      const poDebugId = globalThis.crypto?.randomUUID?.() || `po-${Date.now()}`;
       const primaryAssignment = nextAssignments[0] || {};
       const payload = buildLeadPayload(lead.workflowStatus || 'submitted', {
         assignments: nextAssignments,
@@ -1165,9 +1169,12 @@ export default function LeadGeneration() {
         closedByCrmUserId: primaryAssignment.closedBy,
         assignedBy: currentUser?.name || currentUser?.email || ''
       });
-      const response = await api.put(API_ENDPOINTS.leads.detail(editingLeadId), payload);
+      console.info('[POProof:closure:submit]', { poDebugId, leadId: editingLeadId, assignmentIndex: closureDialog.index, quotationSent: closureDialog.quotationSent, rows: closureDialog.poYearRows.map((row, rowIndex) => ({ rowIndex, poNumber: row.poNumber, poAmount: row.poAmount, hasPoFileUrl: Boolean(row.poFileUrl), poFileName: row.poFileName || '' })) });
+      const response = await api.put(API_ENDPOINTS.leads.detail(editingLeadId), payload, { headers: { 'X-PO-Debug-ID': poDebugId } });
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
       if (!savedLead || !Array.isArray(savedLead.assignments)) throw new Error('CRM did not return saved PO details.');
+      const savedAssignment = savedLead.assignments[closureDialog.index] || {};
+      console.info('[POProof:closure:saved]', { poDebugId, leadCode: savedLead.leadCode || '', assignmentIndex: closureDialog.index, rows: (savedAssignment.poYearRows || []).map((row, rowIndex) => ({ rowIndex, poNumber: row.poNumber, hasPoFileUrl: Boolean(row.poFileUrl), poFileName: row.poFileName || '' })) });
       setLead((current) => ({ ...current, ...savedLead, assignments: savedLead.assignments }));
       setClosureDialog(null);
       showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database after admin approval. Approval is pending.', 'success');
