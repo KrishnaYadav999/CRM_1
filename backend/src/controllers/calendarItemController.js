@@ -170,6 +170,22 @@ async function closeLinkedLeadFollowUp(item, user) {
 async function scheduleLinkedLeadFollowUp(item, user) {
   const raw = typeof item.toObject === 'function' ? item.toObject() : item;
   if (!isFollowUpItem(raw) || String(raw.status || '').toLowerCase() === 'completed') return null;
+  const temporaryLookup = [];
+  if (raw.temporaryLeadId && mongoose.Types.ObjectId.isValid(String(raw.temporaryLeadId))) temporaryLookup.push({ _id: raw.temporaryLeadId });
+  if (/^ATPL-TEMP-/i.test(String(raw.leadNumber || ''))) temporaryLookup.push({ tempLeadCode: String(raw.leadNumber).trim() });
+  if (temporaryLookup.length) {
+    const temporaryLead = await TemporaryLead.findOne({ $or: temporaryLookup });
+    if (!temporaryLead) return null;
+    if (!Array.isArray(temporaryLead.followUpHistory)) temporaryLead.followUpHistory = [];
+    const calendarItemId = String(raw._id || raw.externalId || '');
+    if (!temporaryLead.followUpHistory.some((entry) => String(entry.calendarItemId || '') === calendarItemId)) temporaryLead.followUpHistory.unshift({ calendarItemId, scheduledDate: raw.scheduledDate || '', scheduledTime: raw.scheduledTime || '', remarks: raw.updateReason || raw.description || raw.title || '', priority: raw.priority || 'Medium', status: 'open', createdAt: new Date().toISOString(), createdBy: user?.name || user?.email || raw.createdBy || '' });
+    temporaryLead.nextFollowUpDate = raw.scheduledDate || '';
+    temporaryLead.nextFollowUpTime = raw.scheduledTime || '';
+    temporaryLead.followUpRemarks = raw.updateReason || raw.description || raw.title || '';
+    temporaryLead.followUpPriority = raw.priority || 'Medium';
+    await temporaryLead.save();
+    return temporaryLead;
+  }
   const lookups = [];
   const leadId = String(raw.leadId || '').trim();
   if (leadId && mongoose.Types.ObjectId.isValid(leadId)) lookups.push({ _id: leadId });

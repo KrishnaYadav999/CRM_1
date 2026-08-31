@@ -44,3 +44,15 @@ test('lead directory exposes the complete temporary lead workspace', () => {
   assert.match(page, /View table/);
   assert.doesNotMatch(page, /bg-slate-950 px-3 text-xs font-black text-white/);
 });
+
+test('Calendar supports temporary client selection, follow-up creation and clean modal switching', () => {
+  const calendar = read('../../frontend/src/pages/CalendarTodo.jsx');
+  const controller = read('../src/controllers/calendarItemController.js');
+  assert.match(calendar, /temporaryLeads/);
+  assert.match(calendar, /Temp Follow-Up/);
+  assert.match(calendar, /setBucketPopup\(null\)/);
+  assert.match(calendar, /temporaryLeadId/);
+  assert.match(controller, /TemporaryLead\.findById/);
+  assert.match(controller, /temporaryLead\.followUpHistory/);
+  assert.match(controller, /scheduleLinkedLeadFollowUp[\s\S]*ATPL-TEMP-/);
+});

@@ -216,6 +216,7 @@ export default function CalendarTodo() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [clients, setClients] = useState([]);
   const [leads, setLeads] = useState([]);
+  const [temporaryLeads, setTemporaryLeads] = useState([]);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsError, setOptionsError] = useState('');
   const [optionsReloadKey, setOptionsReloadKey] = useState(0);
@@ -275,7 +276,7 @@ export default function CalendarTodo() {
     const leadsById = new Map(leads.flatMap((lead) => [lead._id, lead.id]
       .filter(Boolean)
       .map((id) => [String(id), lead])));
-    return clients
+    const permanentOptions = clients
       .map((client) => {
         const selectedLead = client.selectedLead && typeof client.selectedLead === 'object'
           ? (client.selectedLead._id || client.selectedLead.id)
@@ -283,7 +284,9 @@ export default function CalendarTodo() {
         return getClientOption(client, leadsById.get(String(selectedLead || '')) || {});
       })
       .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [clients, leads]);
+    const temporaryOptions = temporaryLeads.map((row) => ({ value: row.tempLeadCode, label: `${row.tempLeadCode} - ${row.clientName} - Temporary Lead`, company: row.clientName, id: String(row._id), temporaryLeadId: String(row._id), temporary: true }));
+    return [...temporaryOptions, ...permanentOptions];
+  }, [clients, leads, temporaryLeads]);
   const leadOptions = useMemo(() => leads.map(getLeadOption), [leads]);
   const userOptions = useMemo(() => users.map((user) => ({
     value: user.name || user.email || user._id || user.id,
@@ -301,15 +304,17 @@ export default function CalendarTodo() {
     async function loadOptions() {
       setOptionsLoading(true);
       setOptionsError('');
-      const [clientsResult, leadsResult, usersResult, adminUsersResult] = await Promise.allSettled([
+      const [clientsResult, leadsResult, temporaryResult, usersResult, adminUsersResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.clients.list),
         api.get(API_ENDPOINTS.leads.list),
+        api.get(API_ENDPOINTS.leads.temporaryLeads, { params: { page: 1, limit: 100, status: 'DRAFT' } }),
         api.get(API_ENDPOINTS.auth.users),
         api.get(API_ENDPOINTS.auth.adminUsers)
       ]);
       if (!mounted) return;
       const crmClients = clientsResult.status === 'fulfilled' ? extractList(clientsResult.value, 'clients') : [];
       const crmLeads = leadsResult.status === 'fulfilled' ? extractList(leadsResult.value, 'leads') : [];
+      const crmTemporaryLeads = temporaryResult.status === 'fulfilled' ? extractList(temporaryResult.value, 'temporaryLeads') : [];
       const apiUsers = usersResult.status === 'fulfilled' ? extractList(usersResult.value, 'users') : [];
       const adminUsers = adminUsersResult.status === 'fulfilled' ? extractList(adminUsersResult.value, 'users') : [];
       const mergedUsers = [...new Map([
@@ -321,6 +326,7 @@ export default function CalendarTodo() {
       const mergedLeads = mergeLeadSources(crmLeads, []);
       setClients(mergedClients);
       setLeads(mergedLeads);
+      setTemporaryLeads(crmTemporaryLeads);
       setUsers(mergedUsers);
       if (!mergedClients.length && !mergedLeads.length) {
         setOptionsError('Client and lead records could not be loaded.');
@@ -517,12 +523,14 @@ export default function CalendarTodo() {
   }
 
   function openAddTodo(date = selectedDate) {
+    setBucketPopup(null);
     setEditingTodoId('');
     setModalDate(date);
     setTodoDraft(emptyTodo(date));
   }
 
   function openAddFollowUp(date = selectedDate, source = null) {
+    setBucketPopup(null);
     const scheduled = new Date(date);
     if (source?.status === 'completed') scheduled.setDate(scheduled.getDate() + 1);
     setEditingTodoId('');
@@ -537,6 +545,11 @@ export default function CalendarTodo() {
       assignedTo: source?.assignedTo || storedUser?.name || storedUser?.email || '',
       metadata: source?.metadata || {}, previousFollowUpId: source?.id || source?._id || ''
     });
+  }
+
+  function openAddTempFollowUp(date = selectedDate) {
+    openAddFollowUp(date);
+    setTodoDraft((current) => ({ ...current, title: 'Temporary lead follow-up', source: 'temporary-lead' }));
   }
 
   function openEditTodo(item) {
@@ -566,6 +579,7 @@ export default function CalendarTodo() {
         title: todoDraft.title.trim(),
         updateReason: todoDraft.updateReason.trim(),
         clientName: selectedClient?.company || todoDraft.clientName,
+        temporaryLeadId: todoDraft.temporaryLeadId || selectedClient?.temporaryLeadId || '',
         leadCompanyName: selectedLead?.company || '',
         leadId: todoDraft.leadId || selectedLead?.id || '',
         assignedToName: assignedUser?.name || todoDraft.assignedTo,
@@ -713,6 +727,7 @@ export default function CalendarTodo() {
           <div className="calendar-hero-actions calendar-pro-actions">
             <button type="button" onClick={() => window.history.back()}><ArrowLeft className="h-4 w-4" /> Back</button>
             <button type="button" onClick={() => openAddFollowUp(selectedDate)}><Plus className="h-4 w-4" /> Add Follow-Up</button>
+            <button type="button" onClick={() => openAddTempFollowUp(selectedDate)}><Plus className="h-4 w-4" /> Temp Follow-Up</button>
             <button type="button" onClick={() => openAddTodo(selectedDate)}><Plus className="h-4 w-4" /> Add Todo</button>
           </div>
         </motion.div>
@@ -1015,7 +1030,7 @@ export default function CalendarTodo() {
               </div>
               <div className="calendar-bucket-footer">
                 {bucketPopupItems.length > BUCKET_PAGE_SIZE && <MiniPager page={bucketPage} totalPages={bucketTotalPages} onPageChange={setBucketPage} />}
-                <div className="calendar-bucket-footer-actions"><button type="button" onClick={() => setBucketPopup(null)}>Close</button><button type="button" onClick={() => { setBucketPopup(null); openAddFollowUp(new Date(bucketPopup.date)); }}><Plus className="h-4 w-4" /> Add Follow-Up</button><button type="button" onClick={() => openAddTodo(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Add Todo</button></div>
+                <div className="calendar-bucket-footer-actions"><button type="button" onClick={() => setBucketPopup(null)}>Close</button><button type="button" onClick={() => openAddFollowUp(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Add Follow-Up</button><button type="button" onClick={() => openAddTempFollowUp(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Temp Follow-Up</button><button type="button" onClick={() => openAddTodo(new Date(bucketPopup.date))}><Plus className="h-4 w-4" /> Add Todo</button></div>
               </div>
             </motion.section>
           </motion.div>
@@ -1133,7 +1148,7 @@ export default function CalendarTodo() {
                     loading={optionsLoading}
                     error={optionsError}
                     onRetry={() => setOptionsReloadKey((value) => value + 1)}
-                    onChange={(value, selected) => setTodoDraft((current) => ({ ...current, clientNumber: value, clientName: selected?.company || '' }))}
+                    onChange={(value, selected) => setTodoDraft((current) => ({ ...current, clientNumber: value, clientName: selected?.company || '', temporaryLeadId: selected?.temporaryLeadId || '', ...(selected?.temporary ? { leadNumber: selected.value, leadId: '' } : /^ATPL-TEMP-/i.test(current.leadNumber || '') ? { leadNumber: '', leadId: '' } : {}) }))}
                   />
                 </Field>
                 <Field label="Lead Number">
@@ -1174,7 +1189,7 @@ export default function CalendarTodo() {
               </div>
               <div className="calendar-modal-actions">
                 <button type="button" onClick={() => { setModalDate(null); setEditingTodoId(''); }}>Cancel</button>
-                <button type="button" disabled={!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate || (isFollowUp(todoDraft) && !todoDraft.leadNumber)} onClick={saveTodo}>{editingTodoId ? `Update ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}` : `Add ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}`}</button>
+                <button type="button" disabled={!todoDraft.title.trim() || !todoDraft.updateReason.trim() || !todoDraft.scheduledDate || (isFollowUp(todoDraft) && !todoDraft.leadNumber && !todoDraft.temporaryLeadId)} onClick={saveTodo}>{editingTodoId ? `Update ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}` : `Add ${isFollowUp(todoDraft) ? 'Follow-Up' : 'Todo'}`}</button>
               </div>
             </motion.div>
           </motion.div>

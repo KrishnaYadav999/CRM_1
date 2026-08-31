@@ -4989,9 +4989,9 @@ function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPa
 
   return (
     <div className="lead-directory-summary flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-3"><span className="lead-directory-summary-icon"><FileText className="h-5 w-5" /></span><div><p className="font-semibold text-slate-800">Showing {showing} of {total} {label}</p><small className="text-slate-400">Page {page} of {totalPages}</small></div></div>
+      <div className="flex flex-wrap items-center gap-4"><div className="flex items-center gap-3"><span className="lead-directory-summary-icon"><FileText className="h-5 w-5" /></span><div><p className="font-semibold text-slate-800">Showing {showing} of {total} {label}</p><small className="text-slate-400">Page {page} of {totalPages}</small></div></div>
       <button type="button" onClick={onTemporaryOpen} className="inline-flex items-center gap-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 px-4 py-2 text-left text-violet-700 transition hover:-translate-y-0.5 hover:shadow-md"><Clock3 className="h-5 w-5"/><span><small className="block text-[9px] font-black uppercase tracking-wider">Temporary Leads</small><strong className="text-sm">{temporaryLeadCount.toLocaleString('en-IN')} captured · View table</strong></span><ArrowRight className="h-4 w-4"/></button>
-      <div className="flex flex-wrap items-center gap-3 font-black text-slate-600">
+      </div><div className="flex flex-wrap items-center gap-3 font-black text-slate-600">
         <span>{start} - {end} of {total}</span>
         <form onSubmit={jumpToPage} className="inline-flex items-center gap-2">
           <span>Go to:</span>
