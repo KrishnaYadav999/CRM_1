@@ -25,8 +25,8 @@ test('month-end lead email contains separate open and closed counts', () => {
   assert.match(source, /kind:\s*'month_end_lead_summary'/);
   assert.match(source, /openLeadCount:\s*openRows\.length/);
   assert.match(source, /closedLeadCount:\s*closedRows\.length/);
-  assert.match(source, /Open Leads/);
-  assert.match(source, /Closed Leads/);
+  assert.match(source, /OPEN LEADS/i);
+  assert.match(source, /CLOSED LEADS/i);
   assert.match(source, /admins\(ADMIN_ROLES\)/);
   assert.match(source, /existingOpenCount === openRows\.length/);
   assert.doesNotMatch(source, /return \[\];\s*\n\s*}\s*\n}\s*\n\s*async function admins/);
@@ -37,6 +37,17 @@ test('month-end closed count matches the page when any service is closed', () =>
   const path = require('node:path');
   const source = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
   assert.match(source, /closedRows = leads\.filter[\s\S]*services\.some\(\(_, index\) => isServiceClosed\(lead, index\)\)/);
+});
+
+test('month-end email uses the premium CTA template and preserves counts', () => {
+  const html = __test.buildMonthEndSummaryEmail({ monthKey: '2026-08', openCount: 434, closedCount: 19 });
+  assert.match(html, /<!doctype html>/i);
+  assert.match(html, />434</);
+  assert.match(html, />19</);
+  assert.match(html, /Lead closure ratio/);
+  assert.match(html, />4%</);
+  assert.match(html, /pending-leads\/open/);
+  assert.match(html, /Open Lead Review/);
 });
 
 test('follow-up reminder email is sent only to the lead or service owner without admin CC', () => {
