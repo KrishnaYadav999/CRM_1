@@ -81,6 +81,9 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /function getPoProofUrl/);
   assert.match(page, /const mergedPoRows = livePoRows\.map/);
   assert.match(page, /getPoProofUrl\(liveRow\) \|\| getPoProofUrl\(snapshot\)/);
+  assert.match(page, /function getApprovalPoRows/);
+  assert.match(page, /payload\.poRows/);
+  assert.match(page, /payload\.purchaseOrders/);
   assert.match(page, /Download ·/);
   assert.match(page, /FY \/ Service Period/);
   assert.match(page, /Business Category/);

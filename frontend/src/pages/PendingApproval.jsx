@@ -72,6 +72,15 @@ function getPoProofName(row = {}) {
   return String(row.poFileName || row.poProof?.fileName || row.poProof?.name || row.fileName || row.file?.originalName || row.file?.name || row.poDocument?.originalName || row.poDocument?.name || 'PO proof').trim();
 }
 
+function getApprovalPoRows(payload = {}) {
+  const rows = Array.isArray(payload.poYearRows) && payload.poYearRows.length ? payload.poYearRows
+    : Array.isArray(payload.poRows) && payload.poRows.length ? payload.poRows
+      : Array.isArray(payload.purchaseOrders) && payload.purchaseOrders.length ? payload.purchaseOrders : [];
+  if (rows.length) return rows;
+  const rowLevelProof = getPoProofUrl(payload);
+  return payload.poNumber || payload.poAmount || rowLevelProof ? [{ ...payload, poFileUrl: rowLevelProof, poFileName: getPoProofName(payload) }] : [];
+}
+
 function PoProof({ row }) {
   const url = getPoProofUrl(row);
   if (!url) return <span className="text-xs font-semibold text-slate-400">No PO proof</span>;
@@ -181,7 +190,7 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
     const assignment = assignments.find((row) => payload.assignedServiceId && String(row?.assignedServiceId || '') === String(payload.assignedServiceId))
       || assignments[Number(payload.assignmentIndex)]
       || {};
-    const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
+    const snapshotRows = getApprovalPoRows(payload);
     const livePoRows = Array.isArray(assignment.poYearRows) ? assignment.poYearRows.filter((row) => row && (row.poNumber || row.poAmount || getPoProofUrl(row))) : [];
     const mergedPoRows = livePoRows.map((liveRow, index) => {
       const snapshot = snapshotRows.find((row) => row?.poNumber && row.poNumber === liveRow.poNumber) || snapshotRows[index] || {};
@@ -952,7 +961,7 @@ export default function PendingApproval() {
               <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
-                  const poRows = (row.payload?.poYearRows || []).map(normalizePoApprovalRow);
+                  const poRows = getApprovalPoRows(row.payload).map(normalizePoApprovalRow);
                   const renderKey = `${id}-${poRows.map((po) => `${po.poAmountValue || 0}:${po.basicAmountValue || 0}:${po.proofUrl}`).join('|')}`;
                   return <tr key={renderKey}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmountValue ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : '-'}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <PoProof key={`${po.proofUrl || 'proof'}-${index}`} row={po} />)}{row.payload?.earlierQuotationProofUrl && <a href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>}</Cell><Cell>{poRows.map((po, index) => <strong key={index} className="block text-slate-900">{po.basicAmountValue != null ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
                 })}
