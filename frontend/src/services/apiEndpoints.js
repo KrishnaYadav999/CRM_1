@@ -46,6 +46,7 @@ const API_ENDPOINTS = {
     ,temporaryLeadFollowUp: (id) => `/leads/temporary/${encodePathValue(id)}/follow-up`
     ,temporaryLeadFollowUpClose: (id) => `/leads/temporary/${encodePathValue(id)}/follow-up/close`
     ,purchaseOrderApprovalDecision: (id) => `/leads/purchase-order-approvals/${encodePathValue(id)}`
+    ,purchaseOrderApprovalProof: (id) => `/leads/purchase-order-approvals/${encodePathValue(id)}/proof`
   },
   clients: {
     list: '/clients',

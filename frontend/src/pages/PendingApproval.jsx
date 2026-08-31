@@ -81,9 +81,9 @@ function getApprovalPoRows(payload = {}) {
   return payload.poNumber || payload.poAmount || rowLevelProof ? [{ ...payload, poFileUrl: rowLevelProof, poFileName: getPoProofName(payload) }] : [];
 }
 
-function PoProof({ row }) {
+function PoProof({ row, onUpload, uploading = false }) {
   const url = getPoProofUrl(row);
-  if (!url) return <span className="text-xs font-semibold text-slate-400">No PO proof</span>;
+  if (!url) return <label className="inline-flex min-h-9 cursor-pointer items-center rounded-lg border border-dashed border-orange-300 bg-orange-50 px-3 text-xs font-black text-orange-700">{uploading ? 'Uploading...' : 'Upload Missing PO Proof'}<input type="file" accept="image/*,.pdf" className="sr-only" disabled={uploading} onChange={onUpload}/></label>;
   const name = getPoProofName(row);
   const mime = String(row?.poFileMimeType || row?.poProof?.mimeType || '').toLowerCase();
   const image = mime.startsWith('image/') || /\.(?:png|jpe?g|webp|gif)(?:\?|$)/i.test(url);
@@ -605,6 +605,23 @@ export default function PendingApproval() {
     }
   }
 
+  async function uploadMissingPoProof(approval, rowIndex, event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const id = approval._id || approval.id;
+    setSavingId(`po-proof-${id}-${rowIndex}`);
+    setError('');
+    try {
+      const uploaded = await uploadMedia(file, 'crm/leads/purchase-orders');
+      await api.patch(API_ENDPOINTS.leads.purchaseOrderApprovalProof(id), { rowIndex, poFileUrl: uploaded.secureUrl, poFileName: uploaded.name || file.name, poFileMimeType: uploaded.type || file.type || '', poFileSize: uploaded.bytes || uploaded.size || file.size || null });
+      setNotice('PO proof uploaded and saved to both the approval record and linked Lead.');
+      await loadPage({ force: true, silent: true });
+    } catch (err) {
+      setError(readError(err, 'Unable to upload and save the missing PO proof.'));
+    } finally { setSavingId(''); }
+  }
+
   async function submitPoDecision(event) {
     event.preventDefault();
     const remarks = String(poDecision?.remarks || '').trim();
@@ -963,7 +980,8 @@ export default function PendingApproval() {
                   const id = row._id || row.id;
                   const poRows = getApprovalPoRows(row.payload).map(normalizePoApprovalRow);
                   const renderKey = `${id}-${poRows.map((po) => `${po.poAmountValue || 0}:${po.basicAmountValue || 0}:${po.proofUrl}`).join('|')}`;
-                  return <tr key={renderKey}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmountValue ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : '-'}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <PoProof key={`${po.proofUrl || 'proof'}-${index}`} row={po} />)}{row.payload?.earlierQuotationProofUrl && <a href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>}</Cell><Cell>{poRows.map((po, index) => <strong key={index} className="block text-slate-900">{po.basicAmountValue != null ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
+                  row.approStatus = row.approvalStatus;
+                  return <tr key={renderKey}><Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell><Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell><Cell>{poRows.map((po, index) => <div key={index} className="mb-1 font-black text-emerald-700">{po.poAmountValue ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : '-'}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell><Cell>{poRows.map((po, index) => <PoProof key={`${po.proofUrl || 'proof'}-${index}`} row={po} uploading={savingId === `po-proof-${id}-${index}`} onUpload={(event) => uploadMissingPoProof(row, index, event)} />)}{row.payload?.earlierQuotationProofUrl && <a href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>}</Cell><Cell>{poRows.map((po, index) => <strong key={index} className="block text-slate-900">{po.basicAmountValue != null ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell><Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell><Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell></tr>;
                 })}
               </ApprovalTable>
             ) : activeTab === 'temporary' ? (

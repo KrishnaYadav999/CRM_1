@@ -30,6 +30,7 @@ router.post('/:id/royalty-claims', requireAuth, leadCtrl.claimLeadRoyalty);
 router.post('/:id/temporary-assignments', requireAuth, temporaryAssignmentCtrl.requestTemporaryAssignment);
 router.patch('/temporary-assignments/:approvalId', requireAuth, temporaryAssignmentCtrl.decideTemporaryAssignment);
 router.patch('/purchase-order-approvals/:id', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.decidePurchaseOrderApproval);
+router.patch('/purchase-order-approvals/:id/proof', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.uploadPurchaseOrderProof);
 router.get('/:leadId/quotations', requireAuth, quotationCtrl.listLeadQuotations);
 router.put('/:id', requireAuth, leadCtrl.updateLead);
 

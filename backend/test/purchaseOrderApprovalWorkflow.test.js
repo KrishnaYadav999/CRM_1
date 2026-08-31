@@ -56,6 +56,10 @@ test('PO approval is persisted and restricted to Admin and Super Admin', () => {
   assert.match(model, /'purchase_order'/);
   assert.match(model, /'REVISION_REQUIRED'/);
   assert.match(routes, /purchase-order-approvals.*requireRoles\(ADMIN_ROLES\)/);
+  assert.match(routes, /purchase-order-approvals\/:id\/proof/);
+  assert.match(controller, /exports\.uploadPurchaseOrderProof/);
+  assert.match(controller, /approval\.markModified\('payload'\)/);
+  assert.match(controller, /lead\.markModified\('assignments'\)/);
   assert.match(controller, /upsertPurchaseOrderApprovals/);
   assert.match(controller, /poApprovalStatus = status/);
   assert.match(controller, /attachments: screenshotAttachment \? \[screenshotAttachment\] : \[\]/);
@@ -84,6 +88,8 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /function getApprovalPoRows/);
   assert.match(page, /payload\.poRows/);
   assert.match(page, /payload\.purchaseOrders/);
+  assert.match(page, /Upload Missing PO Proof/);
+  assert.match(page, /purchaseOrderApprovalProof/);
   assert.match(page, /Download ·/);
   assert.match(page, /FY \/ Service Period/);
   assert.match(page, /Business Category/);

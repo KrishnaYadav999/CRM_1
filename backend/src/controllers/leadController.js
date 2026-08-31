@@ -1681,6 +1681,41 @@ exports.addServiceCatalogOffering = async (req, res) => {
   return res.status(201).json({ catalog: { category: entry.category, servicesOffered: entry.servicesOffered }, addedServices: servicesToAdd });
 };
 
+exports.uploadPurchaseOrderProof = async (req, res) => {
+  const approval = await PendingApproval.findOne({ _id: req.params.id, type: 'purchase_order' });
+  if (!approval) return res.status(404).json({ error: 'Purchase Order approval not found.' });
+  const poFileUrl = String(req.body.poFileUrl || '').trim();
+  const poFileName = String(req.body.poFileName || 'PO proof').trim();
+  const poFileMimeType = String(req.body.poFileMimeType || '').trim();
+  const poFileSize = Number.isFinite(Number(req.body.poFileSize)) ? Number(req.body.poFileSize) : null;
+  const rowIndex = Math.max(0, Number.parseInt(req.body.rowIndex, 10) || 0);
+  if (!/^https:\/\//i.test(poFileUrl)) return res.status(400).json({ error: 'A valid uploaded PO proof URL is required.' });
+  const payload = approval.payload || {};
+  const snapshotRows = Array.isArray(payload.poYearRows) && payload.poYearRows.length ? payload.poYearRows
+    : Array.isArray(payload.poRows) && payload.poRows.length ? payload.poRows
+      : Array.isArray(payload.purchaseOrders) ? payload.purchaseOrders : [];
+  while (snapshotRows.length <= rowIndex) snapshotRows.push({});
+  snapshotRows[rowIndex] = { ...snapshotRows[rowIndex], poFileUrl, poFileName, poFileMimeType, poFileSize };
+  approval.payload = { ...payload, poYearRows: snapshotRows };
+  approval.markModified('payload');
+  await approval.save();
+  const leadId = String(payload.leadId || approval.sourceClientId || '').split(':po:')[0].trim();
+  const lead = mongoose.isValidObjectId(leadId) ? await Lead.findById(leadId) : await Lead.findOne({ $or: [{ sourceLeadId: leadId }, { leadCode: payload.leadCode || approval.uniqueId }] });
+  if (lead) {
+    const assignmentIndex = Number(payload.assignmentIndex);
+    const assignment = (Number.isInteger(assignmentIndex) ? lead.assignments?.[assignmentIndex] : null)
+      || lead.assignments?.find((row) => payload.assignedServiceId && String(row.assignedServiceId || '') === String(payload.assignedServiceId));
+    if (assignment) {
+      if (!Array.isArray(assignment.poYearRows)) assignment.poYearRows = [];
+      while (assignment.poYearRows.length <= rowIndex) assignment.poYearRows.push({});
+      assignment.poYearRows[rowIndex] = { ...assignment.poYearRows[rowIndex], poFileUrl, poFileName, poFileMimeType, poFileSize };
+      lead.markModified('assignments');
+      await lead.save();
+    }
+  }
+  res.json({ ok: true, approval });
+};
+
 // Shared only with the temporary-lead conversion controller so conversion
 // follows the exact same lead-code and ownership rules as Add Lead.
 exports.createLeadRecordInternal = createLeadRecord;
