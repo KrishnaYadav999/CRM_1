@@ -15,6 +15,7 @@ const { notifyAdditionalLeadServices } = require('../services/leadServiceContrib
 const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
+const { resolvePoProof } = require('../services/poProofResolver');
 const LeadDropdownOption = require('../models/LeadDropdownOption');
 const { sendLeadIntroductionEmail } = require('../services/leadIntroductionEmail');
 
@@ -256,7 +257,7 @@ function cleanBody(body) {
           poYearRows: Array.isArray(row?.poYearRows) ? row.poYearRows.slice(0, 25).map((po) => ({
             fy: String(po?.fy || '').trim(), poNumber: String(po?.poNumber || '').trim(),
             poAmount: Math.max(0, Number(po?.poAmount) || 0),
-            poFileUrl: String(po?.poFileUrl || '').trim(), poFileName: String(po?.poFileName || '').trim(),
+            poFileUrl: resolvePoProof(po).url, poFileName: resolvePoProof(po).name,
             poFileMimeType: String(po?.poFileMimeType || '').trim(),
             poFileSize: Number.isFinite(Number(po?.poFileSize)) && Number(po.poFileSize) >= 0 ? Number(po.poFileSize) : null,
             currency: String(po?.currency || 'INR').trim() || 'INR',
@@ -411,8 +412,8 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
         ...saved,
         ...po,
         poAmount: Number(po?.poAmount) > 0 ? po.poAmount : saved.poAmount,
-        poFileUrl: po?.poFileUrl || saved.poFileUrl,
-        poFileName: po?.poFileName || saved.poFileName,
+        poFileUrl: resolvePoProof(po, saved).url,
+        poFileName: resolvePoProof(po, saved).name,
         services: Array.isArray(po?.services) && po.services.length ? po.services : saved.services
       };
     }) : previousPoRows;
@@ -1447,8 +1448,9 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         const poAmount = Number(liveRow.poAmount) > 0 ? Number(liveRow.poAmount)
           : Number(snapshot.poAmount) > 0 ? Number(snapshot.poAmount)
             : Number(quotation?.grandTotal) || null;
-        const poFileUrl = String(liveRow.poFileUrl || liveRow.poProof?.url || liveRow.poProof?.secureUrl || liveRow.fileUrl || liveRow.file?.secureUrl || liveRow.file?.url || liveRow.poDocument?.secureUrl || liveRow.poDocument?.url || snapshot.poFileUrl || snapshot.poProof?.url || snapshot.poProof?.secureUrl || snapshot.fileUrl || snapshot.file?.secureUrl || snapshot.file?.url || snapshot.poDocument?.secureUrl || snapshot.poDocument?.url || '').trim();
-        const poFileName = String(liveRow.poFileName || liveRow.poProof?.fileName || liveRow.poProof?.name || liveRow.fileName || liveRow.file?.originalName || liveRow.file?.name || liveRow.poDocument?.originalName || liveRow.poDocument?.name || snapshot.poFileName || snapshot.poProof?.fileName || snapshot.poProof?.name || snapshot.fileName || snapshot.file?.originalName || snapshot.file?.name || snapshot.poDocument?.originalName || snapshot.poDocument?.name || '').trim();
+        const proof = resolvePoProof(liveRow, snapshot, payload);
+        const poFileUrl = proof.url;
+        const poFileName = proof.name;
         const savedQuotationItems = Array.isArray(liveRow.quotationItems) && liveRow.quotationItems.length
           ? liveRow.quotationItems
           : Array.isArray(snapshot.quotationItems) && snapshot.quotationItems.length ? snapshot.quotationItems : [];

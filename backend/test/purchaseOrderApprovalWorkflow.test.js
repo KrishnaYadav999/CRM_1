@@ -99,6 +99,13 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /Array\.isArray\(children\) && children\.some\(\(child\) => React\.isValidElement\(child\)\)/);
 });
 
+test('PO proof resolver preserves canonical, legacy, nested, and approval-level uploads', () => {
+  const { resolvePoProof } = require('../src/services/poProofResolver');
+  assert.deepEqual(resolvePoProof({ poFileUrl: 'https://example.com/current.pdf', poFileName: 'current.pdf' }), { url: 'https://example.com/current.pdf', name: 'current.pdf' });
+  assert.deepEqual(resolvePoProof({ poUpload: { secure_url: 'https://example.com/legacy.pdf', originalName: 'legacy.pdf' } }), { url: 'https://example.com/legacy.pdf', name: 'legacy.pdf' });
+  assert.deepEqual(resolvePoProof({}, { documentUrl: 'https://example.com/approval.pdf', documentName: 'approval.pdf' }), { url: 'https://example.com/approval.pdf', name: 'approval.pdf' });
+});
+
 test('Super Admin home omits MIS tables and Home navigation omits Activity Logs', () => {
   const dashboard = read('../../frontend/src/pages/SuperAdminDashboard.jsx');
   const navigation = read('../../frontend/src/constants/dashboard.js');

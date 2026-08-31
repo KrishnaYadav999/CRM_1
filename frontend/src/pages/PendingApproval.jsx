@@ -65,18 +65,29 @@ function formatAmount(value) {
 }
 
 function getPoProofUrl(row = {}) {
-  return String(row.poFileUrl || row.poProof?.url || row.poProof?.secureUrl || row.fileUrl || row.file?.secureUrl || row.file?.url || row.poDocument?.secureUrl || row.poDocument?.url || '').trim();
+  const nestedUrl = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment]
+    .filter((value) => value && typeof value === 'object')
+    .map((value) => value.poFileUrl || value.fileUrl || value.secureUrl || value.secure_url || value.url)
+    .find((value) => String(value || '').trim());
+  return String(row.poFileUrl || row.poProofUrl || row.poDocumentUrl || row.poUploadUrl || row.poAttachmentUrl || row.uploadedDocumentUrl || row.documentUrl || row.fileUrl || row.secureUrl || row.secure_url || nestedUrl || '').trim();
 }
 
 function getPoProofName(row = {}) {
-  return String(row.poFileName || row.poProof?.fileName || row.poProof?.name || row.fileName || row.file?.originalName || row.file?.name || row.poDocument?.originalName || row.poDocument?.name || 'PO proof').trim();
+  const nestedName = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment]
+    .filter((value) => value && typeof value === 'object')
+    .map((value) => value.poFileName || value.fileName || value.originalName || value.name)
+    .find((value) => String(value || '').trim());
+  return String(row.poFileName || row.poProofName || row.poDocumentName || row.poUploadName || row.poAttachmentName || row.uploadedDocumentName || row.documentName || row.fileName || nestedName || 'PO proof').trim();
 }
 
 function getApprovalPoRows(payload = {}) {
   const rows = Array.isArray(payload.poYearRows) && payload.poYearRows.length ? payload.poYearRows
     : Array.isArray(payload.poRows) && payload.poRows.length ? payload.poRows
       : Array.isArray(payload.purchaseOrders) && payload.purchaseOrders.length ? payload.purchaseOrders : [];
-  if (rows.length) return rows;
+  if (rows.length) return rows.map((row) => {
+    const proofUrl = getPoProofUrl(row) || getPoProofUrl(payload);
+    return proofUrl ? { ...row, poFileUrl: proofUrl, poFileName: getPoProofName(row) !== 'PO proof' ? getPoProofName(row) : getPoProofName(payload) } : row;
+  });
   const rowLevelProof = getPoProofUrl(payload);
   return payload.poNumber || payload.poAmount || rowLevelProof ? [{ ...payload, poFileUrl: rowLevelProof, poFileName: getPoProofName(payload) }] : [];
 }
