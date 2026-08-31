@@ -84,9 +84,20 @@ function getApprovalPoRows(payload = {}) {
   const rows = Array.isArray(payload.poYearRows) && payload.poYearRows.length ? payload.poYearRows
     : Array.isArray(payload.poRows) && payload.poRows.length ? payload.poRows
       : Array.isArray(payload.purchaseOrders) && payload.purchaseOrders.length ? payload.purchaseOrders : [];
-  if (rows.length) return rows.map((row) => {
-    const proofUrl = getPoProofUrl(row) || getPoProofUrl(payload);
-    return proofUrl ? { ...row, poFileUrl: proofUrl, poFileName: getPoProofName(row) !== 'PO proof' ? getPoProofName(row) : getPoProofName(payload) } : row;
+  const manifest = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
+  if (rows.length) return rows.map((row, index) => {
+    const manifestRow = manifest[index] || {};
+    const proofUrl = getPoProofUrl(row) || getPoProofUrl(manifestRow) || getPoProofUrl(payload);
+    const rowProofName = getPoProofName(row);
+    const manifestProofName = getPoProofName(manifestRow);
+    return {
+      ...row,
+      ...manifestRow,
+      poFileUrl: proofUrl,
+      poFileName: rowProofName !== 'PO proof'
+        ? rowProofName
+        : manifestProofName !== 'PO proof' ? manifestProofName : getPoProofName(payload),
+    };
   });
   const rowLevelProof = getPoProofUrl(payload);
   return payload.poNumber || payload.poAmount || rowLevelProof ? [{ ...payload, poFileUrl: rowLevelProof, poFileName: getPoProofName(payload) }] : [];

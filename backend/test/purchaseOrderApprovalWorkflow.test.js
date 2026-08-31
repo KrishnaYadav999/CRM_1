@@ -27,7 +27,9 @@ test('PO received closure asks whether quotation was sent and supports earlier q
   assert.match(leadPage, /earlierQuotationProofUrl/);
   assert.match(leadController, /closureRequestedBy/);
   assert.match(leadController, /closureRequestedBy: String\(row\?\.closureRequestedBy/);
-  assert.match(leadController, /poFileUrl: String\(po\?\.poFileUrl/);
+  assert.match(leadController, /const poProofManifest = poRowsSnapshot\.map/);
+  assert.match(leadController, /poFileUrl: String\(po\.poFileUrl/);
+  assert.match(leadController, /poYearRows: poRowsSnapshot, poProofManifest/);
   assert.match(leadController, /status === 'APPROVED'.*closureRequestedBy/s);
   assert.match(leadController, /approval\.payload\?\.closureRequestedBy/);
   assert.doesNotMatch(leadController, /status === 'APPROVED'[\s\S]{0,300}closureRequestedBy = ''/);
@@ -68,6 +70,8 @@ test('PO approval is persisted and restricted to Admin and Super Admin', () => {
   assert.match(controller, /liveRows\.length \? liveRows : snapshotRows/);
   assert.match(controller, /Purchase Order submitted for review/);
   assert.match(controller, /New PO Approval/);
+  assert.match(controller, /const poProofManifest = poRowsSnapshot\.map/);
+  assert.match(controller, /payload: \{[\s\S]*poYearRows: poRowsSnapshot, poProofManifest/);
   assert.match(controller, /buildPurchaseOrderEmail/);
   assert.match(controller, /Purchase Order approved successfully/);
   assert.match(controller, /leadByCompany/);
@@ -90,6 +94,7 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /payload\.purchaseOrders/);
   assert.match(page, /Upload Missing PO Proof/);
   assert.match(page, /purchaseOrderApprovalProof/);
+  assert.match(page, /payload\.poProofManifest/);
   assert.match(page, /Download ·/);
   assert.match(page, /FY \/ Service Period/);
   assert.match(page, /Business Category/);

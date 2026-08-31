@@ -478,6 +478,8 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
     row.poApprovalStatus = 'PENDING';
     const service = (lead.serviceSelections || [])[index] || {};
     const sourceClientId = `${lead._id}:po:${row.assignedServiceId || index}`;
+    const poRowsSnapshot = (Array.isArray(row.poYearRows) ? row.poYearRows : []).map((po) => ({ ...po }));
+    const poProofManifest = poRowsSnapshot.map((po, rowIndex) => ({ rowIndex, poNumber: String(po.poNumber || '').trim(), poFileUrl: String(po.poFileUrl || '').trim(), poFileName: String(po.poFileName || '').trim(), poFileMimeType: String(po.poFileMimeType || '').trim(), poFileSize: po.poFileSize ?? null }));
     const savedApproval = await PendingApproval.findOneAndUpdate(
       { type: 'purchase_order', source: 'crm', sourceClientId },
       { $setOnInsert: { type: 'purchase_order', source: 'crm', sourceClientId }, $set: {
@@ -485,7 +487,7 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor }) {
         piboCategory: service.subApplicantType || service.piboCategory || service.applicantType || '',
         eprCategory: service.eprCategory || '', createdByName: actor?.name || actor?.email || '',
         requestDate: new Date().toLocaleDateString('en-GB'), requestTime: new Date().toLocaleTimeString('en-US'),
-        payload: { leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex: index, assignedServiceId: row.assignedServiceId || '', service, poYearRows: row.poYearRows || [], quotationSent: row.quotationSent || '', earlierQuotationProofUrl: row.earlierQuotationProofUrl || '', earlierQuotationProofName: row.earlierQuotationProofName || '', closureRequestedBy: row.closureRequestedBy || '', closureRequestedByText: row.closureRequestedByText || '', poSubmittedById: String(actor?._id || actor?.id || ''), poSubmittedByEmail: actor?.email || '', poSubmittedByName: actor?.name || actor?.email || '', leadCreatorId: String(lead.createdBy?._id || lead.createdBy || ''), leadCreatorEmail: lead.createdBy?.email || lead.createdByEmail || '', quotationCreatorIds: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedById).filter(Boolean))], quotationCreatorEmails: [...new Set((row.poYearRows || []).map((po) => po.quotationCreatedByEmail).filter(Boolean))] },
+        payload: { leadId: String(lead._id), leadCode: lead.leadCode || '', assignmentIndex: index, assignedServiceId: row.assignedServiceId || '', service, poYearRows: poRowsSnapshot, poProofManifest, quotationSent: row.quotationSent || '', earlierQuotationProofUrl: row.earlierQuotationProofUrl || '', earlierQuotationProofName: row.earlierQuotationProofName || '', closureRequestedBy: row.closureRequestedBy || '', closureRequestedByText: row.closureRequestedByText || '', poSubmittedById: String(actor?._id || actor?.id || ''), poSubmittedByEmail: actor?.email || '', poSubmittedByName: actor?.name || actor?.email || '', leadCreatorId: String(lead.createdBy?._id || lead.createdBy || ''), leadCreatorEmail: lead.createdBy?.email || lead.createdByEmail || '', quotationCreatorIds: [...new Set(poRowsSnapshot.map((po) => po.quotationCreatedById).filter(Boolean))], quotationCreatorEmails: [...new Set(poRowsSnapshot.map((po) => po.quotationCreatedByEmail).filter(Boolean))] },
         actionBy: null, actionAt: null, remarks: ''
       } }, { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -1416,9 +1418,10 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       || quotations.find((quote) => [quote.leadRef, quote.leadId, quote.leadCode, quote.businessLeadCode].some((value) => [String(lead._id), lead.leadCode].includes(String(value || ''))));
     purchaseOrderApprovals.forEach((approval) => {
       const payload = approval.payload || {};
-      const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows
+      const proofManifest = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
+      const snapshotRows = (Array.isArray(payload.poYearRows) ? payload.poYearRows
         : Array.isArray(payload.poRows) ? payload.poRows
-          : Array.isArray(payload.purchaseOrders) ? payload.purchaseOrders : [];
+          : Array.isArray(payload.purchaseOrders) ? payload.purchaseOrders : []).map((row, rowIndex) => ({ ...row, ...(proofManifest[rowIndex] || {}), poFileUrl: row.poFileUrl || proofManifest[rowIndex]?.poFileUrl || '', poFileName: row.poFileName || proofManifest[rowIndex]?.poFileName || '' }));
       const lead = leadById.get(approvalLeadId(approval))
         || leadBySourceId.get(String(approval.sourceClientId || '').split(':po:')[0].trim())
         || leadByCode.get(String(payload.leadCode || approval.uniqueId || '').toLowerCase())
@@ -1698,7 +1701,10 @@ exports.uploadPurchaseOrderProof = async (req, res) => {
       : Array.isArray(payload.purchaseOrders) ? payload.purchaseOrders : [];
   while (snapshotRows.length <= rowIndex) snapshotRows.push({});
   snapshotRows[rowIndex] = { ...snapshotRows[rowIndex], poFileUrl, poFileName, poFileMimeType, poFileSize };
-  approval.payload = { ...payload, poYearRows: snapshotRows };
+  const poProofManifest = Array.isArray(payload.poProofManifest) ? [...payload.poProofManifest] : [];
+  while (poProofManifest.length <= rowIndex) poProofManifest.push({});
+  poProofManifest[rowIndex] = { ...poProofManifest[rowIndex], rowIndex, poNumber: snapshotRows[rowIndex].poNumber || '', poFileUrl, poFileName, poFileMimeType, poFileSize };
+  approval.payload = { ...payload, poYearRows: snapshotRows, poProofManifest };
   approval.markModified('payload');
   await approval.save();
   const leadId = String(payload.leadId || approval.sourceClientId || '').split(':po:')[0].trim();
