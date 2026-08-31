@@ -64,10 +64,18 @@ function formatAmount(value) {
   return amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function getPoProofUrl(row = {}) {
+  return String(row.poFileUrl || row.poProof?.url || row.poProof?.secureUrl || row.fileUrl || row.file?.secureUrl || row.file?.url || row.poDocument?.secureUrl || row.poDocument?.url || '').trim();
+}
+
+function getPoProofName(row = {}) {
+  return String(row.poFileName || row.poProof?.fileName || row.poProof?.name || row.fileName || row.file?.originalName || row.file?.name || row.poDocument?.originalName || row.poDocument?.name || 'PO proof').trim();
+}
+
 function PoProof({ row }) {
-  const url = String(row?.poFileUrl || row?.poProof?.url || '').trim();
+  const url = getPoProofUrl(row);
   if (!url) return <span className="text-xs font-semibold text-slate-400">No PO proof</span>;
-  const name = String(row?.poFileName || row?.poProof?.fileName || 'PO proof');
+  const name = getPoProofName(row);
   const mime = String(row?.poFileMimeType || row?.poProof?.mimeType || '').toLowerCase();
   const image = mime.startsWith('image/') || /\.(?:png|jpe?g|webp|gif)(?:\?|$)/i.test(url);
   return <div className="mt-2 flex items-center gap-2">
@@ -86,7 +94,7 @@ function normalizePoApprovalRow(row = {}) {
     ...row,
     poAmountValue: Number(row.poAmount) > 0 ? Number(row.poAmount) : null,
     basicAmountValue: row.quotationSent === 'no' ? 0 : (itemTotal || Number(row.quotationBasicAmount) || null),
-    proofUrl: String(row.poFileUrl || row.poProof?.url || '').trim()
+    proofUrl: getPoProofUrl(row)
   };
 }
 
@@ -173,14 +181,20 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
     const assignment = assignments.find((row) => payload.assignedServiceId && String(row?.assignedServiceId || '') === String(payload.assignedServiceId))
       || assignments[Number(payload.assignmentIndex)]
       || {};
-    const livePoRows = Array.isArray(assignment.poYearRows) ? assignment.poYearRows.filter((row) => row && (row.poNumber || row.poAmount || row.poFileUrl)) : [];
+    const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
+    const livePoRows = Array.isArray(assignment.poYearRows) ? assignment.poYearRows.filter((row) => row && (row.poNumber || row.poAmount || getPoProofUrl(row))) : [];
+    const mergedPoRows = livePoRows.map((liveRow, index) => {
+      const snapshot = snapshotRows.find((row) => row?.poNumber && row.poNumber === liveRow.poNumber) || snapshotRows[index] || {};
+      const merged = { ...snapshot, ...liveRow };
+      return { ...merged, poFileUrl: getPoProofUrl(liveRow) || getPoProofUrl(snapshot), poFileName: getPoProofName(liveRow) !== 'PO proof' ? getPoProofName(liveRow) : getPoProofName(snapshot) };
+    });
     return {
       ...approval,
       payload: {
         ...payload,
         leadCode: payload.leadCode || lead.leadCode || '',
         service: payload.service || (lead.serviceSelections || [])[Number(payload.assignmentIndex)] || {},
-        poYearRows: livePoRows.length ? livePoRows : (payload.poYearRows || [])
+        poYearRows: mergedPoRows.length ? mergedPoRows : snapshotRows
       }
     };
   });

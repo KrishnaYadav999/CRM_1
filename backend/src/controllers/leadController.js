@@ -1447,8 +1447,8 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         const poAmount = Number(liveRow.poAmount) > 0 ? Number(liveRow.poAmount)
           : Number(snapshot.poAmount) > 0 ? Number(snapshot.poAmount)
             : Number(quotation?.grandTotal) || null;
-        const poFileUrl = String(liveRow.poFileUrl || liveRow.poProof?.url || snapshot.poFileUrl || snapshot.poProof?.url || '').trim();
-        const poFileName = String(liveRow.poFileName || liveRow.poProof?.fileName || snapshot.poFileName || snapshot.poProof?.fileName || '').trim();
+        const poFileUrl = String(liveRow.poFileUrl || liveRow.poProof?.url || liveRow.poProof?.secureUrl || liveRow.fileUrl || liveRow.file?.secureUrl || liveRow.file?.url || liveRow.poDocument?.secureUrl || liveRow.poDocument?.url || snapshot.poFileUrl || snapshot.poProof?.url || snapshot.poProof?.secureUrl || snapshot.fileUrl || snapshot.file?.secureUrl || snapshot.file?.url || snapshot.poDocument?.secureUrl || snapshot.poDocument?.url || '').trim();
+        const poFileName = String(liveRow.poFileName || liveRow.poProof?.fileName || liveRow.poProof?.name || liveRow.fileName || liveRow.file?.originalName || liveRow.file?.name || liveRow.poDocument?.originalName || liveRow.poDocument?.name || snapshot.poFileName || snapshot.poProof?.fileName || snapshot.poProof?.name || snapshot.fileName || snapshot.file?.originalName || snapshot.file?.name || snapshot.poDocument?.originalName || snapshot.poDocument?.name || '').trim();
         const savedQuotationItems = Array.isArray(liveRow.quotationItems) && liveRow.quotationItems.length
           ? liveRow.quotationItems
           : Array.isArray(snapshot.quotationItems) && snapshot.quotationItems.length ? snapshot.quotationItems : [];
