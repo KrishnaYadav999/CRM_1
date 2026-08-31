@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, BadgeIndianRupee, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BadgeIndianRupee, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
@@ -3352,6 +3352,7 @@ function StaffFilterSelect({ value, options, onChange }) {
 }
 
 function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, canEdit = false }) {
+  const [temporaryLeadsOpen, setTemporaryLeadsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -3492,8 +3493,9 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
             {options.status.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
           <StaffFilterSelect value={staffFilter} options={staffFilterOptions} onChange={setStaffFilter} />
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:flex xl:justify-end">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 xl:flex xl:justify-end">
             <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Lead</button>
+            <button type="button" onClick={() => setTemporaryLeadsOpen(true)} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-black text-violet-700 hover:bg-violet-100"><Clock3 className="h-4 w-4" />Temp Lead</button>
             <button type="button" onClick={() => { setQuery(''); setStatusFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
             <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
@@ -3549,8 +3551,75 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         </div>
         <LeadDirectoryPagination page={page} totalPages={totalPages} setPage={setPage} />
       </div>
+      {temporaryLeadsOpen && <TemporaryLeadsWorkspace onClose={() => setTemporaryLeadsOpen(false)} onConverted={onRefresh} />}
     </div>
   );
+}
+
+function TemporaryLeadsWorkspace({ onClose, onConverted }) {
+  const [clientName, setClientName] = useState('');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ temporaryLeads: [], pagination: { page: 1, pages: 1, total: 0 }, counts: { total: 0, draft: 0, converted: 0 } });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [convertingId, setConvertingId] = useState('');
+  const [message, setMessage] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const response = await api.get(API_ENDPOINTS.leads.temporaryLeads, { params: { page, limit: 10, search: search.trim() || undefined, status: status || undefined } });
+      setData(response.data);
+    } catch (requestError) {
+      setMessage({ type: 'error', text: requestError?.response?.data?.error || 'Unable to load temporary leads.' });
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { const timer = setTimeout(load, search ? 300 : 0); return () => clearTimeout(timer); }, [page, search, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(1); }, [search, status]);
+
+  async function saveTemporaryLead(event) {
+    event.preventDefault();
+    const name = clientName.trim();
+    if (name.length < 2 || saving) return;
+    setSaving(true); setMessage(null);
+    try {
+      const response = await api.post(API_ENDPOINTS.leads.temporaryLeads, { clientName: name });
+      setClientName(''); setPage(1);
+      setMessage({ type: 'success', text: `${response.data.temporaryLead.tempLeadCode} saved successfully.` });
+      await load();
+    } catch (requestError) {
+      setMessage({ type: 'error', text: requestError?.response?.data?.error || 'Unable to save temporary lead.' });
+    } finally { setSaving(false); }
+  }
+
+  async function convert(row) {
+    if (!window.confirm(`Convert ${row.tempLeadCode} (${row.clientName}) into a permanent lead?`)) return;
+    setConvertingId(row._id); setMessage(null);
+    try {
+      const response = await api.post(API_ENDPOINTS.leads.convertTemporaryLead(row._id));
+      setMessage({ type: 'success', text: `${row.tempLeadCode} converted to ${response.data.lead?.leadCode || row.convertedLeadCode}.` });
+      await Promise.all([load(), onConverted?.()]);
+    } catch (requestError) {
+      setMessage({ type: 'error', text: requestError?.response?.data?.error || 'Unable to convert this temporary lead.' });
+    } finally { setConvertingId(''); }
+  }
+
+  const counts = data.counts || {};
+  return <div className="fixed inset-0 z-[140] overflow-y-auto bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="mx-auto min-h-[calc(100vh-48px)] max-w-7xl overflow-hidden rounded-3xl border border-white/60 bg-[#f6faf9] shadow-2xl">
+      <header className="relative overflow-hidden border-b border-emerald-100 bg-white px-5 py-5 sm:px-7"><div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-emerald-500 to-teal-700"/><div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.2em] text-emerald-700"><Clock3 className="h-4 w-4"/>Quick capture workspace</div><h2 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Temporary Leads</h2><p className="mt-1 text-sm font-semibold text-slate-500">Capture a client name now and complete the full lead whenever you are ready.</p></div><button type="button" onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-50"><X className="h-5 w-5"/></button></div></header>
+      <div className="space-y-4 p-4 sm:p-6">
+        <div className="grid gap-3 sm:grid-cols-3">{[[counts.total,'Total Captured','bg-slate-950 text-white'],[counts.draft,'Ready to Convert','bg-amber-50 text-amber-800 border border-amber-200'],[counts.converted,'Converted Leads','bg-emerald-50 text-emerald-800 border border-emerald-200']].map(([value,label,tone]) => <article key={label} className={`rounded-2xl p-4 shadow-sm ${tone}`}><span className="text-[10px] font-black uppercase tracking-wider opacity-70">{label}</span><strong className="mt-1 block text-3xl font-black">{Number(value || 0).toLocaleString('en-IN')}</strong></article>)}</div>
+        <form onSubmit={saveTemporaryLead} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"><label className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Client name</label><div className="mt-2 flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Building2 className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"/><input autoFocus value={clientName} maxLength={240} onChange={(event) => setClientName(event.target.value)} placeholder="Enter company or client name" className="h-12 w-full rounded-xl border border-slate-200 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"/></div><button disabled={saving || clientName.trim().length < 2} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-40"><Plus className="h-4 w-4"/>{saving ? 'Saving...' : 'Submit Temp Lead'}</button></div><p className="mt-2 text-xs font-semibold text-slate-400">A unique ID such as ATPL-TEMP-0001 is generated automatically.</p></form>
+        {message && <div className={`rounded-xl border px-4 py-3 text-sm font-bold ${message.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
+        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[1fr_220px_auto]"><label className="relative"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search temp ID or client..." className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm font-bold outline-none focus:border-violet-400"/></label><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold"><option value="">All Status</option><option value="DRAFT">Ready to Convert</option><option value="CONVERTED">Converted</option></select><button type="button" onClick={load} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-black text-slate-600"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}/>Refresh</button></div>
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="p-4">Temp Lead ID</th><th className="p-4">Client Name</th><th className="p-4">Created By</th><th className="p-4">Created At</th><th className="p-4">Status</th><th className="p-4">Permanent Lead</th><th className="p-4 text-right">Action</th></tr></thead><tbody>{loading ? <tr><td colSpan="7" className="p-12 text-center font-bold text-slate-400">Loading temporary leads...</td></tr> : data.temporaryLeads?.map((row) => <tr key={row._id} className="border-t border-slate-100 hover:bg-emerald-50/30"><td className="p-4 font-black text-violet-700">{row.tempLeadCode}</td><td className="p-4 font-black uppercase text-slate-800">{row.clientName}</td><td className="p-4"><strong className="block">{row.createdBy?.name || row.createdByName || '-'}</strong><small className="text-slate-400">{row.createdBy?.email || row.createdByEmail}</small></td><td className="p-4 text-xs font-bold text-slate-500">{new Date(row.createdAt).toLocaleString('en-IN')}</td><td className="p-4"><span className={`rounded-full px-3 py-1 text-[10px] font-black ${row.status === 'CONVERTED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{row.status === 'CONVERTED' ? 'Converted' : 'Ready'}</span></td><td className="p-4 font-black text-emerald-700">{row.convertedLeadCode || '-'}</td><td className="p-4 text-right"><button type="button" disabled={row.status === 'CONVERTED' || convertingId === row._id} onClick={() => convert(row)} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-3 text-xs font-black text-white disabled:bg-slate-200 disabled:text-slate-400">{convertingId === row._id ? 'Converting...' : row.status === 'CONVERTED' ? 'Converted' : <>Convert to Lead<ArrowRight className="h-3.5 w-3.5"/></>}</button></td></tr>)}{!loading && !data.temporaryLeads?.length && <tr><td colSpan="7" className="p-12 text-center font-bold text-slate-400">No temporary leads match these filters.</td></tr>}</tbody></table></div><footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs font-bold text-slate-500"><span>Showing {data.temporaryLeads?.length || 0} of {data.pagination?.total || 0}</span><div className="flex items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} className="grid h-9 w-9 place-items-center rounded-lg border disabled:opacity-30"><ChevronLeft className="h-4 w-4"/></button><span>Page {page} of {data.pagination?.pages || 1}</span><button type="button" disabled={page >= (data.pagination?.pages || 1)} onClick={() => setPage((current) => current + 1)} className="grid h-9 w-9 place-items-center rounded-lg border disabled:opacity-30"><ChevronRight className="h-4 w-4"/></button></div><span>10 per page</span></footer></div>
+      </div>
+    </section>
+  </div>;
 }
 
 function QuotationClosureSummary({ quotation, items = [], poRows = [], setClosureDialog, uploadClosureFile }) {

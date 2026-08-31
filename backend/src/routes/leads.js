@@ -5,6 +5,7 @@ const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES } = require('../constants/roles');
 const quotationCtrl = require('../controllers/quotationController');
 const temporaryAssignmentCtrl = require('../controllers/temporaryLeadAssignmentController');
+const temporaryLeadCtrl = require('../controllers/temporaryLeadController');
 
 router.get('/', requireAuth, leadCtrl.listLeads);
 router.get('/service-catalog', requireAuth, leadCtrl.listServiceCatalog);
@@ -14,6 +15,9 @@ router.post('/service-catalog/categories', requireAuth, requireRoles(ADMIN_ROLES
 router.post('/service-catalog/categories/:category/services', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.addServiceCatalogOffering);
 router.get('/search/company', requireAuth, leadCtrl.searchCompanies);
 router.get('/duplicate-approvals', requireAuth, leadCtrl.listDuplicateLeadApprovals);
+router.get('/temporary', requireAuth, temporaryLeadCtrl.list);
+router.post('/temporary', requireAuth, temporaryLeadCtrl.create);
+router.post('/temporary/:id/convert', requireAuth, temporaryLeadCtrl.convert);
 router.post('/duplicate-approvals', requireAuth, leadCtrl.requestDuplicateLeadApproval);
 router.patch('/duplicate-approvals/:id', requireAuth, leadCtrl.updateDuplicateLeadApproval);
 router.post('/bulk', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.bulkCreateLeads);

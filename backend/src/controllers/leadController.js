@@ -1680,3 +1680,7 @@ exports.addServiceCatalogOffering = async (req, res) => {
   await entry.save();
   return res.status(201).json({ catalog: { category: entry.category, servicesOffered: entry.servicesOffered }, addedServices: servicesToAdd });
 };
+
+// Shared only with the temporary-lead conversion controller so conversion
+// follows the exact same lead-code and ownership rules as Add Lead.
+exports.createLeadRecordInternal = createLeadRecord;
