@@ -27,6 +27,16 @@ test('month-end lead email contains separate open and closed counts', () => {
   assert.match(source, /closedLeadCount:\s*closedRows\.length/);
   assert.match(source, /Open Leads/);
   assert.match(source, /Closed Leads/);
+  assert.match(source, /admins\(ADMIN_ROLES\)/);
+  assert.match(source, /existingOpenCount === openRows\.length/);
+  assert.doesNotMatch(source, /return \[\];\s*\n\s*}\s*\n}\s*\n\s*async function admins/);
+});
+
+test('month-end closed count matches the page when any service is closed', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
+  assert.match(source, /closedRows = leads\.filter[\s\S]*services\.some\(\(_, index\) => isServiceClosed\(lead, index\)\)/);
 });
 
 test('follow-up reminder email is sent only to the lead or service owner without admin CC', () => {
@@ -41,16 +51,11 @@ test('follow-up reminder email is sent only to the lead or service owner without
   assert.match(reminderBlock, /sendMail\(primary\.email/);
 });
 
-test('getCcpLeads returns an empty list when the CCP endpoint is unreachable', async () => {
-  const originalFetch = global.fetch;
-  global.fetch = async () => {
-    throw new Error('ECONNREFUSED');
-  };
-
-  try {
-    const leads = await __test.getCcpLeads();
-    assert.deepEqual(leads, []);
-  } finally {
-    global.fetch = originalFetch;
-  }
+test('getCcpLeads does not turn database failures into false zero-count summaries', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
+  const fetchBlock = source.match(/async function getCcpLeads[\s\S]*?async function admins/)?.[0] || '';
+  assert.match(fetchBlock, /throw error/);
+  assert.doesNotMatch(fetchBlock, /return \[\]/);
 });

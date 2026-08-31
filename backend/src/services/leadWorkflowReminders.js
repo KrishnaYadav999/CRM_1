@@ -5,6 +5,7 @@ const PendingApproval = require('../models/PendingApproval');
 const Quotation = require('../models/Quotation');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
+const { ADMIN_ROLES } = require('../constants/roles');
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -99,7 +100,7 @@ async function getCcpLeads() {
     return await Lead.find({}).lean();
   } catch (error) {
     console.warn('CRM lead reminder fetch failed', error.message);
-    return [];
+    throw error;
   }
 }
 
@@ -429,7 +430,6 @@ async function remindOldDrafts(leads, now) {
   const monthKey = indiaMonthEndKey(now);
   if (!monthKey) return;
   const key = `month-end-lead-summary:${monthKey}`;
-  if (await Notification.exists({ kind: 'month_end_lead_summary', 'metadata.key': key })) return;
   const isServiceClosed = (lead, index) => {
     const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
     const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
@@ -443,15 +443,21 @@ async function remindOldDrafts(leads, now) {
   });
   const closedRows = leads.filter((lead) => {
     const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
-    return services.length > 0 && services.every((_, index) => isServiceClosed(lead, index));
+    return services.some((_, index) => isServiceClosed(lead, index));
   });
-  const recipients = await admins(['superadmin']);
+  const existing = await Notification.findOne({ kind: 'month_end_lead_summary', 'metadata.key': key });
+  const existingOpenCount = Number(existing?.metadata?.openLeadCount);
+  const existingClosedCount = Number(existing?.metadata?.closedLeadCount);
+  if (existing && existingOpenCount === openRows.length && existingClosedCount === closedRows.length) return;
+  const recipients = await admins(ADMIN_ROLES);
   if (!recipients.length) return;
   const description = `${monthKey} month-end summary: ${openRows.length} open lead(s) and ${closedRows.length} closed lead(s).`;
-  const item = await Notification.create({ title: 'Month-end lead summary', description, tag: 'Lead Review', kind: 'month_end_lead_summary', audience: recipients.map((user) => user._id), visibleToRoles: ['superadmin'], metadata: { key, monthKey, openLeadCount: openRows.length, closedLeadCount: closedRows.length } });
+  const notificationData = { title: 'Month-end lead summary', description, tag: 'Lead Review', kind: 'month_end_lead_summary', audience: recipients.map((user) => user._id), visibleToRoles: ADMIN_ROLES, metadata: { key, monthKey, openLeadCount: openRows.length, closedLeadCount: closedRows.length } };
+  const item = existing ? Object.assign(existing, notificationData) : await Notification.create(notificationData);
   item.crmNotificationId = String(item._id); await item.save();
   const html = `<div style="margin:0;padding:30px 14px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#334155"><div style="max-width:620px;margin:auto;border:1px solid #dbe5e7;border-radius:16px;background:#fff;overflow:hidden"><div style="height:7px;background:#0f766e"></div><div style="padding:30px 34px"><span style="color:#0f766e;font-size:11px;font-weight:700;letter-spacing:.8px">MONTH-END LEAD REVIEW</span><h1 style="margin:12px 0 8px;color:#0f172a">Monthly lead summary</h1><p style="color:#64748b">${escapeHtml(description)}</p><table width="100%" cellspacing="0" cellpadding="0" style="margin-top:22px;border-collapse:collapse"><tr><td style="padding:18px;border:1px solid #dbe5e7;background:#fff7ed"><strong style="display:block;font-size:28px;color:#c2410c">${openRows.length}</strong><span>Open Leads</span></td><td style="padding:18px;border:1px solid #dbe5e7;background:#ecfdf5"><strong style="display:block;font-size:28px;color:#047857">${closedRows.length}</strong><span>Closed Leads</span></td></tr></table><p style="margin-top:22px;color:#64748b;font-size:13px">Open CRM Lead Review for complete details.</p></div></div></div>`;
-  await Promise.allSettled(recipients.filter((user) => user.email).map((user) => sendMail(user.email, `Month-end Lead Summary ${monthKey} - Open ${openRows.length}, Closed ${closedRows.length}`, html, { branded: false })));
+  const recipientEmails = [...new Set(recipients.map((user) => String(user.email || '').trim().toLowerCase()).filter(Boolean))];
+  await Promise.allSettled(recipientEmails.map((email) => sendMail(email, `Month-end Lead Summary ${monthKey} - Open ${openRows.length}, Closed ${closedRows.length}`, html, { branded: false })));
 }
 
 async function runLeadWorkflowReminders() {
