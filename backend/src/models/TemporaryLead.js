@@ -10,7 +10,12 @@ const TemporaryLeadSchema = new mongoose.Schema({
   createdByEmail: { type: String, trim: true, lowercase: true },
   convertedLead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' },
   convertedLeadCode: { type: String, trim: true },
-  convertedAt: { type: Date }
+  convertedAt: { type: Date },
+  nextFollowUpDate: { type: String, trim: true },
+  nextFollowUpTime: { type: String, trim: true },
+  followUpRemarks: { type: String, trim: true },
+  followUpPriority: { type: String, trim: true, default: 'Medium' },
+  followUpHistory: { type: Array, default: [] }
 }, { timestamps: true });
 
 TemporaryLeadSchema.index({ createdBy: 1, createdAt: -1 });

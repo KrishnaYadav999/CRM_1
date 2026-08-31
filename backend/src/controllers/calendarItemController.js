@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const CalendarItem = require('../models/CalendarItem');
 const Lead = require('../models/Lead');
+const TemporaryLead = require('../models/TemporaryLead');
 
 function readItemId(value) {
   return String(value || '').trim();
@@ -139,6 +140,16 @@ function applyCalendarFollowUpClosure(lead, item, user) {
 async function closeLinkedLeadFollowUp(item, user) {
   const raw = typeof item.toObject === 'function' ? item.toObject() : item;
   if (String(raw.status || '').toLowerCase() !== 'completed' || !isFollowUpItem(raw)) return null;
+  if (raw.temporaryLeadId && mongoose.Types.ObjectId.isValid(String(raw.temporaryLeadId))) {
+    const temporaryLead = await TemporaryLead.findById(raw.temporaryLeadId);
+    if (!temporaryLead) return null;
+    const closedAt = String(raw.completedAt || new Date().toISOString());
+    if (!Array.isArray(temporaryLead.followUpHistory)) temporaryLead.followUpHistory = [];
+    temporaryLead.followUpHistory.unshift({ calendarItemId: String(raw._id || ''), scheduledDate: raw.scheduledDate || temporaryLead.nextFollowUpDate || '', scheduledTime: raw.scheduledTime || temporaryLead.nextFollowUpTime || '', remarks: raw.completionRemarks || temporaryLead.followUpRemarks || 'Follow-up completed', priority: raw.priority || temporaryLead.followUpPriority || 'Medium', status: 'closed', closedAt, closedBy: user?.name || user?.email || raw.assignedToName || 'CRM User' });
+    temporaryLead.nextFollowUpDate = ''; temporaryLead.nextFollowUpTime = ''; temporaryLead.followUpRemarks = '';
+    await temporaryLead.save();
+    return temporaryLead;
+  }
   const leadId = String(raw.leadId || '').trim();
   const lookups = [];
   if (leadId) {

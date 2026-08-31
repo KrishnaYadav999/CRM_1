@@ -2,6 +2,7 @@ const Lead = require('../models/Lead');
 const LeadActivity = require('../models/LeadActivity');
 const Sequence = require('../models/Sequence');
 const TemporaryLead = require('../models/TemporaryLead');
+const CalendarItem = require('../models/CalendarItem');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { createLeadRecordInternal } = require('./leadController');
 
@@ -63,6 +64,25 @@ exports.convert = async (req, res) => {
   row.status = 'CONVERTED'; row.convertedLead = lead._id; row.convertedLeadCode = lead.leadCode; row.convertedAt = new Date();
   await row.save();
   res.status(201).json({ ok: true, temporaryLead: row, lead });
+};
+
+exports.saveFollowUp = async (req, res) => {
+  const row = await TemporaryLead.findById(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Temporary lead not found.' });
+  if (row.status === 'CONVERTED') return res.status(409).json({ error: 'Converted temporary leads must be followed up from the permanent Lead.' });
+  const scheduledDate = String(req.body.scheduledDate || '').trim();
+  const scheduledTime = String(req.body.scheduledTime || '').trim();
+  const remarks = String(req.body.remarks || '').trim();
+  const priority = String(req.body.priority || 'Medium').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate) || !remarks) return res.status(400).json({ error: 'Follow-up date and remarks are required.' });
+  const now = new Date().toISOString();
+  if (!Array.isArray(row.followUpHistory)) row.followUpHistory = [];
+  if (row.nextFollowUpDate || row.nextFollowUpTime || row.followUpRemarks) row.followUpHistory.unshift({ scheduledDate: row.nextFollowUpDate, scheduledTime: row.nextFollowUpTime, remarks: row.followUpRemarks, priority: row.followUpPriority, status: 'updated', updatedAt: now, updatedBy: req.user.name || req.user.email });
+  row.nextFollowUpDate = scheduledDate; row.nextFollowUpTime = scheduledTime; row.followUpRemarks = remarks; row.followUpPriority = priority;
+  const calendarItem = await CalendarItem.create({ externalId: `temp-followup-${row._id}-${Date.now()}`, type: 'followup', category: 'Follow-Up', title: `Temporary lead follow-up: ${row.clientName}`, description: remarks, clientName: row.clientName, leadNumber: row.tempLeadCode, leadCompanyName: row.clientName, temporaryLeadId: String(row._id), scheduledDate, scheduledTime, priority, status: 'open', assignedTo: String(req.user._id), assignedToId: String(req.user._id), assignedToName: req.user.name || req.user.email, assignedToEmail: req.user.email || '', createdBy: req.user.name || req.user.email, createdByUser: req.user._id, source: 'temporary-lead' });
+  row.followUpHistory.unshift({ calendarItemId: String(calendarItem._id), scheduledDate, scheduledTime, remarks, priority, status: 'open', createdAt: now, createdBy: req.user.name || req.user.email });
+  await row.save();
+  res.json({ ok: true, temporaryLead: row, calendarItem });
 };
 
 exports.__test = { nextTemporaryLeadCode };

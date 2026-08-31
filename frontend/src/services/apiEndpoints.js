@@ -43,6 +43,7 @@ const API_ENDPOINTS = {
     ,temporaryAssignmentDecision: (approvalId) => `/leads/temporary-assignments/${encodePathValue(approvalId)}`
     ,temporaryLeads: '/leads/temporary'
     ,convertTemporaryLead: (id) => `/leads/temporary/${encodePathValue(id)}/convert`
+    ,temporaryLeadFollowUp: (id) => `/leads/temporary/${encodePathValue(id)}/follow-up`
     ,purchaseOrderApprovalDecision: (id) => `/leads/purchase-order-approvals/${encodePathValue(id)}`
   },
   clients: {

@@ -24,6 +24,8 @@ test('temporary lead APIs support list, create, filters and conversion', () => {
   assert.match(controller, /req\.query\.status/);
   assert.match(controller, /createLeadRecordInternal/);
   assert.match(controller, /DUPLICATE_LEAD_COMPANY/);
+  assert.match(routes, /temporary\/:id\/follow-up/);
+  assert.match(controller, /CalendarItem\.create/);
 });
 
 test('lead directory exposes the complete temporary lead workspace', () => {
@@ -37,4 +39,8 @@ test('lead directory exposes the complete temporary lead workspace', () => {
   assert.match(page, /Back to Leads/);
   assert.match(app, /sales\/lead-generation\/temporary/);
   assert.doesNotMatch(page, /fixed inset-0 z-\[140\]/);
+  assert.match(page, /Temporary lead details/);
+  assert.match(page, /Save Follow-up/);
+  assert.match(page, /View table/);
+  assert.doesNotMatch(page, /bg-slate-950 px-3 text-xs font-black text-white/);
 });

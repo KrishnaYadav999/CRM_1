@@ -18,6 +18,7 @@ router.get('/duplicate-approvals', requireAuth, leadCtrl.listDuplicateLeadApprov
 router.get('/temporary', requireAuth, temporaryLeadCtrl.list);
 router.post('/temporary', requireAuth, temporaryLeadCtrl.create);
 router.post('/temporary/:id/convert', requireAuth, temporaryLeadCtrl.convert);
+router.post('/temporary/:id/follow-up', requireAuth, temporaryLeadCtrl.saveFollowUp);
 router.post('/duplicate-approvals', requireAuth, leadCtrl.requestDuplicateLeadApproval);
 router.patch('/duplicate-approvals/:id', requireAuth, leadCtrl.updateDuplicateLeadApproval);
 router.post('/bulk', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.bulkCreateLeads);
