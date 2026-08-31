@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, CheckCircle2, Clock3, FilePlus2, RefreshCw, UserRound, X } from 'lucide-react';
+import { Activity, CheckCircle2, ChevronLeft, ChevronRight, Clock3, FilePlus2, RefreshCw, UserRound, Users, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
@@ -94,6 +94,15 @@ function readableField(input) {
   return String(input || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const PAGE_SIZE = 10;
+function leadOwner(row = {}) { return value(row.importedCreatedBy || row.createdByName || row.createdByEmail); }
+function paginationPages(current, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+  const pages = new Set([1, total, current - 1, current, current + 1].filter((page) => page > 0 && page <= total));
+  const sorted = [...pages].sort((left, right) => left - right);
+  return sorted.flatMap((page, index) => index && page - sorted[index - 1] > 1 ? ['ellipsis', page] : [page]);
+}
+
 export default function PendingLeads({ mode = 'open' }) {
   const [currentUser, setCurrentUser] = useState(() => { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; } });
   const [leads, setLeads] = useState([]);
@@ -103,7 +112,10 @@ export default function PendingLeads({ mode = 'open' }) {
   const [loading, setLoading] = useState(true);
   const [monthFilter, setMonthFilter] = useState('all');
   const [dayFilter, setDayFilter] = useState('all');
+  const [userFilter, setUserFilter] = useState('all');
+  const [page, setPage] = useState(1);
   const monthOptions = useMemo(() => [...new Set(leads.map((row) => monthKey(filterDateFor(row, mode))).filter(Boolean))].sort().reverse(), [leads, mode]);
+  const userOptions = useMemo(() => [...new Set(leads.map(leadOwner).filter((name) => name !== '-'))].sort((left, right) => left.localeCompare(right)), [leads]);
   const rows = useMemo(() => leads.filter((row) => {
     const role = String(currentUser?.role || '').trim().toLowerCase();
     const admin = ['admin', 'superadmin', 'super admin'].includes(role);
@@ -113,12 +125,18 @@ export default function PendingLeads({ mode = 'open' }) {
     if (mode === 'closed' ? !closedLead(row) : !pendingDraft(row)) return false;
     const relevantDate = new Date(filterDateFor(row, mode) || 0);
     if (monthFilter !== 'all' && monthKey(relevantDate) !== monthFilter) return false;
+    if (userFilter !== 'all' && leadOwner(row) !== userFilter) return false;
     if (dayFilter !== 'all') {
       const elapsedDays = (Date.now() - relevantDate.getTime()) / (24 * 60 * 60 * 1000);
       if (elapsedDays < 0 || elapsedDays > Number(dayFilter)) return false;
     }
     return true;
-  }), [currentUser, dayFilter, leads, mode, monthFilter]);
+  }), [currentUser, dayFilter, leads, mode, monthFilter, userFilter]);
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const paginatedRows = useMemo(() => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [page, rows]);
+
+  useEffect(() => { setPage(1); }, [monthFilter, dayFilter, userFilter, mode]);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   async function load() {
     setLoading(true);
@@ -144,6 +162,8 @@ export default function PendingLeads({ mode = 'open' }) {
       <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Review</p><h1 className="text-3xl font-black">{mode === 'closed' ? 'Lead Close' : 'Lead Open'}</h1><p className="mt-1 font-bold text-slate-500">{mode === 'closed' ? 'Closed leads visible within your assigned scope.' : 'Month-end open lead review. Records become visible on the last day of each month.'}</p></div>
         <div className="flex flex-wrap items-end gap-3">
+          <div className="flex h-11 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 text-emerald-800"><Users className="h-4 w-4" /><div><span className="block text-[9px] font-black uppercase tracking-wider">Total Leads</span><strong className="text-lg leading-none">{rows.length.toLocaleString('en-IN')}</strong></div></div>
+          <label className="grid gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">User<select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} className="h-11 min-w-44 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><option value="all">All Users</option>{userOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Month<select value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><option value="all">All Months</option>{monthOptions.map((month) => <option key={month} value={month}>{new Date(`${month}-01`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</option>)}</select></label>
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Days<select value={dayFilter} onChange={(event) => setDayFilter(event.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><option value="all">All Days</option><option value="7">Last 7 Days</option><option value="15">Last 15 Days</option></select></label>
           <button onClick={load} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 font-black text-white"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
@@ -152,13 +172,14 @@ export default function PendingLeads({ mode = 'open' }) {
       <div className="overflow-auto rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
         <table className="w-full min-w-[1450px] text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Sr. No.', mode === 'closed' ? 'Closed Date' : 'Lead Date', mode === 'closed' ? 'Lead Status' : 'Pending For', 'Lead Generated By', 'Company', 'Services', 'Service Added By', 'Financial Years', 'Quotation Basic Amount (INR)'].map((item) => <th className="px-4 py-4" key={item}>{item}</th>)}</tr></thead>
-          <tbody>{rows.map((row, index) => {
+          <tbody>{paginatedRows.map((row, index) => {
             const matchingServices = servicesForMode(row, mode);
             const quotation = [...quotations].filter((item) => quotationMatchesLead(item, row)).sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0];
             const contributors = [...new Set(matchingServices.map(({ service }) => service.createdByName || service.createdByEmail || row.importedCreatedBy || row.createdByName || row.createdByEmail).filter(Boolean))];
-            return <tr className="border-t border-slate-100 hover:bg-emerald-50/30" key={idFor(row)}><td className="px-4 py-4 font-black">{index + 1}</td><td className="px-4 py-4">{value(filterDateFor(row, mode)).slice(0, 10)}</td><td className="px-4 py-4"><span className={`rounded-full px-3 py-1 font-black ${mode === 'closed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{mode === 'closed' ? 'Closed' : pendingFor(row)}</span></td><td className="px-4 py-4">{value(row.importedCreatedBy || row.createdByName || row.createdByEmail)}</td><td className="px-4 py-4"><button type="button" onClick={() => view(row)} className="text-left font-black text-slate-950 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-700">{value(row.company)}</button></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.servicesOffered).filter(Boolean))].join(', '))}</td><td className="px-4 py-4"><div className="flex flex-wrap gap-1.5">{contributors.length ? contributors.map((name) => <span key={name} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-black text-sky-700">{name}</span>) : '-'}</div></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.firstAnnualReturnYearApplicable).filter(Boolean))].join(', '))}</td><td className="px-4 py-4 font-black text-emerald-700">{quotation ? formatInr(quotationBasicAmount(quotation)) : '-'}</td></tr>;
+            return <tr className="border-t border-slate-100 hover:bg-emerald-50/30" key={idFor(row)}><td className="px-4 py-4 font-black">{(page - 1) * PAGE_SIZE + index + 1}</td><td className="px-4 py-4">{value(filterDateFor(row, mode)).slice(0, 10)}</td><td className="px-4 py-4"><span className={`rounded-full px-3 py-1 font-black ${mode === 'closed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{mode === 'closed' ? 'Closed' : pendingFor(row)}</span></td><td className="px-4 py-4">{leadOwner(row)}</td><td className="px-4 py-4"><button type="button" onClick={() => view(row)} className="text-left font-black text-slate-950 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-700">{value(row.company)}</button></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.servicesOffered).filter(Boolean))].join(', '))}</td><td className="px-4 py-4"><div className="flex flex-wrap gap-1.5">{contributors.length ? contributors.map((name) => <span key={name} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-black text-sky-700">{name}</span>) : '-'}</div></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.firstAnnualReturnYearApplicable).filter(Boolean))].join(', '))}</td><td className="px-4 py-4 font-black text-emerald-700">{quotation ? formatInr(quotationBasicAmount(quotation)) : '-'}</td></tr>;
           })}{!rows.length && <tr><td colSpan={9} className="p-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : mode === 'closed' ? 'No closed leads found.' : isIndiaMonthEnd() ? 'No open leads found for this month-end review.' : 'Open leads will be available on the last day of the month.'}</td></tr>}</tbody>
         </table>
+        {!loading && rows.length > 0 && <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs font-bold text-slate-500"><span>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, rows.length)} of {rows.length} leads</span><div className="flex items-center gap-1"><button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => setPage((current) => current - 1)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>{paginationPages(page, totalPages).map((item, index) => item === 'ellipsis' ? <span key={`ellipsis-${index}`} className="px-2">…</span> : <button type="button" key={item} onClick={() => setPage(item)} className={`h-9 min-w-9 rounded-lg px-2 ${item === page ? 'bg-emerald-700 text-white' : 'hover:bg-slate-100'}`}>{item}</button>)}<button type="button" aria-label="Next page" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button></div><span>10 per page</span></footer>}
       </div>
     </div>
     {selected && <PendingLeadModal lead={selected} history={history} mode={mode} onClose={() => setSelected(null)} />}
