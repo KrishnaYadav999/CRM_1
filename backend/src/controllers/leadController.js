@@ -15,7 +15,7 @@ const { notifyAdditionalLeadServices } = require('../services/leadServiceContrib
 const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
-const { resolvePoProof } = require('../services/poProofResolver');
+const { resolvePoProof, resolveApprovalPoProof } = require('../services/poProofResolver');
 const LeadDropdownOption = require('../models/LeadDropdownOption');
 const { sendLeadIntroductionEmail } = require('../services/leadIntroductionEmail');
 
@@ -1435,10 +1435,9 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       || quotations.find((quote) => [quote.leadRef, quote.leadId, quote.leadCode, quote.businessLeadCode].some((value) => [String(lead._id), lead.leadCode].includes(String(value || ''))));
     purchaseOrderApprovals.forEach((approval) => {
       const payload = approval.payload || {};
-      const proofManifest = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
       const snapshotRows = (Array.isArray(payload.poYearRows) ? payload.poYearRows
         : Array.isArray(payload.poRows) ? payload.poRows
-          : Array.isArray(payload.purchaseOrders) ? payload.purchaseOrders : []).map((row, rowIndex) => ({ ...row, ...(proofManifest[rowIndex] || {}), poFileUrl: row.poFileUrl || proofManifest[rowIndex]?.poFileUrl || '', poFileName: row.poFileName || proofManifest[rowIndex]?.poFileName || '' }));
+          : Array.isArray(payload.purchaseOrders) ? payload.purchaseOrders : []);
       const lead = leadById.get(approvalLeadId(approval))
         || leadBySourceId.get(String(approval.sourceClientId || '').split(':po:')[0].trim())
         || leadByCode.get(String(payload.leadCode || approval.uniqueId || '').toLowerCase())
@@ -1468,24 +1467,21 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         const poAmount = Number(liveRow.poAmount) > 0 ? Number(liveRow.poAmount)
           : Number(snapshot.poAmount) > 0 ? Number(snapshot.poAmount)
             : Number(quotation?.grandTotal) || null;
-        const proof = resolvePoProof(liveRow, snapshot, payload);
-        const poFileUrl = proof.url;
-        const poFileName = proof.name;
+        const normalizedProof = resolveApprovalPoProof({ approval, normalizedRow: row, rowIndex });
         const savedQuotationItems = Array.isArray(liveRow.quotationItems) && liveRow.quotationItems.length
           ? liveRow.quotationItems
           : Array.isArray(snapshot.quotationItems) && snapshot.quotationItems.length ? snapshot.quotationItems : [];
         return {
           ...row,
           poAmount,
-          poFileUrl,
-          poFileName,
+          ...normalizedProof,
           currency: row.currency || 'INR',
           quotationId: row.quotationId || (quotation?._id ? String(quotation._id) : ''),
           quotationNumber: row.quotationNumber || quotation?.quotationNumber || '',
           quotationItems: savedQuotationItems.length ? savedQuotationItems : (quotation?.items || []),
           quotationBasicAmount: Number(quotation?.combinedBasicAmount) || Number(quotation?.subtotal) || Number(quotation?.grandTotal) || null,
-          poFileMimeType: row.poFileMimeType || '',
-          poFileSize: row.poFileSize ?? null
+          poFileMimeType: normalizedProof.poFileMimeType || row.poFileMimeType || '',
+          poFileSize: normalizedProof.poFileSize ?? row.poFileSize ?? null
         };
       });
       const resolvedIndex = assignments.indexOf(assignment);
@@ -1514,7 +1510,7 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       clientName: approval.clientName,
       rows: (approval.payload?.poYearRows || []).map((row) => ({
         poAmount: row.poAmount ?? null,
-        hasPoProof: Boolean(row.poFileUrl || row.poProof?.url),
+        hasPoProof: Boolean(row.hasPoFileUrl && row.poFileUrl),
         quotationItems: Array.isArray(row.quotationItems) ? row.quotationItems.length : 0,
         quotationBasicAmount: row.quotationBasicAmount ?? null
       })),

@@ -40,7 +40,7 @@ test('PO received closure asks whether quotation was sent and supports earlier q
   assert.match(leadController, /poApprovalStatus[\s\S]*assignedTo[\s\S]*closureRequestedBy[\s\S]*closureFinalizedByManager/);
   assert.match(pendingApprovalPage, /View earlier quotation proof/);
   assert.match(pendingApprovalPage, /const poRows = normalizedPoRows\.length/);
-  assert.match(pendingApprovalPage, /Upload Missing PO Proof/);
+  assert.match(pendingApprovalPage, /function NormalizedPoProof/);
   assert.match(pendingApprovalPage, /row\.quotationSent === 'no' \? 0/);
 });
 
@@ -98,7 +98,11 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
   assert.match(page, /function getApprovalPoRows/);
   assert.match(page, /payload\.poRows/);
   assert.match(page, /payload\.purchaseOrders/);
-  assert.match(page, /Upload Missing PO Proof/);
+  assert.match(page, /if \(!item\.hasPoFileUrl \|\| !item\.poFileUrl\) return/);
+  assert.match(page, /target="_blank"/);
+  assert.match(page, /console\.table\(normalizedRows\.map/);
+  assert.match(page, /console\.log\('\[POProof:render\]'/);
+  assert.match(page, /const renderKey = `\$\{id\}-\$\{poRows\[0\]\?\.rowIndex/);
   assert.match(page, /purchaseOrderApprovalProof/);
   assert.match(page, /payload\.poProofManifest/);
   assert.match(page, /Download ·/);
@@ -112,9 +116,28 @@ test('Pending Approval exposes PO approve reject and revision actions', () => {
 
 test('PO proof resolver preserves canonical, legacy, nested, and approval-level uploads', () => {
   const { resolvePoProof } = require('../src/services/poProofResolver');
-  assert.deepEqual(resolvePoProof({ poFileUrl: 'https://example.com/current.pdf', poFileName: 'current.pdf' }), { url: 'https://example.com/current.pdf', name: 'current.pdf' });
-  assert.deepEqual(resolvePoProof({ poUpload: { secure_url: 'https://example.com/legacy.pdf', originalName: 'legacy.pdf' } }), { url: 'https://example.com/legacy.pdf', name: 'legacy.pdf' });
-  assert.deepEqual(resolvePoProof({}, { documentUrl: 'https://example.com/approval.pdf', documentName: 'approval.pdf' }), { url: 'https://example.com/approval.pdf', name: 'approval.pdf' });
+  assert.deepEqual(resolvePoProof({ poFileUrl: 'https://example.com/current.pdf', poFileName: 'current.pdf' }), { url: 'https://example.com/current.pdf', name: 'current.pdf', mimeType: '', size: '' });
+  assert.deepEqual(resolvePoProof({ poUpload: { secure_url: 'https://example.com/legacy.pdf', originalName: 'legacy.pdf' } }), { url: 'https://example.com/legacy.pdf', name: 'legacy.pdf', mimeType: '', size: '' });
+  assert.deepEqual(resolvePoProof({}, { documentUrl: 'https://example.com/approval.pdf', documentName: 'approval.pdf' }), { url: 'https://example.com/approval.pdf', name: 'approval.pdf', mimeType: '', size: '' });
+});
+
+test('canonical PO resolver follows priority and never crosses approvals sharing a lead code', () => {
+  const { resolveApprovalPoProof } = require('../src/services/poProofResolver');
+  const firstApproval = {
+    _id: 'approval-a',
+    uniqueId: 'ATPL-LEAD-0456',
+    payload: {
+      poYearRows: [{ poNumber: 'OTHER', poFileUrl: 'https://example.com/wrong-index.pdf' }, { poNumber: 'PO_1234', poFileUrl: 'https://example.com/right.pdf', poFileName: 'right.pdf' }],
+      poProofManifest: [{ poNumber: 'PO_1234', poFileUrl: 'https://example.com/manifest.pdf' }]
+    }
+  };
+  const secondApproval = { _id: 'approval-b', uniqueId: 'ATPL-LEAD-0456', payload: { poYearRows: [{ poNumber: 'PO_1234', poFileUrl: 'https://example.com/other-approval.pdf' }] } };
+  const resolved = resolveApprovalPoProof({ approval: firstApproval, normalizedRow: { poNumber: 'PO_1234' }, rowIndex: 0 });
+  assert.equal(resolved.poFileUrl, 'https://example.com/right.pdf');
+  assert.equal(resolved.poFileName, 'right.pdf');
+  assert.equal(resolved.hasPoFileUrl, true);
+  assert.equal(resolveApprovalPoProof({ approval: secondApproval, normalizedRow: { poNumber: 'PO_1234' }, rowIndex: 0 }).poFileUrl, 'https://example.com/other-approval.pdf');
+  assert.equal(resolveApprovalPoProof({ approval: firstApproval, normalizedRow: { poNumber: 'PO_1234', poFileUrl: 'https://example.com/normalized.pdf' }, rowIndex: 0 }).poFileUrl, 'https://example.com/normalized.pdf');
 });
 
 test('Super Admin home omits MIS tables and Home navigation omits Activity Logs', () => {

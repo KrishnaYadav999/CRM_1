@@ -7,6 +7,40 @@ function readItemId(value) {
   return String(value || '').trim();
 }
 
+const ADMIN_ROLES = new Set(['admin', 'superadmin']);
+
+function identityTokens(user = {}) {
+  return [...new Set([user._id, user.id, user.crmUserId, user.userId, user.email, user.name]
+    .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
+}
+
+function isCalendarAdmin(user = {}) {
+  return ADMIN_ROLES.has(String(user.role || '').trim().toLowerCase());
+}
+
+function canAccessCalendarItem(item = {}, user = {}) {
+  if (isCalendarAdmin(user)) return true;
+  const userTokens = identityTokens(user);
+  const itemTokens = [item.createdByUser, item.createdBy, item.assignedToId, item.assignedToEmail, item.assignedToName, item.assignedTo]
+    .map((value) => String(value?._id || value || '').trim().toLowerCase()).filter(Boolean);
+  return userTokens.some((token) => itemTokens.includes(token));
+}
+
+function calendarVisibilityFilter(user = {}) {
+  if (isCalendarAdmin(user)) return {};
+  const userId = String(user._id || user.id || '').trim();
+  const email = String(user.email || '').trim().toLowerCase();
+  const name = String(user.name || '').trim();
+  const textIds = identityTokens(user);
+  const clauses = [
+    ...(mongoose.isValidObjectId(userId) ? [{ createdByUser: userId }] : []),
+    ...(textIds.length ? [{ assignedToId: { $in: textIds } }, { assignedTo: { $in: textIds } }] : []),
+    ...(email ? [{ assignedToEmail: email }, { createdBy: email }] : []),
+    ...(name ? [{ assignedToName: name }, { createdBy: name }] : [])
+  ];
+  return clauses.length ? { $or: clauses } : { _id: null };
+}
+
 function buildItemData(body = {}, user) {
   const data = { ...body };
   const externalId = readItemId(data.id || data.externalId);
@@ -218,7 +252,7 @@ async function scheduleLinkedLeadFollowUp(item, user) {
 }
 
 exports.listCalendarItems = async (req, res) => {
-  const items = await CalendarItem.find()
+  const items = await CalendarItem.find(calendarVisibilityFilter(req.user))
     .sort({ scheduledDate: 1, scheduledTime: 1, createdAt: -1 })
     .lean();
   // Idempotently repair follow-ups completed before lead/calendar syncing was
@@ -236,6 +270,7 @@ exports.createCalendarItem = async (req, res) => {
 
   let item = data.externalId ? await CalendarItem.findOne({ externalId: data.externalId }) : null;
   if (item) {
+    if (!canAccessCalendarItem(item, req.user)) return res.status(403).json({ error: 'You do not have access to this calendar item' });
     Object.assign(item, data);
     await item.save();
     return res.json({ ok: true, item: mapItem(item) });
@@ -250,6 +285,7 @@ exports.createCalendarItem = async (req, res) => {
 exports.updateCalendarItem = async (req, res) => {
   const item = await findItem(req.params.id);
   if (!item) return res.status(404).json({ error: 'Calendar item not found' });
+  if (!canAccessCalendarItem(item, req.user)) return res.status(403).json({ error: 'You do not have access to this calendar item' });
 
   const data = buildItemData({ ...req.body, id: item.externalId || req.params.id }, req.user);
   if (!data.title) return res.status(400).json({ error: 'Title is required' });
@@ -264,8 +300,9 @@ exports.updateCalendarItem = async (req, res) => {
 exports.deleteCalendarItem = async (req, res) => {
   const item = await findItem(req.params.id);
   if (!item) return res.status(404).json({ error: 'Calendar item not found' });
+  if (!canAccessCalendarItem(item, req.user)) return res.status(403).json({ error: 'You do not have access to this calendar item' });
   await item.deleteOne();
   res.json({ ok: true });
 };
 
-module.exports.__test = { buildItemData, mapItem, isFollowUpItem, sameFollowUpSchedule, resolveServiceIndex, applyCalendarFollowUpClosure, closeLinkedLeadFollowUp, scheduleLinkedLeadFollowUp };
+module.exports.__test = { buildItemData, mapItem, isFollowUpItem, sameFollowUpSchedule, resolveServiceIndex, applyCalendarFollowUpClosure, closeLinkedLeadFollowUp, scheduleLinkedLeadFollowUp, canAccessCalendarItem, calendarVisibilityFilter };

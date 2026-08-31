@@ -82,3 +82,19 @@ test('stable assigned service id wins when service rows are reordered', () => {
   const item = { scheduledDate: '2026-08-14', metadata: { serviceIndex: 0, assignedServiceId: 'service-importer' } };
   assert.equal(__test.resolveServiceIndex(services, item), 1);
 });
+
+test('regular users can only access calendar items they created or are assigned', () => {
+  const user = { _id: '507f1f77bcf86cd799439011', email: 'one@example.com', name: 'User One', role: 'user' };
+  assert.equal(__test.canAccessCalendarItem({ createdByUser: user._id }, user), true);
+  assert.equal(__test.canAccessCalendarItem({ assignedToEmail: 'one@example.com' }, user), true);
+  assert.equal(__test.canAccessCalendarItem({ createdBy: 'User Two', assignedToEmail: 'two@example.com' }, user), false);
+  const filter = __test.calendarVisibilityFilter(user);
+  assert.ok(Array.isArray(filter.$or));
+  assert.ok(filter.$or.length > 0);
+});
+
+test('admins retain access to all calendar items', () => {
+  const admin = { role: 'admin', email: 'admin@example.com' };
+  assert.deepEqual(__test.calendarVisibilityFilter(admin), {});
+  assert.equal(__test.canAccessCalendarItem({ assignedToEmail: 'other@example.com' }, admin), true);
+});

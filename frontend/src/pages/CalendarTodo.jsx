@@ -56,6 +56,22 @@ function writeCalendarItems(items) {
   window.dispatchEvent(new CustomEvent('crm-calendar-items-updated'));
 }
 
+function calendarIdentityTokens(user = {}) {
+  return [...new Set([user?._id, user?.id, user?.crmUserId, user?.userId, user?.email, user?.name]
+    .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
+}
+
+function calendarItemsForUser(items = [], user = {}) {
+  if (['admin', 'superadmin'].includes(String(user?.role || '').trim().toLowerCase())) return items;
+  const userTokens = calendarIdentityTokens(user);
+  if (!userTokens.length) return [];
+  return items.filter((item) => {
+    const ownerTokens = [item.createdByUser, item.createdBy, item.assignedToId, item.assignedToEmail, item.assignedToName, item.assignedTo]
+      .map((value) => String(value?._id || value || '').trim().toLowerCase()).filter(Boolean);
+    return userTokens.some((token) => ownerTokens.includes(token));
+  });
+}
+
 function dateKey(date) {
   // Calendar dates represent the user's local working day. UTC serialization
   // can shift the key by one day, making (for example) Aug 08 appear active
@@ -204,7 +220,7 @@ export default function CalendarTodo() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const today = new Date();
-  const [items, setItems] = useState(() => readCalendarItems());
+  const [items, setItems] = useState(() => calendarItemsForUser(readCalendarItems(), storedUser));
   const [selectedDate, setSelectedDate] = useState(today);
   const [viewDate, setViewDate] = useState(today);
   const [modalDate, setModalDate] = useState(null);
@@ -348,18 +364,19 @@ export default function CalendarTodo() {
       try {
         const response = await api.get(API_ENDPOINTS.calendarItems.list);
         if (!mounted) return;
-        const serverItems = extractList(response, 'items');
+        const serverItems = calendarItemsForUser(extractList(response, 'items'), storedUser);
         setItems(serverItems);
         writeCalendarItems(serverItems);
       } catch {
         if (!mounted) return;
-        setItems(localItems);
-        writeCalendarItems(localItems);
+        const visibleLocalItems = calendarItemsForUser(localItems, storedUser);
+        setItems(visibleLocalItems);
+        writeCalendarItems(visibleLocalItems);
       }
     }
     loadCalendarItems();
     return () => { mounted = false; };
-  }, []);
+  }, [storedUser]);
 
   const filteredItems = useMemo(() => {
     const term = query.trim().toLowerCase();
