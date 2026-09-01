@@ -222,7 +222,7 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
   };
 }
 
-function NormalizedPoProof({ item }) {
+function NormalizedPoProof({ item, approvalRow }) {
   const directUrl = (item?.hasPoFileUrl && _isUsableProofValue(item?.poFileUrl)) ? String(item.poFileUrl).trim()
     : _isUsableProofValue(item?.proofUrl) ? String(item.proofUrl).trim()
     : getPoProofUrl(item || {});
@@ -246,7 +246,43 @@ function NormalizedPoProof({ item }) {
       console.warn('[POProof:Discrepancy] forEach said hasPoFileUrl true but render-time poFileUrl invalid. proofUrl used as fallback:', { poFileUrl: item?.poFileUrl, proofUrl: item?.proofUrl, directUrl });
     }
   }
-  if (!directUrl) return <span className="text-xs font-semibold text-slate-400">-</span>;
+  const dumpFullDiagnostic = (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    console.group('%c🔍 [POProof:Inspector:FullDump] — lead=' + (item?.leadCode || approvalRow?.payload?.leadCode || '') + ' po=' + (item?.poNumber || ''), 'background:#111827;color:#fde68a;font-weight:700;padding:4px 8px;border-radius:6px');
+    console.log('approval_id:', approvalRow?._id || approvalRow?.id || '');
+    console.log('approval_type:', approvalRow?.type || '');
+    console.log('approval_status:', approvalRow?.approvalStatus || '');
+    console.log('approval_clientName:', approvalRow?.clientName || '');
+    console.log('approval_payload_leadCode:', approvalRow?.payload?.leadCode || approvalRow?.uniqueId || '');
+    console.log('approval_payload_SERVICE:', approvalRow?.payload?.service || '');
+    console.log('approval_payload_ASSIGNED_SERVICE_ID:', approvalRow?.payload?.assignedServiceId || '');
+    console.log('approval_payload_ASSIGNMENT_INDEX:', approvalRow?.payload?.assignmentIndex, typeof approvalRow?.payload?.assignmentIndex);
+    console.log('approval_payload_KEYS_ALL:', Object.keys(approvalRow?.payload || {}));
+    console.log('approval_payload_FULL:', approvalRow?.payload || {});
+    console.log('approval_normalizedPoRows (stored):', approvalRow?.normalizedPoRows || 'NOT_ATTACHED');
+    const pRows = approvalRow?.payload?.poYearRows || approvalRow?.payload?.poRows || [];
+    console.log('approval_payload.poYearRows LENGTH=' + pRows.length + ':', pRows);
+    const manifest = approvalRow?.payload?.poProofManifest || [];
+    console.log('approval_payload.poProofManifest LENGTH=' + manifest.length + ':', manifest);
+    // Snapshot ALL url-y fields on payload top-level
+    console.log('approval_payload_TOP_LEVEL_DIRECT_FIELDS:', Object.fromEntries(Object.entries(approvalRow?.payload || {}).filter(([k]) => /proof|file|document|upload|attachment|url|secure|cloud|name|quotationSent/i.test(k))));
+    console.log('CURRENT ITEM (po row) KEYS:', Object.keys(item || {}));
+    console.log('CURRENT ITEM FULL:', item || {});
+    console.log('getPoProofUrl(payload top):', approvalRow?.payload ? getPoProofUrl(approvalRow.payload) : '');
+    console.log('getPoProofUrl(approval top):', getPoProofUrl(approvalRow || {}));
+    console.log('deepFind(payload):', approvalRow?.payload ? _deepFindProofField(approvalRow.payload, 'url') : '');
+    console.log('deepFind(approval):', _deepFindProofField(approvalRow || {}, 'url'));
+    console.groupEnd();
+    alert('🔍 Full diagnostic dump written to Console!\n\nCheck DevTools → Console → look for the YELLOW BLACK 🔍 group labeled [POProof:Inspector:FullDump] for lead=' + (item?.leadCode || approvalRow?.payload?.leadCode || ''));
+  };
+  if (!directUrl) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-semibold text-slate-400">-</span>
+        <button type="button" onClick={dumpFullDiagnostic} title="Dump full DB structure to Console for debugging" className="inline-flex h-7 min-w-[30px] items-center justify-center rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-500 shadow-sm hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700">🔍</button>
+      </div>
+    );
+  }
   const name = _isUsableProofValue(item?.poFileName) ? item.poFileName : getPoProofName(item || {}) || 'PO proof';
   return <a href={directUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm">Open PO Proof</a>;
 }
@@ -1305,7 +1341,7 @@ export default function PendingApproval() {
                     });
                     return fresh.map((po, idx) => (
                       <div key={`${po.approvalId || id}-proof-${idx}-${po.poNumber || 'po'}`} className="mb-2">
-                        <NormalizedPoProof item={po} />
+                        <NormalizedPoProof item={po} approvalRow={row} />
                       </div>
                     ));
                   })()}{row.payload?.earlierQuotationProofUrl && <a href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>}</Cell>
