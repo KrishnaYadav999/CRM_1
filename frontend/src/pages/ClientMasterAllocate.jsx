@@ -1,6 +1,29 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, ChevronDown, RefreshCw, Search, Users, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  BriefcaseBusiness,
+  Building2,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  ClipboardList,
+  Filter,
+  Gauge,
+  ListChecks,
+  MapPin,
+  Percent,
+  Phone,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  UserCheck,
+  UserPlus,
+  Users,
+  X
+} from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api, { API_ENDPOINTS } from '../services/api';
@@ -90,6 +113,65 @@ function userDisplay(u) {
   return roleText ? `${name} · ${roleText}` : name;
 }
 
+function userMiniDisplay(u) {
+  return u ? (u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown') : 'Unknown';
+}
+
+const APPLICANT_THEMES = {
+  producer: { ring: 'ring-emerald-200/80', iconBg: 'bg-gradient-to-br from-emerald-500 to-teal-500', badgeBg: 'bg-emerald-50', badgeText: 'text-emerald-800', badgeRing: 'ring-1 ring-emerald-200', softBg: 'bg-emerald-50/60', accentIcon: Building2 },
+  brand: { ring: 'ring-sky-200/80', iconBg: 'bg-gradient-to-br from-sky-500 to-indigo-500', badgeBg: 'bg-sky-50', badgeText: 'text-sky-800', badgeRing: 'ring-1 ring-sky-200', softBg: 'bg-sky-50/60', accentIcon: Sparkles },
+  'brand owner': { ring: 'ring-sky-200/80', iconBg: 'bg-gradient-to-br from-sky-500 to-indigo-500', badgeBg: 'bg-sky-50', badgeText: 'text-sky-800', badgeRing: 'ring-1 ring-sky-200', softBg: 'bg-sky-50/60', accentIcon: Sparkles },
+  importer: { ring: 'ring-amber-200/80', iconBg: 'bg-gradient-to-br from-amber-500 to-orange-500', badgeBg: 'bg-amber-50', badgeText: 'text-amber-800', badgeRing: 'ring-1 ring-amber-200', softBg: 'bg-amber-50/60', accentIcon: ClipboardList },
+  recycler: { ring: 'ring-teal-200/80', iconBg: 'bg-gradient-to-br from-teal-500 to-cyan-500', badgeBg: 'bg-teal-50', badgeText: 'text-teal-800', badgeRing: 'ring-1 ring-teal-200', softBg: 'bg-teal-50/60', accentIcon: ShieldCheck },
+  'recycler processor': { ring: 'ring-teal-200/80', iconBg: 'bg-gradient-to-br from-teal-500 to-cyan-500', badgeBg: 'bg-teal-50', badgeText: 'text-teal-800', badgeRing: 'ring-1 ring-teal-200', softBg: 'bg-teal-50/60', accentIcon: ShieldCheck },
+  'plastic waste recycler': { ring: 'ring-teal-200/80', iconBg: 'bg-gradient-to-br from-teal-500 to-cyan-500', badgeBg: 'bg-teal-50', badgeText: 'text-teal-800', badgeRing: 'ring-1 ring-teal-200', softBg: 'bg-teal-50/60', accentIcon: ShieldCheck },
+  'tyre waste recycler': { ring: 'ring-rose-200/80', iconBg: 'bg-gradient-to-br from-rose-500 to-pink-500', badgeBg: 'bg-rose-50', badgeText: 'text-rose-800', badgeRing: 'ring-1 ring-rose-200', softBg: 'bg-rose-50/60', accentIcon: ShieldCheck },
+  'e-waste recycler': { ring: 'ring-violet-200/80', iconBg: 'bg-gradient-to-br from-violet-500 to-fuchsia-500', badgeBg: 'bg-violet-50', badgeText: 'text-violet-800', badgeRing: 'ring-1 ring-violet-200', softBg: 'bg-violet-50/60', accentIcon: ShieldCheck },
+  default: { ring: 'ring-slate-200/80', iconBg: 'bg-gradient-to-br from-slate-500 to-slate-700', badgeBg: 'bg-slate-50', badgeText: 'text-slate-800', badgeRing: 'ring-1 ring-slate-200', softBg: 'bg-slate-50/60', accentIcon: BriefcaseBusiness }
+};
+
+function getApplicantTheme(labelRaw = '') {
+  const key = String(labelRaw || '').trim().toLowerCase();
+  if (APPLICANT_THEMES[key]) return APPLICANT_THEMES[key];
+  if (key.includes('brand')) return APPLICANT_THEMES.brand;
+  if (key.includes('producer')) return APPLICANT_THEMES.producer;
+  if (key.includes('import')) return APPLICANT_THEMES.importer;
+  if (key.includes('recycl') || key.includes('processor')) {
+    if (key.includes('tyre')) return APPLICANT_THEMES['tyre waste recycler'];
+    if (key.includes('e-waste') || key.includes('ewaste') || key.includes('electronic')) return APPLICANT_THEMES['e-waste recycler'];
+    return APPLICANT_THEMES.recycler;
+  }
+  return APPLICANT_THEMES.default;
+}
+
+function allocationsForClient(client) {
+  const services = extractServicesFromClient(client);
+  const allocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
+    ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations)
+    : {};
+  let assigned = 0;
+  services.forEach((svc, idx) => {
+    const key = clientMasterGroupingIdentityForAllocation({
+      applicantType: svc.applicantType, subApplicantType: svc.piboCategory,
+      plantUnit: svc.plantUnit, eprCategory: svc.eprCategory || svc.serviceCategory,
+      servicesOffered: svc.servicesOffered, financialYear: svc.financialYear, piboCategory: svc.piboCategory
+    }) || `fallback_${idx}`;
+    const entry = allocs[key] || allocs[String(svc.assignedServiceId || idx)] || {};
+    const uid = String(entry?.userId || entry?.user || entry?.assignedTo || '').trim();
+    if (uid) assigned += 1;
+  });
+  return { services, total: services.length, assigned, unassigned: services.length - assigned };
+}
+
+function filterSegmentsFor(acc) {
+  return [
+    { key: 'all', label: 'All clients', icon: ListChecks, count: acc.totalClients, ring: 'ring-slate-200', text: 'text-slate-700', soft: 'bg-slate-100', strong: 'bg-slate-900 text-white' },
+    { key: 'assigned', label: 'Assigned services', icon: UserCheck, count: acc.assignedClients, ring: 'ring-emerald-200', text: 'text-emerald-800', soft: 'bg-emerald-50', strong: 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-emerald-100' },
+    { key: 'partial', label: 'Partially assigned', icon: Percent, count: acc.partialClients, ring: 'ring-amber-200', text: 'text-amber-800', soft: 'bg-amber-50', strong: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-100' },
+    { key: 'unassigned', label: 'Fully unassigned', icon: CircleAlert, count: acc.unassignedClients, ring: 'ring-rose-200', text: 'text-rose-800', soft: 'bg-rose-50', strong: 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-rose-100' }
+  ];
+}
+
 export default function ClientMasterAllocate() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
@@ -103,17 +185,19 @@ export default function ClientMasterAllocate() {
   const [toast, setToast] = useState(null);
   const [modalClient, setModalClient] = useState(null);
   const [allocationsByKey, setAllocationsByKey] = useState({});
-  const handleLogout = async () => { try { await api.post(API_ENDPOINTS.auth.logout || '/auth/logout', {}).catch(() => {}); } catch {} localStorage.removeItem('token'); localStorage.removeItem('user'); window.location.href = '/login'; };
+  const [segment, setSegment] = useState('all');
+  const handleLogout = async () => {
+    try { await api.post(API_ENDPOINTS.auth.logout || '/auth/logout', {}).catch(() => {}); } catch {}
+    localStorage.removeItem('token'); localStorage.removeItem('user'); window.location.href = '/login';
+  };
+
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('user');
-      if (raw) setCurrentUser(JSON.parse(raw));
-    } catch {}
+    try { const raw = localStorage.getItem('user'); if (raw) setCurrentUser(JSON.parse(raw)); } catch {}
     loadEverything();
     async function loadEverything() {
       try {
         setLoading(true);
-        const [cRes, uRes] = await Promise.all([
+        const [cRes] = await Promise.all([
           api.get(API_ENDPOINTS.clients.list).catch((e) => { console.warn('[CMAllocate] clients fetch fail', e); return { data: { clients: [] } }; }),
           fetchUsers()
         ]);
@@ -122,6 +206,7 @@ export default function ClientMasterAllocate() {
       } catch (e) { console.error('[CMAllocate] load fail', e); } finally { setLoading(false); }
     }
   }, []);
+
   async function fetchUsers() {
     const endpoints = [API_ENDPOINTS.auth.users, API_ENDPOINTS.auth.adminUsers].filter(Boolean);
     let lastErr = null;
@@ -143,31 +228,70 @@ export default function ClientMasterAllocate() {
     setUsers([]);
     return { data: { users: [] } };
   }
+
   const roleOk = (user) => {
     const r = String(user?.role || '').toLowerCase();
     return adminRoles.includes(r) || r === 'manager';
   };
-  const visibleClients = useMemo(() => {
+
+  const enrichedRows = useMemo(() => clients.map((c) => ({ client: c, alloc: allocationsForClient(c), overview: readClientOverview(c) })), [clients]);
+  const searchMatched = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return clients;
-    return clients.filter((c) => {
-      const o = readClientOverview(c);
+    if (!q) return enrichedRows;
+    return enrichedRows.filter((row) => {
+      const o = row.overview;
       return [o.companyName, o.contactPerson, o.mobile, o.email, o.gstin, o.state, o.city, o.leadCode].some((v) => String(v || '').toLowerCase().includes(q));
     });
-  }, [clients, search]);
+  }, [enrichedRows, search]);
+  const segmented = useMemo(() => {
+    if (segment === 'all') return searchMatched;
+    if (segment === 'assigned') return searchMatched.filter((r) => r.alloc.assigned > 0 && r.alloc.assigned === r.alloc.total);
+    if (segment === 'partial') return searchMatched.filter((r) => r.alloc.assigned > 0 && r.alloc.assigned < r.alloc.total);
+    if (segment === 'unassigned') return searchMatched.filter((r) => r.alloc.assigned === 0 && r.alloc.total > 0);
+    return searchMatched;
+  }, [searchMatched, segment]);
+
+  const aggregates = useMemo(() => {
+    let totalClients = enrichedRows.length;
+    let totalServices = 0;
+    let assignedServices = 0;
+    let assignedClients = 0;
+    let partialClients = 0;
+    let unassignedClients = 0;
+    enrichedRows.forEach((r) => {
+      totalServices += r.alloc.total;
+      assignedServices += r.alloc.assigned;
+      if (r.alloc.total === 0) return;
+      if (r.alloc.assigned === 0) unassignedClients += 1;
+      else if (r.alloc.assigned === r.alloc.total) assignedClients += 1;
+      else partialClients += 1;
+    });
+    const progress = totalServices ? Math.round((assignedServices / totalServices) * 100) : 0;
+    return { totalClients, totalServices, assignedServices, unassignedServices: totalServices - assignedServices, assignedClients, partialClients, unassignedClients, progress, staff: users.length };
+  }, [enrichedRows, users]);
+
+  const visibleRows = segmented;
   const userList = useMemo(() => users.slice().sort((a, b) => (a.name || `${a.firstName || ''} ${a.lastName || ''}`).localeCompare(b.name || `${b.firstName || ''} ${b.lastName || ''}`)), [users]);
+
   const openAllocation = (client) => {
     const services = extractServicesFromClient(client);
-    const existingAllocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object') ? { ...(client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations) } : {};
+    const existingAllocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
+      ? { ...(client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations) }
+      : {};
     const next = {};
     services.forEach((svc, idx) => {
-      const key = clientMasterGroupingIdentityForAllocation({ applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit, eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered, financialYear: svc.financialYear, piboCategory: svc.piboCategory }) || `fallback_${idx}`;
+      const key = clientMasterGroupingIdentityForAllocation({
+        applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit,
+        eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered,
+        financialYear: svc.financialYear, piboCategory: svc.piboCategory
+      }) || `fallback_${idx}`;
       const entry = existingAllocs[key] || existingAllocs[String(svc.assignedServiceId || idx)] || {};
       next[key] = String(entry.userId || entry.user || entry.assignedTo || '').trim();
     });
     setAllocationsByKey(next);
     setModalClient({ client, services });
   };
+
   const saveAllocations = async () => {
     if (!modalClient?.client?._id) return;
     try {
@@ -187,6 +311,7 @@ export default function ClientMasterAllocate() {
       }
     } catch (e) { showToast('error', 'Save failed', e?.response?.data?.error || e?.message || 'Unknown error'); } finally { setSaving(false); }
   };
+
   const refresh = async () => {
     try {
       setRefreshing(true);
@@ -199,190 +324,468 @@ export default function ClientMasterAllocate() {
       showToast('success', 'Refreshed', `${cl.length} clients · ${String(userList.length || 0)} users loaded`);
     } catch (e) { showToast('error', 'Refresh failed', e?.message || ''); } finally { setRefreshing(false); }
   };
+
   function showToast(kind, title, message) {
     const id = Date.now();
     setToast({ kind, title, message, id });
     setTimeout(() => { setToast((t) => (t?.id === id ? null : t)); }, 4200);
   }
+
   if (currentUser && !roleOk(currentUser)) {
     return (
       <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
         <div className="px-4 py-6 sm:px-6 lg:px-8">
-          <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-700 shadow-sm">
-          <div className="font-black uppercase tracking-wide">Access denied</div>
-          <div className="text-sm">This page is only visible to managers and administrators.</div>
-        </div></div>
+          <div className="relative overflow-hidden rounded-3xl border border-rose-200 bg-gradient-to-br from-rose-50 to-orange-50 p-7 text-rose-700 shadow-lg shadow-rose-100/80">
+            <div className="pointer-events-none absolute -right-14 -top-16 h-44 w-44 rounded-full bg-rose-200/50 blur-3xl" />
+            <div className="relative flex items-start gap-4">
+              <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-white text-rose-600 ring-1 ring-rose-200 shadow-sm"><CircleAlert className="h-7 w-7" /></div>
+              <div>
+                <div className="text-xs font-black uppercase tracking-[0.22em] text-rose-700/90">403 · Restricted area</div>
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-rose-900">Access denied</h2>
+                <p className="mt-1 text-sm font-semibold text-rose-700/90">This page is only visible to Managers and Administrators.</p>
+                <button type="button" onClick={() => navigate(-1)} className="mt-5 inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-xs font-black text-rose-700 shadow-sm hover:-translate-y-0.5 hover:shadow-md transition"><ArrowLeft className="h-4 w-4" /> Go back</button>
+              </div>
+            </div>
+          </div>
+        </div>
         {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
       </DashboardShell>
     );
   }
-  const headerExtra = (<div className="mb-5 flex flex-wrap items-center gap-3">
-    <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> Back</button>
-    <div className="ml-auto flex flex-wrap items-center gap-2">
-      <div className="relative w-full sm:w-80">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} type="search" placeholder="Search client, contact, GST, mobile, lead code..." className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
-      </div>
-      <button type="button" onClick={refresh} disabled={refreshing} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh</button>
-      <div className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-700 shadow-[0_1px_0_rgba(16,185,129,0.1)]"><Users className="h-3.5 w-3.5" /> {String(userList.length || 0)} staff users</div>
-    </div>
-  </div>);
+
+  const segments = filterSegmentsFor(aggregates);
+
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
-      <div className="bg-[#f5f7fb] px-4 py-5 sm:px-6 lg:px-8">
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600 text-white shadow"><Users className="h-5 w-5" /></div>
-          <div>
-            <div className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Customer Hub</div>
-            <h1 className="text-xl font-black text-slate-900">Client Master Allocate</h1>
-            <p className="text-sm text-slate-500">Allocate each client services (Producer / Brand Owner / Importer etc.) individually to different users. Visible Admin / Managers only.</p>
+      <div className="relative bg-[linear-gradient(180deg,#eef7ff_0%,#f5f7fb_52%,#f8fafc_100%)] px-4 pb-16 pt-6 sm:px-6 lg:px-8">
+        <div className="pointer-events-none absolute left-1/2 top-0 -z-10 h-[380px] w-[980px] max-w-[95vw] -translate-x-1/2 overflow-hidden">
+          <div className="absolute -top-32 left-10 h-72 w-72 rounded-full bg-emerald-300/40 blur-3xl" />
+          <div className="absolute -top-10 right-4 h-80 w-80 rounded-full bg-sky-300/40 blur-3xl" />
+          <div className="absolute bottom-0 left-1/2 h-60 w-60 -translate-x-1/2 rounded-full bg-amber-200/40 blur-3xl" />
+        </div>
+
+        <section className="relative mb-6 overflow-hidden rounded-[28px] border border-white/80 bg-white/80 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur sm:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="relative grid h-16 w-16 shrink-0 place-items-center rounded-3xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-[0_18px_40px_rgba(16,185,129,0.35)] ring-1 ring-white/70">
+                <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-white/20 via-white/0 to-transparent" />
+                <Users className="relative h-8 w-8" strokeWidth={2.2} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-emerald-800 ring-1 ring-emerald-200"><Sparkles className="h-3.5 w-3.5" /> Customer Hub</span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-slate-600 ring-1 ring-slate-200"><ShieldCheck className="h-3.5 w-3.5" /> Admin / Managers only</span>
+                </div>
+                <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Client Master <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent">Allocate</span></h1>
+                <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500">Assign each service (Producer · Brand Owner · Importer · Recycler etc.) to a different CRM user independently. Tap <b className="text-slate-700">Allocate</b> on any client to open the per-service assignment panel.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 shadow-sm hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md transition"><ArrowLeft className="h-4 w-4" /> Back</button>
+              <button type="button" onClick={refresh} disabled={refreshing} className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 shadow-sm hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md transition disabled:opacity-60 disabled:hover:translate-y-0"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh data</button>
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-2.5 text-[11px] font-black uppercase tracking-wide text-emerald-800 shadow-[0_1px_0_rgba(16,185,129,0.12)] ring-1 ring-emerald-100"><Users className="h-4 w-4" /> {String(userList.length || 0)} staff users</div>
+            </div>
           </div>
-        </div>
-        </div>
-        {headerExtra}
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+            <KpiCard icon={Building2} gradient="from-emerald-500 to-teal-500" label="Clients" value={String(aggregates.totalClients)} hint="Total master records" shadowColor="shadow-emerald-100" />
+            <KpiCard icon={BriefcaseBusiness} gradient="from-sky-500 to-indigo-500" label="Services" value={String(aggregates.totalServices)} hint="Total assignable services" shadowColor="shadow-sky-100" />
+            <KpiCard icon={UserCheck} gradient="from-teal-500 to-cyan-500" label="Assigned" value={String(aggregates.assignedServices)} hint="Services already allocated" shadowColor="shadow-teal-100" />
+            <KpiCard icon={UserPlus} gradient="from-rose-500 to-pink-500" label="Unassigned" value={String(aggregates.unassignedServices)} hint="Needs allocation" shadowColor="shadow-rose-100" />
+            <KpiCard icon={Percent} gradient="from-amber-500 to-orange-500" label="Progress" value={`${String(aggregates.progress)}%`} hint="Allocated vs total services" progress={aggregates.progress} shadowColor="shadow-amber-100" />
+            <KpiCard icon={Gauge} gradient="from-violet-500 to-fuchsia-500" label="Coverage" value={`${String(aggregates.totalClients ? Math.round(((aggregates.assignedClients + aggregates.partialClients) / aggregates.totalClients) * 100) : 0)}%`} hint="Clients at least 1 allocation" progress={aggregates.totalClients ? Math.round(((aggregates.assignedClients + aggregates.partialClients) / aggregates.totalClients) * 100) : 0} shadowColor="shadow-violet-100" />
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 p-1.5 text-xs font-black text-slate-600 ring-1 ring-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+              <span className="pl-2 pr-1 text-slate-400"><Filter className="h-3.5 w-3.5" /></span>
+              {segments.map((s) => {
+                const active = segment === s.key;
+                return (
+                  <button key={s.key} type="button" onClick={() => setSegment(s.key)} className={`group relative inline-flex items-center gap-2 rounded-xl px-3.5 py-2 transition ${active ? s.strong + ' shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]' : 'hover:bg-white hover:text-slate-900'}`}>
+                    <s.icon className="h-4 w-4" />
+                    <span>{s.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] ${active ? 'bg-white/25 text-white' : `${s.soft} ${s.text} ${s.ring}`}`}>{String(s.count)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="ml-auto relative w-full sm:w-96">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} type="search" placeholder="Search company, contact, GST, mobile, lead code, location..." className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm font-semibold text-slate-800 placeholder:text-slate-400 shadow-sm focus:border-emerald-300 focus:outline-none focus:ring-4 focus:ring-emerald-100" />
+            </div>
+          </div>
+        </section>
+
+        <section className="relative overflow-hidden rounded-[28px] border border-white/80 bg-white/90 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-left">Company / Lead</th>
-                  <th className="px-4 py-3 text-left">Contact</th>
-                  <th className="px-4 py-3 text-left">GST / Location</th>
-                  <th className="px-4 py-3 text-left">Services</th>
-                  <th className="px-4 py-3 text-left">Allocations</th>
-                  <th className="px-4 py-3 text-right">Action</th>
+            <table className="min-w-full divide-y divide-slate-100 text-sm">
+              <thead>
+                <tr className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-[10px] font-black uppercase tracking-[0.18em] text-slate-200">
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Building2 className="h-3.5 w-3.5 text-emerald-300" /> Company / Lead</span></th>
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-sky-300" /> Contact</span></th>
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-amber-300" /> GST / Location</span></th>
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><BriefcaseBusiness className="h-3.5 w-3.5 text-fuchsia-300" /> Services</span></th>
+                  <th className="px-5 py-4 text-left w-[230px]"><span className="inline-flex items-center gap-2"><ListChecks className="h-3.5 w-3.5 text-teal-300" /> Allocations</span></th>
+                  <th className="px-5 py-4 text-right w-[200px]">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {loading && <tr><td colSpan="6" className="px-4 py-10 text-center text-sm text-slate-500">Loading clients...</td></tr>}
-                {!loading && visibleClients.length === 0 && <tr><td colSpan="6" className="px-4 py-10 text-center text-sm text-slate-500">No clients found{search ? ` matching "${search}"` : ''}</td></tr>}
-                {!loading && visibleClients.map((client) => {
-                  const overview = readClientOverview(client);
-                  const services = extractServicesFromClient(client);
-                  const allocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object') ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations) : {};
-                  const assignedCount = Object.values(allocs).filter((v) => {
-                    const uid = (typeof v === 'object' ? (v?.userId || v?.user) : v);
-                    return !!String(uid || '').trim();
-                  }).length;
-                  return (<tr key={String(client._id)} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-3">
-                      <div className="font-black text-slate-900">{overview.companyName}</div>
-                      <div className="text-[11px] font-black text-emerald-700">{overview.leadCode || String(client.uniqueId || '').trim()}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-semibold text-slate-800">{overview.contactPerson || '—'}</div>
-                      <div className="text-xs text-slate-500">{[overview.mobile, overview.email].filter(Boolean).join(' · ') || '—'}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm text-slate-700">{overview.gstin || '—'}</div>
-                      <div className="text-xs text-slate-500">{[overview.city, overview.state].filter(Boolean).join(', ') || '—'}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {services.map((svc, i) => (<span key={`svc-${String(client._id)}-s-${i}`} className="inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700 shadow-[0_1px_0_rgba(148,163,184,0.15)]"><span>{svc.piboCategory || svc.subApplicantType || svc.applicantType || 'Service'}</span>{(svc.eprCategory || svc.serviceCategory) ? (<span className="ml-1 text-slate-400">· {svc.eprCategory || svc.serviceCategory}</span>) : null}</span>))}
-                        {!services.length && <span className="text-[11px] text-slate-400">—</span>}
-                      </div>
-                      <div className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-slate-400">{services.length || 0} total services</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {assignedCount > 0 ? (<div className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-black text-emerald-700 shadow-[0_1px_0_rgba(16,185,129,0.15)]"><Check className="mr-1 h-3 w-3" />{assignedCount} / {services.length || 1} assigned</div>) : (<span className="text-[11px] font-black uppercase tracking-wide text-rose-600">Unassigned</span>)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button type="button" onClick={() => openAllocation(client)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white shadow-sm hover:bg-emerald-700"><Users className="h-3.5 w-3.5" /> Allocate Client</button>
-                    </td>
-                  </tr>);
+                {loading && <tr><td colSpan="6" className="px-5 py-16 text-center">
+                  <div className="inline-flex items-center gap-3 rounded-2xl bg-emerald-50 px-5 py-3 text-sm font-bold text-emerald-700 ring-1 ring-emerald-100"><RefreshCw className="h-4 w-4 animate-spin" /> Loading client master allocations…</div>
+                </td></tr>}
+                {!loading && visibleRows.length === 0 && <tr><td colSpan="6" className="px-5 py-16">
+                  <div className="mx-auto flex max-w-lg flex-col items-center gap-3 text-center">
+                    <div className="grid h-16 w-16 place-items-center rounded-3xl bg-slate-50 text-slate-400 ring-1 ring-slate-200"><Search className="h-7 w-7" /></div>
+                    <h3 className="text-xl font-black text-slate-900">No clients{search ? ' matching filters' : ''}</h3>
+                    <p className="text-sm font-semibold text-slate-500">Try clearing search, switching the segment tab above or press Refresh.</p>
+                  </div>
+                </td></tr>}
+                {!loading && visibleRows.map((row, rowIdx) => {
+                  const { client, overview, alloc } = row;
+                  const progress = alloc.total ? Math.round((alloc.assigned / alloc.total) * 100) : 0;
+                  return (
+                    <tr key={String(client._id)} className="group transition hover:bg-[linear-gradient(90deg,rgba(16,185,129,0.04)_0%,rgba(14,165,233,0.03)_100%)] even:bg-slate-50/40">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-700 ring-1 ring-emerald-200/70 group-hover:from-emerald-200 group-hover:to-teal-200 transition`}>
+                            <Building2 className="h-5 w-5" strokeWidth={2.1} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-[14.5px] font-black tracking-tight text-slate-950" title={overview.companyName}>{overview.companyName}</div>
+                            <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-emerald-700 ring-1 ring-emerald-100">{overview.leadCode || String(client.uniqueId || '').trim() || '—'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-start gap-2">
+                          <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-bold text-slate-800">{overview.contactPerson || <span className="text-slate-400">—</span>}</div>
+                            <div className="mt-0.5 truncate text-xs font-semibold text-slate-500" title={[overview.mobile, overview.email].filter(Boolean).join(' · ')}>{[overview.mobile, overview.email].filter(Boolean).join(' · ') || <span className="text-slate-400">No contact details</span>}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-start gap-2">
+                          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-bold text-slate-800">{overview.gstin || <span className="text-slate-400">—</span>}</div>
+                            <div className="mt-0.5 truncate text-xs font-semibold text-slate-500">{[overview.city, overview.state].filter(Boolean).join(', ') || <span className="text-slate-400">Location not set</span>}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex max-w-[440px] flex-wrap gap-1.5">
+                          {alloc.services.length === 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-500 ring-1 ring-slate-200"><CircleAlert className="h-3.5 w-3.5" /> No services</span>
+                          ) : alloc.services.map((svc, i) => {
+                            const theme = getApplicantTheme(svc.piboCategory || svc.subApplicantType || svc.applicantType || '');
+                            const ApplicantIcon = theme.accentIcon;
+                            return (
+                              <div key={`svc-${String(client._id)}-${i}`} className={`group/svc inline-flex max-w-full items-center gap-1.5 rounded-2xl px-2.5 py-1 text-[11px] font-black ring-1 shadow-[0_1px_0_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-md ${theme.badgeBg} ${theme.badgeText} ${theme.badgeRing}`} title={`${svc.piboCategory || svc.subApplicantType || svc.applicantType || 'Service'}${svc.eprCategory || svc.serviceCategory ? ' · ' + (svc.eprCategory || svc.serviceCategory) : ''}`}>
+                                <span className={`inline-flex h-4.5 w-4.5 h-[18px] w-[18px] items-center justify-center rounded-lg bg-white ring-1 ${theme.ring}`}><ApplicantIcon className="h-3.5 w-3.5" /></span>
+                                <span className="truncate">{svc.piboCategory || svc.subApplicantType || svc.applicantType || 'Service'}</span>
+                                {(svc.eprCategory || svc.serviceCategory) && <span className="truncate text-slate-400 group-hover/svc:text-slate-600 transition">· {svc.eprCategory || svc.serviceCategory}</span>}
+                                {svc.servicesOffered && <span className="truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-white">{svc.servicesOffered}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-500 ring-1 ring-slate-200"><BriefcaseBusiness className="h-3 w-3" /> {alloc.total} total</div>
+                      </td>
+                      <td className="px-5 py-4 align-middle">
+                        {alloc.total === 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-500 ring-1 ring-slate-200"><CircleAlert className="h-3.5 w-3.5" /> No services</span>
+                        ) : (
+                          <div className="w-[200px]">
+                            <div className="flex items-center justify-between gap-2">
+                              {alloc.assigned === alloc.total ? (
+                                <div className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-2.5 py-1 text-[11px] font-black text-white shadow-emerald-100 ring-1 ring-emerald-400/30"><CheckCircle2 className="h-3.5 w-3.5" /> Fully allocated</div>
+                              ) : alloc.assigned > 0 ? (
+                                <div className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1 text-[11px] font-black text-white shadow-amber-100 ring-1 ring-amber-400/30"><Percent className="h-3.5 w-3.5" /> Partial {alloc.assigned}/{alloc.total}</div>
+                              ) : (
+                                <div className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-2.5 py-1 text-[11px] font-black text-white shadow-rose-100 ring-1 ring-rose-400/30"><CircleAlert className="h-3.5 w-3.5" /> Unassigned</div>
+                              )}
+                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{progress}%</span>
+                            </div>
+                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                              <div
+                                className={`h-full rounded-full transition-all duration-700 ${
+                                  alloc.assigned === 0 ? 'bg-gradient-to-r from-rose-400 to-pink-400'
+                                    : alloc.assigned === alloc.total ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                                    : 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500'
+                                }`}
+                                style={{ width: `${String(progress)}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-right align-middle">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openAllocation(client)}
+                            className="group/btn relative inline-flex items-center gap-1.5 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-4 py-2.5 text-xs font-black text-white shadow-[0_10px_30px_-10px_rgba(16,185,129,0.6)] ring-1 ring-white/30 transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_-10px_rgba(16,185,129,0.75)]"
+                            title="Open per-service user allocation panel"
+                          >
+                            <span className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-white/20 via-white/0 to-transparent opacity-80" />
+                            <Users className="relative h-4 w-4" />
+                            <span className="relative">Allocate Client</span>
+                            <ChevronDown className="relative h-3.5 w-3.5 opacity-80 group-hover/btn:translate-y-0.5 transition" />
+                          </button>
+                        </div>
+                        {rowIdx === 0 && alloc.total >= 2 && (
+                          <div className="mt-2 text-[10px] font-bold text-slate-400">Tip: Producer & Importer can go to different users.</div>
+                        )}
+                      </td>
+                    </tr>
+                  );
                 })}
               </tbody>
             </table>
           </div>
-        </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-gradient-to-r from-slate-50/70 to-white px-5 py-3.5">
+            <div className="text-xs font-bold text-slate-500">Showing <b className="text-slate-800">{visibleRows.length}</b> of <b className="text-slate-800">{clients.length}</b> client masters · <b className="text-emerald-700">{String(aggregates.progress)}%</b> service allocation progress</div>
+            <div className="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-[11px] font-black text-slate-500 ring-1 ring-slate-200">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Role visibility restricted to <span className="text-emerald-800">Admin · SuperAdmin · Manager</span>
+            </div>
+          </div>
+        </section>
+
+        {modalClient && <AllocationModal isOpen onClose={() => !saving && setModalClient(null)} client={modalClient.client} services={modalClient.services} users={userList} values={allocationsByKey} setValues={setAllocationsByKey} saving={saving} onSave={saveAllocations} />}
+        {toast && <ToastNotification toast={toast} onClose={() => setToast(null)} />}
+        {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
       </div>
-      {modalClient && <AllocationModal isOpen onClose={() => !saving && setModalClient(null)} client={modalClient.client} services={modalClient.services} users={userList} values={allocationsByKey} setValues={setAllocationsByKey} saving={saving} onSave={saveAllocations} />}
-      {toast && (
-        <div className="quotation-approval-toast" role="status" aria-live="polite">
-          <div className={`quotation-approval-toast-icon ${toast.kind === 'success' ? '' : ''}`}>
-            <Check className="h-5 w-5" />
-          </div>
-          <div>
-            <strong>{toast.title}</strong>
-            <p>{toast.message}</p>
-            <span>{toast.kind === 'success' ? 'Allocation workflow has been saved.' : 'Please review and retry.'}</span>
+    </DashboardShell>
+  );
+}
+
+function KpiCard({ icon: Icon, gradient, label, value, hint, progress, shadowColor = 'shadow-slate-100' }) {
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border border-white bg-white p-4 shadow-[0_12px_35px_-10px_rgba(15,23,42,0.15)] ${shadowColor}`}>
+      <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br opacity-20 blur-2xl" style={{ backgroundImage: `linear-gradient(135deg, var(--tw-gradient-stops))` }} />
+      <div className={`mb-3 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br text-white ring-1 ring-white/70 shadow-[0_10px_25px_-8px_rgba(15,23,42,0.35)] ${gradient}`}><Icon className="h-5 w-5" strokeWidth={2.2} /></div>
+      <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">{label}</div>
+      <div className="mt-1 text-2xl font-black tracking-tight text-slate-950">{value}</div>
+      {typeof progress === 'number' ? (
+        <div className="mt-3">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+            <div className={`h-full rounded-full bg-gradient-to-r ${gradient}`} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
           </div>
         </div>
-      )}
-      {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
-    </DashboardShell>
+      ) : <div className="mt-1 text-[11px] font-semibold text-slate-500">{hint}</div>}
+    </div>
   );
 }
 
 function AllocationModal({ isOpen, onClose, client, services = [], users = [], values = {}, setValues, saving, onSave }) {
   if (!isOpen || !client) return null;
   const overview = readClientOverview(client);
-  const existingAllocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object') ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations) : {};
-  const userById = useMemo(() => new Map(users.map((u) => [String(u._id), u])), [users]);
+  const existingAllocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
+    ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations)
+    : {};
+  const userById = useMemo(() => new Map(users.map((u) => [String(u._id || u.id), u])), [users]);
   const rows = services.map((svc, idx) => {
-    const key = clientMasterGroupingIdentityForAllocation({ applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit, eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered, financialYear: svc.financialYear, piboCategory: svc.piboCategory }) || `fallback_${idx}`;
+    const key = clientMasterGroupingIdentityForAllocation({
+      applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit,
+      eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered,
+      financialYear: svc.financialYear, piboCategory: svc.piboCategory
+    }) || `fallback_${idx}`;
     const current = String(values[key] || '').trim();
     const existingEntry = existingAllocs[key] || existingAllocs[String(svc.assignedServiceId || idx)] || null;
     const existingUserId = String(existingEntry?.userId || existingEntry?.assignedTo || '').trim();
     const fallbackText = existingUserId && userById.has(existingUserId) ? userDisplay(userById.get(existingUserId)) : null;
-    const selectedUser = current && userById.has(current) ? userById.get(current) : null;
+    const selectedUser = current && userById.has(current) ? userById.get(current) : (existingUserId && userById.has(existingUserId) ? userById.get(existingUserId) : null);
     return { svc, idx, key, current, existingUserId, selectedUser, fallbackText };
   });
+  const assignedCount = rows.filter((r) => r.current || (r.existingUserId && !r.current)).length;
+  const progress = rows.length ? Math.round((assignedCount / rows.length) * 100) : 0;
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center overflow-y-auto bg-slate-900/40 px-2 py-4 sm:items-center">
-      <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-4">
-          <div>
-            <div className="text-[11px] font-black uppercase tracking-widest text-emerald-700">Allocate Services</div>
-            <h2 className="text-lg font-black text-slate-900">{overview.companyName}</h2>
-            <div className="mt-0.5 text-xs text-slate-500">
-              <span className="font-black text-emerald-700">{overview.leadCode || String(client.uniqueId || '').trim()}</span>
-              <span className="mx-1.5 text-slate-300">·</span>
-              <span>{[overview.contactPerson, overview.mobile].filter(Boolean).join(' · ') || '—'}</span>
+    <div className="fixed inset-0 z-[100] grid place-items-end overflow-y-auto bg-slate-950/55 px-2 py-4 backdrop-blur-md sm:place-items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="allocate-services-title">
+      <div className="relative my-auto w-full max-w-5xl overflow-hidden rounded-[28px] bg-white shadow-[0_40px_110px_rgba(15,23,42,0.35)] ring-1 ring-white">
+        <div className="pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-emerald-300/50 blur-3xl" />
+        <div className="pointer-events-none absolute -right-24 top-10 h-80 w-80 rounded-full bg-sky-300/50 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-amber-200/40 blur-3xl" />
+
+        <header className="relative flex flex-wrap items-start justify-between gap-4 border-b border-emerald-100/70 bg-gradient-to-r from-emerald-50/90 via-white/80 to-sky-50/90 px-6 py-6 sm:px-8 sm:py-7">
+          <div className="flex items-start gap-4">
+            <div className="relative grid h-16 w-16 shrink-0 place-items-center rounded-3xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-[0_20px_50px_-12px_rgba(16,185,129,0.55)] ring-1 ring-white/70">
+              <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-white/30 via-white/0 to-transparent" />
+              <Users className="relative h-8 w-8" strokeWidth={2.1} />
+            </div>
+            <div className="min-w-0 max-w-xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600/90 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-white shadow-emerald-200"><Sparkles className="h-3.5 w-3.5" /> Allocate services</span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-600 ring-1 ring-slate-200"><BriefcaseBusiness className="h-3.5 w-3.5" /> {rows.length} services</span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800 ring-1 ring-amber-200"><Percent className="h-3.5 w-3.5" /> {progress}% done</span>
+              </div>
+              <h2 id="allocate-services-title" className="mt-2 truncate text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{overview.companyName}</h2>
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-bold text-slate-500">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-black text-emerald-800 ring-1 ring-emerald-200">{overview.leadCode || String(client.uniqueId || '').trim() || '—'}</span>
+                {overview.contactPerson && <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5 text-slate-400" /> {overview.contactPerson}</span>}
+                {overview.mobile && <span className="inline-flex items-center gap-1">{overview.mobile}</span>}
+                {overview.gstin && <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 ring-1 ring-slate-200">GST {overview.gstin}</span>}
+                {(overview.city || overview.state) && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-slate-400" /> {[overview.city, overview.state].filter(Boolean).join(', ')}</span>}
+              </div>
             </div>
           </div>
-          <button type="button" onClick={onClose} disabled={saving} className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50"><X className="h-4 w-4" /></button>
-        </div>
-        <div className="max-h-[65vh] overflow-y-auto px-5 py-4">
-          <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
-            <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">Service-by-service assignment</div>
-            <div className="mt-2 text-xs text-slate-500">Each service (Producer · Brand Owner · Importer etc.) can be allocated to a DIFFERENT user.</div>
-          </div>
-          <div className="mt-4 space-y-3">
-            {rows.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">No services found for this client.</div>}
-            {rows.map((row) => (<div key={`allocation-row-${String(client._id)}-${row.idx}`} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-              <div className="min-w-[48%] flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center rounded-md bg-slate-900 px-2 py-0.5 text-[11px] font-black uppercase tracking-wider text-white">{row.svc.piboCategory || row.svc.subApplicantType || row.svc.applicantType || 'Service'}</span>
-                  {(row.svc.eprCategory || row.svc.serviceCategory) && <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-black text-emerald-700">{row.svc.eprCategory || row.svc.serviceCategory}</span>}
-                  {row.svc.servicesOffered && <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-black text-amber-700">{row.svc.servicesOffered}</span>}
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  {row.svc.plantUnit ? (<span>Plant · {row.svc.plantUnit}</span>) : null}
-                  {row.svc.financialYear ? (<span className={row.svc.plantUnit ? ' ml-1.5' : ''}>FY · {row.svc.financialYear}</span>) : null}
-                  {row.existingUserId && row.fallbackText && !row.current ? (<span className="ml-2 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-black text-indigo-700">Previous: {row.fallbackText}</span>) : null}
-                  {row.selectedUser ? (<span className="ml-2 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">Selected: {userDisplay(row.selectedUser)}</span>) : null}
+          <button type="button" onClick={onClose} disabled={saving} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md disabled:opacity-50 disabled:hover:translate-y-0"><X className="h-5 w-5" /></button>
+        </header>
+
+        <div className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="min-w-0">
+            <div className="mb-5 flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-white text-slate-700 shadow-sm ring-1 ring-slate-200"><CheckCircle2 className="h-5 w-5" /></div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Service-by-service assignment</div>
+                <div className="mt-1 text-sm font-semibold leading-6 text-slate-700">Assign each row to a different user. For example: <b className="text-emerald-800">Producer → Sales</b>, <b className="text-sky-800">Brand Owner → Compliance</b>, <b className="text-amber-800">Importer → Operations</b>, independently.</div>
+              </div>
+              <div className="ml-auto w-full sm:w-56">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-500"><span>Progress</span><span>{assignedCount} / {rows.length}</span></div>
+                <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 transition-all duration-700" style={{ width: `${progress}%` }} />
                 </div>
               </div>
-              <div className="w-full sm:w-72">
-                <div className="relative">
-                  <select value={row.current} onChange={(e) => setValues((prev) => ({ ...prev, [row.key]: String(e.target.value || '') }))} className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-700 shadow-sm focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100">
-                    <option value="">— Unassigned —</option>
-                    {!Array.isArray(users) || users.length === 0 ? (
-                      <option value="" disabled>— No staff users loaded · click Refresh above —</option>
-                    ) : (users.map((u, idx) => (<option key={String(u._id || u.id || `user-${idx}-${u.email || 'anon'}`)} value={String(u._id || u.id || '')}>{userDisplay(u)}</option>)))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                </div>
-              </div>
-            </div>))}
+            </div>
+
+            <div className="space-y-3">
+              {rows.length === 0 && <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-3xl bg-slate-50 text-slate-400 ring-1 ring-slate-200"><BriefcaseBusiness className="h-7 w-7" /></div>
+                <h3 className="mt-3 text-lg font-black text-slate-900">No services found</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-500">This client master does not have any services yet. Save at least one service in Client Master first.</p>
+              </div>}
+              {rows.map((row) => {
+                const theme = getApplicantTheme(row.svc.piboCategory || row.svc.subApplicantType || row.svc.applicantType || '');
+                const ApplicantIcon = theme.accentIcon;
+                const isChanged = String(values[row.key] || '').trim() !== row.existingUserId;
+                return (
+                  <article key={`allocation-row-${String(client._id)}-${row.idx}`} className={`group relative overflow-hidden rounded-3xl border bg-white p-4 shadow-[0_10px_30px_-15px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_-15px_rgba(15,23,42,0.18)] sm:p-5 ${theme.ring}`}>
+                    <div className={`pointer-events-none absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b ${theme.iconBg}`} />
+                    <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
+                      <div className="flex min-w-0 items-start gap-3.5">
+                        <div className={`relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl text-white shadow-lg ring-1 ring-white/60 ${theme.iconBg}`}>
+                          <div className="absolute inset-0 rounded-2xl bg-gradient-to-tr from-white/30 via-white/0 to-transparent" />
+                          <ApplicantIcon className="relative h-7 w-7" strokeWidth={2} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className={`inline-flex items-center rounded-xl px-2.5 py-1 text-[11px] font-black uppercase tracking-wider ring-1 ${theme.badgeBg} ${theme.badgeText} ${theme.badgeRing}`}>
+                              {row.svc.piboCategory || row.svc.subApplicantType || row.svc.applicantType || 'Service'}
+                            </span>
+                            {(row.svc.eprCategory || row.svc.serviceCategory) && <span className="inline-flex items-center rounded-xl bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700 ring-1 ring-slate-200">{row.svc.eprCategory || row.svc.serviceCategory}</span>}
+                            {row.svc.servicesOffered && <span className="inline-flex items-center rounded-xl bg-amber-50 px-2.5 py-1 text-[11px] font-black text-amber-800 ring-1 ring-amber-200">{row.svc.servicesOffered}</span>}
+                            {isChanged && <span className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white shadow-violet-100 ring-1 ring-white/30"><Sparkles className="h-3 w-3" /> Updated</span>}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
+                            {row.svc.plantUnit && <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 ring-1 ring-slate-200"><Building2 className="h-3 w-3" /> Plant · {row.svc.plantUnit}</span>}
+                            {row.svc.financialYear && <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 ring-1 ring-slate-200"><Gauge className="h-3 w-3" /> FY · {row.svc.financialYear}</span>}
+                            {row.existingUserId && row.fallbackText && !row.current && <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-indigo-800 ring-1 ring-indigo-200"><UserCheck className="h-3 w-3" /> Previous · {userMiniDisplay(userById.get(row.existingUserId))}</span>}
+                          </div>
+                          {row.selectedUser && <div className="mt-2 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 px-2.5 py-1.5 text-[11px] font-black text-emerald-900 ring-1 ring-emerald-200">
+                            <span className="grid h-5 w-5 place-items-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 text-white ring-1 ring-white/70"><UserCheck className="h-3 w-3" /></span>
+                            Assigned → <span className="truncate">{userDisplay(row.selectedUser)}</span>
+                          </div>}
+                        </div>
+                      </div>
+                      <div className="w-full sm:w-72 sm:justify-self-end">
+                        <div className="relative">
+                          <select
+                            value={row.current}
+                            onChange={(e) => setValues((prev) => ({ ...prev, [row.key]: String(e.target.value || '') }))}
+                            className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 pr-10 text-sm font-bold text-slate-800 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_6px_20px_-12px_rgba(15,23,42,0.25)] transition focus:outline-none focus:ring-4 ${
+                              row.current
+                                ? 'border-emerald-300 bg-gradient-to-r from-white to-emerald-50 focus:border-emerald-400 focus:ring-emerald-100'
+                                : 'border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-300 focus:ring-emerald-100'
+                            }`}
+                          >
+                            <option value="">— Leave unassigned —</option>
+                            {!Array.isArray(users) || users.length === 0 ? (
+                              <option value="" disabled>— No staff users loaded · Refresh the page —</option>
+                            ) : users.map((u, idx) => (
+                              <option key={String(u._id || u.id || `user-${idx}-${u.email || 'anon'}`)} value={String(u._id || u.id || '')}>{userDisplay(u)}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 group-hover:text-slate-600 transition" />
+                        </div>
+                        {(!row.current && !row.existingUserId) && <div className="mt-1.5 inline-flex items-center gap-1 rounded-xl bg-rose-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-rose-700 ring-1 ring-rose-200"><CircleAlert className="h-3 w-3" /> Needs allocation</div>}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </div>
+
+          <aside className="min-w-0">
+            <div className="sticky top-6 space-y-4">
+              <div className="relative overflow-hidden rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-5 shadow-[0_18px_45px_-20px_rgba(16,185,129,0.35)]">
+                <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-emerald-300/40 blur-3xl" />
+                <div className="flex items-center gap-3">
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-emerald-700 ring-1 ring-emerald-200 shadow-sm"><ShieldCheck className="h-5 w-5" /></div>
+                  <div>
+                    <div className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-800">Audit trail</div>
+                    <div className="text-sm font-black text-emerald-950">Every save is logged</div>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs font-bold leading-5 text-emerald-900/90">Changes write an AuditLog entry with timestamp, manager name, and full allocation snapshot for compliance review.</p>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Allocation summary</div>
+                <div className="mt-3 space-y-2.5 text-xs font-bold text-slate-600">
+                  <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><BriefcaseBusiness className="h-3.5 w-3.5 text-slate-400" /> Total services</span><b className="text-slate-900">{rows.length}</b></div>
+                  <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><UserCheck className="h-3.5 w-3.5 text-emerald-600" /> Assigned now</span><b className="text-emerald-800">{rows.filter((r) => r.current).length}</b></div>
+                  <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><Percent className="h-3.5 w-3.5 text-violet-600" /> Changed rows</span><b className="text-violet-800">{rows.filter((r) => String(values[r.key] || '').trim() !== r.existingUserId).length}</b></div>
+                  <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-sky-600" /> Eligible staff</span><b className="text-sky-800">{users.length}</b></div>
+                </div>
+                <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 transition-all duration-700" style={{ width: `${progress}%` }} />
+                </div>
+                <div className="mt-1.5 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">{progress}% complete</div>
+              </div>
+
+              <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5 shadow-[0_18px_45px_-20px_rgba(251,146,60,0.25)]">
+                <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-amber-800"><Sparkles className="h-3.5 w-3.5" /> Pro tip</div>
+                <p className="mt-2 text-xs font-bold leading-5 text-amber-900/90">A client with Producer + Brand Owner + Importer can be split across 3 different CRM users. Use the dropdown per row independently.</p>
+              </div>
+            </div>
+          </aside>
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
-          <button type="button" onClick={onClose} disabled={saving} className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-100 disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={onSave} disabled={saving} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-emerald-700 disabled:opacity-70">{saving ? 'Saving…' : (<><Check className="h-3.5 w-3.5" /> Save Allocations</>)}</button>
+
+        <footer className="relative flex flex-wrap items-center justify-end gap-2.5 border-t border-slate-100 bg-gradient-to-r from-white/90 via-slate-50/90 to-white/90 px-6 py-4 sm:px-8 sm:py-5">
+          <button type="button" onClick={onClose} disabled={saving} className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-black text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md disabled:opacity-50 disabled:hover:translate-y-0">Cancel</button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || rows.length === 0}
+            className="group/save relative inline-flex items-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-6 py-2.5 text-xs font-black text-white shadow-[0_18px_45px_-10px_rgba(16,185,129,0.65)] ring-1 ring-white/30 transition hover:-translate-y-0.5 hover:shadow-[0_24px_60px_-10px_rgba(16,185,129,0.8)] disabled:opacity-60 disabled:hover:translate-y-0"
+          >
+            <span className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-white/30 via-white/0 to-transparent" />
+            {saving ? (<RefreshCw className="relative h-4 w-4 animate-spin" />) : (<Check className="relative h-4 w-4" strokeWidth={2.4} />)}
+            <span className="relative">{saving ? 'Saving allocations…' : 'Save Allocations'}</span>
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function ToastNotification({ toast, onClose }) {
+  const isSuccess = toast.kind === 'success';
+  const icon = isSuccess ? CheckCircle2 : CircleAlert;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[120] flex justify-center px-4 sm:bottom-10">
+      <div className={`pointer-events-auto relative flex w-full max-w-lg overflow-hidden rounded-3xl p-1 shadow-[0_30px_70px_rgba(15,23,42,0.2)] ring-1 ${isSuccess ? 'bg-gradient-to-br from-emerald-500/10 to-teal-500/10 ring-emerald-200' : 'bg-gradient-to-br from-rose-500/10 to-pink-500/10 ring-rose-200'}`} onClick={onClose} role="status" aria-live="polite">
+        <div className="flex w-full items-start gap-3 rounded-[22px] bg-white/95 px-4 py-3.5 backdrop-blur">
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-white shadow-lg ring-1 ring-white/60 ${isSuccess ? 'bg-gradient-to-br from-emerald-500 to-teal-500' : 'bg-gradient-to-br from-rose-500 to-pink-500'}`}><icon className="h-5 w-5" strokeWidth={2.2} /></div>
+          <div className="min-w-0 flex-1">
+            <div className={`text-[11px] font-black uppercase tracking-[0.18em] ${isSuccess ? 'text-emerald-700' : 'text-rose-700'}`}>{isSuccess ? 'Success' : 'Issue'}</div>
+            <div className="mt-0.5 truncate text-sm font-black text-slate-900">{toast.title}</div>
+            <div className="mt-0.5 truncate text-xs font-semibold text-slate-500">{toast.message}</div>
+          </div>
+          <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl ${isSuccess ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-rose-50 text-rose-700 ring-1 ring-rose-100'}`}><X className="h-4 w-4" /></div>
         </div>
       </div>
     </div>
