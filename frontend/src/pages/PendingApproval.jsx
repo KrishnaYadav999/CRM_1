@@ -1379,67 +1379,6 @@ export default function PendingApproval() {
 
             {activeTab === 'po' ? (
               <>
-                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-                  <div className="flex items-start gap-2">
-                    <span className="mt-0.5 text-base" aria-hidden>🩺</span>
-                    <div className="w-full">
-                      <div className="text-[11px] font-black uppercase tracking-wide text-amber-900">PO Proof Live Diagnostics (inline for each row — no console required)</div>
-                      <div className="mt-2 space-y-1.5">
-                        {filteredPoApprovals.map((row) => {
-                          // 🔴 FINAL FIX (shared with table): delete stale attached normalizedPoRows
-                          // BEFORE any normalize call so BOTH banner + table always use identical fresh normalization.
-                          try { delete row.normalizedPoRows; } catch { /* ignore strict */ try { Object.defineProperty(row, 'normalizedPoRows', { value: undefined, writable: true, configurable: true }); } catch { /* ignore */ } }
-                          const id = row._id || row.id;
-                          const normalizedPoRows = normalizeApprovalPoRows(row);
-                          const poRows = normalizedPoRows.length ? normalizedPoRows : (() => {
-                            const payload = row.payload || {};
-                            const pseudo = { ...payload, poNumber: payload.poNumber || row.uniqueId || '' };
-                            const canonical = resolveCanonicalPoProof(row, pseudo, 0);
-                            return [normalizePoApprovalRow({ ...canonical, proofUrl: canonical.poFileUrl || canonical.proofUrl, poFileUrl: canonical.poFileUrl, hasPoFileUrl: canonical.hasPoFileUrl || Boolean(getPoProofUrl(canonical)) })];
-                          })();
-                          const payload = row.payload || {};
-                          const pRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
-                          const manifest = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
-                          const payloadDeep = _deepFindProofField(payload, 'url');
-                          const rowDeep = _deepFindProofField(row, 'url');
-                          return (
-                            <div key={`diag-${String(id || '').slice(-8)}`} className="rounded-lg border border-white/80 bg-white/90 p-2 shadow-sm">
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                                <span className="font-black text-slate-900">{row.payload?.leadCode || row.uniqueId || String(id).slice(-8)} · {poRows.length} row(s) · normRows={normalizedPoRows.length}</span>
-                                <span className={`rounded px-1.5 py-0.5 font-black ${pRows.length ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>snapshot.poYearRows={pRows.length || '0'}</span>
-                                <span className={`rounded px-1.5 py-0.5 font-black ${manifest.length ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>manifest={manifest.length || '0'}</span>
-                                <span className="rounded bg-slate-50 px-1.5 py-0.5 font-black text-slate-700">quotationSent={String(payload.quotationSent || '').slice(0, 3) || '—'}</span>
-                                <span className={`rounded px-1.5 py-0.5 font-black ${payloadDeep ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>payload.deepFind={payloadDeep ? 'FOUND' : 'NO'}</span>
-                                <span className={`rounded px-1.5 py-0.5 font-black ${rowDeep ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>approval.deepFind={rowDeep ? 'FOUND' : 'NO'}</span>
-                                <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-black text-indigo-700">assignIndex={String(payload.assignmentIndex ?? '—')}·svcId={String(payload.assignedServiceId || '').slice(-6) || '—'}</span>
-                              </div>
-                              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                {poRows.map((item, i) => {
-                                  const proofDirect = Boolean(item.hasPoFileUrl && _isUsableProofValue(item.poFileUrl));
-                                  const proofFallback = Boolean(!proofDirect && _isUsableProofValue(item.proofUrl));
-                                  const proofDeep = Boolean(!proofDirect && !proofFallback && _isUsableProofValue(getPoProofUrl(item)));
-                                  const status = proofDirect ? 'PROOF_OK_DIRECT' : proofFallback ? 'PROOF_OK_FALLBACK' : proofDeep ? 'PROOF_OK_DEEP' : 'PROOF_MISSING';
-                                  const tone = status.startsWith('PROOF_OK') ? 'bg-emerald-600' : 'bg-rose-600';
-                                  const poSnapshot = pRows[i];
-                                  const poSnapshotProofUrl = poSnapshot ? getPoProofUrl(poSnapshot) : '';
-                                  const poSnapshotProofName = poSnapshot ? getPoProofName(poSnapshot) : '';
-                                  const manifestProof = manifest.find((m) => String(m.rowIndex) === String(i) || m.poNumber === item.poNumber);
-                                  return (
-                                    <div key={`diag-row-${i}`} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
-                                      <span className={`inline-flex h-4 min-w-[44px] items-center justify-center rounded px-1 text-[9px] font-black uppercase text-white ${tone}`}>{status.replace('PROOF_', '')}</span>
-                                      <span className="text-[10px] font-black text-slate-800">row{i}·{item.poNumber || 'no_po'}</span>
-                                      <span className="text-[10px] text-slate-500">snap={poSnapshotProofUrl ? 'URL' : 'NO'}/manifest={manifestProof?.poFileUrl ? 'URL' : 'NO'}/renderUrlLen={(item.poFileUrl || item.proofUrl || getPoProofUrl(item) || '').length}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
                 <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
@@ -1460,7 +1399,6 @@ export default function PendingApproval() {
                         const canonical = resolveCanonicalPoProof(row, pseudo, 0);
                         return [normalizePoApprovalRow({ ...canonical, proofUrl: canonical.poFileUrl || canonical.proofUrl, poFileUrl: canonical.poFileUrl, hasPoFileUrl: canonical.hasPoFileUrl || Boolean(getPoProofUrl(canonical)) })];
                       })();
-                  poRows.forEach((item) => console.log('[POProof:render]', { approvalId: item.approvalId || id, leadCode: item.leadCode || row.payload?.leadCode, rowIndex: item.rowIndex ?? 0, poNumber: item.poNumber, hasPoFileUrl: Boolean(item.hasPoFileUrl || (item.poFileUrl && _isUsableProofValue(item.poFileUrl)) || (item.proofUrl && _isUsableProofValue(item.proofUrl))), poFileUrl: item.poFileUrl || item.proofUrl || getPoProofUrl(item) }));
                   const renderKey = `po-approval-${String(id || '').slice(-8)}-${poRows.length}-${String(row.payload?.leadCode || row.uniqueId || '')}`;
                   row.approStatus = row.approvalStatus;
                   return <tr key={renderKey}>
@@ -1519,7 +1457,6 @@ export default function PendingApproval() {
                     for (let i = 0; i < poRows.length; i += 1) {
                       const po = poRows[i] || {};
                       const resolved = resolveUrlForPo(po, i);
-                      console.log('%c[POProof:NUCLEAR]', 'background:#065f46;color:#fff;padding:2px 6px;border-radius:4px', { leadCode: clonedPayload.leadCode || row.payload?.leadCode || row.uniqueId, rowIndex: i, poNumber: po.poNumber, resolvedUrl: resolved.url ? resolved.url.slice(0, 70) + '...' : 'EMPTY', resolvedSource: resolved.source });
                       if (_isUsableProofValue(resolved.url)) {
                         rendered.push(<a key={`nuc-${row._id || row.id || id}-${i}-${po.poNumber || 'po'}`} href={resolved.url} target="_blank" rel="noopener noreferrer" className="mb-2 inline-flex min-h-9 items-center rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm">Open PO Proof</a>);
                       } else {
