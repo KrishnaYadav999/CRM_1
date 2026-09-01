@@ -223,20 +223,65 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
 }
 
 function NormalizedPoProof({ item, approvalRow }) {
-  const directUrl = (item?.hasPoFileUrl && _isUsableProofValue(item?.poFileUrl)) ? String(item.poFileUrl).trim()
+  const payload = approvalRow?.payload || {};
+  const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
+  const manifestRows = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
+  const rowIndex = Number.isFinite(item?.rowIndex) ? item.rowIndex : 0;
+  const itemPoNumber = String(item?.poNumber || '').trim();
+  // TIER 1-3: standard item-based lookups (direct hasPoFileUrl → proofUrl → getPoProofUrl(item))
+  const itemUrl = (item?.hasPoFileUrl && _isUsableProofValue(item?.poFileUrl)) ? String(item.poFileUrl).trim()
     : _isUsableProofValue(item?.proofUrl) ? String(item.proofUrl).trim()
     : getPoProofUrl(item || {});
+  // TIER 4 — ULTIMATE FALLBACK (GUARANTEED): proof is ALWAYS in approval payload.
+  // Banner diagnostic snapshot=1 + manifest=1 + deepFind=FOUND confirms payload contains valid URLs.
+  // Just match this item to its snapshot/manifest source by (rowIndex, poNumber).
+  let snapshotMatchUrl = '';
+  try {
+    // Strategy A: exact rowIndex
+    const byIndex = snapshotRows[rowIndex];
+    const byIndexUrl = byIndex ? getPoProofUrl(byIndex) : '';
+    const byIndexMatch = !byIndexUrl ? false : (!itemPoNumber || !String(byIndex?.poNumber || '').trim() || String(byIndex.poNumber || '').trim() === itemPoNumber);
+    if (byIndexMatch && byIndexUrl) snapshotMatchUrl = byIndexUrl;
+    if (!snapshotMatchUrl && itemPoNumber) {
+      // Strategy B: scan by poNumber (strict)
+      const byPo = snapshotRows.find((r) => String(r?.poNumber || '').trim() === itemPoNumber);
+      snapshotMatchUrl = byPo ? getPoProofUrl(byPo) : '';
+    }
+    if (!snapshotMatchUrl) {
+      // Strategy C: manifest entry by rowIndex OR poNumber
+      const manifestEntry = manifestRows.find((m) => String(m.rowIndex) === String(rowIndex)) || (itemPoNumber ? manifestRows.find((m) => String(m.poNumber || '').trim() === itemPoNumber) : null);
+      if (manifestEntry && _isUsableProofValue(manifestEntry.poFileUrl)) snapshotMatchUrl = String(manifestEntry.poFileUrl || '').trim();
+    }
+    if (!snapshotMatchUrl) {
+      // Strategy D: snapshotRows[0] if length === 1 (single row approval — cardinality unambiguous!)
+      if (snapshotRows.length === 1) snapshotMatchUrl = getPoProofUrl(snapshotRows[0]);
+    }
+    if (!snapshotMatchUrl && manifestRows.length === 1 && _isUsableProofValue(manifestRows[0]?.poFileUrl)) {
+      snapshotMatchUrl = String(manifestRows[0].poFileUrl || '').trim();
+    }
+  } catch { /* ignore */ }
+  // Strategy E (last resort terminal): deepFind(payload) directly
+  const payloadDeepUrl = _deepFindProofField(payload, 'url') || '';
+  // Final winner chain — earliest non-empty tier wins
+  const directUrl = itemUrl || snapshotMatchUrl || payloadDeepUrl || '';
   // ULTIMATE diagnostic: exact state at RENDER time (not closure time like forEach above)
   if (typeof console !== 'undefined') {
-    console.groupCollapsed('[POProof:Component:render]', { leadCode: item?.leadCode || '', approvalId: item?.approvalId || '', poNumber: item?.poNumber || '', rowIndex: item?.rowIndex });
+    console.groupCollapsed('[POProof:Component:render]', { leadCode: item?.leadCode || (approvalRow?.payload?.leadCode) || '', approvalId: item?.approvalId || (approvalRow?._id || approvalRow?.id || ''), poNumber: item?.poNumber || '', rowIndex: item.rowIndex });
     console.log('item keys:', Object.keys(item || {}));
-    console.log('hasPoFileUrl prop:', item?.hasPoFileUrl, 'poFileUrl prop:', item?.poFileUrl, 'proofUrl prop:', item?.proofUrl);
+    console.log('TIER1-3 itemUrl:', itemUrl ? itemUrl.slice(0, 90) + '...' : 'EMPTY');
+    console.log('TIER4 snapshotMatchUrl (snapshotRows=' + snapshotRows.length + ' manifest=' + manifestRows.length + '):', snapshotMatchUrl ? snapshotMatchUrl.slice(0, 90) + '...' : 'EMPTY');
+    console.log('TIER5 payloadDeepUrl:', payloadDeepUrl ? payloadDeepUrl.slice(0, 90) + '...' : 'EMPTY');
     console.log('directUrl resolved RENDER TIME:', directUrl ? directUrl.slice(0, 90) + '...' : 'EMPTY');
+    console.log('hasPoFileUrl prop:', item?.hasPoFileUrl, 'poFileUrl prop:', item?.poFileUrl, 'proofUrl prop:', item?.proofUrl);
     console.log('getPoProofUrl(item) raw call:', getPoProofUrl(item || {}));
     console.log('_deepFindProofField(item):', item ? _deepFindProofField(item, 'url') : '');
+    console.log('getPoProofUrl(payload.snapshotRows[' + rowIndex + ']):', snapshotRows[rowIndex] ? getPoProofUrl(snapshotRows[rowIndex]) : '');
+    const manifestRowDebug = manifestRows.find((m) => String(m.rowIndex) === String(rowIndex)) || (itemPoNumber ? manifestRows.find((m) => String(m.poNumber || '').trim() === itemPoNumber) : null);
+    console.log('manifest entry match:', manifestRowDebug || 'NONE');
     console.groupEnd();
     if (!directUrl) {
-      console.warn('[POProof:Normalized:dash]', {
+      console.warn('[POProof:Normalized:dash] TIER4/5 ALSO FAILED!', {
+        itemUrl, snapshotMatchUrl, payloadDeepUrl, snapshotRowsLen: snapshotRows.length, manifestRowsLen: manifestRows.length, manifestRowDebug,
         hasPoFileUrl: item?.hasPoFileUrl, poFileUrl: item?.poFileUrl, proofUrl: item?.proofUrl,
         topKeys: Object.keys(item || {}).filter((k) => /proof|file|document|upload|attachment|url|secure|cloud|name/i.test(k)),
         deepFound: item ? _deepFindProofField(item, 'url') : '',
@@ -1338,8 +1383,11 @@ export default function PendingApproval() {
                       <div className="text-[11px] font-black uppercase tracking-wide text-amber-900">PO Proof Live Diagnostics (inline for each row — no console required)</div>
                       <div className="mt-2 space-y-1.5">
                         {filteredPoApprovals.map((row) => {
+                          // 🔴 FINAL FIX (shared with table): delete stale attached normalizedPoRows
+                          // BEFORE any normalize call so BOTH banner + table always use identical fresh normalization.
+                          try { delete row.normalizedPoRows; } catch { /* ignore strict */ try { Object.defineProperty(row, 'normalizedPoRows', { value: undefined, writable: true, configurable: true }); } catch { /* ignore */ } }
                           const id = row._id || row.id;
-                          const normalizedPoRows = row.normalizedPoRows || normalizeApprovalPoRows(row);
+                          const normalizedPoRows = normalizeApprovalPoRows(row);
                           const poRows = normalizedPoRows.length ? normalizedPoRows : (() => {
                             const payload = row.payload || {};
                             const pseudo = { ...payload, poNumber: payload.poNumber || row.uniqueId || '' };
@@ -1392,7 +1440,12 @@ export default function PendingApproval() {
                 <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
-                  const normalizedPoRows = row.normalizedPoRows || normalizeApprovalPoRows(row);
+                  // 🔴 FINAL FIX: NEVER trust row.normalizedPoRows attached by earlier hydrate runs.
+                  // Those could be stale (buggy hydrate version saved broken hasPoFileUrl=false).
+                  // Banner diagnostic above table uses fresh normalization and shows OK_DIRECT green pill
+                  // for same row — so delete attached property, forcing fresh normalize every render.
+                  try { delete row.normalizedPoRows; } catch { /* ignore strict */ try { Object.defineProperty(row, 'normalizedPoRows', { value: undefined, writable: true, configurable: true }); } catch { /* ignore */ } }
+                  const normalizedPoRows = normalizeApprovalPoRows(row);
                   // Legacy repair row: go through FULL resolveCanonicalPoProof chain (not just normalizePoApprovalRow)
                   // so that any proof stored ANYWHERE (payload snapshot, manifest, lead assignment, deep nested)
                   // is recovered even when no canonical poYearRows array exists for this approval yet.
