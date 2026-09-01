@@ -7,6 +7,10 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   CircleAlert,
   ClipboardList,
   Filter,
@@ -186,6 +190,8 @@ export default function ClientMasterAllocate() {
   const [modalClient, setModalClient] = useState(null);
   const [allocationsByKey, setAllocationsByKey] = useState({});
   const [segment, setSegment] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const handleLogout = async () => {
     try { await api.post(API_ENDPOINTS.auth.logout || '/auth/logout', {}).catch(() => {}); } catch {}
     localStorage.removeItem('token'); localStorage.removeItem('user'); window.location.href = '/login';
@@ -206,6 +212,9 @@ export default function ClientMasterAllocate() {
       } catch (e) { console.error('[CMAllocate] load fail', e); } finally { setLoading(false); }
     }
   }, []);
+
+  // Reset pagination to page 1 whenever search / segment / total results change
+  useEffect(() => { setPage(1); }, [search, segment, clients.length]);
 
   async function fetchUsers() {
     const endpoints = [API_ENDPOINTS.auth.users, API_ENDPOINTS.auth.adminUsers].filter(Boolean);
@@ -271,6 +280,29 @@ export default function ClientMasterAllocate() {
   }, [enrichedRows, users]);
 
   const visibleRows = segmented;
+  const pagination = useMemo(() => {
+    const total = visibleRows.length;
+    const safeSize = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 25;
+    const totalPages = Math.max(1, Math.ceil(total / safeSize));
+    let currentPage = Number.isFinite(page) && page >= 1 ? page : 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+    const startIdx = total === 0 ? 0 : (currentPage - 1) * safeSize;
+    const endIdx = total === 0 ? 0 : Math.min(total, startIdx + safeSize);
+    const pagesWindow = (() => {
+      const win = [];
+      const delta = 1;
+      const left = Math.max(2, currentPage - delta);
+      const right = Math.min(totalPages - 1, currentPage + delta);
+      win.push(1);
+      if (left > 2) win.push('…left');
+      for (let p = left; p <= right; p += 1) win.push(p);
+      if (right < totalPages - 1) win.push('…right');
+      if (totalPages > 1) win.push(totalPages);
+      return win;
+    })();
+    return { total, pageSize: safeSize, totalPages, page: currentPage, startIdx, endIdx, pagesWindow, pageRangeStart: total === 0 ? 0 : startIdx + 1, pageRangeEnd: endIdx };
+  }, [visibleRows, page, pageSize]);
+  const pagedRows = useMemo(() => (pagination.total === 0 ? [] : visibleRows.slice(pagination.startIdx, pagination.endIdx)), [visibleRows, pagination]);
   const userList = useMemo(() => users.slice().sort((a, b) => (a.name || `${a.firstName || ''} ${a.lastName || ''}`).localeCompare(b.name || `${b.firstName || ''} ${b.lastName || ''}`)), [users]);
 
   const openAllocation = (client) => {
@@ -441,8 +473,9 @@ export default function ClientMasterAllocate() {
                     <p className="text-sm font-semibold text-slate-500">Try clearing search, switching the segment tab above or press Refresh.</p>
                   </div>
                 </td></tr>}
-                {!loading && visibleRows.map((row, rowIdx) => {
+                {!loading && pagedRows.map((row, rowIdx) => {
                   const { client, overview, alloc } = row;
+                  const absoluteIdx = pagination.startIdx + rowIdx;
                   const progress = alloc.total ? Math.round((alloc.assigned / alloc.total) * 100) : 0;
                   return (
                     <tr key={String(client._id)} className="group transition hover:bg-[linear-gradient(90deg,rgba(16,185,129,0.04)_0%,rgba(14,165,233,0.03)_100%)] even:bg-slate-50/40">
@@ -536,7 +569,7 @@ export default function ClientMasterAllocate() {
                             <ChevronDown className="relative h-3.5 w-3.5 opacity-80 group-hover/btn:translate-y-0.5 transition" />
                           </button>
                         </div>
-                        {rowIdx === 0 && alloc.total >= 2 && (
+                        {absoluteIdx === 0 && alloc.total >= 2 && (
                           <div className="mt-2 text-[10px] font-bold text-slate-400">Tip: Producer & Importer can go to different users.</div>
                         )}
                       </td>
@@ -546,11 +579,53 @@ export default function ClientMasterAllocate() {
               </tbody>
             </table>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-gradient-to-r from-slate-50/70 to-white px-5 py-3.5">
-            <div className="text-xs font-bold text-slate-500">Showing <b className="text-slate-800">{visibleRows.length}</b> of <b className="text-slate-800">{clients.length}</b> client masters · <b className="text-emerald-700">{String(aggregates.progress)}%</b> service allocation progress</div>
-            <div className="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-[11px] font-black text-slate-500 ring-1 ring-slate-200">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Role visibility restricted to <span className="text-emerald-800">Admin · SuperAdmin · Manager</span>
+          <div className="flex flex-col gap-3 border-t border-slate-100 bg-gradient-to-r from-slate-50/80 via-white to-slate-50/80 px-5 py-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="text-xs font-bold text-slate-500">
+                Showing <b className="rounded-lg bg-slate-900 px-2 py-0.5 text-white">{pagination.total === 0 ? '0' : `${String(pagination.pageRangeStart)}-${String(pagination.pageRangeEnd)}`}</b> of <b className="text-slate-800">{String(pagination.total)}</b> client{String(pagination.total) === '1' ? '' : 's'} · <b className="text-slate-600">{String(clients.length)}</b> total masters · <b className="text-emerald-700">{String(aggregates.progress)}%</b> service allocation progress
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-2.5 py-1.5 text-[11px] font-black text-slate-600 ring-1 ring-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                <span className="pl-1 pr-0.5 text-slate-400">Rows</span>
+                <select
+                  value={String(pagination.pageSize)}
+                  onChange={(e) => { setPageSize(Math.max(1, Number(e.target.value) || 25)); setPage(1); }}
+                  className="cursor-pointer rounded-xl bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700 outline-none ring-1 ring-slate-200 transition focus:ring-2 focus:ring-emerald-300"
+                >
+                  {[10, 25, 50, 100, 250].map((size) => <option key={size} value={size}>{String(size)} / page</option>)}
+                </select>
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-[11px] font-black text-slate-500 ring-1 ring-slate-200">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Role visibility restricted to <span className="text-emerald-800">Admin · SuperAdmin · Manager</span>
+              </div>
             </div>
+            {pagination.totalPages > 1 && (
+              <div className="inline-flex flex-wrap items-center gap-1.5">
+                <button type="button" disabled={pagination.page <= 1} onClick={() => setPage(1)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="First page"><ChevronsLeft className="h-4 w-4" /></button>
+                <button type="button" disabled={pagination.page <= 1} onClick={() => setPage((p) => Math.max(1, (Number.isFinite(p) && p > 0 ? p : 1) - 1))} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="Previous page"><ChevronLeft className="h-4 w-4" /></button>
+                <div className="mx-0.5 inline-flex items-center gap-1.5">
+                  {pagination.pagesWindow.map((p, i) => {
+                    if (typeof p === 'string') {
+                      return <span key={`pg-${p}-${i}`} className="inline-flex h-9 items-center px-1 text-[11px] font-bold text-slate-400">···</span>;
+                    }
+                    const active = p === pagination.page;
+                    return (
+                      <button
+                        key={`pg-${p}`}
+                        type="button"
+                        onClick={() => setPage(p)}
+                        className={`inline-flex h-9 min-w-9 items-center justify-center rounded-xl px-3 text-[12px] font-black transition ${active ? 'bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-[0_8px_22px_-8px_rgba(16,185,129,0.7)] ring-1 ring-white/40' : 'border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'}`}
+                        title={`Page ${String(p)} of ${String(pagination.totalPages)}`}
+                      >{String(p)}</button>
+                    );
+                  })}
+                </div>
+                <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage((p) => Math.min(pagination.totalPages, (Number.isFinite(p) && p > 0 ? p : 1) + 1))} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="Next page"><ChevronRight className="h-4 w-4" /></button>
+                <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage(pagination.totalPages)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="Last page"><ChevronsRight className="h-4 w-4" /></button>
+                <div className="ml-1 inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-md">
+                  Page {String(pagination.page)} · {String(pagination.totalPages)}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
