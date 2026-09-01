@@ -114,16 +114,35 @@ export default function ClientMasterAllocate() {
       try {
         setLoading(true);
         const [cRes, uRes] = await Promise.all([
-          api.get(API_ENDPOINTS.clients.list).catch((e) => ({ data: { clients: [] } })),
-          api.get(API_ENDPOINTS.auth.users || API_ENDPOINTS.users).catch((e) => ({ data: { users: [] } }))
+          api.get(API_ENDPOINTS.clients.list).catch((e) => { console.warn('[CMAllocate] clients fetch fail', e); return { data: { clients: [] } }; }),
+          fetchUsers()
         ]);
         const cl = Array.isArray(cRes?.data?.clients) ? cRes.data.clients : (Array.isArray(cRes?.data) ? cRes.data : []);
-        const ul = Array.isArray(uRes?.data?.users) ? uRes.data.users : (Array.isArray(uRes?.data) ? uRes.data : []);
         setClients(cl);
-        setUsers(ul.filter((u) => u.isActive !== false));
-      } catch (e) { console.error(e); } finally { setLoading(false); }
+      } catch (e) { console.error('[CMAllocate] load fail', e); } finally { setLoading(false); }
     }
   }, []);
+  async function fetchUsers() {
+    const endpoints = [API_ENDPOINTS.auth.users, API_ENDPOINTS.auth.adminUsers].filter(Boolean);
+    let lastErr = null;
+    for (const ep of endpoints) {
+      try {
+        const res = await api.get(ep);
+        const ul = Array.isArray(res?.data?.users)
+          ? res.data.users
+          : (Array.isArray(res?.data) ? res.data : null);
+        if (ul) {
+          const cleaned = Array.isArray(ul) ? ul.filter((u) => u && (u._id || u.id)) : [];
+          console.debug('[CMAllocate] users loaded', { endpoint: ep, count: cleaned.length });
+          setUsers(cleaned.filter((u) => u.isActive !== false));
+          return { data: { users: cleaned } };
+        }
+      } catch (e) { lastErr = e; console.warn('[CMAllocate] users fetch fail endpoint:', ep, e); }
+    }
+    console.warn('[CMAllocate] users endpoints all failed', lastErr);
+    setUsers([]);
+    return { data: { users: [] } };
+  }
   const roleOk = (user) => {
     const r = String(user?.role || '').toLowerCase();
     return adminRoles.includes(r) || r === 'manager';
@@ -171,12 +190,13 @@ export default function ClientMasterAllocate() {
   const refresh = async () => {
     try {
       setRefreshing(true);
-      const cRes = await api.get(API_ENDPOINTS.clients.list);
-      const ul = users;
+      const [cRes] = await Promise.all([
+        api.get(API_ENDPOINTS.clients.list),
+        fetchUsers()
+      ]);
       const cl = Array.isArray(cRes?.data?.clients) ? cRes.data.clients : (Array.isArray(cRes?.data) ? cRes.data : []);
       setClients(cl);
-      setUsers(ul);
-      showToast('success', 'Refreshed', `${cl.length} clients loaded`);
+      showToast('success', 'Refreshed', `${cl.length} clients · ${String(userList.length || 0)} users loaded`);
     } catch (e) { showToast('error', 'Refresh failed', e?.message || ''); } finally { setRefreshing(false); }
   };
   function showToast(kind, title, message) {
@@ -204,6 +224,7 @@ export default function ClientMasterAllocate() {
         <input value={search} onChange={(e) => setSearch(e.target.value)} type="search" placeholder="Search client, contact, GST, mobile, lead code..." className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
       </div>
       <button type="button" onClick={refresh} disabled={refreshing} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh</button>
+      <div className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-700 shadow-[0_1px_0_rgba(16,185,129,0.1)]"><Users className="h-3.5 w-3.5" /> {String(userList.length || 0)} staff users</div>
     </div>
   </div>);
   return (
@@ -349,7 +370,9 @@ function AllocationModal({ isOpen, onClose, client, services = [], users = [], v
                 <div className="relative">
                   <select value={row.current} onChange={(e) => setValues((prev) => ({ ...prev, [row.key]: String(e.target.value || '') }))} className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-700 shadow-sm focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100">
                     <option value="">— Unassigned —</option>
-                    {users.map((u) => (<option key={String(u._id)} value={String(u._id)}>{userDisplay(u)}</option>))}
+                    {!Array.isArray(users) || users.length === 0 ? (
+                      <option value="" disabled>— No staff users loaded · click Refresh above —</option>
+                    ) : (users.map((u, idx) => (<option key={String(u._id || u.id || `user-${idx}-${u.email || 'anon'}`)} value={String(u._id || u.id || '')}>{userDisplay(u)}</option>)))}
                   </select>
                   <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 </div>
