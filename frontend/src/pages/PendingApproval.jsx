@@ -166,10 +166,15 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
     || indexedForPo(manifest)
     || manifest.find(matchesPoNumber)
     || null;
-  const compositeRow = { ...(snapshotForProof || {}), ...(normalizedRow || {}) };
+  // 🔴 FINAL FIX (merge order was REVERSED!): spread snapshotForProof LAST so it ALWAYS wins
+  // over normalizedRow from earlier buggy hydrate layers. Snapshot = DB upsert payload.poYearRows
+  // written by backend upsertPurchaseOrderApprovals (guaranteed URL present if proof uploaded).
+  // Old (broken): { ...snapshot, ...normalizedRow } → normalizedRow.empty URL destroyed valid snapshot URL!
+  const compositeRow = { ...(normalizedRow || {}), ...(snapshotForProof || {}) };
   const sources = [
+    snapshotForProof || {},
+    normalizedRow || {},
     compositeRow,
-    normalizedRow,
     snapshotForProof,
     indexedForPo(payloadRows),
     payloadRows.find(matchesPoNumber),
@@ -223,47 +228,45 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
 }
 
 function NormalizedPoProof({ item, approvalRow }) {
-  const payload = approvalRow?.payload || {};
+  // 🧊 DEFROST: Deep clone approvalRow.payload via JSON roundtrip. Frozen React state objects / Proxy getters
+  // can silently return undefined for known keys on nested properties, causing tier-4 match to return empty
+  // even though DB data is perfectly valid. JSON clone completely bypasses any Proxy/getter traps.
+  let payload;
+  try { payload = JSON.parse(JSON.stringify(approvalRow?.payload || {})); } catch { payload = Object.assign({}, approvalRow?.payload || {}); }
   const snapshotRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
   const manifestRows = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
   const rowIndex = Number.isFinite(item?.rowIndex) ? item.rowIndex : 0;
   const itemPoNumber = String(item?.poNumber || '').trim();
-  // TIER 1-3: standard item-based lookups (direct hasPoFileUrl → proofUrl → getPoProofUrl(item))
-  const itemUrl = (item?.hasPoFileUrl && _isUsableProofValue(item?.poFileUrl)) ? String(item.poFileUrl).trim()
-    : _isUsableProofValue(item?.proofUrl) ? String(item.proofUrl).trim()
-    : getPoProofUrl(item || {});
-  // TIER 4 — ULTIMATE FALLBACK (GUARANTEED): proof is ALWAYS in approval payload.
-  // Banner diagnostic snapshot=1 + manifest=1 + deepFind=FOUND confirms payload contains valid URLs.
-  // Just match this item to its snapshot/manifest source by (rowIndex, poNumber).
+  // TIER 4 — SNAPSHOT/MANIFEST FIRST (SOURCE OF TRUTH!)
+  // backend upsertPurchaseOrderApprovals ALWAYS writes snapshotRows + manifestRows with correct URL.
+  // TIER 1-3 = item props only as advisory fallback (they can be stale / overwritten / buggy).
   let snapshotMatchUrl = '';
   try {
-    // Strategy A: exact rowIndex
-    const byIndex = snapshotRows[rowIndex];
-    const byIndexUrl = byIndex ? getPoProofUrl(byIndex) : '';
-    const byIndexMatch = !byIndexUrl ? false : (!itemPoNumber || !String(byIndex?.poNumber || '').trim() || String(byIndex.poNumber || '').trim() === itemPoNumber);
-    if (byIndexMatch && byIndexUrl) snapshotMatchUrl = byIndexUrl;
+    if (snapshotRows.length === 1) snapshotMatchUrl = getPoProofUrl(snapshotRows[0]);
+    if (!snapshotMatchUrl && manifestRows.length === 1 && _isUsableProofValue(manifestRows[0]?.poFileUrl)) snapshotMatchUrl = String(manifestRows[0].poFileUrl || '').trim();
+    if (!snapshotMatchUrl) {
+      const byIndex = snapshotRows[rowIndex];
+      const byIndexUrl = byIndex ? getPoProofUrl(byIndex) : '';
+      const byIndexMatch = !byIndexUrl ? false : (!itemPoNumber || !String(byIndex?.poNumber || '').trim() || String(byIndex.poNumber || '').trim() === itemPoNumber);
+      if (byIndexMatch && byIndexUrl) snapshotMatchUrl = byIndexUrl;
+    }
     if (!snapshotMatchUrl && itemPoNumber) {
-      // Strategy B: scan by poNumber (strict)
       const byPo = snapshotRows.find((r) => String(r?.poNumber || '').trim() === itemPoNumber);
       snapshotMatchUrl = byPo ? getPoProofUrl(byPo) : '';
     }
     if (!snapshotMatchUrl) {
-      // Strategy C: manifest entry by rowIndex OR poNumber
       const manifestEntry = manifestRows.find((m) => String(m.rowIndex) === String(rowIndex)) || (itemPoNumber ? manifestRows.find((m) => String(m.poNumber || '').trim() === itemPoNumber) : null);
       if (manifestEntry && _isUsableProofValue(manifestEntry.poFileUrl)) snapshotMatchUrl = String(manifestEntry.poFileUrl || '').trim();
     }
-    if (!snapshotMatchUrl) {
-      // Strategy D: snapshotRows[0] if length === 1 (single row approval — cardinality unambiguous!)
-      if (snapshotRows.length === 1) snapshotMatchUrl = getPoProofUrl(snapshotRows[0]);
-    }
-    if (!snapshotMatchUrl && manifestRows.length === 1 && _isUsableProofValue(manifestRows[0]?.poFileUrl)) {
-      snapshotMatchUrl = String(manifestRows[0].poFileUrl || '').trim();
-    }
   } catch { /* ignore */ }
-  // Strategy E (last resort terminal): deepFind(payload) directly
+  const itemUrl = (item?.hasPoFileUrl && _isUsableProofValue(item?.poFileUrl)) ? String(item.poFileUrl).trim()
+    : _isUsableProofValue(item?.proofUrl) ? String(item.proofUrl).trim()
+    : getPoProofUrl(item || {});
+  // Terminal deep find (payload clone)
   const payloadDeepUrl = _deepFindProofField(payload, 'url') || '';
-  // Final winner chain — earliest non-empty tier wins
-  const directUrl = itemUrl || snapshotMatchUrl || payloadDeepUrl || '';
+  // 🚨 WINNER CHAIN (PRIORITY ORDER): snapshot (DB truth) → item props → terminal deep find
+  // Previously itemUrl first; bug caused item to beat snapshot with empty/invalid.
+  const directUrl = snapshotMatchUrl || itemUrl || payloadDeepUrl || '';
   // ULTIMATE diagnostic: exact state at RENDER time (not closure time like forEach above)
   if (typeof console !== 'undefined') {
     console.groupCollapsed('[POProof:Component:render]', { leadCode: item?.leadCode || (approvalRow?.payload?.leadCode) || '', approvalId: item?.approvalId || (approvalRow?._id || approvalRow?.id || ''), poNumber: item?.poNumber || '', rowIndex: item.rowIndex });
