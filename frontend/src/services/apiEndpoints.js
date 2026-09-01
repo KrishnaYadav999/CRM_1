@@ -86,6 +86,7 @@ const API_ENDPOINTS = {
     ,salesManagerReview: (id) => `/clients/${encodePathValue(id)}/sales-data/manager-review`
     ,salesComplianceReview: (id) => `/clients/${encodePathValue(id)}/sales-data/compliance-review`
     ,purchaseEmailProof: (id) => `/clients/${encodePathValue(id)}/purchase-proof/email`
+    ,allocations: (id) => `/clients/${encodePathValue(id)}/allocations`
   },
   purchaseProofs: {
     detail: (id) => `/purchase-proofs/${encodePathValue(id)}`,

@@ -8,6 +8,7 @@ import ForgotPassword from './pages/ForgotPassword'
 import AdminDashboard from './pages/AdminDashboard'
 import LeadGeneration from './pages/LeadGeneration'
 import ClientMaster from './pages/ClientMaster'
+import ClientMasterAllocate from './pages/ClientMasterAllocate'
 import HealthReportCheck from './pages/HealthReportCheck'
 import Quotations from './pages/Quotations'
 import AnnualReturns from './pages/AnnualReturns'
@@ -103,6 +104,7 @@ function App(){
         <Route path="/sales/compliance-health-report/:leadId" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/compliance/health-report" element={<ProtectedRoute><ComplianceHealthDashboard/></ProtectedRoute>} />
         <Route path="/sales/client-master" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />
+        <Route path="/sales/client-master-allocate" element={<ProtectedRoute><ClientMasterAllocate/></ProtectedRoute>} />
         <Route path="/sales/health-report-check" element={<ProtectedRoute><HealthReportCheck/></ProtectedRoute>} />
         <Route path="/sales/client-annual-returns/:clientKey" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />
         <Route path="/sales/client-data-processing/:clientKey/:annualYear" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />

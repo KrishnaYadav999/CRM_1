@@ -49,6 +49,7 @@ router.get('/:id/compliance-review', requireAuth, requireRoles(CLIENT_APPROVAL_R
 router.put('/:id/compliance-review/sections/:sectionKey', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.updateSection);
 router.post('/:id/compliance-review/decision', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), reviewCtrl.completeReview);
 router.patch('/:id/approval', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), clientCtrl.updateClientApproval);
+router.put('/:id/allocations', requireAuth, requireRoles([...ADMIN_ROLES, 'manager']), clientCtrl.upsertClientServiceAllocations);
 router.put('/:id/annual-return', requireAuth, clientCtrl.updateAnnualReturn);
 router.put('/:id', requireAuth, clientCtrl.updateClient);
 

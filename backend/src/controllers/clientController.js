@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const Client = require('../models/Client');
+const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const Lead = require('../models/Lead');
 const Quotation = require('../models/Quotation');
 const AnnualReturn = require('../models/AnnualReturn');
@@ -1886,6 +1888,79 @@ exports.approveAllPendingClients = async (req, res) => {
     failed: failures.length,
     failures
   });
+};
+
+exports.upsertClientServiceAllocations = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ ok: false, error: 'Invalid client id' });
+    const client = await Client.findById(id);
+    if (!client) return res.status(404).json({ ok: false, error: 'Client not found' });
+    const rawAllocations = req.body?.allocations || req.body?.serviceAllocations || req.body;
+    if (!rawAllocations || typeof rawAllocations !== 'object') {
+      return res.status(400).json({ ok: false, error: 'Invalid payload — `allocations: {serviceKey: userId}` required' });
+    }
+    const entries = Object.entries(rawAllocations).filter(([k, v]) => {
+      if (!k || typeof k !== 'string') return false;
+      if (v == null || v === '' || v === null) return false;
+      if (typeof v !== 'string' && typeof v !== 'number' && !(v && (typeof v.userId !== 'undefined'))) return false;
+      return true;
+    });
+    // (1) Validate all referenced userIds exist (allow `{userId}` object shape OR raw string userId)
+    const uniqueUserIds = new Set();
+    entries.forEach(([, v]) => {
+      const uid = String(typeof v === 'object' ? (v?.userId || v?.id || '') : v).trim();
+      if (uid) uniqueUserIds.add(uid);
+    });
+    if (uniqueUserIds.size) {
+      const validIds = [...uniqueUserIds].filter((uid) => mongoose.Types.ObjectId.isValid(uid));
+      const foundUsers = await User.find({ _id: { $in: validIds.map((id) => new mongoose.Types.ObjectId(id)) } }, '_id name email role isActive').lean();
+      const foundMap = new Map(foundUsers.map((u) => [String(u._id), u]));
+      for (const uid of uniqueUserIds) {
+        if (!mongoose.Types.ObjectId.isValid(uid) || !foundMap.has(uid)) {
+          return res.status(400).json({ ok: false, error: `Invalid user id: ${uid}` });
+        }
+        const u = foundMap.get(uid);
+        if (u.isActive === false) return res.status(400).json({ ok: false, error: `User is inactive: ${u.name || uid}` });
+      }
+    }
+    // (2) Build normalized allocations object: serviceKey => { userId, assignedByName, assignedAt, assignedById }
+    const now = new Date();
+    const normalized = client.serviceAllocations && typeof client.serviceAllocations === 'object'
+      ? { ...(client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations) }
+      : {};
+    entries.forEach(([serviceKey, rawVal]) => {
+      const userId = String(typeof rawVal === 'object' ? (rawVal?.userId || rawVal?.id || '') : rawVal).trim();
+      if (!userId) return;
+      normalized[serviceKey] = {
+        userId: new mongoose.Types.ObjectId(userId),
+        assignedById: new mongoose.Types.ObjectId(req.user._id),
+        assignedByName: String(req.user.name || ''),
+        assignedAt: now,
+        updatedAt: now,
+        updatedBy: String(req.user.name || '')
+      };
+    });
+    client.serviceAllocations = normalized;
+    client.markModified('serviceAllocations');
+    client.updatedAt = now;
+    client.updatedBy = String(req.user.name || '');
+    const saved = await client.save();
+    try {
+      await AuditLog.create({
+        entityName: 'Client.serviceAllocations',
+        recordId: String(saved._id),
+        userName: String(req.user.name || ''),
+        userId: String(req.user._id || ''),
+        description: `Assigned ${entries.length} service(s) on client ${String(saved?.companyName || saved?.clientLegalName || saved._id)}: ${entries.map(([k, v]) => `${k}->${String(typeof v === 'object' ? (v?.userId || v?.name || '') : v).slice(-6)}`).join(', ')}`,
+        createdAt: now
+      });
+    } catch { /* ignore audit failure */ }
+    return res.json({ ok: true, message: `Saved ${entries.length} service allocation(s)`, allocations: normalized });
+  } catch (err) {
+    console.error('[clientCtrl:upsertServiceAllocations]', err);
+    return res.status(500).json({ ok: false, error: err.message || 'Save failed' });
+  }
 };
 
 exports.__test = {
