@@ -1920,6 +1920,7 @@ function serviceDisplayNameForAllocation(key) {
 }
 
 function buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerName, managerRole, clientName, clientLeadCode, clientGst, clientState, clientCity, clientMobile, clientEmail, servicesRows, isReassignment, crmLink }) {
+  const safeClientName = clientName && String(clientName).trim() ? String(clientName).trim() : 'Client';
   const rowsHtml = servicesRows.map((r, i) => {
     const s = splitAllocationKey(r.serviceKey);
     const serviceName = s.applicantLabel || s.piboCategory || s.subApplicantType || s.applicantType || 'Service';
@@ -1937,32 +1938,34 @@ function buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerNa
     <table role="presentation" width="660" cellspacing="0" cellpadding="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:660px;border-collapse:separate;background-color:#ffffff;border:1px solid #dbe5e1;border-radius:18px;overflow:hidden">
       <tr><td bgcolor="#0f766e" style="padding:26px 32px;background:linear-gradient(135deg,#059669 0%,#0d9488 55%,#0891b2 100%)">
         <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;color:#ccfbf1;text-transform:uppercase">Customer Hub · Client Master Allocation</div>
-        <div style="margin-top:8px;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:32px;font-weight:800;color:#ffffff">${escapeHtml(isReassignment ? 'Client services re-assigned to you' : 'Client services assigned to you')}</div>
-        <div style="margin-top:6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#ecfeff">Assigned by <strong style="color:#ffffff">${escapeHtml(managerName)}</strong>${managerRole ? ` · ${escapeHtml(managerRole)}` : ''}</div>
+        <div style="margin-top:10px;font-family:Arial,Helvetica,sans-serif;font-size:28px;line-height:34px;font-weight:900;color:#ffffff">${escapeHtml(isReassignment ? 'Service reassigned for client' : 'New client service assigned')}</div>
+        <div style="margin-top:6px;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:28px;font-weight:900;color:#fef3c7;text-shadow:0 1px 0 rgba(0,0,0,0.15)">🟢 ${escapeHtml(safeClientName)}${clientLeadCode ? ` <span style="font-size:14px;color:#ccfbf1;font-weight:700;margin-left:6px">· ${escapeHtml(clientLeadCode)}</span>` : ''}</div>
+        <div style="margin-top:10px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#ecfeff">Assigned by <strong style="color:#ffffff">${escapeHtml(managerName)}</strong>${managerRole ? ` · ${escapeHtml(managerRole)}` : ''}</div>
       </td></tr>
       <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;color:#334155">
-        <p style="margin:0 0 22px;font-size:16px;line-height:26px;color:#334155">Hi <strong style="color:#0f172a">${escapeHtml(recipientName || recipientRole || 'Team member')}</strong>,</p>
-        <p style="margin:0 0 24px;font-size:15px;line-height:24px;color:#475569">The following client has been allocated to you on <strong style="color:#0f172a">${servicesRows.length} service${servicesRows.length === 1 ? '' : 's'}</strong>. Please log in to CRM to view the full client master record and begin processing immediately.</p>
+        <p style="margin:0 0 14px;font-size:16px;line-height:26px;color:#334155">Hi <strong style="color:#0f172a">${escapeHtml(recipientName || recipientRole || 'Team member')}</strong>,</p>
+        <p style="margin:0 0 18px;font-size:16px;line-height:26px;color:#0f172a;font-weight:800"><span style="display:inline-block;padding:4px 10px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;color:#047857;font-weight:900;margin-right:8px">CLIENT</span> ${escapeHtml(safeClientName)}${clientLeadCode ? ` <span style="color:#475569;font-weight:700">· ${escapeHtml(clientLeadCode)}</span>` : ''} has been allocated to you on <strong>${servicesRows.length} service${servicesRows.length === 1 ? '' : 's'}</strong>.</p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:24px;color:#475569">Please log in to CRM to view the full <strong style="color:#0f172a">${escapeHtml(safeClientName)}</strong> client master record and begin processing your allocated services immediately.</p>
 
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#ecfdf5" style="width:100%;margin:0 0 24px;border-collapse:separate;background-color:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px">
           <tr>
             <td width="60%" valign="top" style="padding:20px 22px">
-              <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#047857;margin-bottom:8px">Client</div>
-              <div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;line-height:26px;color:#064e3b;margin-bottom:4px">${escapeHtml(clientName || 'Client')}</div>
+              <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#047857;margin-bottom:8px">Client name</div>
+              <div style="font-family:Arial,Helvetica,sans-serif;font-size:24px;font-weight:900;line-height:30px;color:#064e3b;margin-bottom:6px">${escapeHtml(safeClientName)}</div>
               ${clientLeadCode ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#065f46;font-weight:700;margin-bottom:4px">${escapeHtml(clientLeadCode)}</div>` : ''}
               ${clientGst ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111827;margin-top:4px"><span style="color:#047857;font-weight:700">GST:</span> ${escapeHtml(clientGst)}</div>` : ''}
               ${clientState || clientCity ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111827;margin-top:3px"><span style="color:#047857;font-weight:700">Location:</span> ${escapeHtml([clientCity, clientState].filter(Boolean).join(', '))}</div>` : ''}
             </td>
             <td width="40%" valign="top" style="padding:20px 22px">
-              <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#047857;margin-bottom:8px">Contact</div>
+              <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#047857;margin-bottom:8px">Contact · ${escapeHtml(safeClientName)}</div>
               ${clientMobile ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;margin-bottom:5px">📞 <strong>${escapeHtml(clientMobile)}</strong></div>` : ''}
               ${clientEmail ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827">✉️ <strong>${escapeHtml(clientEmail)}</strong></div>` : ''}
-              <div style="margin-top:16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#064e3b;font-weight:700">${escapeHtml(String(servicesRows.length))} service${servicesRows.length === 1 ? '' : 's'} allocated</div>
+              <div style="margin-top:16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#064e3b;font-weight:700">${escapeHtml(String(servicesRows.length))} service${servicesRows.length === 1 ? '' : 's'} allocated for <strong>${escapeHtml(safeClientName)}</strong></div>
             </td>
           </tr>
         </table>
 
-        <h3 style="margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:16px;color:#0f172a;font-weight:800">Your allocated services</h3>
+        <h3 style="margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:16px;color:#0f172a;font-weight:800">Your allocated services on <span style="color:#065f46">${escapeHtml(safeClientName)}</span></h3>
         <div style="overflow:auto;border:1px solid #e2e8f0;border-radius:14px">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:14px">
             <thead><tr style="background:#f1f5f9;color:#0f172a">
@@ -1978,14 +1981,14 @@ function buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerNa
 
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:22px 0 6px;border-collapse:separate;background-color:#f0f9ff;border-left:4px solid #0284c7;border-radius:12px">
           <tr><td style="padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#0c4a6e">
-            <strong style="color:#075985">Next steps:</strong> Open the client master record in CRM. Each of your allocated services (Producer, Brand Owner, Importer, Recycler etc.) has been individually tagged to you. If this allocation is incorrect or needs adjustment, reply to your reporting manager <strong>${escapeHtml(managerName)}</strong>.
+            <strong style="color:#075985">Next steps for ${escapeHtml(safeClientName)}:</strong> Open the <strong>${escapeHtml(safeClientName)}</strong> client master record in CRM by clicking the button below. Each of your allocated services (Producer, Brand Owner, Importer, Recycler etc.) has been individually tagged to you for this client. If this allocation is incorrect or needs adjustment, reply to your reporting manager <strong>${escapeHtml(managerName)}</strong>.
           </td></tr>
         </table>
 
-        ${crmLink ? `<p style="margin:26px 0 0"><a href="${escapeHtml(crmLink)}" style="display:inline-block;background:linear-gradient(135deg,#059669,#0d9488,#0891b2);color:#ffffff;text-decoration:none;border-radius:12px;padding:14px 22px;font-weight:800;font-family:Arial,Helvetica,sans-serif;font-size:15px;box-shadow:0 8px 20px rgba(13,148,136,0.25)">Open Client Master in CRM →</a></p>` : ''}
+        ${crmLink ? `<p style="margin:26px 0 0"><a href="${escapeHtml(crmLink)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:linear-gradient(135deg,#059669,#0d9488,#0891b2);color:#ffffff;text-decoration:none;border-radius:12px;padding:14px 22px;font-weight:800;font-family:Arial,Helvetica,sans-serif;font-size:15px;box-shadow:0 8px 20px rgba(13,148,136,0.25)">Open ${escapeHtml(safeClientName)} in CRM →</a></p>` : ''}
       </td></tr>
       <tr><td bgcolor="#f8fafc" style="padding:17px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;border-radius:0 0 17px 17px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#64748b">
-        This is an automated CRM notification sent because client service allocation was updated by ${escapeHtml(managerName)}.
+        This is an automated CRM notification for client <strong style="color:#0f172a">${escapeHtml(safeClientName)}</strong>. Client service allocation was updated by ${escapeHtml(managerName)}.
       </td></tr>
     </table>
   </td></tr>
@@ -1993,6 +1996,7 @@ function buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerNa
 }
 
 function buildAllocationManagerSummaryHtml({ managerName, clientName, clientLeadCode, changesRows, crmLink }) {
+  const safeClientName = clientName && String(clientName).trim() ? String(clientName).trim() : 'Client';
   const changed = changesRows.filter((r) => r.type !== 'unchanged');
   const reassigned = changed.filter((r) => r.type === 'reassigned');
   const newly = changed.filter((r) => r.type === 'new');
@@ -2022,20 +2026,27 @@ function buildAllocationManagerSummaryHtml({ managerName, clientName, clientLead
     <table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:680px;border-collapse:separate;background-color:#ffffff;border:1px solid #dbe5e1;border-radius:18px;overflow:hidden">
       <tr><td bgcolor="#0ea5e9" style="padding:24px 30px;background:linear-gradient(135deg,#0ea5e9 0%,#6366f1 60%,#8b5cf6 100%)">
         <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;color:#e0f2fe;text-transform:uppercase">Client Master Allocation · Summary</div>
-        <div style="margin-top:6px;font-family:Arial,Helvetica,sans-serif;font-size:24px;line-height:30px;font-weight:800;color:#ffffff">Allocation saved for ${escapeHtml(clientName || 'client')}</div>
+        <div style="margin-top:8px;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:32px;font-weight:900;color:#ffffff">Allocation saved</div>
+        <div style="margin-top:6px;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:28px;font-weight:900;color:#fef9c3;text-shadow:0 1px 0 rgba(0,0,0,0.15)">🟣 Client: <strong>${escapeHtml(safeClientName)}</strong></div>
         ${clientLeadCode ? `<div style="margin-top:4px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#e0f2fe;font-weight:700">${escapeHtml(clientLeadCode)}</div>` : ''}
       </td></tr>
       <tr><td style="padding:26px 30px;font-family:Arial,Helvetica,sans-serif;color:#334155">
-        <p style="margin:0 0 20px;font-size:15px;line-height:24px;color:#334155">Hi <strong style="color:#0f172a">${escapeHtml(managerName || 'Admin')}</strong>,</p>
-        <p style="margin:0 0 22px;font-size:14px;line-height:22px;color:#475569">This email is a confirmation summary of the client service allocation changes you just made. Individual assignees were also notified separately by email.</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:24px;color:#334155">Hi <strong style="color:#0f172a">${escapeHtml(managerName || 'Admin')}</strong>,</p>
+        <p style="margin:0 0 18px;font-size:15px;line-height:24px;color:#0f172a;font-weight:800"><span style="display:inline-block;padding:4px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;color:#1d4ed8;font-weight:900;margin-right:8px">SUMMARY</span> Allocation changes for <strong>${escapeHtml(safeClientName)}</strong>${clientLeadCode ? ` · ${escapeHtml(clientLeadCode)}` : ''} saved successfully. Individual assignees were also notified separately by email.</p>
+
+        <div style="padding:14px 18px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:14px;margin:0 0 24px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#0f172a">
+          <span style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#64748b;margin-right:8px">Client</span>
+          <span style="font-weight:900;color:#0f172a;font-size:18px">${escapeHtml(safeClientName)}</span>
+          ${clientLeadCode ? `<span style="margin-left:10px;color:#64748b;font-weight:700">· ${escapeHtml(clientLeadCode)}</span>` : ''}
+        </div>
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 0 24px">
           <div style="padding:14px 16px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px">
-            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#047857">Changes</div>
+            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#047857">Changes (${escapeHtml(safeClientName)})</div>
             <div style="margin-top:4px;font-family:Arial;font-size:22px;font-weight:800;color:#065f46">${escapeHtml(String(changed.length))}</div>
           </div>
           <div style="padding:14px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px">
-            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#1d4ed8">New</div>
+            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#1d4ed8">New assignments</div>
             <div style="margin-top:4px;font-family:Arial;font-size:22px;font-weight:800;color:#1e40af">${escapeHtml(String(newly.length))}</div>
           </div>
           <div style="padding:14px 16px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px">
@@ -2048,11 +2059,11 @@ function buildAllocationManagerSummaryHtml({ managerName, clientName, clientLead
           </div>
         </div>
 
-        <h3 style="margin:0 0 10px;font-size:15px;font-weight:800;color:#0f172a;font-family:Arial">Allocation breakdown</h3>
+        <h3 style="margin:0 0 10px;font-size:15px;font-weight:800;color:#0f172a;font-family:Arial">Allocation breakdown — <span style="color:#1d4ed8">${escapeHtml(safeClientName)}</span></h3>
         <div style="overflow:auto;border:1px solid #e2e8f0;border-radius:14px">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:14px">
             <thead><tr style="background:#f1f5f9;color:#0f172a">
-              <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Service</th>
+              <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Service (${escapeHtml(safeClientName)})</th>
               <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Previous owner</th>
               <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">New owner</th>
               <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Status</th>
@@ -2061,10 +2072,10 @@ function buildAllocationManagerSummaryHtml({ managerName, clientName, clientLead
           </table>
         </div>
 
-        ${crmLink ? `<p style="margin:26px 0 0"><a href="${escapeHtml(crmLink)}" style="display:inline-block;background:linear-gradient(135deg,#0ea5e9,#6366f1,#8b5cf6);color:#ffffff;text-decoration:none;border-radius:12px;padding:13px 20px;font-weight:800;font-family:Arial,Helvetica,sans-serif;font-size:14px;box-shadow:0 8px 20px rgba(99,102,241,0.25)">Review allocation in CRM →</a></p>` : ''}
+        ${crmLink ? `<p style="margin:26px 0 0"><a href="${escapeHtml(crmLink)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:linear-gradient(135deg,#0ea5e9,#6366f1,#8b5cf6);color:#ffffff;text-decoration:none;border-radius:12px;padding:13px 20px;font-weight:800;font-family:Arial,Helvetica,sans-serif;font-size:14px;box-shadow:0 8px 20px rgba(99,102,241,0.25)">Review ${escapeHtml(safeClientName)} allocation in CRM →</a></p>` : ''}
       </td></tr>
       <tr><td bgcolor="#f8fafc" style="padding:17px 30px;background-color:#f8fafc;border-top:1px solid #e2e8f0;border-radius:0 0 17px 17px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#64748b">
-        Thank you for managing client ownership in CRM. An audit log entry was created.
+        Thank you for managing ownership of <strong style="color:#0f172a">${escapeHtml(safeClientName)}</strong> in CRM. An audit log entry was created for client <strong>${escapeHtml(safeClientName)}</strong>.
       </td></tr>
     </table>
   </td></tr>
@@ -2168,7 +2179,8 @@ async function sendAllocationNotificationsAndEmails({ client, previousAllocation
       const isReassignment = rows.some((r) => r.type === 'reassigned');
       const servicesRows = rows.map((r) => ({ serviceKey: r.serviceKey, previousUserName: r.previousUserName, previousUserId: r.previousUserId, newUserId: r.newUserId, newUserName: r.newUserName }));
       try {
-        const subject = `${isReassignment ? 'Re-assigned' : 'New assignment'}: ${clientName || 'Client'} · ${rows.length} service${rows.length === 1 ? '' : 's'}${clientLeadCode ? ` — ${clientLeadCode}` : ''}`;
+        const clientDisplay = clientName && String(clientName).trim() ? String(clientName).trim() : 'Client';
+        const subject = `Client: ${clientDisplay} | ${isReassignment ? 'Services reassigned to you' : `${rows.length} service${rows.length === 1 ? '' : 's'} assigned to you`}${clientLeadCode ? ` · ${clientLeadCode}` : ''}`;
         const html = buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerName, managerRole, clientName, clientLeadCode, clientGst, clientState, clientCity, clientMobile, clientEmail, servicesRows, isReassignment, crmLink: crmStaffLink });
         await sendMail(recipientEmail, subject, html, { branded: false });
         emailResults.push({ userId: uid, userName: recipientName, email: recipientEmail, services: rows.length, sent: true });
@@ -2182,7 +2194,8 @@ async function sendAllocationNotificationsAndEmails({ client, previousAllocation
   // (3) Send manager summary confirmation email
   if (managerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(managerEmail) && changesRows.length > 0) {
     try {
-      const subject = `Allocation saved: ${clientName || 'Client'} · ${changedKeys.length} change${changedKeys.length === 1 ? '' : 's'}${clientLeadCode ? ` — ${clientLeadCode}` : ''}`;
+      const clientDisplay = clientName && String(clientName).trim() ? String(clientName).trim() : 'Client';
+      const subject = `Client: ${clientDisplay} | Allocation saved · ${changedKeys.length} change${changedKeys.length === 1 ? '' : 's'}${clientLeadCode ? ` · ${clientLeadCode}` : ''}`;
       const html = buildAllocationManagerSummaryHtml({ managerName, clientName, clientLeadCode, changesRows, crmLink: crmStaffLink });
       await sendMail(managerEmail, subject, html, { branded: false });
       emailResults.push({ manager: true, userName: managerName, email: managerEmail, sent: true, summary: true });
