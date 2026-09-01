@@ -1370,13 +1370,14 @@ export default function PendingApproval() {
                                   const status = proofDirect ? 'PROOF_OK_DIRECT' : proofFallback ? 'PROOF_OK_FALLBACK' : proofDeep ? 'PROOF_OK_DEEP' : 'PROOF_MISSING';
                                   const tone = status.startsWith('PROOF_OK') ? 'bg-emerald-600' : 'bg-rose-600';
                                   const poSnapshot = pRows[i];
-                                  const poSnapshotProof = poSnapshot ? resolvePoProof(poSnapshot) : null;
+                                  const poSnapshotProofUrl = poSnapshot ? getPoProofUrl(poSnapshot) : '';
+                                  const poSnapshotProofName = poSnapshot ? getPoProofName(poSnapshot) : '';
                                   const manifestProof = manifest.find((m) => String(m.rowIndex) === String(i) || m.poNumber === item.poNumber);
                                   return (
                                     <div key={`diag-row-${i}`} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
                                       <span className={`inline-flex h-4 min-w-[44px] items-center justify-center rounded px-1 text-[9px] font-black uppercase text-white ${tone}`}>{status.replace('PROOF_', '')}</span>
                                       <span className="text-[10px] font-black text-slate-800">row{i}·{item.poNumber || 'no_po'}</span>
-                                      <span className="text-[10px] text-slate-500">snap={poSnapshotProof?.url ? 'URL' : 'NO'}/manifest={manifestProof?.poFileUrl ? 'URL' : 'NO'}/renderUrlLen={(item.poFileUrl || item.proofUrl || getPoProofUrl(item) || '').length}</span>
+                                      <span className="text-[10px] text-slate-500">snap={poSnapshotProofUrl ? 'URL' : 'NO'}/manifest={manifestProof?.poFileUrl ? 'URL' : 'NO'}/renderUrlLen={(item.poFileUrl || item.proofUrl || getPoProofUrl(item) || '').length}</span>
                                     </div>
                                   );
                                 })}
