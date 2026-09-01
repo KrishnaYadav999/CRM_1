@@ -450,16 +450,64 @@ export default function ClientMasterAllocate() {
         </section>
 
         <section className="relative overflow-hidden rounded-[28px] border border-white/80 bg-white/90 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur">
+          <div className="flex flex-col gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 via-amber-50 to-yellow-50 px-5 py-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="text-xs font-black text-orange-900">
+                Showing <b className="rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-2 py-0.5 text-white shadow-[0_6px_18px_-6px_rgba(249,115,22,0.55)]">{pagination.total === 0 ? '0' : `${String(pagination.pageRangeStart)}-${String(pagination.pageRangeEnd)}`}</b> of <b className="text-orange-950">{String(pagination.total)}</b> client{String(pagination.total) === '1' ? '' : 's'} · <b className="text-amber-900">{String(clients.length)}</b> total masters · <b className="text-orange-700">{String(aggregates.progress)}%</b> service allocation progress
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-2.5 py-1.5 text-[11px] font-black text-orange-800 ring-1 ring-orange-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                <span className="pl-1 pr-0.5 text-orange-500">Rows per page</span>
+                <select
+                  value={String(pagination.pageSize)}
+                  onChange={(e) => { setPageSize(Math.max(1, Number(e.target.value) || 25)); setPage(1); }}
+                  className="cursor-pointer rounded-xl bg-orange-50 px-2.5 py-1 text-[11px] font-black text-orange-900 outline-none ring-1 ring-orange-200 transition focus:ring-2 focus:ring-orange-400"
+                >
+                  {[10, 25, 50, 100, 250].map((size) => <option key={size} value={size}>{String(size)} rows</option>)}
+                </select>
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-[11px] font-black text-orange-800 ring-1 ring-orange-200">
+                <CheckCircle2 className="h-3.5 w-3.5 text-orange-600" /> Role visibility restricted to <span className="text-orange-900">Admin · SuperAdmin · Manager</span>
+              </div>
+            </div>
+            {pagination.totalPages > 1 && (
+              <div className="inline-flex flex-wrap items-center gap-1.5">
+                <button type="button" disabled={pagination.page <= 1} onClick={() => setPage(1)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-orange-200 bg-white text-orange-700 shadow-sm transition hover:border-orange-400 hover:bg-orange-100 hover:text-orange-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-orange-700 disabled:hover:border-orange-200" title="First page"><ChevronsLeft className="h-4 w-4" /></button>
+                <button type="button" disabled={pagination.page <= 1} onClick={() => setPage((p) => Math.max(1, (Number.isFinite(p) && p > 0 ? p : 1) - 1))} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-orange-200 bg-white text-orange-700 shadow-sm transition hover:border-orange-400 hover:bg-orange-100 hover:text-orange-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-orange-700 disabled:hover:border-orange-200" title="Previous page"><ChevronLeft className="h-4 w-4" /></button>
+                <div className="mx-0.5 inline-flex items-center gap-1.5">
+                  {pagination.pagesWindow.map((p, i) => {
+                    if (typeof p === 'string') {
+                      return <span key={`pg-${p}-${i}`} className="inline-flex h-9 items-center px-1 text-[11px] font-bold text-orange-500">···</span>;
+                    }
+                    const active = p === pagination.page;
+                    return (
+                      <button
+                        key={`pg-${p}`}
+                        type="button"
+                        onClick={() => setPage(p)}
+                        className={`inline-flex h-9 min-w-9 items-center justify-center rounded-xl px-3 text-[12px] font-black transition ${active ? 'bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-500 text-white shadow-[0_10px_26px_-10px_rgba(249,115,22,0.85)] ring-1 ring-white/50' : 'border border-orange-200 bg-white text-orange-800 shadow-sm hover:border-orange-400 hover:bg-orange-100 hover:text-orange-950'}`}
+                        title={`Page ${String(p)} of ${String(pagination.totalPages)}`}
+                      >{String(p)}</button>
+                    );
+                  })}
+                </div>
+                <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage((p) => Math.min(pagination.totalPages, (Number.isFinite(p) && p > 0 ? p : 1) + 1))} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-orange-200 bg-white text-orange-700 shadow-sm transition hover:border-orange-400 hover:bg-orange-100 hover:text-orange-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-orange-700 disabled:hover:border-orange-200" title="Next page"><ChevronRight className="h-4 w-4" /></button>
+                <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage(pagination.totalPages)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-orange-200 bg-white text-orange-700 shadow-sm transition hover:border-orange-400 hover:bg-orange-100 hover:text-orange-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-orange-700 disabled:hover:border-orange-200" title="Last page"><ChevronsRight className="h-4 w-4" /></button>
+                <div className="ml-1 inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-500 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-[0_8px_20px_-6px_rgba(249,115,22,0.7)]">
+                  Page {String(pagination.page)} · {String(pagination.totalPages)}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-100 text-sm">
               <thead>
-                <tr className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-[10px] font-black uppercase tracking-[0.18em] text-slate-200">
-                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Building2 className="h-3.5 w-3.5 text-emerald-300" /> Company / Lead</span></th>
-                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-sky-300" /> Contact</span></th>
-                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-amber-300" /> GST / Location</span></th>
-                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><BriefcaseBusiness className="h-3.5 w-3.5 text-fuchsia-300" /> Services</span></th>
-                  <th className="px-5 py-4 text-left w-[230px]"><span className="inline-flex items-center gap-2"><ListChecks className="h-3.5 w-3.5 text-teal-300" /> Allocations</span></th>
-                  <th className="px-5 py-4 text-right w-[200px]">Action</th>
+                <tr className="bg-gradient-to-r from-orange-200/80 via-amber-200/80 to-yellow-200/80 text-[10px] font-black uppercase tracking-[0.18em] text-orange-950 ring-1 ring-inset ring-orange-300/50">
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Building2 className="h-3.5 w-3.5 text-orange-700" /> Company / Lead</span></th>
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-amber-700" /> Contact</span></th>
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-yellow-700" /> GST / Location</span></th>
+                  <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><BriefcaseBusiness className="h-3.5 w-3.5 text-orange-800" /> Services</span></th>
+                  <th className="px-5 py-4 text-left w-[230px]"><span className="inline-flex items-center gap-2"><ListChecks className="h-3.5 w-3.5 text-amber-800" /> Allocations</span></th>
+                  <th className="px-5 py-4 text-right w-[200px]"><span className="inline-flex items-center justify-end gap-2 text-orange-900">Action</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -579,53 +627,14 @@ export default function ClientMasterAllocate() {
               </tbody>
             </table>
           </div>
-          <div className="flex flex-col gap-3 border-t border-slate-100 bg-gradient-to-r from-slate-50/80 via-white to-slate-50/80 px-5 py-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="text-xs font-bold text-slate-500">
-                Showing <b className="rounded-lg bg-slate-900 px-2 py-0.5 text-white">{pagination.total === 0 ? '0' : `${String(pagination.pageRangeStart)}-${String(pagination.pageRangeEnd)}`}</b> of <b className="text-slate-800">{String(pagination.total)}</b> client{String(pagination.total) === '1' ? '' : 's'} · <b className="text-slate-600">{String(clients.length)}</b> total masters · <b className="text-emerald-700">{String(aggregates.progress)}%</b> service allocation progress
-              </div>
-              <div className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-2.5 py-1.5 text-[11px] font-black text-slate-600 ring-1 ring-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-                <span className="pl-1 pr-0.5 text-slate-400">Rows</span>
-                <select
-                  value={String(pagination.pageSize)}
-                  onChange={(e) => { setPageSize(Math.max(1, Number(e.target.value) || 25)); setPage(1); }}
-                  className="cursor-pointer rounded-xl bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700 outline-none ring-1 ring-slate-200 transition focus:ring-2 focus:ring-emerald-300"
-                >
-                  {[10, 25, 50, 100, 250].map((size) => <option key={size} value={size}>{String(size)} / page</option>)}
-                </select>
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-[11px] font-black text-slate-500 ring-1 ring-slate-200">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Role visibility restricted to <span className="text-emerald-800">Admin · SuperAdmin · Manager</span>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 bg-gradient-to-r from-orange-50/50 via-amber-50/30 to-yellow-50/50 px-5 py-3">
+            <div className="text-xs font-black text-orange-800">
+              {pagination.total === 0 ? 'No matching clients' : `Showing records ${String(pagination.pageRangeStart)}–${String(pagination.pageRangeEnd)} of ${String(pagination.total)}${pagination.totalPages > 1 ? ` · Page ${String(pagination.page)} / ${String(pagination.totalPages)}` : ''}`}
+              {` · ${String(aggregates.assignedClients)} fully assigned clients · ${String(aggregates.partialClients)} partial · ${String(aggregates.unassignedClients)} awaiting allocation`}
             </div>
-            {pagination.totalPages > 1 && (
-              <div className="inline-flex flex-wrap items-center gap-1.5">
-                <button type="button" disabled={pagination.page <= 1} onClick={() => setPage(1)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="First page"><ChevronsLeft className="h-4 w-4" /></button>
-                <button type="button" disabled={pagination.page <= 1} onClick={() => setPage((p) => Math.max(1, (Number.isFinite(p) && p > 0 ? p : 1) - 1))} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="Previous page"><ChevronLeft className="h-4 w-4" /></button>
-                <div className="mx-0.5 inline-flex items-center gap-1.5">
-                  {pagination.pagesWindow.map((p, i) => {
-                    if (typeof p === 'string') {
-                      return <span key={`pg-${p}-${i}`} className="inline-flex h-9 items-center px-1 text-[11px] font-bold text-slate-400">···</span>;
-                    }
-                    const active = p === pagination.page;
-                    return (
-                      <button
-                        key={`pg-${p}`}
-                        type="button"
-                        onClick={() => setPage(p)}
-                        className={`inline-flex h-9 min-w-9 items-center justify-center rounded-xl px-3 text-[12px] font-black transition ${active ? 'bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-[0_8px_22px_-8px_rgba(16,185,129,0.7)] ring-1 ring-white/40' : 'border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'}`}
-                        title={`Page ${String(p)} of ${String(pagination.totalPages)}`}
-                      >{String(p)}</button>
-                    );
-                  })}
-                </div>
-                <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage((p) => Math.min(pagination.totalPages, (Number.isFinite(p) && p > 0 ? p : 1) + 1))} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="Next page"><ChevronRight className="h-4 w-4" /></button>
-                <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage(pagination.totalPages)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600 disabled:hover:border-slate-200" title="Last page"><ChevronsRight className="h-4 w-4" /></button>
-                <div className="ml-1 inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-md">
-                  Page {String(pagination.page)} · {String(pagination.totalPages)}
-                </div>
-              </div>
-            )}
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-500 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_8px_20px_-6px_rgba(249,115,22,0.65)] ring-1 ring-white/40">
+              <ListChecks className="h-3 w-3" /> Overall {String(aggregates.progress)}% allocated
+            </div>
           </div>
         </section>
 
