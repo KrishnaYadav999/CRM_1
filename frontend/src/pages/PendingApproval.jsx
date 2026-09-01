@@ -1468,23 +1468,67 @@ export default function PendingApproval() {
                     <Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell>
                     <Cell>{poRows.map((po) => <div key={`${po.approvalId || id}-${po.rowIndex ?? 0}-${po.poNumber || 'po'}-amount`} className="mb-1 font-black text-emerald-700">{po.poAmountValue ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : '-'}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell>
                   <Cell>{(() => {
-                    // Directly render at JSX evaluation time — bypass stale React closure references
-                    // between `poRows.forEach(console.log)` above and actual map render below.
-                    // (forEach captures variables in for loop closure; fresh array capture here.)
-                    const fresh = poRows.slice().map((po) => {
-                      const copy = Object.assign({}, po);
+                    // 🔴 NUCLEAR FIX: Calculate proof URL HERE, in the EXACT SAME closure scope that
+                    // ran poRows.forEach(console.log) which the user already CONFIRMED returns
+                    // hasPoFileUrl=true + valid Cloudinary URL for EVERY row (screenshot console table 1174).
+                    // NO NormalizedPoProof component call = NO prop passing = NO stale closure / frozen ref bugs!
+                    // Deep-clone row.payload (DEFROST) via JSON roundtrip → 100% bypass Proxy/getter traps.
+                    let clonedPayload;
+                    try { clonedPayload = JSON.parse(JSON.stringify(row.payload || {})); } catch { clonedPayload = Object.assign({}, row.payload || {}); }
+                    const snap = Array.isArray(clonedPayload.poYearRows) ? clonedPayload.poYearRows : [];
+                    const mani = Array.isArray(clonedPayload.poProofManifest) ? clonedPayload.poProofManifest : [];
+                    // For each row, resolve URL matching by len1 (unambiguous) → rowIndex → poNumber → manifest → deepFind(payload)
+                    const resolveUrlForPo = (po, i) => {
+                      // (1) Component prop path closure (already validated!)
+                      const copy = Object.assign({}, po || {});
                       if (!copy.hasPoFileUrl || !_isUsableProofValue(copy.poFileUrl)) {
-                        const url = getPoProofUrl(copy);
-                        if (_isUsableProofValue(url)) { copy.poFileUrl = url; copy.hasPoFileUrl = true; copy.proofUrl = copy.proofUrl || url; }
+                        const u = getPoProofUrl(copy);
+                        if (_isUsableProofValue(u)) { copy.poFileUrl = u; copy.hasPoFileUrl = true; copy.proofUrl = copy.proofUrl || u; }
                       }
-                      return copy;
-                    });
-                    return fresh.map((po, idx) => (
-                      <div key={`${po.approvalId || id}-proof-${idx}-${po.poNumber || 'po'}`} className="mb-2">
-                        <NormalizedPoProof item={po} approvalRow={row} />
-                      </div>
-                    ));
-                  })()}{row.payload?.earlierQuotationProofUrl && <a href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>}</Cell>
+                      const propUrl = (copy.hasPoFileUrl && _isUsableProofValue(copy.poFileUrl)) ? String(copy.poFileUrl).trim()
+                        : _isUsableProofValue(copy.proofUrl) ? String(copy.proofUrl).trim()
+                        : getPoProofUrl(copy || {});
+                      if (_isUsableProofValue(propUrl)) return { url: propUrl, source: 'prop' };
+                      // (2) len1 unambiguous snapshot
+                      if (snap.length === 1) {
+                        const u = getPoProofUrl(snap[0]);
+                        if (_isUsableProofValue(u)) return { url: u, source: 'snap_len1' };
+                      }
+                      if (mani.length === 1 && _isUsableProofValue(mani[0]?.poFileUrl)) return { url: String(mani[0].poFileUrl || '').trim(), source: 'mani_len1' };
+                      // (3) rowIndex match
+                      const byIdx = snap[i];
+                      const byIdxU = byIdx ? getPoProofUrl(byIdx) : '';
+                      if (_isUsableProofValue(byIdxU)) return { url: byIdxU, source: 'snap_rowIdx' };
+                      const maniByIdx = mani.find((m) => String(m.rowIndex) === String(i));
+                      if (maniByIdx && _isUsableProofValue(maniByIdx.poFileUrl)) return { url: String(maniByIdx.poFileUrl || '').trim(), source: 'mani_rowIdx' };
+                      // (4) poNumber strict match
+                      const poNum = String(copy.poNumber || byIdx?.poNumber || '').trim();
+                      if (poNum) {
+                        const byPo = snap.find((r) => String(r?.poNumber || '').trim() === poNum);
+                        const byPoU = byPo ? getPoProofUrl(byPo) : '';
+                        if (_isUsableProofValue(byPoU)) return { url: byPoU, source: 'snap_poNum' };
+                        const maniByPo = mani.find((m) => String(m.poNumber || '').trim() === poNum);
+                        if (maniByPo && _isUsableProofValue(maniByPo.poFileUrl)) return { url: String(maniByPo.poFileUrl || '').trim(), source: 'mani_poNum' };
+                      }
+                      // (5) payload snapshot ANY url / deep find
+                      const deep = _deepFindProofField(clonedPayload, 'url') || '';
+                      if (_isUsableProofValue(deep)) return { url: deep, source: 'payload_deep' };
+                      return { url: '', source: 'MISSING' };
+                    };
+                    const rendered = [];
+                    for (let i = 0; i < poRows.length; i += 1) {
+                      const po = poRows[i] || {};
+                      const resolved = resolveUrlForPo(po, i);
+                      console.log('%c[POProof:NUCLEAR]', 'background:#065f46;color:#fff;padding:2px 6px;border-radius:4px', { leadCode: clonedPayload.leadCode || row.payload?.leadCode || row.uniqueId, rowIndex: i, poNumber: po.poNumber, resolvedUrl: resolved.url ? resolved.url.slice(0, 70) + '...' : 'EMPTY', resolvedSource: resolved.source });
+                      if (_isUsableProofValue(resolved.url)) {
+                        rendered.push(<a key={`nuc-${row._id || row.id || id}-${i}-${po.poNumber || 'po'}`} href={resolved.url} target="_blank" rel="noopener noreferrer" className="mb-2 inline-flex min-h-9 items-center rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm">Open PO Proof</a>);
+                      } else {
+                        rendered.push(<div key={`nuc-miss-${row._id || row.id || id}-${i}-${po.poNumber || 'po'}`} className="mb-2"><span role="button" tabIndex={0} title={('Resolution path: ' + resolved.source)} onClick={(e) => { if (e) { e.preventDefault(); e.stopPropagation(); } console.group('%c🔍 [POProof:Inspector:FullDump] — lead=' + (row.payload?.leadCode || clonedPayload.leadCode || '') + ' po=' + (po?.poNumber || ''), 'background:#111827;color:#fde68a;font-weight:700;padding:4px 8px;border-radius:6px'); console.log('snap_len=' + snap.length + ' mani_len=' + mani.length, { snap, mani, clonedPayload, resolvedPayloadTopDirect: Object.fromEntries(Object.entries(clonedPayload || {}).filter(([k]) => /proof|file|document|upload|attachment|url|secure|cloud|name|quotationSent/i.test(k))), poRowCurrent: po, currentResolved: resolved }); const allStrings = []; try { const walk = (o, path, depth) => { if (depth > 6 || !o) return; const t = typeof o; if (t === 'string') { if (/res\.cloudinary|cloudinary\.com|s3\.amazonaws|storage\.googleapis|firebasestorage|drive\.google/i.test(o)) allStrings.push([path, o.slice(0, 160)]); return; } if (t !== 'object') return; Object.entries(o).forEach(([k, v]) => walk(v, path ? `${path}.${k}` : String(k), depth + 1)); }; walk({ payload: clonedPayload || {}, approval: row || {}, po: po || {} }, '', 0); } catch { /* ignore */ } console.log('🔎 ALL_CLOUDINARY_STRINGS_ANYWHERE (depth<=6):', allStrings); console.groupEnd(); try { alert('🔍 Full dump written!\n\nResolution path=' + resolved.source + '\nCloudinary strings found=' + String(allStrings.length || 0) + '\n\nExpand yellow/black 🔍 group in Console for details.'); } catch { /* ignore */ } }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { const fn = (e.currentTarget.onclick || (() => {})); if (typeof fn === 'function') fn(e); } }} className="inline-flex min-h-[28px] cursor-help items-center gap-1 rounded-md border border-dashed border-slate-200 bg-slate-50/60 px-2 text-[11px] font-black uppercase tracking-wide text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.15)] hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"><span aria-hidden>🔍</span><span>Proof Missing ({resolved.source})</span></span></div>);
+                      }
+                    }
+                    if (row.payload?.earlierQuotationProofUrl) rendered.push(<a key="earlier-proof" href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>);
+                    return rendered;
+                  })()}</Cell>
                     <Cell>{poRows.map((po) => <strong key={`${po.approvalId || id}-${po.rowIndex ?? 0}-${po.poNumber || 'po'}-basic`} className="block text-slate-900">{po.basicAmountValue != null ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell>
                     <Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell>
                     <Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell>
