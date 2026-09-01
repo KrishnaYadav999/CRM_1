@@ -484,7 +484,7 @@ export default function ClientMasterAllocate() {
                             const ApplicantIcon = theme.accentIcon;
                             return (
                               <div key={`svc-${String(client._id)}-${i}`} className={`group/svc inline-flex max-w-full items-center gap-1.5 rounded-2xl px-2.5 py-1 text-[11px] font-black ring-1 shadow-[0_1px_0_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-md ${theme.badgeBg} ${theme.badgeText} ${theme.badgeRing}`} title={`${svc.piboCategory || svc.subApplicantType || svc.applicantType || 'Service'}${svc.eprCategory || svc.serviceCategory ? ' · ' + (svc.eprCategory || svc.serviceCategory) : ''}`}>
-                                <span className={`inline-flex h-4.5 w-4.5 h-[18px] w-[18px] items-center justify-center rounded-lg bg-white ring-1 ${theme.ring}`}><ApplicantIcon className="h-3.5 w-3.5" /></span>
+                                <span className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-lg bg-white ring-1 ${theme.ring}`}><ApplicantIcon className="h-3.5 w-3.5" /></span>
                                 <span className="truncate">{svc.piboCategory || svc.subApplicantType || svc.applicantType || 'Service'}</span>
                                 {(svc.eprCategory || svc.serviceCategory) && <span className="truncate text-slate-400 group-hover/svc:text-slate-600 transition">· {svc.eprCategory || svc.serviceCategory}</span>}
                                 {svc.servicesOffered && <span className="truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-white">{svc.servicesOffered}</span>}
