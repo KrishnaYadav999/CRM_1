@@ -19,6 +19,8 @@ const { normalizeClientMaster, resolveClientMasterData } = require('../services/
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { normalizeFinancialYear, resolveAnnualReturnPO } = require('../services/annualReturnPoResolver');
 const { syncStaffOnboardingCpcbStatus } = require('../services/staffOnboardingWorkflow');
+const { sendMail } = require('../utils/mailer');
+const Notification = require('../models/Notification');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -1890,6 +1892,318 @@ exports.approveAllPendingClients = async (req, res) => {
   });
 };
 
+// ---------- Client Service Allocation Email/Notification helpers ----------
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
+}
+
+function splitAllocationKey(key) {
+  if (!key || typeof key !== 'string') return {};
+  const parts = String(key).split('::').map((p) => String(p || '').trim());
+  const [applicantType = '', subApplicantType = '', plantUnit = '', eprCategory = '', piboCategory = '', servicesOffered = '', servicePeriod = '', financialYear = '', applicantLabel = ''] = parts;
+  return { applicantType, subApplicantType, plantUnit, eprCategory, piboCategory, servicesOffered, servicePeriod, financialYear, applicantLabel };
+}
+
+function serviceDisplayNameForAllocation(key) {
+  const s = splitAllocationKey(key);
+  const label = s.applicantLabel || s.piboCategory || s.subApplicantType || s.applicantType || 'Service';
+  const extras = [];
+  if (s.eprCategory) extras.push(s.eprCategory);
+  if (s.servicesOffered) extras.push(s.servicesOffered);
+  if (s.financialYear) extras.push(`FY ${s.financialYear}`);
+  if (s.plantUnit) extras.push(s.plantUnit);
+  return {
+    label,
+    summary: extras.length ? `${label} · ${extras.join(' · ')}` : label,
+    breakdown: s
+  };
+}
+
+function buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerName, managerRole, clientName, clientLeadCode, clientGst, clientState, clientCity, clientMobile, clientEmail, servicesRows, isReassignment, crmLink }) {
+  const rowsHtml = servicesRows.map((r, i) => {
+    const s = splitAllocationKey(r.serviceKey);
+    const serviceName = s.applicantLabel || s.piboCategory || s.subApplicantType || s.applicantType || 'Service';
+    return `<tr style="${i % 2 ? 'background:#f8fafc' : ''}">
+      <td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-weight:700">${escapeHtml(serviceName)}</td>
+      <td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;color:#334155">${escapeHtml(s.eprCategory || '-')}</td>
+      <td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;color:#334155">${escapeHtml(s.servicesOffered || '-')}</td>
+      <td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;color:#334155">${escapeHtml(s.financialYear || '-')}</td>
+      <td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;color:#334155">${escapeHtml(s.plantUnit || '-')}${r.previousUserName && r.previousUserId !== r.newUserId ? `<div style="margin-top:4px;font-size:12px;color:#b45309;background:#fff7ed;border:1px solid #fed7aa;display:inline-block;padding:2px 8px;border-radius:999px">Reassigned from ${escapeHtml(r.previousUserName)}</div>` : ''}</td>
+    </tr>`;
+  }).join('');
+
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f1f5f9" style="width:100%;border-collapse:collapse;background-color:#f1f5f9">
+  <tr><td align="center" style="padding:28px 12px">
+    <table role="presentation" width="660" cellspacing="0" cellpadding="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:660px;border-collapse:separate;background-color:#ffffff;border:1px solid #dbe5e1;border-radius:18px;overflow:hidden">
+      <tr><td bgcolor="#0f766e" style="padding:26px 32px;background:linear-gradient(135deg,#059669 0%,#0d9488 55%,#0891b2 100%)">
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;color:#ccfbf1;text-transform:uppercase">Customer Hub · Client Master Allocation</div>
+        <div style="margin-top:8px;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:32px;font-weight:800;color:#ffffff">${escapeHtml(isReassignment ? 'Client services re-assigned to you' : 'Client services assigned to you')}</div>
+        <div style="margin-top:6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#ecfeff">Assigned by <strong style="color:#ffffff">${escapeHtml(managerName)}</strong>${managerRole ? ` · ${escapeHtml(managerRole)}` : ''}</div>
+      </td></tr>
+      <tr><td style="padding:28px 32px;font-family:Arial,Helvetica,sans-serif;color:#334155">
+        <p style="margin:0 0 22px;font-size:16px;line-height:26px;color:#334155">Hi <strong style="color:#0f172a">${escapeHtml(recipientName || recipientRole || 'Team member')}</strong>,</p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:24px;color:#475569">The following client has been allocated to you on <strong style="color:#0f172a">${servicesRows.length} service${servicesRows.length === 1 ? '' : 's'}</strong>. Please log in to CRM to view the full client master record and begin processing immediately.</p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#ecfdf5" style="width:100%;margin:0 0 24px;border-collapse:separate;background-color:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px">
+          <tr>
+            <td width="60%" valign="top" style="padding:20px 22px">
+              <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#047857;margin-bottom:8px">Client</div>
+              <div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;line-height:26px;color:#064e3b;margin-bottom:4px">${escapeHtml(clientName || 'Client')}</div>
+              ${clientLeadCode ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#065f46;font-weight:700;margin-bottom:4px">${escapeHtml(clientLeadCode)}</div>` : ''}
+              ${clientGst ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111827;margin-top:4px"><span style="color:#047857;font-weight:700">GST:</span> ${escapeHtml(clientGst)}</div>` : ''}
+              ${clientState || clientCity ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111827;margin-top:3px"><span style="color:#047857;font-weight:700">Location:</span> ${escapeHtml([clientCity, clientState].filter(Boolean).join(', '))}</div>` : ''}
+            </td>
+            <td width="40%" valign="top" style="padding:20px 22px">
+              <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#047857;margin-bottom:8px">Contact</div>
+              ${clientMobile ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;margin-bottom:5px">📞 <strong>${escapeHtml(clientMobile)}</strong></div>` : ''}
+              ${clientEmail ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827">✉️ <strong>${escapeHtml(clientEmail)}</strong></div>` : ''}
+              <div style="margin-top:16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#064e3b;font-weight:700">${escapeHtml(String(servicesRows.length))} service${servicesRows.length === 1 ? '' : 's'} allocated</div>
+            </td>
+          </tr>
+        </table>
+
+        <h3 style="margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:16px;color:#0f172a;font-weight:800">Your allocated services</h3>
+        <div style="overflow:auto;border:1px solid #e2e8f0;border-radius:14px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:14px">
+            <thead><tr style="background:#f1f5f9;color:#0f172a">
+              <th style="padding:12px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Service</th>
+              <th style="padding:12px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Category (EPR)</th>
+              <th style="padding:12px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Scope</th>
+              <th style="padding:12px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Financial Year</th>
+              <th style="padding:12px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Plant / Notes</th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:22px 0 6px;border-collapse:separate;background-color:#f0f9ff;border-left:4px solid #0284c7;border-radius:12px">
+          <tr><td style="padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#0c4a6e">
+            <strong style="color:#075985">Next steps:</strong> Open the client master record in CRM. Each of your allocated services (Producer, Brand Owner, Importer, Recycler etc.) has been individually tagged to you. If this allocation is incorrect or needs adjustment, reply to your reporting manager <strong>${escapeHtml(managerName)}</strong>.
+          </td></tr>
+        </table>
+
+        ${crmLink ? `<p style="margin:26px 0 0"><a href="${escapeHtml(crmLink)}" style="display:inline-block;background:linear-gradient(135deg,#059669,#0d9488,#0891b2);color:#ffffff;text-decoration:none;border-radius:12px;padding:14px 22px;font-weight:800;font-family:Arial,Helvetica,sans-serif;font-size:15px;box-shadow:0 8px 20px rgba(13,148,136,0.25)">Open Client Master in CRM →</a></p>` : ''}
+      </td></tr>
+      <tr><td bgcolor="#f8fafc" style="padding:17px 32px;background-color:#f8fafc;border-top:1px solid #e2e8f0;border-radius:0 0 17px 17px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#64748b">
+        This is an automated CRM notification sent because client service allocation was updated by ${escapeHtml(managerName)}.
+      </td></tr>
+    </table>
+  </td></tr>
+  </table>`;
+}
+
+function buildAllocationManagerSummaryHtml({ managerName, clientName, clientLeadCode, changesRows, crmLink }) {
+  const changed = changesRows.filter((r) => r.type !== 'unchanged');
+  const reassigned = changed.filter((r) => r.type === 'reassigned');
+  const newly = changed.filter((r) => r.type === 'new');
+  const removed = changesRows.filter((r) => r.type === 'removed');
+
+  const rowsHtml = changesRows.map((r, i) => {
+    const s = splitAllocationKey(r.serviceKey);
+    const serviceName = s.applicantLabel || s.piboCategory || s.subApplicantType || s.applicantType || 'Service';
+    const typePill = r.type === 'new'
+      ? `<div style="display:inline-block;padding:3px 10px;border-radius:999px;background:#ecfdf5;color:#047857;font-weight:800;font-size:12px;border:1px solid #a7f3d0">NEW</div>`
+      : r.type === 'reassigned'
+        ? `<div style="display:inline-block;padding:3px 10px;border-radius:999px;background:#fff7ed;color:#9a3412;font-weight:800;font-size:12px;border:1px solid #fed7aa">REASSIGNED</div>`
+        : r.type === 'removed'
+          ? `<div style="display:inline-block;padding:3px 10px;border-radius:999px;background:#fef2f2;color:#991b1b;font-weight:800;font-size:12px;border:1px solid #fecaca">UNASSIGNED</div>`
+          : `<div style="display:inline-block;padding:3px 10px;border-radius:999px;background:#f1f5f9;color:#475569;font-weight:700;font-size:12px;border:1px solid #cbd5e1">UNCHANGED</div>`;
+
+    return `<tr style="${i % 2 ? 'background:#f8fafc' : ''}">
+      <td style="padding:11px 14px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-weight:700">${escapeHtml(serviceName)}${s.eprCategory ? `<div style="font-weight:500;color:#64748b;font-size:12px;margin-top:2px">${escapeHtml(s.eprCategory)}${s.financialYear ? ` · FY ${escapeHtml(s.financialYear)}` : ''}</div>` : ''}</td>
+      <td style="padding:11px 14px;border-bottom:1px solid #e2e8f0;color:#475569">${escapeHtml(r.previousUserName || r.previousUserId || '— Unassigned —')}</td>
+      <td style="padding:11px 14px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-weight:700">${escapeHtml(r.newUserName || r.newUserId || '— Unassigned —')}</td>
+      <td style="padding:11px 14px;border-bottom:1px solid #e2e8f0">${typePill}</td>
+    </tr>`;
+  }).join('');
+
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f1f5f9" style="width:100%;border-collapse:collapse;background-color:#f1f5f9">
+  <tr><td align="center" style="padding:28px 12px">
+    <table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:680px;border-collapse:separate;background-color:#ffffff;border:1px solid #dbe5e1;border-radius:18px;overflow:hidden">
+      <tr><td bgcolor="#0ea5e9" style="padding:24px 30px;background:linear-gradient(135deg,#0ea5e9 0%,#6366f1 60%,#8b5cf6 100%)">
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;color:#e0f2fe;text-transform:uppercase">Client Master Allocation · Summary</div>
+        <div style="margin-top:6px;font-family:Arial,Helvetica,sans-serif;font-size:24px;line-height:30px;font-weight:800;color:#ffffff">Allocation saved for ${escapeHtml(clientName || 'client')}</div>
+        ${clientLeadCode ? `<div style="margin-top:4px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#e0f2fe;font-weight:700">${escapeHtml(clientLeadCode)}</div>` : ''}
+      </td></tr>
+      <tr><td style="padding:26px 30px;font-family:Arial,Helvetica,sans-serif;color:#334155">
+        <p style="margin:0 0 20px;font-size:15px;line-height:24px;color:#334155">Hi <strong style="color:#0f172a">${escapeHtml(managerName || 'Admin')}</strong>,</p>
+        <p style="margin:0 0 22px;font-size:14px;line-height:22px;color:#475569">This email is a confirmation summary of the client service allocation changes you just made. Individual assignees were also notified separately by email.</p>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 0 24px">
+          <div style="padding:14px 16px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px">
+            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#047857">Changes</div>
+            <div style="margin-top:4px;font-family:Arial;font-size:22px;font-weight:800;color:#065f46">${escapeHtml(String(changed.length))}</div>
+          </div>
+          <div style="padding:14px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px">
+            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#1d4ed8">New</div>
+            <div style="margin-top:4px;font-family:Arial;font-size:22px;font-weight:800;color:#1e40af">${escapeHtml(String(newly.length))}</div>
+          </div>
+          <div style="padding:14px 16px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px">
+            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#9a3412">Reassigned</div>
+            <div style="margin-top:4px;font-family:Arial;font-size:22px;font-weight:800;color:#92400e">${escapeHtml(String(reassigned.length))}</div>
+          </div>
+          <div style="padding:14px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:14px">
+            <div style="font-family:Arial;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#991b1b">Unassigned</div>
+            <div style="margin-top:4px;font-family:Arial;font-size:22px;font-weight:800;color:#7f1d1d">${escapeHtml(String(removed.length))}</div>
+          </div>
+        </div>
+
+        <h3 style="margin:0 0 10px;font-size:15px;font-weight:800;color:#0f172a;font-family:Arial">Allocation breakdown</h3>
+        <div style="overflow:auto;border:1px solid #e2e8f0;border-radius:14px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:14px">
+            <thead><tr style="background:#f1f5f9;color:#0f172a">
+              <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Service</th>
+              <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Previous owner</th>
+              <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">New owner</th>
+              <th style="padding:11px 14px;text-align:left;border-bottom:2px solid #cbd5e1;font-weight:800">Status</th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+
+        ${crmLink ? `<p style="margin:26px 0 0"><a href="${escapeHtml(crmLink)}" style="display:inline-block;background:linear-gradient(135deg,#0ea5e9,#6366f1,#8b5cf6);color:#ffffff;text-decoration:none;border-radius:12px;padding:13px 20px;font-weight:800;font-family:Arial,Helvetica,sans-serif;font-size:14px;box-shadow:0 8px 20px rgba(99,102,241,0.25)">Review allocation in CRM →</a></p>` : ''}
+      </td></tr>
+      <tr><td bgcolor="#f8fafc" style="padding:17px 30px;background-color:#f8fafc;border-top:1px solid #e2e8f0;border-radius:0 0 17px 17px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#64748b">
+        Thank you for managing client ownership in CRM. An audit log entry was created.
+      </td></tr>
+    </table>
+  </td></tr>
+  </table>`;
+}
+
+async function sendAllocationNotificationsAndEmails({ client, previousAllocations, newAllocations, changedKeys, assignedByUser }) {
+  if (!client) return { ok: true, skipped: 'no_client' };
+  const clientName = String(client.companyName || client.clientLegalName || client.clientName || client.selectedLeadSnapshot?.companyName || '');
+  const clientLeadCode = String(client.leadCode || client.leadNumber || client.selectedLeadSnapshot?.leadCode || client.leadCodeText || '');
+  const clientGst = String(client.gstNumber || client.gst || client.selectedLeadSnapshot?.gstNumber || '');
+  const clientState = String(client.state || client.selectedLeadSnapshot?.state || '');
+  const clientCity = String(client.city || client.selectedLeadSnapshot?.city || '');
+  const clientMobile = String(client.mobile || client.contactNumber || client.phone || client.selectedLeadSnapshot?.primaryContactNumber || '');
+  const clientEmail = String(client.email || client.selectedLeadSnapshot?.email || '');
+  const managerName = String(assignedByUser?.name || assignedByUser?.email || 'CRM');
+  const managerRole = String(assignedByUser?.role || '');
+  const managerEmail = String(assignedByUser?.email || '');
+  const managerId = String(assignedByUser?._id || assignedByUser?.id || '');
+
+  const appUrl = String(process.env.FRONTEND_URL || process.env.APP_URL || '').replace(/\/$/, '');
+  const crmStaffLink = appUrl ? `${appUrl}/sales/client-master-allocate` : '';
+
+  // Build a full change summary including removals (keys that existed previously but not in newAllocations)
+  const allKeys = new Set([...Object.keys(previousAllocations || {}), ...Object.keys(newAllocations || {})]);
+  const changesRows = [];
+  for (const key of allKeys) {
+    const prevVal = previousAllocations?.[key];
+    const newVal = newAllocations?.[key];
+    const prevUid = prevVal ? String(typeof prevVal === 'object' ? (prevVal.userId?._id || prevVal.userId || prevVal.id || '') : prevVal) : '';
+    const newUid = newVal ? String(typeof newVal === 'object' ? (newVal.userId?._id || newVal.userId || newVal.id || '') : newVal) : '';
+    let type;
+    if (!prevUid && newUid) type = 'new';
+    else if (prevUid && !newUid) type = 'removed';
+    else if (prevUid && newUid && prevUid !== newUid) type = 'reassigned';
+    else type = 'unchanged';
+    const prevUser = prevVal?.userName || (prevVal && typeof prevVal === 'object' ? prevVal.assignedByName : '') || prevUid;
+    const newUser = newVal?.userName || (newVal && typeof newVal === 'object' ? newVal.assignedByName : '') || newUid;
+    changesRows.push({ serviceKey: key, previousUserId: prevUid, previousUserName: prevUser, newUserId: newUid, newUserName: newUser, type });
+  }
+
+  // Group newly assigned + reassigned rows by new user
+  const byUserId = new Map();
+  for (const r of changesRows) {
+    if ((r.type === 'new' || r.type === 'reassigned') && r.newUserId) {
+      if (!byUserId.has(r.newUserId)) byUserId.set(r.newUserId, []);
+      byUserId.get(r.newUserId).push(r);
+    }
+  }
+
+  const emailResults = [];
+  const notificationIds = [];
+
+  if (byUserId.size > 0) {
+    const userIds = [...byUserId.keys()];
+    const validIds = userIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+    const users = validIds.length
+      ? await User.find({ _id: { $in: validIds.map((id) => new mongoose.Types.ObjectId(id)) }, isActive: { $ne: false } }).select('_id name email role').lean()
+      : [];
+    const userMap = new Map(users.map((u) => [String(u._id), u]));
+
+    for (const [uid, rows] of byUserId.entries()) {
+      const user = userMap.get(uid);
+      if (!user) {
+        emailResults.push({ userId: uid, skipped: 'user_not_found', services: rows.length });
+        continue;
+      }
+      const recipientName = user.name || user.email;
+      const recipientRole = user.role;
+      const recipientEmail = user.email;
+
+      // (1) Create in-app Notification for user
+      try {
+        const notif = await Notification.create({
+          title: `${servicesRowsShortLabel(rows)} assigned to you`,
+          description: `${managerName} allocated ${rows.length} client service${rows.length === 1 ? '' : 's'} on ${clientName || 'a client'} to you. Open Client Master Allocate to begin.`,
+          tag: 'Client Allocation',
+          kind: 'client_service_allocated_to_staff',
+          createdBy: managerId ? new mongoose.Types.ObjectId(managerId) : undefined,
+          createdByName: managerName,
+          audience: [user._id],
+          metadata: {
+            clientId: String(client._id),
+            clientName,
+            clientLeadCode,
+            allocatedBy: managerName,
+            allocatedById: managerId,
+            services: rows.map((r) => ({ serviceKey: r.serviceKey, ...serviceDisplayNameForAllocation(r.serviceKey), previousUserId: r.previousUserId, previousUserName: r.previousUserName, type: r.type }))
+          }
+        });
+        notificationIds.push(String(notif._id));
+      } catch (err) {
+        console.error('[alloc:notif:create]', err.message);
+      }
+
+      // (2) Email (only if user has valid email)
+      if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(recipientEmail).trim())) {
+        emailResults.push({ userId: uid, userName: recipientName, skipped: 'no_valid_email', services: rows.length });
+        continue;
+      }
+      const isReassignment = rows.some((r) => r.type === 'reassigned');
+      const servicesRows = rows.map((r) => ({ serviceKey: r.serviceKey, previousUserName: r.previousUserName, previousUserId: r.previousUserId, newUserId: r.newUserId, newUserName: r.newUserName }));
+      try {
+        const subject = `${isReassignment ? 'Re-assigned' : 'New assignment'}: ${clientName || 'Client'} · ${rows.length} service${rows.length === 1 ? '' : 's'}${clientLeadCode ? ` — ${clientLeadCode}` : ''}`;
+        const html = buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerName, managerRole, clientName, clientLeadCode, clientGst, clientState, clientCity, clientMobile, clientEmail, servicesRows, isReassignment, crmLink: crmStaffLink });
+        await sendMail(recipientEmail, subject, html, { branded: false });
+        emailResults.push({ userId: uid, userName: recipientName, email: recipientEmail, services: rows.length, sent: true });
+      } catch (err) {
+        console.error('[alloc:mail:staff]', err.message);
+        emailResults.push({ userId: uid, userName: recipientName, email: recipientEmail, services: rows.length, error: err.message });
+      }
+    }
+  }
+
+  // (3) Send manager summary confirmation email
+  if (managerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(managerEmail) && changesRows.length > 0) {
+    try {
+      const subject = `Allocation saved: ${clientName || 'Client'} · ${changedKeys.length} change${changedKeys.length === 1 ? '' : 's'}${clientLeadCode ? ` — ${clientLeadCode}` : ''}`;
+      const html = buildAllocationManagerSummaryHtml({ managerName, clientName, clientLeadCode, changesRows, crmLink: crmStaffLink });
+      await sendMail(managerEmail, subject, html, { branded: false });
+      emailResults.push({ manager: true, userName: managerName, email: managerEmail, sent: true, summary: true });
+    } catch (err) {
+      console.error('[alloc:mail:manager]', err.message);
+      emailResults.push({ manager: true, userName: managerName, email: managerEmail, error: err.message });
+    }
+  }
+
+  return { ok: true, emailResults, notifications: notificationIds.length, changedKeys: changedKeys.length, totalKeys: allKeys.size };
+}
+
+function servicesRowsShortLabel(rows) {
+  const uniqueTypes = new Set(
+    rows.map((r) => splitAllocationKey(r.serviceKey).applicantLabel || splitAllocationKey(r.serviceKey).piboCategory || splitAllocationKey(r.serviceKey).applicantType || 'Service')
+  );
+  const first = [...uniqueTypes].slice(0, 2).join(' + ');
+  const suffix = uniqueTypes.size > 2 ? ` +${uniqueTypes.size - 2}` : '';
+  return `${first}${suffix}`;
+}
+
 exports.upsertClientServiceAllocations = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1914,7 +2228,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
     });
     if (uniqueUserIds.size) {
       const validIds = [...uniqueUserIds].filter((uid) => mongoose.Types.ObjectId.isValid(uid));
-      const foundUsers = await User.find({ _id: { $in: validIds.map((id) => new mongoose.Types.ObjectId(id)) } }, '_id name email role isActive').lean();
+      const foundUsers = await User.find({ _id: { $in: validIds.map((uid) => new mongoose.Types.ObjectId(uid)) } }, '_id name email role isActive').lean();
       const foundMap = new Map(foundUsers.map((u) => [String(u._id), u]));
       for (const uid of uniqueUserIds) {
         if (!mongoose.Types.ObjectId.isValid(uid) || !foundMap.has(uid)) {
@@ -1924,39 +2238,110 @@ exports.upsertClientServiceAllocations = async (req, res) => {
         if (u.isActive === false) return res.status(400).json({ ok: false, error: `User is inactive: ${u.name || uid}` });
       }
     }
+    // (1a) Snapshot PREVIOUS allocations for change detection
+    const prevAllocRaw = client.serviceAllocations && typeof client.serviceAllocations === 'object'
+      ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : { ...client.serviceAllocations })
+      : {};
+    const previousAllocations = {};
+    Object.entries(prevAllocRaw).forEach(([k, v]) => {
+      if (!k || !v) return;
+      const uidRaw = typeof v === 'object' ? (v.userId?._id || v.userId || v.id) : v;
+      const uid = uidRaw ? String(uidRaw) : '';
+      if (!uid) return;
+      previousAllocations[k] = {
+        userId: uid,
+        assignedByName: typeof v === 'object' ? String(v.assignedByName || v.userName || '') : '',
+        userName: typeof v === 'object' ? String(v.assignedByName || v.userName || '') : ''
+      };
+    });
+
     // (2) Build normalized allocations object: serviceKey => { userId, assignedByName, assignedAt, assignedById }
     const now = new Date();
-    const normalized = client.serviceAllocations && typeof client.serviceAllocations === 'object'
-      ? { ...(client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations) }
-      : {};
+    const normalized = { ...previousAllocations };
     entries.forEach(([serviceKey, rawVal]) => {
       const userId = String(typeof rawVal === 'object' ? (rawVal?.userId || rawVal?.id || '') : rawVal).trim();
-      if (!userId) return;
+      if (!userId) {
+        delete normalized[serviceKey];
+        return;
+      }
+      const prevForThisKey = previousAllocations[serviceKey];
+      const isReuse = prevForThisKey && String(prevForThisKey.userId) === userId;
       normalized[serviceKey] = {
         userId: new mongoose.Types.ObjectId(userId),
         assignedById: new mongoose.Types.ObjectId(req.user._id),
         assignedByName: String(req.user.name || ''),
-        assignedAt: now,
+        assignedAt: isReuse && prevForThisKey.assignedAt ? new Date(prevForThisKey.assignedAt) : now,
         updatedAt: now,
-        updatedBy: String(req.user.name || '')
+        updatedBy: String(req.user.name || ''),
+        userName: String(req.user.name || '')
       };
     });
+    // Detect changed keys (added, removed, owner different) — only these trigger emails/notifs (prevents spam)
+    const allKeysNow = new Set([...Object.keys(previousAllocations), ...Object.keys(normalized)]);
+    const changedKeys = [];
+    for (const k of allKeysNow) {
+      const prevUid = previousAllocations[k]?.userId || '';
+      const newVal = normalized[k];
+      const newUid = newVal ? String(typeof newVal.userId === 'object' ? (newVal.userId._id || newVal.userId) : newVal.userId) : '';
+      if (prevUid !== newUid) changedKeys.push(k);
+    }
+
     client.serviceAllocations = normalized;
     client.markModified('serviceAllocations');
     client.updatedAt = now;
     client.updatedBy = String(req.user.name || '');
     const saved = await client.save();
-    try {
-      await AuditLog.create({
-        entityName: 'Client.serviceAllocations',
-        recordId: String(saved._id),
-        userName: String(req.user.name || ''),
-        userId: String(req.user._id || ''),
-        description: `Assigned ${entries.length} service(s) on client ${String(saved?.companyName || saved?.clientLegalName || saved._id)}: ${entries.map(([k, v]) => `${k}->${String(typeof v === 'object' ? (v?.userId || v?.name || '') : v).slice(-6)}`).join(', ')}`,
-        createdAt: now
-      });
-    } catch { /* ignore audit failure */ }
-    return res.json({ ok: true, message: `Saved ${entries.length} service allocation(s)`, allocations: normalized });
+
+    // (3) Hydrate normalized allocation records with userName for mail output
+    const newAllocationsForMail = {};
+    Object.entries(normalized).forEach(([k, v]) => {
+      const uid = String(typeof v.userId === 'object' ? (v.userId._id || v.userId) : v.userId);
+      newAllocationsForMail[k] = { userId: uid, userName: v.assignedByName || v.userName || '' };
+    });
+
+    // (4) Audit log, emails + notifications (non-blocking for response)
+    const notifPromise = (async () => {
+      try {
+        await AuditLog.create({
+          entityName: 'Client.serviceAllocations',
+          recordId: String(saved._id),
+          userName: String(req.user.name || ''),
+          userId: String(req.user._id || ''),
+          description: `Assigned ${entries.length} service(s) on client ${String(saved?.companyName || saved?.clientLegalName || saved._id)}: ${entries.map(([k, v]) => `${k}->${String(typeof v === 'object' ? (v?.userId || v?.name || '') : v).slice(-6)}`).join(', ')}`,
+          createdAt: now
+        });
+      } catch (err) {
+        console.error('[alloc:auditLog]', err.message);
+      }
+      if (changedKeys.length === 0) return { ok: true, skipped: 'no_changes' };
+      try {
+        const mailResult = await sendAllocationNotificationsAndEmails({
+          client: saved,
+          previousAllocations,
+          newAllocations: newAllocationsForMail,
+          changedKeys,
+          assignedByUser: { _id: String(req.user._id), name: String(req.user.name || ''), email: String(req.user.email || ''), role: String(req.user.role || '') }
+        });
+        return mailResult;
+      } catch (err) {
+        console.error('[alloc:notifications]', err.message);
+        return { ok: false, error: err.message };
+      }
+    })();
+
+    res.json({
+      ok: true,
+      message: `Saved ${entries.length} service allocation(s)`,
+      allocations: normalized,
+      changedServices: changedKeys.length,
+      notificationsTriggered: changedKeys.length > 0
+    });
+
+    // Fire-and-forget audit + email resolution log
+    notifPromise.then((result) => {
+      console.debug('[alloc:notifications:done]', JSON.stringify(result));
+    }).catch((err) => console.error('[alloc:notifications:bg]', err));
+    return null;
   } catch (err) {
     console.error('[clientCtrl:upsertServiceAllocations]', err);
     return res.status(500).json({ ok: false, error: err.message || 'Save failed' });
