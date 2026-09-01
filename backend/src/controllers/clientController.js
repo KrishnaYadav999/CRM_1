@@ -1919,6 +1919,64 @@ function serviceDisplayNameForAllocation(key) {
   };
 }
 
+function readClientOverviewFromRecord(rawClient) {
+  const client = rawClient && typeof rawClient.toObject === 'function' ? rawClient.toObject() : Object(rawClient || {});
+  const data = Object(client.data || {});
+  const snap = Object(data.selectedLeadSnapshot || {});
+  const basic = Object(data.basic || {});
+  const overview = Object(data.companyOverview || {});
+  const contact = Object(data.authorisedContact || data.authorizedContact || {});
+  const meta = Object(data.importMeta || {});
+  const lead = Object(client.selectedLead || {});
+
+  const pickClean = (...candidates) => {
+    for (const v of candidates) {
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        const s = String(v).trim();
+        if (s && s !== 'undefined' && s !== 'null') return s;
+      }
+      if (typeof v === 'string') {
+        const s = v.trim();
+        if (s && s !== 'undefined' && s !== 'null') return s;
+      }
+    }
+    return '';
+  };
+
+  const companyName = pickClean(
+    basic.clientLegalName, basic.tradeName, basic.companyName, basic.clientName,
+    meta.companyName, snap.companyName, overview.companyName, client.companyName, client.clientLegalName, client.clientName,
+    lead.company, lead.companyName, client.companyIdentity
+  );
+
+  const contactPerson = pickClean(
+    basic.contactPerson, contact.contactPerson, snap.contactPerson, client.contactPerson, lead.contactPerson
+  );
+
+  const mobile = pickClean(
+    basic.mobileNo, contact.mobile, basic.mobileNo1, basic.mobile, basic.phone, contact.phone, contact.mobileNo,
+    snap.mobileNo1, snap.mobile, snap.phone, snap.primaryContactNumber, snap.contactMobile, snap.contactPhone,
+    client.mobile, client.phone, client.mobileNo, client.contactNumber, client.contactPhone, client.contactMobile,
+    lead.mobile, lead.phone, lead.mobileNo, lead.primaryContactNumber, lead.contactMobile
+  );
+
+  const email = pickClean(
+    basic.emailId, basic.email, contact.emailId, contact.email, snap.emailId, snap.email,
+    client.emailId, client.email, lead.email, lead.emailId
+  );
+
+  const gstin = pickClean(
+    basic.gstNumber, basic.gst, basic.gstin, snap.gstNumber, snap.gst, snap.gstin,
+    meta.gstNumber, meta.gstin, client.gstNumber, client.gst, client.gstin, lead.gstNumber, lead.gstin
+  );
+
+  const state = pickClean(basic.state, basic.stateName, snap.state, snap.stateName, overview.state, client.state, client.stateName, lead.state, lead.stateName);
+  const city = pickClean(basic.city, basic.cityName, snap.city, snap.cityName, overview.city, client.city, client.cityName, lead.city, lead.cityName);
+  const leadCode = pickClean(meta.leadNumber, meta.leadCode, snap.leadCode, snap.leadNumber, lead.leadCode, lead.leadNumber, client.leadCode, client.leadNumber, client.uniqueId);
+
+  return { companyName, contactPerson, mobile, email, gstin, state, city, leadCode };
+}
+
 function buildAllocationStaffEmailHtml({ recipientName, recipientRole, managerName, managerRole, clientName, clientLeadCode, clientGst, clientState, clientCity, clientMobile, clientEmail, servicesRows, isReassignment, crmLink }) {
   const safeClientName = clientName && String(clientName).trim() ? String(clientName).trim() : 'Client';
   const rowsHtml = servicesRows.map((r, i) => {
@@ -2084,13 +2142,24 @@ function buildAllocationManagerSummaryHtml({ managerName, clientName, clientLead
 
 async function sendAllocationNotificationsAndEmails({ client, previousAllocations, newAllocations, changedKeys, assignedByUser }) {
   if (!client) return { ok: true, skipped: 'no_client' };
-  const clientName = String(client.companyName || client.clientLegalName || client.clientName || client.selectedLeadSnapshot?.companyName || '');
-  const clientLeadCode = String(client.leadCode || client.leadNumber || client.selectedLeadSnapshot?.leadCode || client.leadCodeText || '');
-  const clientGst = String(client.gstNumber || client.gst || client.selectedLeadSnapshot?.gstNumber || '');
-  const clientState = String(client.state || client.selectedLeadSnapshot?.state || '');
-  const clientCity = String(client.city || client.selectedLeadSnapshot?.city || '');
-  const clientMobile = String(client.mobile || client.contactNumber || client.phone || client.selectedLeadSnapshot?.primaryContactNumber || '');
-  const clientEmail = String(client.email || client.selectedLeadSnapshot?.email || '');
+  const overview = readClientOverviewFromRecord(client);
+  const clientName = overview.companyName || '';
+  const clientLeadCode = overview.leadCode || '';
+  const clientGst = overview.gstin || '';
+  const clientState = overview.state || '';
+  const clientCity = overview.city || '';
+  const clientMobile = overview.mobile || '';
+  const clientEmail = overview.email || '';
+  const clientContact = overview.contactPerson || '';
+  console.debug('[alloc:mail] overview resolution', {
+    clientId: String(client._id || client.id || ''),
+    resolvedClientName: clientName || '(FALLBACK Client)',
+    resolvedLeadCode: clientLeadCode,
+    resolvedGst: clientGst,
+    resolvedContact: clientContact,
+    resolvedMobile: clientMobile,
+    resolvedEmail: clientEmail
+  });
   const managerName = String(assignedByUser?.name || assignedByUser?.email || 'CRM');
   const managerRole = String(assignedByUser?.role || '');
   const managerEmail = String(assignedByUser?.email || '');
@@ -2221,7 +2290,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ ok: false, error: 'Invalid client id' });
-    const client = await Client.findById(id);
+    const client = await Client.findById(id).populate('selectedLead').lean(false);
     if (!client) return res.status(404).json({ ok: false, error: 'Client not found' });
     const rawAllocations = req.body?.allocations || req.body?.serviceAllocations || req.body;
     if (!rawAllocations || typeof rawAllocations !== 'object') {
@@ -2304,6 +2373,8 @@ exports.upsertClientServiceAllocations = async (req, res) => {
     client.updatedAt = now;
     client.updatedBy = String(req.user.name || '');
     const saved = await client.save();
+    const savedHydrated = await Client.findById(saved._id).populate('selectedLead').lean(false) || saved;
+    const savedOverview = readClientOverviewFromRecord(savedHydrated);
 
     // (3) Hydrate normalized allocation records with userName for mail output
     const newAllocationsForMail = {};
@@ -2315,12 +2386,13 @@ exports.upsertClientServiceAllocations = async (req, res) => {
     // (4) Audit log, emails + notifications (non-blocking for response)
     const notifPromise = (async () => {
       try {
+        const auditClientLabel = savedOverview.companyName || savedOverview.leadCode || String(saved._id);
         await AuditLog.create({
           entityName: 'Client.serviceAllocations',
           recordId: String(saved._id),
           userName: String(req.user.name || ''),
           userId: String(req.user._id || ''),
-          description: `Assigned ${entries.length} service(s) on client ${String(saved?.companyName || saved?.clientLegalName || saved._id)}: ${entries.map(([k, v]) => `${k}->${String(typeof v === 'object' ? (v?.userId || v?.name || '') : v).slice(-6)}`).join(', ')}`,
+          description: `Assigned ${entries.length} service(s) on client ${auditClientLabel}: ${entries.map(([k, v]) => `${k}->${String(typeof v === 'object' ? (v?.userId || v?.name || '') : v).slice(-8)}`).join(', ')}`,
           createdAt: now
         });
       } catch (err) {
@@ -2329,7 +2401,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
       if (changedKeys.length === 0) return { ok: true, skipped: 'no_changes' };
       try {
         const mailResult = await sendAllocationNotificationsAndEmails({
-          client: saved,
+          client: savedHydrated,
           previousAllocations,
           newAllocations: newAllocationsForMail,
           changedKeys,
