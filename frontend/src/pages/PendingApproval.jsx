@@ -123,8 +123,10 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
     const indexedPoNumber = String(entry?.poNumber || '').trim();
     return entry && (!poNumber || !indexedPoNumber || indexedPoNumber === poNumber) ? entry : null;
   };
-  // Mirror backend: merge snapshot (payload rows / manifest) with live normalizedRow, then scan.
-  // The key: both sides participate — an empty normalizedRow can no longer beat a valid manifest/snapshot URL.
+  // Defence: if the upstream hydratePurchaseOrderApprovals already resolved a valid
+  // proof (truthy normalizedRow.poFileUrl + normalizedRow.hasPoFileUrl === true), do not
+  // clobber it with a stale empty fallback from other resolvers.
+  const alreadyResolved = Boolean(normalizedRow.hasPoFileUrl && _isUsableProofValue(normalizedRow.poFileUrl));
   const snapshotForProof =
     indexedForPo(payloadRows)
     || payloadRows.find(matchesPoNumber)
@@ -145,17 +147,33 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
   ].filter(Boolean);
 
   const proofSource = sources.find((source) => getPoProofUrl(source)) || {};
-  const poFileUrl = getPoProofUrl(proofSource);
-  const compositeForMetadata = { ...(normalizedRow || {}), ...(proofSource || {}) };
+  const resolvedUrl = getPoProofUrl(proofSource);
+  // If hydratePurchaseOrderApprovals already had a valid URL, prefer it; otherwise use the resolver result.
+  const fallbackDirectUrl = [normalizedRow.poFileUrl, snapshotForProof?.poFileUrl, payloadRows[rowIndex]?.poFileUrl, manifest[rowIndex]?.poFileUrl]
+    .filter((value) => _isUsableProofValue(value))
+    .find(Boolean);
+  const poFileUrl = (alreadyResolved && normalizedRow.poFileUrl) || resolvedUrl || fallbackDirectUrl || '';
+  const resolvedName = getPoProofName(proofSource) || getPoProofName(normalizedRow) || getPoProofName(snapshotForProof || {});
+  const fallbackDirectName = [normalizedRow.poFileName, snapshotForProof?.poFileName, payloadRows[rowIndex]?.poFileName, manifest[rowIndex]?.poFileName]
+    .filter((value) => _isUsableProofValue(value))
+    .find(Boolean);
+  const poFileName = (alreadyResolved && _isUsableProofValue(normalizedRow.poFileName) && normalizedRow.poFileName) || resolvedName || fallbackDirectName || 'PO proof';
+  const compositeForMetadata = { ...(snapshotForProof || {}), ...(normalizedRow || {}), ...(proofSource || {}) };
+  const poFileMimeType = [compositeForMetadata.poFileMimeType, compositeForMetadata.poProof?.mimeType, compositeForMetadata.mimeType, manifest[rowIndex]?.poFileMimeType, snapshotForProof?.poFileMimeType]
+    .map((value) => String(value || '').trim())
+    .find((value) => value) || '';
+  const poFileSize = [compositeForMetadata.poFileSize, manifest[rowIndex]?.poFileSize, snapshotForProof?.poFileSize]
+    .map((value) => (value != null && Number.isFinite(Number(value)) ? Number(value) : null))
+    .find((value) => value != null);
   return {
     ...normalizedRow,
     approvalId: String(approval._id || approval.id || ''),
     leadCode: String(payload.leadCode || approval.uniqueId || ''),
     rowIndex,
     poFileUrl,
-    poFileName: getPoProofName(proofSource) || getPoProofName(normalizedRow) || getPoProofName(snapshotForProof || {}),
-    poFileMimeType: String(compositeForMetadata.poFileMimeType || compositeForMetadata.poProof?.mimeType || compositeForMetadata.mimeType || ''),
-    poFileSize: compositeForMetadata.poFileSize != null && Number.isFinite(Number(compositeForMetadata.poFileSize)) ? Number(compositeForMetadata.poFileSize) : null,
+    poFileName,
+    poFileMimeType,
+    poFileSize,
     hasPoFileUrl: Boolean(poFileUrl)
   };
 }
@@ -286,12 +304,87 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
       || assignments[Number(payload.assignmentIndex)]
       || {};
     const snapshotRows = getApprovalPoRows(payload);
-    const livePoRows = Array.isArray(assignment.poYearRows) ? assignment.poYearRows.filter((row) => row && (row.poNumber || row.poAmount || getPoProofUrl(row))) : [];
-    const mergedPoRows = livePoRows.map((liveRow, index) => {
-      const snapshot = snapshotRows.find((row) => row?.poNumber && row.poNumber === liveRow.poNumber) || snapshotRows[index] || {};
-      const merged = { ...snapshot, ...liveRow };
-      return { ...merged, poFileUrl: getPoProofUrl(liveRow) || getPoProofUrl(snapshot), poFileName: getPoProofName(liveRow) !== 'PO proof' ? getPoProofName(liveRow) : getPoProofName(snapshot) };
+    const manifest = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
+    // Helper: resolve proof through snapshot → manifest → row explicitly using poProof-aware lookup.
+    // Live rows (from Lead doc) can be empty strings or garbage objects for quotationSent=yes legacy rows.
+    const resolveProof = (snapshotRow, liveRow, rowIndex, rowPoNumber = '') => {
+      const manifestRow = rowPoNumber
+        ? manifest.find((entry) => entry && String(entry.poNumber || '').trim() === rowPoNumber)
+        : (manifest[rowIndex] || null);
+      const sources = [snapshotRow || {}, manifestRow || {}, liveRow || {}, payload || {}, approval || {}].filter(Boolean);
+      const proofSource = sources.find((source) => getPoProofUrl(source)) || {};
+      const nameSource = sources.find((source) => getPoProofName(source) && getPoProofName(source) !== 'PO proof') || proofSource || {};
+      const url = getPoProofUrl(proofSource)
+        || (String(snapshotRow?.poFileUrl || '').trim() && !/\[object/i.test(String(snapshotRow.poFileUrl || '')) ? String(snapshotRow.poFileUrl).trim() : '')
+        || (String(manifestRow?.poFileUrl || '').trim() && !/\[object/i.test(String(manifestRow.poFileUrl || '')) ? String(manifestRow.poFileUrl).trim() : '')
+        || (String(liveRow?.poFileUrl || '').trim() && !/\[object/i.test(String(liveRow.poFileUrl || '')) ? String(liveRow.poFileUrl).trim() : '')
+        || '';
+      const name = getPoProofName(nameSource)
+        || (String(snapshotRow?.poFileName || '').trim() && !/\[object/i.test(String(snapshotRow.poFileName || '')) ? String(snapshotRow.poFileName).trim() : '')
+        || (String(manifestRow?.poFileName || '').trim() && !/\[object/i.test(String(manifestRow.poFileName || '')) ? String(manifestRow.poFileName).trim() : '')
+        || (String(liveRow?.poFileName || '').trim() && !/\[object/i.test(String(liveRow.poFileName || '')) ? String(liveRow.poFileName).trim() : '')
+        || 'PO proof';
+      const mime = [snapshotRow, manifestRow, liveRow].map((value) => String(value?.poFileMimeType || value?.mimeType || '').trim()).find((value) => value) || '';
+      const size = [snapshotRow, manifestRow, liveRow].map((value) => (value?.poFileSize != null && Number.isFinite(Number(value.poFileSize)) ? Number(value.poFileSize) : null)).find((value) => value != null);
+      return { poFileUrl: url, poFileName: name, poFileMimeType: mime, poFileSize: size };
+    };
+    const snapshotPoNumber = (row) => String(row?.poNumber || '').trim();
+    const livePoRowsAll = Array.isArray(assignment.poYearRows) ? assignment.poYearRows.filter(Boolean) : [];
+    // Match snapshot rows to live rows robustly:
+    // 1. Exact poNumber match (non-empty on both sides)
+    // 2. Index-based match ONLY when row counts are equal (so alignment is guaranteed)
+    // 3. Otherwise keep the snapshot row (trusted source written at approval time)
+    const livePoRows = livePoRowsAll.filter((row) => {
+      const hasAnyPo = snapshotPoNumber(row) || Number(row?.poAmount) > 0 || Boolean(getPoProofUrl(row));
+      return hasAnyPo;
     });
+    let mergedPoRows = [];
+    if (snapshotRows.length && !livePoRows.length) {
+      // No live rows exist (pure snapshot scenario) → use snapshot + manifest enrichment.
+      mergedPoRows = snapshotRows.map((snapshot, idx) => {
+        const proof = resolveProof(snapshot, null, idx, snapshotPoNumber(snapshot));
+        return { ...snapshot, ...proof, hasPoFileUrl: Boolean(proof.poFileUrl) };
+      });
+    } else if (snapshotRows.length === livePoRows.length) {
+      // Row counts match → safe 1:1 index + poNumber cross-match.
+      mergedPoRows = livePoRows.map((liveRow, idx) => {
+        const poNumber = snapshotPoNumber(liveRow);
+        const snapshot = poNumber
+          ? snapshotRows.find((row) => snapshotPoNumber(row) === poNumber) || snapshotRows[idx] || {}
+          : snapshotRows[idx] || {};
+        const proof = resolveProof(snapshot, liveRow, idx, poNumber);
+        return {
+          ...snapshot,
+          ...liveRow,
+          ...proof,
+          // Structural metadata snapshot → live (quotationSent=yes rows).
+          quotationSent: String(liveRow?.quotationSent || snapshot?.quotationSent || payload.quotationSent || '').toLowerCase(),
+          quotationId: liveRow?.quotationId || snapshot?.quotationId || '',
+          quotationNumber: liveRow?.quotationNumber || snapshot?.quotationNumber || '',
+          quotationBasicAmount: Number(liveRow?.quotationBasicAmount ?? snapshot?.quotationBasicAmount ?? 0),
+          hasPoFileUrl: Boolean(proof.poFileUrl)
+        };
+      });
+    } else {
+      // Row count mismatch (common for quotationSent=yes). DO NOT overwrite snapshot with
+      // different-cardinality live rows; instead enrich each snapshot row independently and
+      // attempt to locate the matching live row if possible.
+      mergedPoRows = snapshotRows.map((snapshot, idx) => {
+        const poNumber = snapshotPoNumber(snapshot);
+        const liveRow = (poNumber ? livePoRows.find((row) => snapshotPoNumber(row) === poNumber) : livePoRows[idx]) || null;
+        const proof = resolveProof(snapshot, liveRow, idx, poNumber);
+        return {
+          ...snapshot,
+          ...(liveRow || {}),
+          ...proof,
+          quotationSent: String(liveRow?.quotationSent || snapshot.quotationSent || payload.quotationSent || '').toLowerCase(),
+          quotationId: liveRow?.quotationId || snapshot.quotationId || '',
+          quotationNumber: liveRow?.quotationNumber || snapshot.quotationNumber || '',
+          quotationBasicAmount: Number(liveRow?.quotationBasicAmount ?? snapshot.quotationBasicAmount ?? 0),
+          hasPoFileUrl: Boolean(proof.poFileUrl)
+        };
+      });
+    }
     return {
       ...approval,
       payload: {
