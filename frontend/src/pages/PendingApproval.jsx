@@ -74,6 +74,30 @@ function _isUsableProofValue(value) {
   return true;
 }
 
+// Last-resort deep recursive scan: finds any https://res.cloudinary / drive / s3 / blob
+// proof URL buried in arbitrary nested object trees (legacy YES-path records stored
+// Cloudinary response objects directly without flattening URL fields).
+const _DEEP_URL_PROOF_RE = /^https?:\/\/(?:res\.cloudinary\.com|storage\.googleapis\.com|[\w-]+\.s3[\w.-]*\.amazonaws\.com|[\w.-]*s3[\w.-]*\.amazonaws\.com|cdn[\w-]*\.digitaloceanspaces\.com|commondatastorage\.googleapis\.com|lh\d*\.googleusercontent\.com|firebasestorage\.googleapis\.com|drive\.google\.com|pdf\.s3)\/\S/i;
+const _DEEP_NAME_PROOF_RE = /\.(?:pdf|png|jpe?g|webp|gif|heic|tiff?|bmp)(?:[?#].*)?$/i;
+function _deepFindProofField(root, want = 'url', _seen = new WeakSet(), _depth = 0) {
+  if (_depth > 8 || root == null) return '';
+  if (typeof root === 'string') {
+    const v = root.trim();
+    if (!v) return '';
+    if (want === 'url') return _DEEP_URL_PROOF_RE.test(v) ? v : '';
+    return _DEEP_NAME_PROOF_RE.test(v) || (v.length < 220 && v.length > 3 && !v.startsWith('http') && /[A-Za-z]/.test(v)) ? v : '';
+  }
+  if (typeof root !== 'object') return '';
+  if (_seen.has(root)) return '';
+  try { _seen.add(root); } catch { /* primitives ignore WeakSet */ }
+  const entries = Array.isArray(root) ? root.map((v, i) => [i, v]) : Object.entries(root);
+  for (const [, value] of entries) {
+    const found = _deepFindProofField(value, want, _seen, _depth + 1);
+    if (found) return found;
+  }
+  return '';
+}
+
 function _firstUsable(values, fallback = '') {
   for (const value of values) {
     if (_isUsableProofValue(value)) return typeof value === 'number' ? String(value) : String(value).trim();
@@ -83,27 +107,36 @@ function _firstUsable(values, fallback = '') {
 
 function getPoProofUrl(row = {}) {
   if (!row || typeof row !== 'object') return '';
-  const nestedUrl = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment]
+  const nestedUrl = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment, row.cloudinary, row.media, row.upload, row.resource, row.asset, row.payload, row.meta, row.metadata, row.data, row.info, row.detail, row.extra, row.source]
     .filter((value) => value && typeof value === 'object' && !Array.isArray(value))
-    .map((value) => _firstUsable([value.poFileUrl, value.proofUrl, value.fileUrl, value.secureUrl, value.secure_url, value.url]))
+    .map((value) => _firstUsable([value.poFileUrl, value.proofUrl, value.fileUrl, value.secureUrl, value.secure_url, value.url, value.imageUrl, value.image_url, value.pdfUrl, value.pdf_url, value.downloadUrl, value.download_url, value.directUrl, value.direct_url, value.sourceUrl, value.source_url, value.originalUrl, value.original_url]))
     .find((value) => value);
-  return _firstUsable([
+  const direct = _firstUsable([
     row.poFileUrl, row.poProofUrl, row.poDocumentUrl, row.poUploadUrl, row.poAttachmentUrl,
     row.uploadedDocumentUrl, row.documentUrl, row.fileUrl, row.secureUrl, row.secure_url,
+    row.imageUrl, row.image_url, row.pdfUrl, row.pdf_url, row.downloadUrl, row.download_url,
+    row.directUrl, row.direct_url, row.sourceUrl, row.source_url, row.originalUrl, row.original_url,
     row.url, nestedUrl
   ]);
+  if (direct) return direct;
+  return _deepFindProofField(row, 'url');
 }
 
 function getPoProofName(row = {}) {
   if (!row || typeof row !== 'object') return 'PO proof';
-  const nestedName = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment]
+  const nestedName = [row.poProof, row.poFile, row.poDocument, row.poUpload, row.poAttachment, row.uploadedDocument, row.document, row.file, row.attachment, row.cloudinary, row.media, row.upload, row.resource, row.asset, row.payload, row.meta, row.metadata, row.data, row.info, row.detail, row.extra, row.source]
     .filter((value) => value && typeof value === 'object' && !Array.isArray(value))
-    .map((value) => _firstUsable([value.poFileName, value.proofName, value.fileName, value.originalName, value.name]))
+    .map((value) => _firstUsable([value.poFileName, value.proofName, value.fileName, value.originalName, value.name, value.displayName, value.display_name, value.originalFilename, value.original_filename, value.filename, value.originalFileName, value.original_file_name]))
     .find((value) => value);
-  return _firstUsable([
+  const direct = _firstUsable([
     row.poFileName, row.poProofName, row.poDocumentName, row.poUploadName, row.poAttachmentName,
-    row.uploadedDocumentName, row.documentName, row.fileName, nestedName
+    row.uploadedDocumentName, row.documentName, row.fileName, row.originalName, row.name,
+    row.displayName, row.display_name, row.originalFilename, row.original_filename,
+    row.filename, row.originalFileName, row.original_file_name, nestedName
   ], 'PO proof');
+  if (direct && direct !== 'PO proof') return direct;
+  const deep = _deepFindProofField(row, 'name');
+  return deep || direct;
 }
 
 function getApprovalPoRows(payload = {}) {
@@ -146,25 +179,36 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
     approval,
   ].filter(Boolean);
 
-  const proofSource = sources.find((source) => getPoProofUrl(source)) || {};
+  const proofSource = sources.find((source) => getPoProofUrl(source)) || compositeRow;
   const resolvedUrl = getPoProofUrl(proofSource);
   // If hydratePurchaseOrderApprovals already had a valid URL, prefer it; otherwise use the resolver result.
   const fallbackDirectUrl = [normalizedRow.poFileUrl, snapshotForProof?.poFileUrl, payloadRows[rowIndex]?.poFileUrl, manifest[rowIndex]?.poFileUrl]
     .filter((value) => _isUsableProofValue(value))
     .find(Boolean);
-  const poFileUrl = (alreadyResolved && normalizedRow.poFileUrl) || resolvedUrl || fallbackDirectUrl || '';
-  const resolvedName = getPoProofName(proofSource) || getPoProofName(normalizedRow) || getPoProofName(snapshotForProof || {});
+  const megaComposite = Object.assign({}, compositeRow, ...sources);
+  const poFileUrl = (alreadyResolved && normalizedRow.poFileUrl) || resolvedUrl || fallbackDirectUrl || getPoProofUrl(megaComposite) || _deepFindProofField(megaComposite, 'url') || '';
+  const resolvedName = getPoProofName(proofSource) || getPoProofName(normalizedRow) || getPoProofName(snapshotForProof || {}) || getPoProofName(megaComposite);
   const fallbackDirectName = [normalizedRow.poFileName, snapshotForProof?.poFileName, payloadRows[rowIndex]?.poFileName, manifest[rowIndex]?.poFileName]
     .filter((value) => _isUsableProofValue(value))
     .find(Boolean);
-  const poFileName = (alreadyResolved && _isUsableProofValue(normalizedRow.poFileName) && normalizedRow.poFileName) || resolvedName || fallbackDirectName || 'PO proof';
-  const compositeForMetadata = { ...(snapshotForProof || {}), ...(normalizedRow || {}), ...(proofSource || {}) };
-  const poFileMimeType = [compositeForMetadata.poFileMimeType, compositeForMetadata.poProof?.mimeType, compositeForMetadata.mimeType, manifest[rowIndex]?.poFileMimeType, snapshotForProof?.poFileMimeType]
+  const poFileName = (alreadyResolved && _isUsableProofValue(normalizedRow.poFileName) && normalizedRow.poFileName) || resolvedName || fallbackDirectName || _deepFindProofField(megaComposite, 'name') || 'PO proof';
+  const compositeForMetadata = { ...(snapshotForProof || {}), ...(normalizedRow || {}), ...(proofSource || {}), ...megaComposite };
+  const poFileMimeType = [compositeForMetadata.poFileMimeType, compositeForMetadata.poProof?.mimeType, compositeForMetadata.mimeType, compositeForMetadata.type, manifest[rowIndex]?.poFileMimeType, snapshotForProof?.poFileMimeType]
     .map((value) => String(value || '').trim())
     .find((value) => value) || '';
-  const poFileSize = [compositeForMetadata.poFileSize, manifest[rowIndex]?.poFileSize, snapshotForProof?.poFileSize]
+  const poFileSize = [compositeForMetadata.poFileSize, compositeForMetadata.bytes, compositeForMetadata.size, manifest[rowIndex]?.poFileSize, snapshotForProof?.poFileSize]
     .map((value) => (value != null && Number.isFinite(Number(value)) ? Number(value) : null))
     .find((value) => value != null);
+  // Diagnostic: if URL still empty after every fallback, log for debugging.
+  if (!poFileUrl && typeof console !== 'undefined') {
+    console.debug('[POProof:resolveCanonical:fail]', {
+      approvalId: approval._id || approval.id,
+      leadCode: payload.leadCode || approval.uniqueId || '', rowIndex,
+      alreadyResolved, resolvedUrl, fallbackDirectUrl,
+      megaAny: _deepFindProofField(megaComposite, 'url'),
+      topKeys: Object.keys(megaComposite).filter((k) => /proof|file|document|upload|attachment|url|secure|cloud|name/i.test(k))
+    });
+  }
   return {
     ...normalizedRow,
     approvalId: String(approval._id || approval.id || ''),
@@ -312,20 +356,40 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
         ? manifest.find((entry) => entry && String(entry.poNumber || '').trim() === rowPoNumber)
         : (manifest[rowIndex] || null);
       const sources = [snapshotRow || {}, manifestRow || {}, liveRow || {}, payload || {}, approval || {}].filter(Boolean);
-      const proofSource = sources.find((source) => getPoProofUrl(source)) || {};
-      const nameSource = sources.find((source) => getPoProofName(source) && getPoProofName(source) !== 'PO proof') || proofSource || {};
+      // Aggressive 5-layer + nested object composite union: feed all merged sources through
+      // getPoProofUrl (which now does a _deepFindProofField scan recursively for any cloudinary URL).
+      const composite = Object.assign({}, ...sources);
+      const proofSource = sources.find((source) => getPoProofUrl(source)) || composite;
+      const nameSource = sources.find((source) => getPoProofName(source) && getPoProofName(source) !== 'PO proof') || proofSource || composite;
       const url = getPoProofUrl(proofSource)
         || (String(snapshotRow?.poFileUrl || '').trim() && !/\[object/i.test(String(snapshotRow.poFileUrl || '')) ? String(snapshotRow.poFileUrl).trim() : '')
         || (String(manifestRow?.poFileUrl || '').trim() && !/\[object/i.test(String(manifestRow.poFileUrl || '')) ? String(manifestRow.poFileUrl).trim() : '')
         || (String(liveRow?.poFileUrl || '').trim() && !/\[object/i.test(String(liveRow.poFileUrl || '')) ? String(liveRow.poFileUrl).trim() : '')
+        || getPoProofUrl(composite)
         || '';
       const name = getPoProofName(nameSource)
         || (String(snapshotRow?.poFileName || '').trim() && !/\[object/i.test(String(snapshotRow.poFileName || '')) ? String(snapshotRow.poFileName).trim() : '')
         || (String(manifestRow?.poFileName || '').trim() && !/\[object/i.test(String(manifestRow.poFileName || '')) ? String(manifestRow.poFileName).trim() : '')
         || (String(liveRow?.poFileName || '').trim() && !/\[object/i.test(String(liveRow.poFileName || '')) ? String(liveRow.poFileName).trim() : '')
+        || getPoProofName(composite)
         || 'PO proof';
-      const mime = [snapshotRow, manifestRow, liveRow].map((value) => String(value?.poFileMimeType || value?.mimeType || '').trim()).find((value) => value) || '';
-      const size = [snapshotRow, manifestRow, liveRow].map((value) => (value?.poFileSize != null && Number.isFinite(Number(value.poFileSize)) ? Number(value.poFileSize) : null)).find((value) => value != null);
+      const mime = [snapshotRow, manifestRow, liveRow, composite].map((value) => String(value?.poFileMimeType || value?.mimeType || value?.type || '').trim()).find((value) => value) || '';
+      const size = [snapshotRow, manifestRow, liveRow, composite].map((value) => (value?.poFileSize != null && Number.isFinite(Number(value.poFileSize)) ? Number(value.poFileSize) : (Number.isFinite(Number(value?.bytes)) ? Number(value.bytes) : (Number.isFinite(Number(value?.size)) ? Number(value.size) : null)))).find((value) => value != null);
+      // Diagnostic: if still no URL after every fallback, log what we have so user can share.
+      if (!url && typeof console !== 'undefined') {
+        console.debug('[POProof:hydrate:fail]', {
+          leadCode: payload.leadCode || approval.leadCode, approvalId: approval._id || approval.id,
+          rowIndex, rowPoNumber,
+          // Keys that EXIST in source trees (non-empty non-object top-level)
+          candidate: {
+            snapshotUrl: snapshotRow?.poFileUrl, manifestUrl: manifestRow?.poFileUrl,
+            liveUrl: liveRow?.poFileUrl, snapshotKeys: snapshotRow ? Object.keys(snapshotRow) : [],
+            manifestKeys: manifestRow ? Object.keys(manifestRow) : [],
+            liveKeys: liveRow ? Object.keys(liveRow) : [],
+            deepAnywhere: _deepFindProofField(composite, 'url')
+          }
+        });
+      }
       return { poFileUrl: url, poFileName: name, poFileMimeType: mime, poFileSize: size };
     };
     const snapshotPoNumber = (row) => String(row?.poNumber || '').trim();
