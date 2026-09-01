@@ -223,8 +223,22 @@ function resolveCanonicalPoProof(approval = {}, normalizedRow = {}, rowIndex = 0
 }
 
 function NormalizedPoProof({ item }) {
-  if (!item.hasPoFileUrl || !item.poFileUrl) return <span className="text-xs font-semibold text-slate-400">-</span>;
-  return <a href={item.poFileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm">Open PO Proof</a>;
+  const directUrl = (item?.hasPoFileUrl && _isUsableProofValue(item?.poFileUrl)) ? String(item.poFileUrl).trim()
+    : _isUsableProofValue(item?.proofUrl) ? String(item.proofUrl).trim()
+    : getPoProofUrl(item || {});
+  if (!directUrl) {
+    if (typeof console !== 'undefined') {
+      console.warn('[POProof:Normalized:dash]', {
+        hasPoFileUrl: item?.hasPoFileUrl, poFileUrl: item?.poFileUrl, proofUrl: item?.proofUrl,
+        topKeys: Object.keys(item || {}).filter((k) => /proof|file|document|upload|attachment|url|secure|cloud|name/i.test(k)),
+        deepFound: item ? _deepFindProofField(item, 'url') : '',
+        rowIndex: item?.rowIndex, approvalId: item?.approvalId, leadCode: item?.leadCode, poNumber: item?.poNumber
+      });
+    }
+    return <span className="text-xs font-semibold text-slate-400">-</span>;
+  }
+  const name = _isUsableProofValue(item?.poFileName) ? item.poFileName : getPoProofName(item || {}) || 'PO proof';
+  return <a href={directUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm">Open PO Proof</a>;
 }
 
 function PoProof({ row, onUpload, uploading = false }) {
@@ -246,11 +260,16 @@ function PoProof({ row, onUpload, uploading = false }) {
 function normalizePoApprovalRow(row = {}) {
   const quotationItems = Array.isArray(row.quotationItems) ? row.quotationItems : [];
   const itemTotal = quotationItems.reduce((sum, item) => sum + (Number(item.unit) || 1) * (Number(item.basicAmount) || 0), 0);
+  const resolvedUrl = getPoProofUrl(row) || row.poFileUrl || row.proofUrl || '';
+  const resolvedName = getPoProofName(row) || row.poFileName || '';
   return {
     ...row,
     poAmountValue: Number(row.poAmount) > 0 ? Number(row.poAmount) : null,
     basicAmountValue: row.quotationSent === 'no' ? 0 : (itemTotal || Number(row.quotationBasicAmount) || null),
-    proofUrl: getPoProofUrl(row)
+    proofUrl: resolvedUrl,
+    poFileUrl: resolvedUrl,
+    poFileName: resolvedName,
+    hasPoFileUrl: Boolean(_isUsableProofValue(resolvedUrl))
   };
 }
 
@@ -1244,21 +1263,26 @@ export default function PendingApproval() {
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
                   const normalizedPoRows = row.normalizedPoRows || normalizeApprovalPoRows(row);
-                  // Legacy approvals can expose amount/service fallbacks without a
-                  // canonical PO row. Keep one repair row mounted so an Admin can
-                  // upload the missing proof directly into the approval + Lead.
+                  // Legacy repair row: go through FULL resolveCanonicalPoProof chain (not just normalizePoApprovalRow)
+                  // so that any proof stored ANYWHERE (payload snapshot, manifest, lead assignment, deep nested)
+                  // is recovered even when no canonical poYearRows array exists for this approval yet.
                   const poRows = normalizedPoRows.length
                     ? normalizedPoRows
-                    : [normalizePoApprovalRow({ ...(row.payload || {}), poNumber: row.payload?.poNumber || row.uniqueId || '' })];
-                  poRows.forEach((item) => console.log('[POProof:render]', { approvalId: item.approvalId, leadCode: item.leadCode, rowIndex: item.rowIndex, poNumber: item.poNumber, hasPoFileUrl: item.hasPoFileUrl, poFileUrl: item.poFileUrl }));
-                  const renderKey = `${id}-${poRows[0]?.rowIndex ?? 0}-${poRows[0]?.poNumber || 'po'}`;
+                    : (() => {
+                        const payload = row.payload || {};
+                        const pseudo = { ...payload, poNumber: payload.poNumber || row.uniqueId || '' };
+                        const canonical = resolveCanonicalPoProof(row, pseudo, 0);
+                        return [normalizePoApprovalRow({ ...canonical, proofUrl: canonical.poFileUrl || canonical.proofUrl, poFileUrl: canonical.poFileUrl, hasPoFileUrl: canonical.hasPoFileUrl || Boolean(getPoProofUrl(canonical)) })];
+                      })();
+                  poRows.forEach((item) => console.log('[POProof:render]', { approvalId: item.approvalId || id, leadCode: item.leadCode || row.payload?.leadCode, rowIndex: item.rowIndex ?? 0, poNumber: item.poNumber, hasPoFileUrl: Boolean(item.hasPoFileUrl || (item.poFileUrl && _isUsableProofValue(item.poFileUrl)) || (item.proofUrl && _isUsableProofValue(item.proofUrl))), poFileUrl: item.poFileUrl || item.proofUrl || getPoProofUrl(item) }));
+                  const renderKey = `po-approval-${String(id || '').slice(-8)}-${poRows.length}-${String(row.payload?.leadCode || row.uniqueId || '')}`;
                   row.approStatus = row.approvalStatus;
                   return <tr key={renderKey}>
                     <Cell strong>{row.clientName}<small className="mt-1 block text-xs text-slate-400">{row.payload?.leadCode || row.uniqueId || '-'}</small></Cell>
                     <Cell>{row.payload?.service?.servicesOffered || row.payload?.service?.applicableService || row.eprCategory || '-'}</Cell>
-                    <Cell>{poRows.map((po) => <div key={`${po.approvalId}-${po.rowIndex}-${po.poNumber || 'po'}-amount`} className="mb-1 font-black text-emerald-700">{po.poAmountValue ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : '-'}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell>
-                    <Cell>{poRows.map((po) => <div key={`${po.approvalId}-${po.rowIndex}-${po.poNumber || 'po'}-proof`} className="mb-2"><NormalizedPoProof item={po} /></div>)}{row.payload?.earlierQuotationProofUrl && <a href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>}</Cell>
-                    <Cell>{poRows.map((po) => <strong key={`${po.approvalId}-${po.rowIndex}-${po.poNumber || 'po'}-basic`} className="block text-slate-900">{po.basicAmountValue != null ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell>
+                    <Cell>{poRows.map((po) => <div key={`${po.approvalId || id}-${po.rowIndex ?? 0}-${po.poNumber || 'po'}-amount`} className="mb-1 font-black text-emerald-700">{po.poAmountValue ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : '-'}<small className="ml-1 text-slate-400">{po.currency || 'INR'}</small></div>)}</Cell>
+                    <Cell>{poRows.map((po) => <div key={`${po.approvalId || id}-${po.rowIndex ?? 0}-${po.poNumber || 'po'}-proof`} className="mb-2"><NormalizedPoProof item={po} /></div>)}{row.payload?.earlierQuotationProofUrl && <a href={row.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block text-xs font-black text-amber-700 underline">View earlier quotation proof</a>}</Cell>
+                    <Cell>{poRows.map((po) => <strong key={`${po.approvalId || id}-${po.rowIndex ?? 0}-${po.poNumber || 'po'}-basic`} className="block text-slate-900">{po.basicAmountValue != null ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell>
                     <Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell>
                     <Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell>
                   </tr>;
