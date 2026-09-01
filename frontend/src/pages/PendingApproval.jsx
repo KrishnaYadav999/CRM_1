@@ -272,14 +272,39 @@ function NormalizedPoProof({ item, approvalRow }) {
     console.log('getPoProofUrl(approval top):', getPoProofUrl(approvalRow || {}));
     console.log('deepFind(payload):', approvalRow?.payload ? _deepFindProofField(approvalRow.payload, 'url') : '');
     console.log('deepFind(approval):', _deepFindProofField(approvalRow || {}, 'url'));
+    // Also enumerate ALL string fields anywhere that look like cloudinary URLs
+    const allStrings = [];
+    try {
+      const walk = (o, path, depth) => {
+        if (depth > 6 || !o) return;
+        const t = typeof o;
+        if (t === 'string') { if (/res\.cloudinary|cloudinary\.com|s3\.amazonaws|storage\.googleapis|firebasestorage|drive\.google/i.test(o)) allStrings.push([path, o.slice(0, 160)]); return; }
+        if (t !== 'object') return;
+        Object.entries(o).forEach(([k, v]) => walk(v, path ? `${path}.${k}` : String(k), depth + 1));
+      };
+      walk({ approval: approvalRow || {}, item: item || {} }, '', 0);
+    } catch { /* ignore */ }
+    console.log('🔎 ALL_CLOUDINARY_STRINGS_ANYWHERE (depth<=6):', allStrings);
     console.groupEnd();
-    alert('🔍 Full diagnostic dump written to Console!\n\nCheck DevTools → Console → look for the YELLOW BLACK 🔍 group labeled [POProof:Inspector:FullDump] for lead=' + (item?.leadCode || approvalRow?.payload?.leadCode || ''));
+    const summary = '🔍 Full diagnostic dump written to Console!\n\nExpand the YELLOW/BLACK group [POProof:Inspector:FullDump] for lead=' + (item?.leadCode || approvalRow?.payload?.leadCode || '') + '\n\nLast-line CLOUDINARY_STRINGS_ANYWHERE lists EVERY valid proof URL in the entire approval — if present there, proof EXISTS IN DB and frontend will recover it!\n\nCloudinary strings found: ' + String(allStrings.length || 0);
+    try { alert(summary); } catch { /* ignore */ }
   };
   if (!directUrl) {
+    // Render dash TEXT itself as the clickable inspector button (no extra width required,
+    // so even narrow PO Proof columns show the click target.)
     return (
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs font-semibold text-slate-400">-</span>
-        <button type="button" onClick={dumpFullDiagnostic} title="Dump full DB structure to Console for debugging" className="inline-flex h-7 min-w-[30px] items-center justify-center rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-500 shadow-sm hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700">🔍</button>
+      <div className="flex items-center gap-1">
+        <span
+          role="button"
+          tabIndex={0}
+          title="Click to inspect — dumps full DB structure + ALL Cloudinary URLs anywhere in document to Console"
+          onClick={dumpFullDiagnostic}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') dumpFullDiagnostic(e); }}
+          className="inline-flex min-h-[28px] cursor-help items-center gap-1 rounded-md border border-dashed border-slate-200 bg-slate-50/60 px-2 text-[11px] font-black uppercase tracking-wide text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.15)] hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+        >
+          <span aria-hidden>🔍</span>
+          <span>Proof Missing</span>
+        </span>
       </div>
     );
   }
@@ -1305,7 +1330,65 @@ export default function PendingApproval() {
             </div>
 
             {activeTab === 'po' ? (
-              <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
+              <>
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-base" aria-hidden>🩺</span>
+                    <div className="w-full">
+                      <div className="text-[11px] font-black uppercase tracking-wide text-amber-900">PO Proof Live Diagnostics (inline for each row — no console required)</div>
+                      <div className="mt-2 space-y-1.5">
+                        {filteredPoApprovals.map((row) => {
+                          const id = row._id || row.id;
+                          const normalizedPoRows = row.normalizedPoRows || normalizeApprovalPoRows(row);
+                          const poRows = normalizedPoRows.length ? normalizedPoRows : (() => {
+                            const payload = row.payload || {};
+                            const pseudo = { ...payload, poNumber: payload.poNumber || row.uniqueId || '' };
+                            const canonical = resolveCanonicalPoProof(row, pseudo, 0);
+                            return [normalizePoApprovalRow({ ...canonical, proofUrl: canonical.poFileUrl || canonical.proofUrl, poFileUrl: canonical.poFileUrl, hasPoFileUrl: canonical.hasPoFileUrl || Boolean(getPoProofUrl(canonical)) })];
+                          })();
+                          const payload = row.payload || {};
+                          const pRows = Array.isArray(payload.poYearRows) ? payload.poYearRows : [];
+                          const manifest = Array.isArray(payload.poProofManifest) ? payload.poProofManifest : [];
+                          const payloadDeep = _deepFindProofField(payload, 'url');
+                          const rowDeep = _deepFindProofField(row, 'url');
+                          return (
+                            <div key={`diag-${String(id || '').slice(-8)}`} className="rounded-lg border border-white/80 bg-white/90 p-2 shadow-sm">
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                                <span className="font-black text-slate-900">{row.payload?.leadCode || row.uniqueId || String(id).slice(-8)} · {poRows.length} row(s) · normRows={normalizedPoRows.length}</span>
+                                <span className={`rounded px-1.5 py-0.5 font-black ${pRows.length ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>snapshot.poYearRows={pRows.length || '0'}</span>
+                                <span className={`rounded px-1.5 py-0.5 font-black ${manifest.length ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>manifest={manifest.length || '0'}</span>
+                                <span className="rounded bg-slate-50 px-1.5 py-0.5 font-black text-slate-700">quotationSent={String(payload.quotationSent || '').slice(0, 3) || '—'}</span>
+                                <span className={`rounded px-1.5 py-0.5 font-black ${payloadDeep ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>payload.deepFind={payloadDeep ? 'FOUND' : 'NO'}</span>
+                                <span className={`rounded px-1.5 py-0.5 font-black ${rowDeep ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>approval.deepFind={rowDeep ? 'FOUND' : 'NO'}</span>
+                                <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-black text-indigo-700">assignIndex={String(payload.assignmentIndex ?? '—')}·svcId={String(payload.assignedServiceId || '').slice(-6) || '—'}</span>
+                              </div>
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {poRows.map((item, i) => {
+                                  const proofDirect = Boolean(item.hasPoFileUrl && _isUsableProofValue(item.poFileUrl));
+                                  const proofFallback = Boolean(!proofDirect && _isUsableProofValue(item.proofUrl));
+                                  const proofDeep = Boolean(!proofDirect && !proofFallback && _isUsableProofValue(getPoProofUrl(item)));
+                                  const status = proofDirect ? 'PROOF_OK_DIRECT' : proofFallback ? 'PROOF_OK_FALLBACK' : proofDeep ? 'PROOF_OK_DEEP' : 'PROOF_MISSING';
+                                  const tone = status.startsWith('PROOF_OK') ? 'bg-emerald-600' : 'bg-rose-600';
+                                  const poSnapshot = pRows[i];
+                                  const poSnapshotProof = poSnapshot ? resolvePoProof(poSnapshot) : null;
+                                  const manifestProof = manifest.find((m) => String(m.rowIndex) === String(i) || m.poNumber === item.poNumber);
+                                  return (
+                                    <div key={`diag-row-${i}`} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
+                                      <span className={`inline-flex h-4 min-w-[44px] items-center justify-center rounded px-1 text-[9px] font-black uppercase text-white ${tone}`}>{status.replace('PROOF_', '')}</span>
+                                      <span className="text-[10px] font-black text-slate-800">row{i}·{item.poNumber || 'no_po'}</span>
+                                      <span className="text-[10px] text-slate-500">snap={poSnapshotProof?.url ? 'URL' : 'NO'}/manifest={manifestProof?.poFileUrl ? 'URL' : 'NO'}/renderUrlLen={(item.poFileUrl || item.proofUrl || getPoProofUrl(item) || '').length}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredPoApprovals.map((row) => {
                   const id = row._id || row.id;
                   const normalizedPoRows = row.normalizedPoRows || normalizeApprovalPoRows(row);
@@ -1351,6 +1434,7 @@ export default function PendingApproval() {
                   </tr>;
                 })}
               </ApprovalTable>
+              </>
             ) : activeTab === 'temporary' ? (
               <ApprovalTable title="Temporary User Requests" columns={['Client Name', 'Previous User', 'Temporary User', 'Manager Name', 'Duration', 'Status', 'Decision Remarks', 'Actions']} emptyText="No temporary user requests found." page={1} totalPages={1} showing={filteredTemporary.length} total={filteredTemporary.length} onPrev={() => {}} onNext={() => {}}>
                 {filteredTemporary.map((row) => <tr key={row._id || row.id}>
