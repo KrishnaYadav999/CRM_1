@@ -372,6 +372,8 @@ function analyzeClientMasterData(data = {}) {
   const isImporter = category === 'importer';
   const isBrandOwner = category.includes('brand owner');
   const isPwp = applicantType === 'pwp' || category === 'pwp';
+  const serviceCategory = String(data.basic?.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.selectedLeadSnapshot?.serviceCategory || data.selectedLeadSnapshot?.servicesOffered || '').trim().toLowerCase();
+  const isTyreWasteRecycler = category.includes('recycler') && serviceCategory.includes('tyre');
   const companyType = String(data.basic?.companyType || '').trim().toLowerCase();
   const isCorporate = ['private limited', 'public limited'].includes(companyType);
   const isNonCorporate = ['llp', 'partnership', 'proprietorship'].includes(companyType);
@@ -380,7 +382,9 @@ function analyzeClientMasterData(data = {}) {
   const brandOwnerProductionFacility = data.compliance?.brandOwnerProductionFacility
     || (data.compliance?.factoryLicenseApplicability === 'Applicable' ? 'Yes' : data.compliance?.factoryLicenseApplicability === 'Not Applicable' ? 'No' : '');
   const documentKeys = cpcbRestricted ? [] : ['gst','cin','pan','factoryLicense','eprCertificate','iec','dicDcssi'].filter((key) => {
-    if (isPwp && ['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key)) return false;
+    if (isTyreWasteRecycler && ['factoryLicense', 'dicDcssi'].includes(key)) return false;
+    if (isTyreWasteRecycler && ['partnership', 'proprietorship'].includes(companyType) && key === 'cin') return false;
+    if (!isTyreWasteRecycler && isPwp && ['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key)) return false;
     if (category.includes('producer') && (['iec', 'dicDcssi'].includes(key) || (isNonCorporate && key === 'cin'))) return false;
     if (isBrandOwner && (
       key === 'dicDcssi'
@@ -413,12 +417,12 @@ function analyzeClientMasterData(data = {}) {
   if (!cpcbRestricted) add('CPCB Credentials', 'Linked to Common Portal', data.cpcb?.linkedToCommonPortal);
   if (!cpcbRestricted && data.cpcb?.linkedToCommonPortal === 'Yes') addFields('CPCB Credentials', data.cpcb, [['status','CPCB Status'],['remark','CPCB Remark'],['homePageFile','CPCB Home Page'],['registrationNumber','CPCB Registration Number'],['applicationDate','Application Date'],['approvalDate','Approval Date'],['applicationNumber','Application Number'],['ceprUserId','CEPR User ID'],['ceprPassword','CEPR Password'],['loginId','CPCB Login ID'],['loginPassword','CPCB Login Password'],['unitId','Unit ID']].filter(([key]) => !isPwp || !['registrationNumber', 'applicationNumber'].includes(key)));
   if (!cpcbRestricted) (data.cpcbScreenshots?.length ? data.cpcbScreenshots : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Screenshot ${index + 1} Name`, row.name); add('CPCB Screenshots', `Screenshot ${index + 1} File`, row.file); });
-  const processDiagramChoiceRequired = isImporter || isBrandOwner;
-  const processDiagramRequired = processDiagramChoiceRequired ? data.cpcb?.processDiagramRequired === 'Yes' : true;
+  const processDiagramChoiceRequired = !isTyreWasteRecycler && (isImporter || isBrandOwner);
+  const processDiagramRequired = isTyreWasteRecycler ? false : processDiagramChoiceRequired ? data.cpcb?.processDiagramRequired === 'Yes' : true;
   if (!cpcbRestricted && processDiagramChoiceRequired) add('CPCB Screenshots', 'Process Flow Diagram Required', data.cpcb?.processDiagramRequired);
   if (!cpcbRestricted && processDiagramRequired) (data.processDiagrams?.length ? data.processDiagrams : [{}]).forEach((row, index) => { add('CPCB Screenshots', `Process Diagram ${index + 1} Name`, row.name); add('CPCB Screenshots', `Process Diagram ${index + 1} File`, row.file); });
   addFields('Authorized Person Details', data.otp, [['mobile','OTP Mobile'],['personName','OTP Person'],['designation','OTP Person Designation']]);
-  const personFields = [['name','Name'],['designation','Designation'],['department','Department'],['reporting','Reporting Person'],['mobile','Mobile'],['email','Email'],['pan','PAN'],['panDocument','PAN Document']];
+  const personFields = [['name','Name'],['designation','Designation'],['department','Department'],['reporting','Reporting Person'],['mobile','Mobile'],['email','Email'],['pan','PAN'],['panDocument','PAN Document'], ...(isTyreWasteRecycler ? [['aadhaarNumber','Aadhaar Card Number'],['aadhaarDocument','Aadhaar Card Document']] : [])];
   if (!cpcbRestricted) {
     addFields('Authorized Person Details', data.authorised, personFields.map(([key,label]) => [key,`Authorized Person ${label}`]));
     (data.authorisedPersons || []).forEach((person, index) => addFields('Authorized Person Details', person, personFields.map(([key,label]) => [key,`Authorized Person ${index + 2} ${label}`])));

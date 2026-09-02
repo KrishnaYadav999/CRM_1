@@ -912,7 +912,8 @@ exports.listClients = async (req, res) => {
       '-data.compliance.iecFile', '-data.compliance.dicDcssiFile',
       '-data.msmeRows.file', '-data.cte.plantWiseDetails.cteDocument',
       '-data.cte.plantWiseDetails.ctoDocument', '-data.authorised.panDocument',
-      '-data.authorisedPersons.panDocument'
+      '-data.authorisedPersons.panDocument', '-data.authorised.aadhaarDocument',
+      '-data.authorisedPersons.aadhaarDocument'
     ].join(' '))
     .populate('selectedLead', 'leadCode company status createdBy createdByName createdByEmail importedCreatedBy assignedStaff assignedStaffText assignedStaffEmail assignments')
     .populate('createdBy', 'name email role avatarUrl')

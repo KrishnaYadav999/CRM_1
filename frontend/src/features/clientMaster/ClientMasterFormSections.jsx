@@ -458,7 +458,7 @@ function PasswordField({ label, value, visible, onToggle, onChange }) {
 
 function CpcbScreenshotTab({ client, setValue, setRoot, applicability, onValidationError }) {
   const processDiagramRequired = client.cpcb?.processDiagramRequired || '';
-  const showProcessDiagram = !applicability?.processDiagramChoiceRequired || processDiagramRequired === 'Yes' || (client.processDiagrams || []).length > 0;
+  const showProcessDiagram = !applicability?.hideProcessDiagram && (!applicability?.processDiagramChoiceRequired || processDiagramRequired === 'Yes' || (client.processDiagrams || []).length > 0);
   return (
     <div className="grid gap-6">
       {applicability?.processDiagramChoiceRequired && <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-emerald-50 p-5">
@@ -583,7 +583,7 @@ function DocumentUploadSection({
   );
 }
 
-function ContactsTab({ client, setValue, setRoot }) {
+function ContactsTab({ client, setValue, setRoot, applicability }) {
   const additionalPeople = Array.isArray(client.authorisedPersons) ? client.authorisedPersons : [];
   const additionalOtpContacts = Array.isArray(client.otpContacts) ? client.otpContacts : [];
   const additionalCoordinators = Array.isArray(client.coordinatingPersons) ? client.coordinatingPersons : [];
@@ -592,11 +592,12 @@ function ContactsTab({ client, setValue, setRoot }) {
   const otpRows = [client.otp || {}, ...additionalOtpContacts];
   const coordinatingRows = [client.coordinating || {}, ...additionalCoordinators];
   const updateAuthorised = (index, field, value) => index === 0 ? setValue('authorised', field, value) : updateAdditional(index - 1, field, value);
+  const authorisedFields = [['name', 'Authorised Person Name'], ['designation', 'Authorised Person Designation'], ['department', 'Department of authorised person'], ['reporting', 'Reporting Person Details'], ['mobile', 'Authorised Person Mobile'], ['email', 'Authorised Person Email'], ['pan', 'Authorised Person PAN Number'], ['panDocument', 'Authorised Person PAN Document', 'upload'], ...(applicability?.isTyreWasteRecycler ? [['aadhaarNumber', 'Aadhaar Card Number'], ['aadhaarDocument', 'Aadhaar Card Document', 'upload']] : [])];
   const updateExtraRow = (root, rows, index, field, value) => setRoot(root, rows.map((person, personIndex) => personIndex === index - 1 ? { ...person, [field]: value } : person));
   return (
     <>
       <ContactDetailsCard title="OTP Contact" icon={Smartphone} addLabel="Add OTP Contact" records={otpRows} fields={[['mobile', 'OTP Enabled Mobile No.'], ['personName', 'OTP Person Name'], ['designation', 'OTP Person Designation']]} onAdd={() => setRoot('otpContacts', [...additionalOtpContacts, { mobile: '', personName: '', designation: '' }])} onUpdate={(index, field, value) => index === 0 ? setValue('otp', field, value) : updateExtraRow('otpContacts', additionalOtpContacts, index, field, value)} onRemove={(index) => setRoot('otpContacts', additionalOtpContacts.filter((_, rowIndex) => rowIndex !== index - 1))} />
-      <ContactDetailsCard title="Authorised Person" icon={UserRound} addLabel="Add Authorised Person" records={authorisedRows} fields={[['name', 'Authorised Person Name'], ['designation', 'Authorised Person Designation'], ['department', 'Department of authorised person'], ['reporting', 'Reporting Person Details'], ['mobile', 'Authorised Person Mobile'], ['email', 'Authorised Person Email'], ['pan', 'Authorised Person PAN Number'], ['panDocument', 'Authorised Person PAN Document', 'upload']]} onAdd={() => setRoot('authorisedPersons', [...additionalPeople, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '', pan: '', panDocument: null }])} onUpdate={updateAuthorised} onRemove={(index) => setRoot('authorisedPersons', additionalPeople.filter((_, rowIndex) => rowIndex !== index - 1))} />
+      <ContactDetailsCard title="Authorised Person" icon={UserRound} addLabel="Add Authorised Person" records={authorisedRows} fields={authorisedFields} onAdd={() => setRoot('authorisedPersons', [...additionalPeople, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '', pan: '', panDocument: null, ...(applicability?.isTyreWasteRecycler ? { aadhaarNumber: '', aadhaarDocument: null } : {}) }])} onUpdate={updateAuthorised} onRemove={(index) => setRoot('authorisedPersons', additionalPeople.filter((_, rowIndex) => rowIndex !== index - 1))} />
       <ContactDetailsCard title="Coordinating Person" icon={UsersRound} addLabel="Add Coordinating Person" records={coordinatingRows} fields={[['name', 'Coordinating Person Name'], ['designation', 'Coordinating Person Designation'], ['department', 'Department of coordinating person'], ['reporting', 'Reporting Person Details'], ['mobile', 'Coordinating Person Mobile'], ['email', 'Coordinating Person Email']]} onAdd={() => setRoot('coordinatingPersons', [...additionalCoordinators, { name: '', designation: '', department: '', reporting: '', mobile: '', email: '' }])} onUpdate={(index, field, value) => index === 0 ? setValue('coordinating', field, value) : updateExtraRow('coordinatingPersons', additionalCoordinators, index, field, value)} onRemove={(index) => setRoot('coordinatingPersons', additionalCoordinators.filter((_, rowIndex) => rowIndex !== index - 1))} />
     </>
   );

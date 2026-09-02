@@ -97,12 +97,26 @@ const complianceRows = [
   ['dicDcssi', 'DIC/DCSSI Certificate No', 'DIC/DCSSI Certificate Date', 'DIC/DCSSI Certificate File']
 ];
 
+function isTyreWasteRecyclerClient(client = {}) {
+  const snapshot = client.selectedLeadSnapshot || {};
+  const category = String(client.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || '').trim().toLowerCase();
+  const service = String(client.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || snapshot.servicesOffered || '').trim().toLowerCase();
+  return category.includes('recycler') && service.includes('tyre');
+}
+
 function getApplicableComplianceRows(client = {}) {
   const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
   const applicantType = String(client.selectedLeadSnapshot?.applicantType || client.selectedLeadSnapshot?.piboParent || '').trim().toLowerCase();
   const companyType = String(client.basic?.companyType || '').trim().toLowerCase();
   const isCorporate = ['private limited', 'public limited'].includes(companyType);
   const isNonCorporate = ['llp', 'partnership', 'proprietorship'].includes(companyType);
+  if (isTyreWasteRecyclerClient(client)) {
+    return complianceRows
+      .filter(([key]) => !['factoryLicense', 'dicDcssi'].includes(key))
+      .map((row) => (['partnership', 'proprietorship'].includes(companyType) && row[0] === 'cin'
+        ? [row[0], 'CIN (Optional)', 'CIN Document Date (Optional)', 'CIN Document (Optional)']
+        : row));
+  }
   if (applicantType === 'pwp' || category === 'pwp') return complianceRows.filter(([key]) => !['cin', 'factoryLicense', 'iec', 'dicDcssi'].includes(key));
   if (category.includes('producer')) return complianceRows.filter(([key]) => ![
     'iec', 'dicDcssi', ...(isNonCorporate ? ['cin'] : [])
@@ -133,16 +147,17 @@ function getClientApplicability(client = {}) {
   const isImporter = category === 'importer';
   const isBrandOwner = category.includes('brand owner');
   const isPwp = applicantType === 'pwp' || category === 'pwp';
+  const isTyreWasteRecycler = isTyreWasteRecyclerClient(client);
   const factoryLicenseApplicability = client.compliance?.factoryLicenseApplicability;
   const brandOwnerProductionFacility = client.compliance?.brandOwnerProductionFacility
     || (factoryLicenseApplicability === 'Applicable' ? 'Yes' : factoryLicenseApplicability === 'Not Applicable' ? 'No' : '');
   const cteTabApplicable = !isImporter && !(isBrandOwner && brandOwnerProductionFacility === 'No');
   const cteApplicable = cteTabApplicable && client.cte?.cteApplicable !== 'No';
   const processDiagramChoiceRequired = isImporter || isBrandOwner;
-  const processDiagramRequired = processDiagramChoiceRequired
-    ? client.cpcb?.processDiagramRequired === 'Yes'
-    : true;
-  return { isImporter, isBrandOwner, isPwp, cteTabApplicable, cteApplicable, processDiagramChoiceRequired, processDiagramRequired };
+  const processDiagramRequired = isTyreWasteRecycler
+    ? false
+    : (processDiagramChoiceRequired ? client.cpcb?.processDiagramRequired === 'Yes' : true);
+  return { isImporter, isBrandOwner, isPwp, isTyreWasteRecycler, hideProcessDiagram: isTyreWasteRecycler, cteTabApplicable, cteApplicable, processDiagramChoiceRequired: isTyreWasteRecycler ? false : processDiagramChoiceRequired, processDiagramRequired };
 }
 
 const tabProgressFields = {
@@ -255,7 +270,9 @@ function addProgressParts(...parts) {
 function buildClientTabProgress(client = {}) {
   const applicability = getClientApplicability(client);
   const restricted = isCpcbRestricted(client);
-  const complianceDocumentFields = getApplicableComplianceRows(client).flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`]);
+  const tyreRecyclerCinOptional = applicability.isTyreWasteRecycler && ['partnership', 'proprietorship'].includes(String(client.basic?.companyType || '').trim().toLowerCase());
+  const complianceDocumentFields = getApplicableComplianceRows(client).flatMap(([key]) => [`${key}Number`, `${key}Date`, `${key}File`])
+    .filter((field) => !(tyreRecyclerCinOptional && field.startsWith('cin')));
   const ctePlants = Array.isArray(client.cte?.plantWiseDetails) ? client.cte.plantWiseDetails : [];
   const ctePlantFields = [
     'plantName',
@@ -292,11 +309,11 @@ function buildClientTabProgress(client = {}) {
     contacts: addProgressParts(
       countFields(client, restricted
         ? tabProgressFields.contacts.filter(([section]) => section !== 'authorised')
-        : tabProgressFields.contacts),
+        : [...tabProgressFields.contacts, ...(applicability.isTyreWasteRecycler ? [['authorised', 'aadhaarNumber'], ['authorised', 'aadhaarDocument']] : [])]),
       countOptionalRows(client.otpContacts, ['mobile', 'personName', 'designation']),
       restricted
         ? { filled: 0, total: 0 }
-        : countOptionalRows(client.authorisedPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email', 'pan', 'panDocument']),
+        : countOptionalRows(client.authorisedPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email', 'pan', 'panDocument', ...(applicability.isTyreWasteRecycler ? ['aadhaarNumber', 'aadhaarDocument'] : [])]),
       countOptionalRows(client.coordinatingPersons, ['name', 'designation', 'department', 'reporting', 'mobile', 'email'])
     )
   };
@@ -3024,14 +3041,14 @@ export default function ClientMaster() {
           {notice && <ToastMessage type="success" className="mx-auto mt-4">{notice}</ToastMessage>}
 
           <div className="mt-6 grid gap-6">
-            {activeTab === 'companyOverview' && <CompanyOverviewTab client={client} setValue={setValue} />}
+            {activeTab === 'companyOverview' && <CompanyOverviewTab client={client} setValue={setValue} applicability={getClientApplicability(client)} />}
             {activeTab === 'basic' && <BasicTab client={client} setValue={setValue} />}
             {activeTab === 'address' && <AddressTab client={client} setValue={setValue} copyRegisteredAddress={copyRegisteredAddress} selectOptions={selectOptions} />}
             {activeTab === 'compliance' && <ComplianceTab client={client} setValue={setValue} addRow={addRow} updateRow={updateRow} removeRow={removeRow} complianceRows={complianceRows} applicableComplianceRows={getApplicableComplianceRows(client)} />}
             {activeTab === 'cte' && <CteTab client={client} setValue={setValue} selectOptions={selectOptions} />}
             {activeTab === 'cpcb' && <CpcbTab client={client} setValue={setValue} selectOptions={selectOptions} applicability={getClientApplicability(client)} />}
             {activeTab === 'cpcbScreenshots' && <CpcbScreenshotTab client={client} setValue={setValue} setRoot={setRoot} applicability={getClientApplicability(client)} onValidationError={setError} />}
-            {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} setRoot={setRoot} />}
+            {activeTab === 'contacts' && <ContactsTab client={client} setValue={setValue} setRoot={setRoot} applicability={getClientApplicability(client)} />}
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -3047,18 +3064,19 @@ export default function ClientMaster() {
 }
 
 const companyOverviewCategories = ['Cat I', 'Cat II', 'Cat III', 'Cat IV'];
+const tyreRecyclerCompanyOverviewCategories = ['Reclaimed Rubber', 'Crumb Rubber', 'Crumb Rubber Modified Bitumen (CRMB)', 'Recovered Carbon Black', 'Pyrolysis Oil', 'Pyrolysis Char'];
 
-function normalizeCompanyOverviewCategories(value) {
+function normalizeCompanyOverviewCategories(value, options = companyOverviewCategories) {
   const values = Array.isArray(value) ? value : String(value || '').split(',');
-  return companyOverviewCategories.filter((option) => values.some((item) => String(item || '').trim().toLowerCase() === option.toLowerCase()));
+  return options.filter((option) => values.some((item) => String(item || '').trim().toLowerCase() === option.toLowerCase()));
 }
 
-function CompanyCategoryMultiSelect({ value, onChange }) {
+function CompanyCategoryMultiSelect({ value, onChange, options = companyOverviewCategories }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
   const [menuPosition, setMenuPosition] = useState(null);
-  const selected = normalizeCompanyOverviewCategories(value);
+  const selected = normalizeCompanyOverviewCategories(value, options);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -3110,7 +3128,7 @@ function CompanyCategoryMultiSelect({ value, onChange }) {
         </button>
         {open && menuPosition && createPortal(
           <div ref={menuRef} className="fixed z-[10050] overflow-y-auto rounded-xl border border-emerald-100 bg-white p-1 shadow-2xl" style={menuPosition} role="listbox" aria-multiselectable="true">
-            {companyOverviewCategories.map((option) => {
+            {options.map((option) => {
               const checked = selected.includes(option);
               return <button key={option} type="button" role="option" aria-selected={checked} onClick={() => toggle(option)} className={`flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs font-black transition ${checked ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'}`}><span>{option}</span>{checked && <Check className="h-4 w-4" />}</button>;
             })}
@@ -3121,7 +3139,7 @@ function CompanyCategoryMultiSelect({ value, onChange }) {
   );
 }
 
-function CompanyOverviewTab({ client, setValue }) {
+function CompanyOverviewTab({ client, setValue, applicability }) {
   const overview = client?.companyOverview || {};
   const overviewItems = Array.isArray(overview.overviewItems) && overview.overviewItems.length
     ? overview.overviewItems
@@ -3179,7 +3197,7 @@ function CompanyOverviewTab({ client, setValue }) {
           </div>
         </div>
         <div className="md:col-span-2"><Field label="Product Name"><input className="form-input" value={overview.productName || ''} onChange={(event) => setValue('companyOverview', 'productName', event.target.value)} /></Field></div>
-        <CompanyCategoryMultiSelect value={overview.category} onChange={(value) => setValue('companyOverview', 'category', value)} />
+        <CompanyCategoryMultiSelect value={overview.category} options={applicability?.isTyreWasteRecycler ? tyreRecyclerCompanyOverviewCategories : companyOverviewCategories} onChange={(value) => setValue('companyOverview', 'category', value)} />
         <Field label="Product Image Upload"><UploadButton value={overview.productImage} onChange={(value) => setValue('companyOverview', 'productImage', value)} /></Field>
       </div>
     </Card>
