@@ -2420,9 +2420,25 @@ exports.upsertClientServiceAllocations = async (req, res) => {
     const rawEntries = Object.entries(rawAllocations).filter(([k, v]) => {
       if (!k || typeof k !== 'string') return false;
       if (v == null || v === '' || v === null) return false;
-      if (typeof v !== 'string' && typeof v !== 'number' && !(v && (typeof v.userId !== 'undefined'))) return false;
-      return true;
+      if (typeof v === 'string' || typeof v === 'number') return true;
+      if (typeof v === 'object') {
+        if (typeof v.userId !== 'undefined') return true;
+        if (typeof v.uid !== 'undefined') return true;
+        if (typeof v.user !== 'undefined') return true;
+        if (typeof v.assignedTo !== 'undefined') return true;
+        if (typeof v.assigneeId !== 'undefined') return true;
+        if (typeof v.assignee_id !== 'undefined') return true;
+        if (typeof v.assignedUserId !== 'undefined') return true;
+        if (typeof v.id !== 'undefined') return true;
+        if (typeof v._id !== 'undefined') return true;
+        if (typeof v.value !== 'undefined') return true;
+        // Also accept any object that contains a 24-hex id pattern in any string property
+        const anyHex = Object.values(v).some((val) => typeof val === 'string' && /^[a-f0-9]{24}$/i.test(val.trim()));
+        if (anyHex) return true;
+      }
+      return false;
     });
+    console.debug('[alloc:upsert] inbound', { client: id, rawKeys: Object.keys(rawAllocations || {}), rawEntriesCount: rawEntries.length, keys: rawEntries.map(([k,v])=>k).join(' | ') });
 
     // (1) Validate all referenced userIds exist (allow `{userId}` object shape OR raw string userId)
     const uniqueUserIds = new Set();
@@ -2543,19 +2559,33 @@ exports.upsertClientServiceAllocations = async (req, res) => {
       if (prevUid !== newUid) changedKeys.push(k);
     }
 
-    client.serviceAllocations = normalized;
-    client.markModified('serviceAllocations');
-    client.updatedAt = now;
-    client.updatedBy = String(req.user?.name || '');
-    const saved = await client.save();
-    const savedHydrated = await Client.findById(saved._id).populate('selectedLead').lean(false) || saved;
+    // ATOMIC WRITE GUARANTEE: use findByIdAndUpdate + $set (no Mixed markModified bugs)
+    const updatePayload = {
+      $set: {
+        serviceAllocations: normalized,
+        updatedAt: now,
+        updatedBy: String(req.user?.name || '')
+      }
+    };
+    const atomicResult = await Client.findByIdAndUpdate(client._id, updatePayload, { new: true, runValidators: false, lean: true }).exec();
+    console.debug('[alloc:upsert:atomic] findByIdAndUpdate OK, stored serviceAllocations keys:', Object.keys(atomicResult?.serviceAllocations || {}));
+
+    // FULL DB RELOAD (the one source of truth for response; we won't trust in-memory anymore)
+    const reloaded = await Client.findById(client._id).populate('selectedLead').lean(false).exec();
+    const storedAllocationsRaw = (reloaded && reloaded.serviceAllocations && typeof reloaded.serviceAllocations === 'object')
+      ? (reloaded.serviceAllocations.toObject ? reloaded.serviceAllocations.toObject() : { ...reloaded.serviceAllocations })
+      : {};
+    console.debug('[alloc:upsert:stored] DB reloaded storedAllocations actual keys:', Object.keys(storedAllocationsRaw));
+
+    const savedHydrated = reloaded || client;
     const savedOverview = readClientOverviewFromRecord(savedHydrated);
 
-    // (3) Hydrate normalized allocation records with userName for mail output, also stringify userId for JSON response
+    // (3) Build response from ACTUAL STORED DB entries (not our in-memory normalized!)
     const newAllocationsForMail = {};
     const responseAllocations = {};
-    Object.entries(normalized).forEach(([k, v]) => {
+    Object.entries(storedAllocationsRaw).forEach(([k, v]) => {
       const uid = userIdFromAllocEntry(v);
+      if (!uid) return;
       const entryName = typeof v === 'object' ? String(v.assignedByName || v.userName || '') : '';
       newAllocationsForMail[k] = { userId: uid, userName: entryName };
       const match = findAllocationMatchInStore(k, previousAllocations);
@@ -2563,12 +2593,14 @@ exports.upsertClientServiceAllocations = async (req, res) => {
         userId: uid,
         userIdString: uid,
         assignedByName: entryName,
-        assignedById: String(req.user?._id || ''),
+        assignedUserRole: typeof v === 'object' ? String(v.assignedUserRole || v.role || '') : '',
+        assignedById: typeof v === 'object' ? String(v.assignedByIdString || v.assignedById || req.user?._id || '') : String(req.user?._id || ''),
         assignedAt: typeof v === 'object' && v.assignedAt ? v.assignedAt : now,
-        updatedAt: now,
+        updatedAt: typeof v === 'object' && v.updatedAt ? v.updatedAt : now,
         matchedExistingEntry: match.key ? match : undefined
       };
     });
+    console.debug('[alloc:upsert:response] responseAllocations final count=', Object.keys(responseAllocations).length);
 
     // (4) Audit log, emails + notifications (non-blocking for response)
     const notifPromise = (async () => {
@@ -2608,7 +2640,15 @@ exports.upsertClientServiceAllocations = async (req, res) => {
       allocationKeysCanonical: clientServices.map(buildAllocationKeyFromService),
       changedServices: changedKeys.length,
       notificationsTriggered: changedKeys.length > 0,
-      client: savedOverview
+      client: savedOverview,
+      _debug: {
+        rawEntriesCount: rawEntries.length,
+        normalizedCount: Object.keys(normalized || {}).length,
+        atomicWroteKeys: Object.keys(atomicResult?.serviceAllocations || {}).length,
+        storedReloadedKeys: Object.keys(storedAllocationsRaw || {}).length,
+        finalResponseAllocCount: Object.keys(responseAllocations).length
+      },
+      _rawStored: storedAllocationsRaw
     });
 
     // Fire-and-forget audit + email resolution log

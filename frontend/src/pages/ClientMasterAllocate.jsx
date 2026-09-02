@@ -13,6 +13,7 @@ import {
   ChevronsRight,
   CircleAlert,
   ClipboardList,
+  Database,
   Filter,
   Gauge,
   ListChecks,
@@ -455,10 +456,14 @@ export default function ClientMasterAllocate() {
       const res = await api.put(API_ENDPOINTS.clients.allocations(modalClient.client._id), { allocations: body });
       if (res.data?.ok) {
         const serverAllocs = (res.data.allocations && typeof res.data.allocations === 'object') ? res.data.allocations : {};
+        const rawStored = (res.data._rawStored && typeof res.data._rawStored === 'object') ? res.data._rawStored : null;
+        const dbStoredAllocs = rawStored || serverAllocs;
         const serverCount = Object.keys(serverAllocs).length;
+        const dbSlots = Object.keys(dbStoredAllocs).length;
         const sentCount = Object.keys(body).length;
+        const debug = res.data._debug || {};
         const normalizedServer = {};
-        Object.entries(serverAllocs).forEach(([k, rawEntry]) => {
+        Object.entries(dbStoredAllocs).forEach(([k, rawEntry]) => {
           const uid = allocationEntryUserId(rawEntry);
           const entryName = allocationEntryAssignedName(rawEntry) || '';
           normalizedServer[k] = {
@@ -473,11 +478,18 @@ export default function ClientMasterAllocate() {
           patched[idx] = { ...patched[idx], serviceAllocations: Object.assign({}, patched[idx].serviceAllocations || {}, normalizedServer) };
           setClients(patched);
         }
-        // If 0 allocations saved despite sending, show warning toast with payload details for diagnosis
-        if (serverCount === 0 && sentCount > 0) {
-          showToast('error', 'Allocations saved with warning', `Server returned 0 saved despite sending ${String(sentCount)} assignment(s) — check allocation keys`);
+        const extra = [];
+        if (typeof debug.rawEntriesCount !== 'undefined') extra.push(`payload=${String(debug.rawEntriesCount)}`);
+        if (typeof debug.normalizedCount !== 'undefined') extra.push(`norm=${String(debug.normalizedCount)}`);
+        if (typeof debug.atomicWroteKeys !== 'undefined') extra.push(`written=${String(debug.atomicWroteKeys)}`);
+        if (typeof debug.storedReloadedKeys !== 'undefined') extra.push(`DBslots=${String(debug.storedReloadedKeys)}`);
+        if (typeof debug.finalResponseAllocCount !== 'undefined') extra.push(`returned=${String(debug.finalResponseAllocCount)}`);
+        const debugText = extra.length ? `  [debug: ${extra.join(' → ')}]` : '';
+        // If 0 allocations saved despite sending assignments
+        if (dbSlots === 0 && sentCount > 0) {
+          showToast('error', 'Save warning: 0 stored', `You sent ${String(sentCount)} but DB shows 0 allocation slots saved.${debugText}`);
         } else {
-          showToast('success', 'Allocations saved', res.data.message || `Saved ${String(serverCount)} service allocation(s) successfully`);
+          showToast('success', 'Allocations saved', `${res.data.message || `Saved ${String(serverCount)} allocation(s)`}${debugText}`);
         }
         setTimeout(() => refresh().catch(() => {}), 350);
         setModalClient(null);
@@ -721,6 +733,12 @@ export default function ClientMasterAllocate() {
                       <td className="px-5 py-4 align-middle">
                         {(() => {
                           const overview = allocationOverviewWithAssignees(client, userList);
+                          const debugSlots = overview._debugAllocs || (() => {
+                            const store = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
+                              ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations)
+                              : {};
+                            return Object.keys(store).length;
+                          })();
                           if (overview.total === 0) return <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-500 ring-1 ring-slate-200"><CircleAlert className="h-3.5 w-3.5" /> No services</span>;
                           const pills = [];
                           if (overview.assigned === overview.total && overview.total > 0) {
@@ -730,8 +748,13 @@ export default function ClientMasterAllocate() {
                           } else {
                             pills.push(<div key="none" className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-2.5 py-1 text-[11px] font-black text-white shadow-rose-100 ring-1 ring-rose-400/30"><CircleAlert className="h-3.5 w-3.5" /> Unassigned</div>);
                           }
+                          pills.push(
+                            <div key="dbcount" className="inline-flex items-center gap-1 rounded-xl bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-500 ring-1 ring-slate-200 shadow-sm" title={`Total allocation slot entries stored in DB on this Client document (${String(debugSlots)}). If this number is >0 but display still shows Unassigned, it means the stored key shape differs slightly from service list key shape — fuzzy matcher should auto bridge.`}>
+                              <Database className="h-3 w-3" /> DB:{String(debugSlots)}
+                            </div>
+                          );
                           return (
-                            <div className="w-[260px]">
+                            <div className="w-[280px]">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-1.5">{pills}</div>
                                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{progress}%</span>
