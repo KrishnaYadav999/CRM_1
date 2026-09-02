@@ -2478,6 +2478,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
 
     rawEntries.forEach(([rawKey, rawVal]) => {
       const uid = userIdFromAllocEntry(rawVal);
+      console.debug('[alloc:upsert:row] rawKey=', rawKey, 'rawVal=', JSON.stringify(rawVal), 'uid=', uid || '(empty)');
       if (!uid) {
         const delMatch = findAllocationMatchInStore(rawKey, previousAllocations);
         if (delMatch.key) delete normalized[delMatch.key];
@@ -2487,7 +2488,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
       // - First: if there's an existing matching slot in prevAllocs, use that key
       // - Else if this rawKey matches any of this client's services fuzzily -> rewrite key to service canonical key
       // - Else keep raw key (still normalized)
-      let canonicalKey = normalizeAllocationKeyString(rawKey) || rawKey;
+      let canonicalKey = normalizeAllocationKeyString(rawKey) || String(rawKey || '');
       let found = null;
       const existingPrev = findAllocationMatchInStore(rawKey, previousAllocations);
       if (existingPrev.key) {
@@ -2510,9 +2511,15 @@ exports.upsertClientServiceAllocations = async (req, res) => {
           }
         }
       }
+      if (!canonicalKey) {
+        // absolute fallback — don't drop this! always have a key so allocation persists
+        canonicalKey = rawKey || `fallback_${Date.now()}_${Math.round(Math.random()*100000)}`;
+        console.warn('[alloc:upsert:row] no canonical key resolved -> forced fallback', canonicalKey);
+      }
       const prevForThisKey = previousAllocations[canonicalKey];
       const isReuse = prevForThisKey && String(prevForThisKey.userId) === uid;
       const userObj = foundMap.get(uid) || {};
+      console.debug('[alloc:upsert:row] writing canonicalKey=', canonicalKey, 'uid=', uid, 'userObj=', userObj);
       normalized[canonicalKey] = {
         userId: new mongoose.Types.ObjectId(uid),
         userIdString: uid,
@@ -2525,6 +2532,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
         updatedBy: String(req.user?.name || '')
       };
     });
+    console.debug('[alloc:upsert] normalized final keys:', Object.keys(normalized));
 
     // Detect changed keys (added, removed, owner different) — only these trigger emails/notifs
     const allKeysNow = new Set([...Object.keys(previousAllocations), ...Object.keys(normalized)]);

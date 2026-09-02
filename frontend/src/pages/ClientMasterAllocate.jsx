@@ -225,35 +225,64 @@ function getApplicantTheme(labelRaw = '') {
 }
 
 function allocationsForClient(client) {
-  const services = extractServicesFromClient(client);
+  let services = extractServicesFromClient(client);
   const allocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
     ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations)
     : {};
+  const allocKeys = Object.keys(allocs || {});
+  // If services list empty but allocations exist -> treat allocations slots as synthetic services so display works
+  if (services.length === 0 && allocKeys.length) {
+    services = allocKeys.map((k) => ({
+      applicantType: k.split('::')[0] || 'Service',
+      piboCategory: k.split('::')[1] || 'Service',
+      eprCategory: k.split('::')[2] || '',
+      financialYear: k.split('::')[3] || '',
+      plantUnit: k.split('::')[4] || '',
+      servicesOffered: k.split('::')[5] || '',
+      serviceCategory: k.split('::')[2] || '',
+      __allocSynthetic: true, __allocKey: k
+    }));
+  }
   let assigned = 0;
   services.forEach((svc, idx) => {
-    const match = findAllocationEntry({ svc, idx, servicesAllocs: allocs });
+    const match = svc.__allocKey ? { key: svc.__allocKey, rawEntry: allocs[svc.__allocKey], matchKind: 'synthetic' } : findAllocationEntry({ svc, idx, servicesAllocs: allocs });
     const uid = allocationEntryUserId(match.rawEntry);
     if (uid) assigned += 1;
   });
-  return { services, total: services.length, assigned, unassigned: services.length - assigned, _debugAllocs: Object.keys(allocs).length };
+  return { services, total: services.length, assigned, unassigned: services.length - assigned, _debugAllocs: allocKeys.length };
 }
 
 function allocationOverviewWithAssignees(client, users) {
-  const services = extractServicesFromClient(client);
+  let services = extractServicesFromClient(client);
   const allocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
     ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations)
     : {};
+  const allocKeys = Object.keys(allocs || {});
+  if (services.length === 0 && allocKeys.length) {
+    services = allocKeys.map((k) => ({
+      applicantType: k.split('::')[0] || 'Service',
+      piboCategory: k.split('::')[1] || 'Service',
+      eprCategory: k.split('::')[2] || '',
+      financialYear: k.split('::')[3] || '',
+      plantUnit: k.split('::')[4] || '',
+      servicesOffered: k.split('::')[5] || '',
+      serviceCategory: k.split('::')[2] || '',
+      __allocSynthetic: true, __allocKey: k
+    }));
+  }
   const userById = new Map((users || []).map((u) => [String(u?._id || u?.id || ''), u]));
   const assignees = [];
   let assigned = 0;
   services.forEach((svc, idx) => {
-    const match = findAllocationEntry({ svc, idx, servicesAllocs: allocs });
+    const match = svc.__allocKey ? { key: svc.__allocKey, rawEntry: allocs[svc.__allocKey], matchKind: 'synthetic' } : findAllocationEntry({ svc, idx, servicesAllocs: allocs });
     const uid = allocationEntryUserId(match.rawEntry);
     if (uid) {
       assigned += 1;
       const u = userById.get(uid);
-      const name = allocationEntryAssignedName(match.rawEntry) || (u ? u.name : '') || 'Unknown user';
-      if (!assignees.some((a) => a.uid === uid)) assignees.push({ uid, name, role: u?.role || '' });
+      const dbName = allocationEntryAssignedName(match.rawEntry);
+      const name = dbName || (u ? u.name : '') || uid.slice(0, 8);
+      const role = u?.role || (typeof match.rawEntry === 'object' ? String(match.rawEntry?.assignedUserRole || match.rawEntry?.role || '') : '');
+      if (!assignees.some((a) => a.uid === uid)) assignees.push({ uid, name, role });
     }
   });
   return { services, total: services.length, assigned, unassigned: services.length - assigned, assignees, userById };
@@ -422,14 +451,16 @@ export default function ClientMasterAllocate() {
     try {
       setSaving(true);
       const body = Object.fromEntries(Object.entries(allocationsByKey).filter(([, v]) => v && String(v).trim()));
+      console.debug('[CMAllocate] saving allocations body=', body, 'for client=', modalClient.client._id);
       const res = await api.put(API_ENDPOINTS.clients.allocations(modalClient.client._id), { allocations: body });
       if (res.data?.ok) {
         const serverAllocs = (res.data.allocations && typeof res.data.allocations === 'object') ? res.data.allocations : {};
+        const serverCount = Object.keys(serverAllocs).length;
+        const sentCount = Object.keys(body).length;
         const normalizedServer = {};
         Object.entries(serverAllocs).forEach(([k, rawEntry]) => {
           const uid = allocationEntryUserId(rawEntry);
           const entryName = allocationEntryAssignedName(rawEntry) || '';
-          normalizedServer[k] = uid || rawEntry ? { ...(typeof rawEntry === 'object' && rawEntry ? rawEntry : {}), ...(uid ? { __uid: uid } : {}) } : null;
           normalizedServer[k] = {
             ...(typeof rawEntry === 'object' && rawEntry ? rawEntry : { value: rawEntry }),
             userId: uid || (typeof rawEntry === 'object' ? String(rawEntry?.userId || '') : String(rawEntry || ''))
@@ -442,7 +473,12 @@ export default function ClientMasterAllocate() {
           patched[idx] = { ...patched[idx], serviceAllocations: Object.assign({}, patched[idx].serviceAllocations || {}, normalizedServer) };
           setClients(patched);
         }
-        showToast('success', 'Allocations saved', res.data.message || 'Service allocations updated successfully');
+        // If 0 allocations saved despite sending, show warning toast with payload details for diagnosis
+        if (serverCount === 0 && sentCount > 0) {
+          showToast('error', 'Allocations saved with warning', `Server returned 0 saved despite sending ${String(sentCount)} assignment(s) — check allocation keys`);
+        } else {
+          showToast('success', 'Allocations saved', res.data.message || `Saved ${String(serverCount)} service allocation(s) successfully`);
+        }
         setTimeout(() => refresh().catch(() => {}), 350);
         setModalClient(null);
       } else {
