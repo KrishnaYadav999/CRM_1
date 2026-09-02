@@ -2351,9 +2351,16 @@ function findAllocationMatchInStore(serviceKeyOrSvcs, allocationStore) {
 }
 
 function userIdFromAllocEntry(entry) {
+  // First: if entry itself is already a plain string/number uid (e.g. "6a732bedffe6621c1d81394a") use it directly
   if (entry == null) return '';
+  if (typeof entry === 'string' || typeof entry === 'number') {
+    const s = String(entry || '').trim();
+    if (!s) return '';
+    const m = s.match(/[a-f0-9]{24}/i);
+    return m ? m[0] : s;
+  }
   const v = typeof entry === 'object' ? entry : {};
-  const raw = v.userId || v.user || v.assignedTo || v.uid || v.assigneeId || '';
+  const raw = v.userId || v.user || v.assignedTo || v.uid || v.assigneeId || v.assignee_id || v.assignedUserId || v.id || v._id || v.value || '';
   if (raw == null) return '';
   if (typeof raw === 'object') {
     const id = String(raw?._id || raw?.id || raw?.$oid || raw || '').trim();
@@ -2493,8 +2500,18 @@ exports.upsertClientServiceAllocations = async (req, res) => {
     });
 
     rawEntries.forEach(([rawKey, rawVal]) => {
-      const uid = userIdFromAllocEntry(rawVal);
-      console.debug('[alloc:upsert:row] rawKey=', rawKey, 'rawVal=', JSON.stringify(rawVal), 'uid=', uid || '(empty)');
+      let uid = userIdFromAllocEntry(rawVal);
+      // FINAL FORCED FALLBACK (cannot return empty after rawEntries filter passed):
+      //   if rawVal itself is a valid 24-hex string (e.g. "6a732bedffe6621c1d81394a"), treat as uid directly
+      if (!uid && typeof rawVal === 'string') {
+        const s = String(rawVal || '').trim();
+        const m = s.match(/[a-f0-9]{24}/i);
+        if (m) uid = m[0];
+      }
+      if (!uid && typeof rawVal === 'number' && String(rawVal || '').length >= 12) {
+        uid = String(rawVal);
+      }
+      console.debug('[alloc:upsert:row] rawKey=', rawKey, 'rawVal=', JSON.stringify(rawVal), 'uid=', uid || '(EMPTY — will delete)');
       if (!uid) {
         const delMatch = findAllocationMatchInStore(rawKey, previousAllocations);
         if (delMatch.key) delete normalized[delMatch.key];

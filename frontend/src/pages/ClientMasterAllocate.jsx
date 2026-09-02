@@ -108,14 +108,22 @@ function findAllocationEntry({ svc, idx, servicesAllocs }) {
 }
 
 function allocationEntryUserId(entry) {
+  if (entry == null) return '';
+  if (typeof entry === 'string' || typeof entry === 'number') {
+    const s = String(entry || '').trim();
+    if (!s) return '';
+    const m = s.match(/[a-f0-9]{24}/i);
+    return m ? m[0] : s;
+  }
   const v = entry && typeof entry === 'object' ? entry : {};
-  const raw = v?.userId || v?.user || v?.assignedTo || v?.uid || v?.assigneeId || '';
+  const raw = v?.userId || v?.user || v?.assignedTo || v?.uid || v?.assigneeId || v?.assignee_id || v?.assignedUserId || v?.id || v?._id || v?.value || v?.__uid || '';
   if (raw == null) return '';
   if (typeof raw === 'object') {
     const id = String(raw?._id || raw?.id || raw?.$oid || raw || '').trim();
     return id && id !== '[object Object]' ? id : '';
   }
   const s = String(raw || '').trim();
+  if (!s) return '';
   const m = s.match(/[a-f0-9]{24}/i);
   return m ? m[0] : s;
 }
