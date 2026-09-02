@@ -194,6 +194,32 @@ function readClientOverview(client = {}) {
   return { companyName, contactPerson, mobile, email, gstin, state, city, leadCode };
 }
 
+function clientAllocationGroupIdentity(client = {}) {
+  const selectedLead = client.selectedLead;
+  const selectedLeadId = typeof selectedLead === 'object'
+    ? String(selectedLead?._id || selectedLead?.id || '').trim()
+    : String(selectedLead || '').trim();
+  if (selectedLeadId) return `lead:${selectedLeadId.toLowerCase()}`;
+  const overview = readClientOverview(client);
+  if (overview.leadCode) return `code:${overview.leadCode.toLowerCase()}`;
+  const data = client.data || {};
+  const importedLeadId = String(data.importMeta?.leadId || data.selectedLeadSnapshot?.leadId || '').trim();
+  if (importedLeadId) return `lead:${importedLeadId.toLowerCase()}`;
+  return `client:${String(client._id || client.id || '').trim().toLowerCase()}`;
+}
+
+function allocationKeyForService(svc = {}, idx = 0) {
+  return clientMasterGroupingIdentityForAllocation({
+    applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit,
+    eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered,
+    financialYear: svc.financialYear, piboCategory: svc.piboCategory
+  }) || `fallback_${idx}`;
+}
+
+function allocationStateKey(clientId, serviceKey) {
+  return `${String(clientId || '').trim()}@@${serviceKey}`;
+}
+
 function userDisplay(u) {
   const roleRaw = u ? u.role : '';
   const roleLabel = roleLabels[String(roleRaw || '').toLowerCase()] || String(roleRaw || '').trim();
@@ -436,29 +462,70 @@ export default function ClientMasterAllocate() {
   const userList = useMemo(() => users.slice().sort((a, b) => (a.name || `${a.firstName || ''} ${a.lastName || ''}`).localeCompare(b.name || `${b.firstName || ''} ${b.lastName || ''}`)), [users]);
 
   const openAllocation = (client) => {
-    const services = extractServicesFromClient(client);
-    const existingAllocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
-      ? { ...(client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations) }
-      : {};
+    const groupIdentity = clientAllocationGroupIdentity(client);
+    const groupedClients = clients.filter((candidate) => clientAllocationGroupIdentity(candidate) === groupIdentity);
+    const services = groupedClients.flatMap((sourceClient) => extractServicesFromClient(sourceClient).map((svc, serviceIndex) => ({
+      ...svc,
+      __allocationClientId: String(sourceClient._id || ''),
+      __allocationClient: sourceClient,
+      __allocationServiceIndex: serviceIndex
+    })));
     const next = {};
     services.forEach((svc, idx) => {
-      const key = clientMasterGroupingIdentityForAllocation({
-        applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit,
-        eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered,
-        financialYear: svc.financialYear, piboCategory: svc.piboCategory
-      }) || `fallback_${idx}`;
-      const match = findAllocationEntry({ svc, idx, servicesAllocs: existingAllocs });
+      const sourceClient = svc.__allocationClient;
+      const existingAllocs = (sourceClient?.serviceAllocations && typeof sourceClient.serviceAllocations === 'object')
+        ? { ...(sourceClient.serviceAllocations.toObject ? sourceClient.serviceAllocations.toObject() : sourceClient.serviceAllocations) }
+        : {};
+      const serviceIndex = svc.__allocationServiceIndex ?? idx;
+      const key = allocationKeyForService(svc, serviceIndex);
+      const match = findAllocationEntry({ svc, idx: serviceIndex, servicesAllocs: existingAllocs });
       const uid = allocationEntryUserId(match.rawEntry);
-      next[key] = uid;
+      next[allocationStateKey(svc.__allocationClientId, key)] = uid;
     });
     setAllocationsByKey(next);
-    setModalClient({ client, services });
+    setModalClient({ client, clients: groupedClients, services });
   };
 
   const saveAllocations = async () => {
     if (!modalClient?.client?._id) return;
     try {
       setSaving(true);
+      if (Array.isArray(modalClient.clients) && Array.isArray(modalClient.services)) {
+        const allocationsByClient = new Map();
+        modalClient.services.forEach((svc, idx) => {
+          const clientId = String(svc.__allocationClientId || '').trim();
+          if (!clientId) return;
+          const serviceKey = allocationKeyForService(svc, svc.__allocationServiceIndex ?? idx);
+          const userId = String(allocationsByKey[allocationStateKey(clientId, serviceKey)] || '').trim();
+          if (!userId) return;
+          if (!allocationsByClient.has(clientId)) allocationsByClient.set(clientId, {});
+          allocationsByClient.get(clientId)[serviceKey] = userId;
+        });
+        const requests = [...allocationsByClient.entries()].map(async ([clientId, allocations]) => {
+          console.debug('[CMAllocate] saving grouped allocations body=', allocations, 'for client=', clientId);
+          const response = await api.put(API_ENDPOINTS.clients.allocations(clientId), { allocations });
+          if (!response.data?.ok) throw new Error(response.data?.error || response.data?.message || `Save failed for client ${clientId}`);
+          const stored = response.data._rawStored && typeof response.data._rawStored === 'object'
+            ? response.data._rawStored
+            : response.data.allocations;
+          if (Object.keys(allocations).length > 0 && (!stored || Object.keys(stored).length === 0)) {
+            throw new Error(`Database verification failed for client ${clientId}`);
+          }
+          return response.data;
+        });
+        if (requests.length === 0) {
+          showToast('error', 'Nothing to save', 'Select at least one user before saving allocations.');
+          return;
+        }
+        const results = await Promise.all(requests);
+        const savedSlots = results.reduce((total, result) => total + Object.keys(result.allocations || {}).length, 0);
+        const refreshed = await api.get(API_ENDPOINTS.clients.list);
+        const refreshedClients = Array.isArray(refreshed?.data?.clients) ? refreshed.data.clients : (Array.isArray(refreshed?.data) ? refreshed.data : []);
+        setClients(refreshedClients);
+        showToast('success', 'Allocations saved', `${savedSlots} service allocation(s) saved across ${results.length} Client Master record(s).`);
+        setModalClient(null);
+        return;
+      }
       const body = Object.fromEntries(Object.entries(allocationsByKey).filter(([, v]) => v && String(v).trim()));
       console.debug('[CMAllocate] saving allocations body=', body, 'for client=', modalClient.client._id);
       const res = await api.put(API_ENDPOINTS.clients.allocations(modalClient.client._id), { allocations: body });
@@ -873,22 +940,22 @@ function KpiCard({ icon: Icon, gradient, label, value, hint, progress, shadowCol
 function AllocationModal({ isOpen, onClose, client, services = [], users = [], values = {}, setValues, saving, onSave }) {
   if (!isOpen || !client) return null;
   const overview = readClientOverview(client);
-  const existingAllocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
-    ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations)
-    : {};
   const userById = useMemo(() => new Map(users.map((u) => [String(u._id || u.id), u])), [users]);
   const rows = services.map((svc, idx) => {
-    const key = clientMasterGroupingIdentityForAllocation({
-      applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit,
-      eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered,
-      financialYear: svc.financialYear, piboCategory: svc.piboCategory
-    }) || `fallback_${idx}`;
-    const existingMatch = findAllocationEntry({ svc, idx, servicesAllocs: existingAllocs });
+    const sourceClient = svc.__allocationClient || client;
+    const clientId = String(svc.__allocationClientId || sourceClient._id || client._id || '');
+    const serviceIndex = svc.__allocationServiceIndex ?? idx;
+    const existingAllocs = (sourceClient.serviceAllocations && typeof sourceClient.serviceAllocations === 'object')
+      ? (sourceClient.serviceAllocations.toObject ? sourceClient.serviceAllocations.toObject() : sourceClient.serviceAllocations)
+      : {};
+    const key = allocationKeyForService(svc, serviceIndex);
+    const stateKey = allocationStateKey(clientId, key);
+    const existingMatch = findAllocationEntry({ svc, idx: serviceIndex, servicesAllocs: existingAllocs });
     const existingUserId = allocationEntryUserId(existingMatch.rawEntry);
-    const current = String(values[key] || values[existingMatch.key] || '').trim();
+    const current = String(values[stateKey] || '').trim();
     const fallbackText = existingUserId && userById.has(existingUserId) ? userDisplay(userById.get(existingUserId)) : null;
     const selectedUser = current && userById.has(current) ? userById.get(current) : (existingUserId && userById.has(existingUserId) ? userById.get(existingUserId) : null);
-    return { svc, idx, key, current, existingUserId, selectedUser, fallbackText };
+    return { svc, idx, key, stateKey, clientId, current, existingUserId, selectedUser, fallbackText };
   });
   const assignedCount = rows.filter((r) => r.current || (r.existingUserId && !r.current)).length;
   const progress = rows.length ? Math.round((assignedCount / rows.length) * 100) : 0;
@@ -949,9 +1016,9 @@ function AllocationModal({ isOpen, onClose, client, services = [], users = [], v
               {rows.map((row) => {
                 const theme = getApplicantTheme(row.svc.piboCategory || row.svc.subApplicantType || row.svc.applicantType || '');
                 const ApplicantIcon = theme.accentIcon;
-                const isChanged = String(values[row.key] || '').trim() !== row.existingUserId;
+                const isChanged = String(values[row.stateKey] || '').trim() !== row.existingUserId;
                 return (
-                  <article key={`allocation-row-${String(client._id)}-${row.idx}`} className={`group relative overflow-hidden rounded-3xl border bg-white p-4 shadow-[0_10px_30px_-15px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_-15px_rgba(15,23,42,0.18)] sm:p-5 ${theme.ring}`}>
+                  <article key={`allocation-row-${row.clientId}-${row.idx}`} className={`group relative overflow-hidden rounded-3xl border bg-white p-4 shadow-[0_10px_30px_-15px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_-15px_rgba(15,23,42,0.18)] sm:p-5 ${theme.ring}`}>
                     <div className={`pointer-events-none absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b ${theme.iconBg}`} />
                     <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
                       <div className="flex min-w-0 items-start gap-3.5">
@@ -983,7 +1050,7 @@ function AllocationModal({ isOpen, onClose, client, services = [], users = [], v
                         <div className="relative">
                           <select
                             value={row.current}
-                            onChange={(e) => setValues((prev) => ({ ...prev, [row.key]: String(e.target.value || '') }))}
+                            onChange={(e) => setValues((prev) => ({ ...prev, [row.stateKey]: String(e.target.value || '') }))}
                             className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 pr-10 text-sm font-bold text-slate-800 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_6px_20px_-12px_rgba(15,23,42,0.25)] transition focus:outline-none focus:ring-4 ${
                               row.current
                                 ? 'border-emerald-300 bg-gradient-to-r from-white to-emerald-50 focus:border-emerald-400 focus:ring-emerald-100'
@@ -1027,7 +1094,7 @@ function AllocationModal({ isOpen, onClose, client, services = [], users = [], v
                 <div className="mt-3 space-y-2.5 text-xs font-bold text-slate-600">
                   <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><BriefcaseBusiness className="h-3.5 w-3.5 text-slate-400" /> Total services</span><b className="text-slate-900">{rows.length}</b></div>
                   <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><UserCheck className="h-3.5 w-3.5 text-emerald-600" /> Assigned now</span><b className="text-emerald-800">{rows.filter((r) => r.current).length}</b></div>
-                  <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><Percent className="h-3.5 w-3.5 text-violet-600" /> Changed rows</span><b className="text-violet-800">{rows.filter((r) => String(values[r.key] || '').trim() !== r.existingUserId).length}</b></div>
+                  <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><Percent className="h-3.5 w-3.5 text-violet-600" /> Changed rows</span><b className="text-violet-800">{rows.filter((r) => String(values[r.stateKey] || '').trim() !== r.existingUserId).length}</b></div>
                   <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-sky-600" /> Eligible staff</span><b className="text-sky-800">{users.length}</b></div>
                 </div>
                 <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
