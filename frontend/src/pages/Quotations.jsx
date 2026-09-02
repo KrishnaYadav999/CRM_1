@@ -57,6 +57,7 @@ const emptyItem = {
   applicantType: '',
   subApplicantType: '',
   unit: '1',
+  unitName: '',
   unitLabel: '',
   basicAmount: ''
 };
@@ -820,6 +821,7 @@ function parseQuotationWorkbook(fileRows, leads = []) {
       eprCategory: String(row['Item EPR Category'] || row['EPR Category'] || '').trim(),
       piboParent: inferPiboParent(piboCategory), piboCategory,
       unit: String(row['Item Unit'] || row['Quantity/Unit'] || '').trim() || '1',
+      unitName: String(row['Item Unit Name'] || row['Unit Name'] || '').trim(),
       unitLabel: String(row['Item UOM'] || row.UOM || '').trim().toUpperCase(),
       basicAmount: excelAmount(row['Item Basic Amount (INR)'] || row['Basic Amount (INR)'])
     });
@@ -1585,6 +1587,7 @@ export default function Quotations() {
     draft.transitionPeriod = eprCredit ? 'No' : transitionPeriod;
     draft.servicesForYear = deriveFinancialYearFromDate(serviceStartDate);
     draft.unit = '1';
+    draft.unitName = String(draft.unitName || '').trim();
     draft.unitLabel = isEprCreditItem(draft) ? String(draft.unitLabel).trim().toUpperCase() : '';
     draft.annualReturnEprCreditYears = isEprCreditItem(draft) && !isPwpEprCreditItem(draft) ? quotationEprCreditYears(draft) : [];
     delete draft.piboCategoryParent;
@@ -1752,6 +1755,7 @@ export default function Quotations() {
           servicesForYear: deriveFinancialYearFromDate(item.serviceStartDate) || item.servicesForYear || '',
           basicAmount: quotation.pricingMode === 'combined' ? 0 : item.basicAmount,
           unit: '1',
+          unitName: String(item.unitName || '').trim(),
           unitLabel: isEprCreditItem(item) ? String(item.unitLabel || '').trim().toUpperCase() : '',
           annualReturnEprCreditYears: isEprCreditItem(item) ? quotationEprCreditYears(item) : [],
           piboParent: item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory),
@@ -2071,7 +2075,7 @@ export default function Quotations() {
                 <table className="w-full min-w-[1180px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
-                      {['Sr.No', 'EPR / Service Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', ...(showUomColumn ? ['UOM'] : []), 'Unit', 'Basic Amount (INR)', 'Actions'].map((header) => (
+                      {['Sr.No', 'EPR / Service Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', ...(showUomColumn ? ['UOM'] : []), 'Unit', 'Unit Name', 'Basic Amount (INR)', 'Actions'].map((header) => (
                         <th key={header} className="px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -2104,6 +2108,7 @@ export default function Quotations() {
                             </>}
                             {showUomColumn && <td className="px-3 py-4">{isEprCreditItem({ ...item, businessCategory: readItemDraftValue(index, 'businessCategory', item.businessCategory || '') }) ? <select aria-label={`UOM for quotation item ${index + 1}`} value={String(readItemDraftValue(index, 'unitLabel', item.unitLabel || '') || '').toUpperCase()} onChange={(event) => setItemDraft(index, 'unitLabel', event.target.value)} className="h-10 min-w-24 rounded-lg border border-slate-300 bg-white px-3 font-black uppercase outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="">Select UOM</option>{EPR_CREDIT_UOM_OPTIONS.map((uom) => <option key={uom} value={uom}>{uom}</option>)}</select> : <span className="font-black text-slate-400">-</span>}</td>}
                             <td className="px-3 py-4"><input value="1" disabled className="h-10 w-24 cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 font-black text-slate-600 outline-none" placeholder="1" /></td>
+                            <td className="px-3 py-4"><input aria-label={`Unit Name for quotation item ${index + 1}`} maxLength={120} value={String(readItemDraftValue(index, 'unitName', item.unitName || '') ?? '')} onChange={(event) => setItemDraft(index, 'unitName', event.target.value)} className="h-10 min-w-40 rounded-lg border border-slate-300 bg-white px-3 font-black outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="Enter unit name" /></td>
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4">
                               <div className="flex h-10 min-w-48 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
                                 <span className="grid w-10 place-items-center border-r border-slate-200 font-black text-slate-800">₹</span>
@@ -2129,6 +2134,7 @@ export default function Quotations() {
                             <td className="px-3 py-4 font-black text-emerald-700">{item.serviceAddedBy || '-'}</td>
                             {showUomColumn && <td className="px-3 py-4 font-black uppercase">{isEprCreditItem(item) ? (item.unitLabel || '-') : '-'}</td>}
                             <td className="px-3 py-4 font-black uppercase">{item.unit || '-'}</td>
+                            <td className="px-3 py-4 font-black uppercase">{item.unitName || '-'}</td>
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4 font-black text-orange-600">{formatInr(item.basicAmount)}</td>}
                             {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="border-l border-slate-100 bg-emerald-50/60 px-3 py-4 text-center align-middle font-black text-emerald-700">{formatInr(quotation.combinedBasicAmount)}</td>}
                             <td className="px-3 py-4">
@@ -2331,14 +2337,14 @@ function QuotationItemsPanel({ quotation, items }) {
       <table className={`w-full text-left text-sm ${hasEprCreditItems ? 'min-w-[1240px]' : 'min-w-[1080px]'}`}>
         <thead className="bg-slate-50 text-xs font-black uppercase text-slate-600">
           <tr>
-            {['Business Category', 'Service Category', 'Service Period', ...(hasEprCreditItems ? ['Annual Return EPR Credit Years'] : []), 'Applicant Type', 'Unit', 'Basic Amount (INR)', 'Start Date', 'End Date'].map((header) => (
+            {['Business Category', 'Service Category', 'Service Period', ...(hasEprCreditItems ? ['Annual Return EPR Credit Years'] : []), 'Applicant Type', 'Unit', 'Unit Name', 'Basic Amount (INR)', 'Start Date', 'End Date'].map((header) => (
               <th key={header} className="border-r border-slate-100 px-4 py-4 last:border-r-0">{header}</th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {items.length === 0 ? (
-            <tr><td colSpan={hasEprCreditItems ? 9 : 8} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
+            <tr><td colSpan={hasEprCreditItems ? 10 : 9} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
           ) : items.map((item, index) => (
             <tr key={index} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.businessCategory || '-'}</td>
@@ -2347,6 +2353,7 @@ function QuotationItemsPanel({ quotation, items }) {
               {hasEprCreditItems && <td className="px-4 py-4">{isEprCreditItem(item) ? (quotationEprCreditYears(item).join(', ') || '-') : '-'}</td>}
               <td className="px-4 py-4">{getQuotationApplicantType(item)}</td>
               <td className="px-4 py-4">{quotationUnitLabel(item)}</td>
+              <td className="px-4 py-4">{item.unitName || '-'}</td>
               {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
               <td className="px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
               <td className="px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
@@ -2480,7 +2487,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
               <table className="w-full min-w-[1180px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-black text-slate-600">
                   <tr>
-                    {['Sr.No', 'Business Category', 'Service Category', 'Service Period', ...(hasEprCreditItems ? ['Annual Return EPR Credit Years'] : []), 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit', 'Line Total'].map((header) => (
+                    {['Sr.No', 'Business Category', 'Service Category', 'Service Period', ...(hasEprCreditItems ? ['Annual Return EPR Credit Years'] : []), 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit', 'Unit Name', 'Line Total'].map((header) => (
                       <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                     ))}
                   </tr>
@@ -2498,10 +2505,11 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                       <td className="border-b border-r border-slate-100 px-4 py-4">{getQuotationApplicantType(item)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{quotationUnitLabel(item)}</td>
+                      <td className="border-b border-r border-slate-100 px-4 py-4">{item.unitName || '-'}</td>
                       {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
                     </tr>
                   )) : (
-                    <tr><td colSpan={hasEprCreditItems ? 11 : 10} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                    <tr><td colSpan={hasEprCreditItems ? 12 : 11} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -2558,6 +2566,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
     ['Applicant Type', getQuotationApplicantType(firstItem)],
     ...(isEprCreditItem(firstItem) ? [['Annual Return EPR Credit Years', quotationEprCreditYears(firstItem).join(', ') || '-']] : []),
     ['Quantity/Unit', quotationUnitLabel(firstItem)],
+    ['Unit Name', firstItem.unitName || '-'],
     ['Basic Amount (INR)', formatInr(firstItem.basicAmount)],
     ['Quotation Valid Until', quotation.validUntil || '-'],
     ['Quotation Date', createdDate]
@@ -2594,7 +2603,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
           <table className="w-full min-w-[1120px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-600">
               <tr>
-                {['Sr.No', 'Business Category', 'Service Category', 'Service Period', ...(hasEprCreditItems ? ['Annual Return EPR Credit Years'] : []), 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit'].map((header) => (
+                {['Sr.No', 'Business Category', 'Service Category', 'Service Period', ...(hasEprCreditItems ? ['Annual Return EPR Credit Years'] : []), 'Service Start Date', 'Service End Date', 'Basic Amount (INR)', 'Applicant Type', 'Unit', 'Unit Name'].map((header) => (
                   <th key={header} className="border-b border-r border-slate-200 px-4 py-4 last:border-r-0">{header}</th>
                 ))}
               </tr>
@@ -2612,9 +2621,10 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                   {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                   <td className="border-b border-r border-slate-100 px-4 py-4">{getQuotationApplicantType(item)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{quotationUnitLabel(item)}</td>
+                  <td className="border-b border-r border-slate-100 px-4 py-4">{item.unitName || '-'}</td>
                 </tr>
               )) : (
-                <tr><td colSpan={hasEprCreditItems ? 10 : 9} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
+                <tr><td colSpan={hasEprCreditItems ? 11 : 10} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
               )}
             </tbody>
           </table>
@@ -2901,10 +2911,10 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
               {combined && <div className="mt-5 px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
               <div className={`${combined ? '' : 'mt-5'} overflow-hidden border border-slate-950`}>
                 <table className="w-full table-fixed text-[10px]">
-                  <colgroup><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[19%]" /><col className="w-[14%]" /><col className="w-[15%]" /><col className="w-[6%]" /><col className="w-[12%]" /></colgroup>
+                  <colgroup><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[15%]" /><col className="w-[11%]" /><col className="w-[11%]" /><col className="w-[6%]" /><col className="w-[11%]" /><col className="w-[12%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
-                      {['Business Category', 'Service Category', 'Service Period', 'Applicant Type', 'Services Offered', 'Unit', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
+                      {['Business Category', 'Service Category', 'Service Period', 'Applicant Type', 'Services Offered', 'Unit', 'Unit Name', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -2916,6 +2926,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{getQuotationApplicantType(item)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationUnitLabel(item)}</td>
+                        <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.unitName || '-'}</td>
                         {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-t border-slate-950 px-1.5 py-2 text-center align-middle">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
                       </tr>
                     ))}
@@ -3022,6 +3033,7 @@ function buildQuotationPrintHtml(quotation) {
       <td>${escapeHtml(getQuotationApplicantType(item))}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(quotationUnitLabel(item))}</td>
+      <td>${escapeHtml(item.unitName || '-')}</td>
       ${!combined || index === 0 ? `<td class="amount${combined ? ' combined-amount' : ''}"${combined ? ` rowspan="${items.length}"` : ''}>${escapeHtml(formatInr(combined ? combinedTotal : item.basicAmount))}</td>` : ''}
     </tr>
   `).join('');
@@ -3121,9 +3133,9 @@ function buildQuotationPrintHtml(quotation) {
       ${combinedPackageHeader}
       <table>
         <thead>
-          <tr><th>Business Category</th><th>Service Category</th><th>Service Period</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Business Category</th><th>Service Category</th><th>Service Period</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
         </thead>
-        <tbody>${rows || '<tr><td colspan="7" class="center">No quotation items added.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="8" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
       <div class="package-header">EPR / Service Period Mapping</div>
       <table>

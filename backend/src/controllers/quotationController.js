@@ -334,6 +334,7 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
         applicantType: cleanString(item.applicantType ?? existingItem.applicantType),
         subApplicantType: cleanString(item.subApplicantType ?? existingItem.subApplicantType),
         unit: '1',
+        unitName: cleanString(item.unitName ?? existingItem.unitName).slice(0, 120),
         unitLabel: isEprCredit ? unitLabel : undefined,
         basicAmount: roundMoney(item.basicAmount)
       };

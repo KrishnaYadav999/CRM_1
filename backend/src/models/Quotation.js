@@ -47,6 +47,7 @@ const QuoteItemSchema = new mongoose.Schema({
   applicantType: { type: String, trim: true },
   subApplicantType: { type: String, trim: true },
   unit: { type: String, trim: true },
+  unitName: { type: String, trim: true, maxlength: 120 },
   unitLabel: { type: String, trim: true },
   basicAmount: { type: Number, default: 0 }
 }, { _id: false });

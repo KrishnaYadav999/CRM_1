@@ -35,6 +35,24 @@ test('legacy quotation items without a period unit remain annual', () => {
   assert.equal(body.items[0].serviceEndDate, '2027-08-06');
 });
 
+test('quotation unit name is sanitized and persisted separately from unit and UOM', () => {
+  const body = quotationController._test.cleanBody({
+    items: [{
+      serviceCategory: 'EPR - Execution', servicePeriod: 1, periodUnit: 'annual',
+      serviceStartDate: '2026-08-07', unitName: '  Mumbai Factory Unit  '
+    }]
+  });
+  assert.equal(body.items[0].unit, '1');
+  assert.equal(body.items[0].unitName, 'Mumbai Factory Unit');
+});
+
+test('quotation form, view, and printable download expose Unit Name', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /Unit Name for quotation item/);
+  assert.match(page, /item\.unitName \|\| '-'/);
+  assert.match(page, /<th>Unit Name<\/th>/);
+});
+
 test('quotation API sanitization rejects invalid units and non-integer periods', () => {
   assert.throws(
     () => quotationController._test.cleanBody({ items: [{ serviceCategory: 'EPR - Execution', servicePeriod: 1, serviceStartDate: '2026-08-07' }] }),
