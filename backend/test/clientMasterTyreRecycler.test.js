@@ -15,6 +15,13 @@ test('Tyre Waste Recycler uses its six Company Overview output categories', () =
   assert.match(page, /tyreRecyclerCompanyOverviewCategories/);
 });
 
+test('Tyre Waste Producer uses only Bias Ply and Radial Company Overview categories', () => {
+  assert.match(page, /function isTyreWasteProducerClient/);
+  assert.match(page, /category\.includes\('producer'\) && service\.includes\('tyre'\)/);
+  assert.match(page, /const tyreProducerCompanyOverviewCategories = \['Bias Ply', 'Radial'\]/);
+  assert.match(page, /applicability\?\.isTyreWasteProducer/);
+});
+
 test('Tyre Waste Recycler hides non-applicable documents and PFD from completion', () => {
   const base = {
     basic: { piboCategory: 'Recycler', eprCategory: 'EPR - Tyre Waste', companyType: 'Private Limited' },

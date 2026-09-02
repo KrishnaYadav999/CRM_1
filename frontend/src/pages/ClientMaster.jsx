@@ -104,6 +104,13 @@ function isTyreWasteRecyclerClient(client = {}) {
   return category.includes('recycler') && service.includes('tyre');
 }
 
+function isTyreWasteProducerClient(client = {}) {
+  const snapshot = client.selectedLeadSnapshot || {};
+  const category = String(client.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || '').trim().toLowerCase();
+  const service = String(client.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || snapshot.servicesOffered || '').trim().toLowerCase();
+  return category.includes('producer') && service.includes('tyre');
+}
+
 function getApplicableComplianceRows(client = {}) {
   const category = String(client.basic?.piboCategory || client.selectedLeadSnapshot?.piboCategory || '').trim().toLowerCase();
   const applicantType = String(client.selectedLeadSnapshot?.applicantType || client.selectedLeadSnapshot?.piboParent || '').trim().toLowerCase();
@@ -148,6 +155,7 @@ function getClientApplicability(client = {}) {
   const isBrandOwner = category.includes('brand owner');
   const isPwp = applicantType === 'pwp' || category === 'pwp';
   const isTyreWasteRecycler = isTyreWasteRecyclerClient(client);
+  const isTyreWasteProducer = isTyreWasteProducerClient(client);
   const factoryLicenseApplicability = client.compliance?.factoryLicenseApplicability;
   const brandOwnerProductionFacility = client.compliance?.brandOwnerProductionFacility
     || (factoryLicenseApplicability === 'Applicable' ? 'Yes' : factoryLicenseApplicability === 'Not Applicable' ? 'No' : '');
@@ -157,7 +165,7 @@ function getClientApplicability(client = {}) {
   const processDiagramRequired = isTyreWasteRecycler
     ? false
     : (processDiagramChoiceRequired ? client.cpcb?.processDiagramRequired === 'Yes' : true);
-  return { isImporter, isBrandOwner, isPwp, isTyreWasteRecycler, hideProcessDiagram: isTyreWasteRecycler, cteTabApplicable, cteApplicable, processDiagramChoiceRequired: isTyreWasteRecycler ? false : processDiagramChoiceRequired, processDiagramRequired };
+  return { isImporter, isBrandOwner, isPwp, isTyreWasteRecycler, isTyreWasteProducer, hideProcessDiagram: isTyreWasteRecycler, cteTabApplicable, cteApplicable, processDiagramChoiceRequired: isTyreWasteRecycler ? false : processDiagramChoiceRequired, processDiagramRequired };
 }
 
 const tabProgressFields = {
@@ -3065,6 +3073,7 @@ export default function ClientMaster() {
 
 const companyOverviewCategories = ['Cat I', 'Cat II', 'Cat III', 'Cat IV'];
 const tyreRecyclerCompanyOverviewCategories = ['Reclaimed Rubber', 'Crumb Rubber', 'Crumb Rubber Modified Bitumen (CRMB)', 'Recovered Carbon Black', 'Pyrolysis Oil', 'Pyrolysis Char'];
+const tyreProducerCompanyOverviewCategories = ['Bias Ply', 'Radial'];
 
 function normalizeCompanyOverviewCategories(value, options = companyOverviewCategories) {
   const values = Array.isArray(value) ? value : String(value || '').split(',');
@@ -3141,6 +3150,11 @@ function CompanyCategoryMultiSelect({ value, onChange, options = companyOverview
 
 function CompanyOverviewTab({ client, setValue, applicability }) {
   const overview = client?.companyOverview || {};
+  const categoryOptions = applicability?.isTyreWasteRecycler
+    ? tyreRecyclerCompanyOverviewCategories
+    : applicability?.isTyreWasteProducer
+      ? tyreProducerCompanyOverviewCategories
+      : companyOverviewCategories;
   const overviewItems = Array.isArray(overview.overviewItems) && overview.overviewItems.length
     ? overview.overviewItems
     : [''];
@@ -3197,7 +3211,7 @@ function CompanyOverviewTab({ client, setValue, applicability }) {
           </div>
         </div>
         <div className="md:col-span-2"><Field label="Product Name"><input className="form-input" value={overview.productName || ''} onChange={(event) => setValue('companyOverview', 'productName', event.target.value)} /></Field></div>
-        <CompanyCategoryMultiSelect value={overview.category} options={applicability?.isTyreWasteRecycler ? tyreRecyclerCompanyOverviewCategories : companyOverviewCategories} onChange={(value) => setValue('companyOverview', 'category', value)} />
+        <CompanyCategoryMultiSelect value={overview.category} options={categoryOptions} onChange={(value) => setValue('companyOverview', 'category', value)} />
         <Field label="Product Image Upload"><UploadButton value={overview.productImage} onChange={(value) => setValue('companyOverview', 'productImage', value)} /></Field>
       </div>
     </Card>
