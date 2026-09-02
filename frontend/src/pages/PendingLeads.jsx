@@ -6,13 +6,6 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 
 function idFor(row = {}) { return row._id || row.id || row.sourceLeadId || row.leadCode || ''; }
 function dateFor(row = {}) { return row.createdAt || row.importedCreatedAt || row.leadDate || ''; }
-function isIndiaMonthEnd(input = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date(input)).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
-  const currentDay = Number(parts.day);
-  const lastDay = new Date(Date.UTC(Number(parts.year), Number(parts.month), 0)).getUTCDate();
-  return currentDay === lastDay;
-}
 function allServices(row = {}) {
   return Array.isArray(row.serviceSelections) && row.serviceSelections.length ? row.serviceSelections : [row];
 }
@@ -28,16 +21,61 @@ function serviceClosed(row = {}, index = 0) {
     || (allServices(row).length === 1 && (row.closedBy || row.closedByText || row.closedAt))
   );
 }
+function serviceClosedAt(row = {}, index = 0) {
+  const service = allServices(row)[index] || {};
+  const assignment = allAssignments(row)[index] || {};
+  return service.closedAt || assignment.closedAt || (allServices(row).length === 1 ? row.closedAt : '') || '';
+}
+function indiaDateParts(input = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(input)).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+}
+function indiaMonthKey(input) {
+  const date = new Date(input || 0);
+  if (!date.getTime()) return '';
+  const parts = indiaDateParts(date);
+  return `${parts.year}-${parts.month}`;
+}
+function reviewMonthBoundary(reviewMonth) {
+  const [year, month] = String(reviewMonth || '').split('-').map(Number);
+  if (!year || !month) return new Date(0);
+  return new Date(Date.UTC(year, month, 1, -5, -30));
+}
+function latestVisibleReviewMonth(input = new Date()) {
+  const parts = indiaDateParts(input);
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (Number(parts.day) === lastDay) return `${year}-${String(month).padStart(2, '0')}`;
+  const previous = new Date(Date.UTC(year, month - 2, 1));
+  return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+function monthRange(firstMonth, lastMonth) {
+  const [firstYear, firstNumber] = String(firstMonth || '').split('-').map(Number);
+  const [lastYear, lastNumber] = String(lastMonth || '').split('-').map(Number);
+  if (!firstYear || !firstNumber || !lastYear || !lastNumber) return [];
+  const result = [];
+  for (let cursor = new Date(Date.UTC(firstYear, firstNumber - 1, 1)); cursor <= new Date(Date.UTC(lastYear, lastNumber - 1, 1)); cursor.setUTCMonth(cursor.getUTCMonth() + 1)) {
+    result.push(`${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  return result;
+}
+function serviceOpenAtReviewMonth(row = {}, index = 0, reviewMonth) {
+  const boundary = reviewMonthBoundary(reviewMonth);
+  const service = allServices(row)[index] || {};
+  const createdAt = new Date(service.createdAt || dateFor(row) || 0);
+  if (!boundary.getTime() || !createdAt.getTime() || createdAt >= boundary) return false;
+  const closedAt = new Date(serviceClosedAt(row, index) || 0);
+  if (closedAt.getTime()) return closedAt >= boundary;
+  return !serviceClosed(row, index);
+}
 function servicesForMode(row = {}, mode = 'open') {
   return allServices(row).map((service, index) => ({
     service,
     assignment: allAssignments(row)[index] || {},
     originalIndex: index,
     closed: serviceClosed(row, index)
-  })).filter((item) => mode === 'closed' ? item.closed : !item.closed);
-}
-function pendingDraft(row) {
-  return Boolean(isIndiaMonthEnd() && servicesForMode(row, 'open').length);
+  })).filter((item) => mode === 'closed' ? item.closed : row.__reviewMonth ? serviceOpenAtReviewMonth(row, item.originalIndex, row.__reviewMonth) : !item.closed);
 }
 function closedLead(row) {
   return servicesForMode(row, 'closed').length > 0;
@@ -93,6 +131,14 @@ function historyTone(item = {}) {
 function readableField(input) {
   return String(input || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
+function buildMonthEndReviewRows(leads = [], input = new Date()) {
+  const latestMonth = latestVisibleReviewMonth(input);
+  const firstMonth = leads.map((row) => indiaMonthKey(dateFor(row))).filter(Boolean).sort()[0];
+  if (!firstMonth || firstMonth > latestMonth) return [];
+  return monthRange(firstMonth, latestMonth).flatMap((reviewMonth) => leads
+    .map((row) => ({ ...row, __reviewMonth: reviewMonth, __reviewRowKey: `${idFor(row)}-${reviewMonth}` }))
+    .filter((row) => servicesForMode(row, 'open').length));
+}
 
 const PAGE_SIZE = 10;
 function leadOwner(row = {}) { return value(row.importedCreatedBy || row.createdByName || row.createdByEmail); }
@@ -114,24 +160,25 @@ export default function PendingLeads({ mode = 'open' }) {
   const [dayFilter, setDayFilter] = useState('all');
   const [userFilter, setUserFilter] = useState('all');
   const [page, setPage] = useState(1);
-  const monthOptions = useMemo(() => [...new Set(leads.map((row) => monthKey(filterDateFor(row, mode))).filter(Boolean))].sort().reverse(), [leads, mode]);
-  const userOptions = useMemo(() => [...new Set(leads.map(leadOwner).filter((name) => name !== '-'))].sort((left, right) => left.localeCompare(right)), [leads]);
-  const rows = useMemo(() => leads.filter((row) => {
+  const reviewLeads = useMemo(() => mode === 'open' ? buildMonthEndReviewRows(leads) : leads, [leads, mode]);
+  const monthOptions = useMemo(() => [...new Set(reviewLeads.map((row) => row.__reviewMonth || monthKey(filterDateFor(row, mode))).filter(Boolean))].sort().reverse(), [reviewLeads, mode]);
+  const userOptions = useMemo(() => [...new Set(reviewLeads.map(leadOwner).filter((name) => name !== '-'))].sort((left, right) => left.localeCompare(right)), [reviewLeads]);
+  const rows = useMemo(() => reviewLeads.filter((row) => {
     const role = String(currentUser?.role || '').trim().toLowerCase();
     const admin = ['admin', 'superadmin', 'super admin'].includes(role);
     const mine = [row.createdBy, row.createdByCrmUserId, row.createdByEmail, row.createdByName, row.importedCreatedBy, row.assignedTo?._id, row.assignedToText, row.assignedStaff, row.assignedStaffText, ...(row.assignments || []).flatMap((item) => [item.assignedTo, item.assignedToText, item.assignedStaff, item.assignedStaffText])].map(normalizeIdentity);
     const identities = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.email, currentUser?.name].map(normalizeIdentity).filter(Boolean);
     if (!admin && !identities.some((id) => mine.includes(id))) return false;
-    if (mode === 'closed' ? !closedLead(row) : !pendingDraft(row)) return false;
+    if (mode === 'closed' ? !closedLead(row) : !servicesForMode(row, 'open').length) return false;
     const relevantDate = new Date(filterDateFor(row, mode) || 0);
-    if (monthFilter !== 'all' && monthKey(relevantDate) !== monthFilter) return false;
+    if (monthFilter !== 'all' && (row.__reviewMonth || monthKey(relevantDate)) !== monthFilter) return false;
     if (userFilter !== 'all' && leadOwner(row) !== userFilter) return false;
     if (dayFilter !== 'all') {
       const elapsedDays = (Date.now() - relevantDate.getTime()) / (24 * 60 * 60 * 1000);
       if (elapsedDays < 0 || elapsedDays > Number(dayFilter)) return false;
     }
     return true;
-  }), [currentUser, dayFilter, leads, mode, monthFilter, userFilter]);
+  }), [currentUser, dayFilter, reviewLeads, mode, monthFilter, userFilter]);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const paginatedRows = useMemo(() => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [page, rows]);
 
@@ -160,7 +207,7 @@ export default function PendingLeads({ mode = 'open' }) {
   return <DashboardShell currentUser={currentUser}>
     <div className="p-6">
       <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Review</p><h1 className="text-3xl font-black">{mode === 'closed' ? 'Lead Close' : 'Lead Open'}</h1><p className="mt-1 font-bold text-slate-500">{mode === 'closed' ? 'Closed leads visible within your assigned scope.' : 'Month-end open lead review. Records become visible on the last day of each month.'}</p></div>
+        <div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Review</p><h1 className="text-3xl font-black">{mode === 'closed' ? 'Lead Close' : 'Lead Open'}</h1><p className="mt-1 font-bold text-slate-500">{mode === 'closed' ? 'Closed leads visible within your assigned scope.' : 'Month-end open lead review. Completed monthly snapshots remain available.'}</p></div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex h-11 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 text-emerald-800"><Users className="h-4 w-4" /><div><span className="block text-[9px] font-black uppercase tracking-wider">Total Leads</span><strong className="text-lg leading-none">{rows.length.toLocaleString('en-IN')}</strong></div></div>
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">User<select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} className="h-11 min-w-44 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><option value="all">All Users</option>{userOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
@@ -176,8 +223,8 @@ export default function PendingLeads({ mode = 'open' }) {
             const matchingServices = servicesForMode(row, mode);
             const quotation = [...quotations].filter((item) => quotationMatchesLead(item, row)).sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0];
             const contributors = [...new Set(matchingServices.map(({ service }) => service.createdByName || service.createdByEmail || row.importedCreatedBy || row.createdByName || row.createdByEmail).filter(Boolean))];
-            return <tr className="border-t border-slate-100 hover:bg-emerald-50/30" key={idFor(row)}><td className="px-4 py-4 font-black">{(page - 1) * PAGE_SIZE + index + 1}</td><td className="px-4 py-4">{value(filterDateFor(row, mode)).slice(0, 10)}</td><td className="px-4 py-4"><span className={`rounded-full px-3 py-1 font-black ${mode === 'closed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{mode === 'closed' ? 'Closed' : pendingFor(row)}</span></td><td className="px-4 py-4">{leadOwner(row)}</td><td className="px-4 py-4"><button type="button" onClick={() => view(row)} className="text-left font-black text-slate-950 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-700">{value(row.company)}</button></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.servicesOffered).filter(Boolean))].join(', '))}</td><td className="px-4 py-4"><div className="flex flex-wrap gap-1.5">{contributors.length ? contributors.map((name) => <span key={name} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-black text-sky-700">{name}</span>) : '-'}</div></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.firstAnnualReturnYearApplicable).filter(Boolean))].join(', '))}</td><td className="px-4 py-4 font-black text-emerald-700">{quotation ? formatInr(quotationBasicAmount(quotation)) : '-'}</td></tr>;
-          })}{!rows.length && <tr><td colSpan={9} className="p-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : mode === 'closed' ? 'No closed leads found.' : isIndiaMonthEnd() ? 'No open leads found for this month-end review.' : 'Open leads will be available on the last day of the month.'}</td></tr>}</tbody>
+            return <tr className="border-t border-slate-100 hover:bg-emerald-50/30" key={row.__reviewRowKey || idFor(row)}><td className="px-4 py-4 font-black">{(page - 1) * PAGE_SIZE + index + 1}</td><td className="px-4 py-4">{value(filterDateFor(row, mode)).slice(0, 10)}</td><td className="px-4 py-4"><span className={`rounded-full px-3 py-1 font-black ${mode === 'closed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{mode === 'closed' ? 'Closed' : pendingFor(row)}</span></td><td className="px-4 py-4">{leadOwner(row)}</td><td className="px-4 py-4"><button type="button" onClick={() => view(row)} className="text-left font-black text-slate-950 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-700">{value(row.company)}</button></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.servicesOffered).filter(Boolean))].join(', '))}</td><td className="px-4 py-4"><div className="flex flex-wrap gap-1.5">{contributors.length ? contributors.map((name) => <span key={name} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-black text-sky-700">{name}</span>) : '-'}</div></td><td className="px-4 py-4">{value([...new Set(matchingServices.map(({ service }) => service.firstAnnualReturnYearApplicable).filter(Boolean))].join(', '))}</td><td className="px-4 py-4 font-black text-emerald-700">{quotation ? formatInr(quotationBasicAmount(quotation)) : '-'}</td></tr>;
+          })}{!rows.length && <tr><td colSpan={9} className="p-12 text-center font-black text-slate-400">{loading ? 'Loading leads...' : mode === 'closed' ? 'No closed leads found.' : 'No open leads found in the available month-end snapshots.'}</td></tr>}</tbody>
         </table>
         {!loading && rows.length > 0 && <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs font-bold text-slate-500"><span>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, rows.length)} of {rows.length} leads</span><div className="flex items-center gap-1"><button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => setPage((current) => current - 1)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>{paginationPages(page, totalPages).map((item, index) => item === 'ellipsis' ? <span key={`ellipsis-${index}`} className="px-2">…</span> : <button type="button" key={item} onClick={() => setPage(item)} className={`h-9 min-w-9 rounded-lg px-2 ${item === page ? 'bg-emerald-700 text-white' : 'hover:bg-slate-100'}`}>{item}</button>)}<button type="button" aria-label="Next page" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button></div><span>10 per page</span></footer>}
       </div>
