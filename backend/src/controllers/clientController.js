@@ -1897,6 +1897,33 @@ function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
 }
 
+function splitAllocationKeyToTuple(key) {
+  if (!key || typeof key !== 'string') return Array(9).fill('');
+  const arr = String(key).split('::').map((p) => String(p || '').trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
+  while (arr.length < 9) arr.push('');
+  return arr.slice(0, 9);
+}
+
+function normalizeAllocationKeyString(key) {
+  return splitAllocationKeyToTuple(key).filter(Boolean).join('::');
+}
+
+function buildAllocationKeyFromService(service = {}) {
+  const clean = (v = '') => String(v || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const tuple = [
+    clean(service.applicantType),
+    clean(service.subApplicantType || service.piboCategory),
+    clean(service.plantUnit),
+    clean(service.eprCategory || service.serviceCategory || service.epr),
+    clean(service.piboCategory || service.subApplicantType),
+    clean(service.servicesOffered || service.service || service.scope),
+    clean(service.servicePeriod || service.period),
+    clean(service.financialYear || service.servicesForYear || (Array.isArray(service.annualReturnYears) ? service.annualReturnYears[0] : '') || service.fy),
+    clean(service.applicantLabel || service.label)
+  ];
+  return tuple.filter(Boolean).join('::');
+}
+
 function splitAllocationKey(key) {
   if (!key || typeof key !== 'string') return {};
   const parts = String(key).split('::').map((p) => String(p || '').trim());
@@ -2286,32 +2313,128 @@ function servicesRowsShortLabel(rows) {
   return `${first}${suffix}`;
 }
 
+function findAllocationMatchInStore(serviceKeyOrSvcs, allocationStore) {
+  const allocs = (allocationStore && typeof allocationStore === 'object') ? allocationStore : {};
+  const entries = Object.entries(allocs);
+  if (entries.length === 0) return { key: null, rawEntry: null, matchKind: 'empty-store' };
+  const svc = serviceKeyOrSvcs && typeof serviceKeyOrSvcs === 'object' && !Array.isArray(serviceKeyOrSvcs) && !(serviceKeyOrSvcs instanceof Date || mongoose?.Types?.ObjectId?.isValid?.(serviceKeyOrSvcs))
+    ? serviceKeyOrSvcs
+    : null;
+  const asService = svc ? buildAllocationKeyFromService(serviceKeyOrSvcs) : '';
+  const normDirect = normalizeAllocationKeyString(asService || String(serviceKeyOrSvcs || ''));
+  const key9 = splitAllocationKeyToTuple(asService || String(serviceKeyOrSvcs || ''));
+  const nonEmptyIdx = key9.map((p, i) => p ? i : -1).filter((i) => i >= 0);
+
+  // 1) exact normalized key match
+  if (normDirect) {
+    for (const [k, v] of entries) {
+      const nk = normalizeAllocationKeyString(k);
+      if (nk && nk === normDirect) return { key: k, rawEntry: v, matchKind: 'normalized-exact' };
+    }
+  }
+  // 2) fuzzy 70% tuple component match
+  if (nonEmptyIdx.length) {
+    let best = null; let bestScore = 0;
+    for (const [k, v] of entries) {
+      const k9 = splitAllocationKeyToTuple(k);
+      let same = 0;
+      nonEmptyIdx.forEach((i) => { if (k9[i] === key9[i]) same += 1; });
+      const score = same / nonEmptyIdx.length;
+      if (score >= 0.7 && score > bestScore) { bestScore = score; best = { key: k, rawEntry: v, matchKind: `fuzzy-${Math.round(score * 100)}` }; }
+    }
+    if (best) return best;
+  }
+  // 3) literal key match (including original ::-non-filtered)
+  const literal = asService || String(serviceKeyOrSvcs || '');
+  if (literal && allocs[literal]) return { key: literal, rawEntry: allocs[literal], matchKind: 'literal-exact' };
+  return { key: null, rawEntry: null, matchKind: 'none' };
+}
+
+function userIdFromAllocEntry(entry) {
+  if (entry == null) return '';
+  const v = typeof entry === 'object' ? entry : {};
+  const raw = v.userId || v.user || v.assignedTo || v.uid || v.assigneeId || '';
+  if (raw == null) return '';
+  if (typeof raw === 'object') {
+    const id = String(raw?._id || raw?.id || raw?.$oid || raw || '').trim();
+    return id && id !== '[object Object]' ? id : '';
+  }
+  const s = String(raw || '').trim();
+  const m = s.match(/[a-f0-9]{24}/i);
+  return m ? m[0] : s;
+}
+
+function extractServicesFromClientServer(client = {}) {
+  const data = Object(client.data || {});
+  const rawServices = Array.isArray(client.services) ? client.services : [];
+  const map = new Map();
+  const services = rawServices.length ? rawServices.map((s) => {
+    const sd = (s && typeof s === 'object') ? s : {};
+    return Object.assign({}, sd, {
+      applicantType: sd.applicantType || sd.piboParent || data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || data.selectedLeadSnapshot?.piboCategoryParent || '',
+      subApplicantType: sd.piboCategory || data.selectedLeadSnapshot?.subApplicantType || data.basic?.piboCategory || data.selectedLeadSnapshot?.piboCategory || sd.subApplicantType || '',
+      servicesOffered: sd.servicesOffered || data.selectedLeadSnapshot?.servicesOffered || data.basic?.servicesOffered || '',
+      eprCategory: sd.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.basic?.eprCategory || sd.serviceCategory || '',
+      financialYear: sd.financialYear || sd.servicesForYear || (Array.isArray(sd.annualReturnYears) ? sd.annualReturnYears[0] : '') || '',
+      plantUnit: sd.plantUnit || data.selectedLeadSnapshot?.plantUnit || data.basic?.plantUnit || '',
+      piboParent: sd.piboParent || sd.applicantType || data.selectedLeadSnapshot?.piboParent || '',
+      piboCategory: sd.piboCategory || sd.subApplicantType || data.selectedLeadSnapshot?.piboCategory || data.basic?.piboCategory || '',
+      assignedServiceId: sd.assignedServiceId || data.assignedServiceId || client.assignedServiceId || '',
+      serviceCategory: sd.serviceCategory || sd.eprCategory || data.selectedLeadSnapshot?.eprCategory || data.basic?.eprCategory || ''
+    });
+  }) : [];
+  if (services.length) {
+    services.forEach((svc) => {
+      const k = buildAllocationKeyFromService(svc);
+      if (!map.has(k)) map.set(k, svc);
+    });
+    return Array.from(map.values());
+  }
+  if (data.selectedLeadSnapshot || data.basic || client.applicantType || client.servicesOffered) {
+    const synthetic = {
+      applicantType: data.selectedLeadSnapshot?.applicantType || data.selectedLeadSnapshot?.piboParent || client.applicantType || client.piboParent || '',
+      subApplicantType: data.selectedLeadSnapshot?.subApplicantType || data.basic?.piboCategory || client.piboCategory || '',
+      eprCategory: data.selectedLeadSnapshot?.eprCategory || data.basic?.eprCategory || client.eprCategory || '',
+      servicesOffered: data.selectedLeadSnapshot?.servicesOffered || data.basic?.servicesOffered || client.servicesOffered || '',
+      financialYear: data.selectedLeadSnapshot?.financialYear || data.basic?.financialYear || client.financialYear || (client.year ? String(client.year) : ''),
+      plantUnit: data.selectedLeadSnapshot?.plantUnit || data.basic?.plantUnit || client.plantUnit || '',
+      piboCategory: data.selectedLeadSnapshot?.piboCategory || data.basic?.piboCategory || client.piboCategory || '',
+      assignedServiceId: client.assignedServiceId || data.assignedServiceId || ''
+    };
+    return [synthetic];
+  }
+  return [];
+}
+
 exports.upsertClientServiceAllocations = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ ok: false, error: 'Invalid client id' });
     const client = await Client.findById(id).populate('selectedLead').lean(false);
     if (!client) return res.status(404).json({ ok: false, error: 'Client not found' });
+    const clientServices = extractServicesFromClientServer(client);
     const rawAllocations = req.body?.allocations || req.body?.serviceAllocations || req.body;
     if (!rawAllocations || typeof rawAllocations !== 'object') {
       return res.status(400).json({ ok: false, error: 'Invalid payload — `allocations: {serviceKey: userId}` required' });
     }
-    const entries = Object.entries(rawAllocations).filter(([k, v]) => {
+    const rawEntries = Object.entries(rawAllocations).filter(([k, v]) => {
       if (!k || typeof k !== 'string') return false;
       if (v == null || v === '' || v === null) return false;
       if (typeof v !== 'string' && typeof v !== 'number' && !(v && (typeof v.userId !== 'undefined'))) return false;
       return true;
     });
+
     // (1) Validate all referenced userIds exist (allow `{userId}` object shape OR raw string userId)
     const uniqueUserIds = new Set();
-    entries.forEach(([, v]) => {
-      const uid = String(typeof v === 'object' ? (v?.userId || v?.id || '') : v).trim();
+    rawEntries.forEach(([, v]) => {
+      const uid = userIdFromAllocEntry(v);
       if (uid) uniqueUserIds.add(uid);
     });
+    const foundMap = new Map();
     if (uniqueUserIds.size) {
       const validIds = [...uniqueUserIds].filter((uid) => mongoose.Types.ObjectId.isValid(uid));
       const foundUsers = await User.find({ _id: { $in: validIds.map((uid) => new mongoose.Types.ObjectId(uid)) } }, '_id name email role isActive').lean();
-      const foundMap = new Map(foundUsers.map((u) => [String(u._id), u]));
+      foundUsers.forEach((u) => foundMap.set(String(u._id), u));
       for (const uid of uniqueUserIds) {
         if (!mongoose.Types.ObjectId.isValid(uid) || !foundMap.has(uid)) {
           return res.status(400).json({ ok: false, error: `Invalid user id: ${uid}` });
@@ -2320,6 +2443,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
         if (u.isActive === false) return res.status(400).json({ ok: false, error: `User is inactive: ${u.name || uid}` });
       }
     }
+
     // (1a) Snapshot PREVIOUS allocations for change detection
     const prevAllocRaw = client.serviceAllocations && typeof client.serviceAllocations === 'object'
       ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : { ...client.serviceAllocations })
@@ -2327,8 +2451,7 @@ exports.upsertClientServiceAllocations = async (req, res) => {
     const previousAllocations = {};
     Object.entries(prevAllocRaw).forEach(([k, v]) => {
       if (!k || !v) return;
-      const uidRaw = typeof v === 'object' ? (v.userId?._id || v.userId || v.id) : v;
-      const uid = uidRaw ? String(uidRaw) : '';
+      const uid = userIdFromAllocEntry(v);
       if (!uid) return;
       previousAllocations[k] = {
         userId: uid,
@@ -2337,50 +2460,106 @@ exports.upsertClientServiceAllocations = async (req, res) => {
       };
     });
 
-    // (2) Build normalized allocations object: serviceKey => { userId, assignedByName, assignedAt, assignedById }
+    // (2) Build normalized allocations map: for each incoming (rawKey → uid), find matching stored key via fuzzy rules.
+    //     First: use services[] for this client to build canonical keys, then re-key any mismatches.
     const now = new Date();
-    const normalized = { ...previousAllocations };
-    entries.forEach(([serviceKey, rawVal]) => {
-      const userId = String(typeof rawVal === 'object' ? (rawVal?.userId || rawVal?.id || '') : rawVal).trim();
-      if (!userId) {
-        delete normalized[serviceKey];
-        return;
-      }
-      const prevForThisKey = previousAllocations[serviceKey];
-      const isReuse = prevForThisKey && String(prevForThisKey.userId) === userId;
-      normalized[serviceKey] = {
-        userId: new mongoose.Types.ObjectId(userId),
-        assignedById: new mongoose.Types.ObjectId(req.user._id),
-        assignedByName: String(req.user.name || ''),
-        assignedAt: isReuse && prevForThisKey.assignedAt ? new Date(prevForThisKey.assignedAt) : now,
+    const normalized = {};
+    Object.entries(previousAllocations).forEach(([k, p]) => {
+      if (!p || !p.userId) return;
+      normalized[k] = {
+        userId: new mongoose.Types.ObjectId(p.userId),
+        assignedById: req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : null,
+        assignedByName: p.assignedByName || '',
+        assignedAt: p.assignedAt || now,
         updatedAt: now,
-        updatedBy: String(req.user.name || ''),
-        userName: String(req.user.name || '')
+        updatedBy: String(req.user?.name || '')
       };
     });
-    // Detect changed keys (added, removed, owner different) — only these trigger emails/notifs (prevents spam)
+
+    rawEntries.forEach(([rawKey, rawVal]) => {
+      const uid = userIdFromAllocEntry(rawVal);
+      if (!uid) {
+        const delMatch = findAllocationMatchInStore(rawKey, previousAllocations);
+        if (delMatch.key) delete normalized[delMatch.key];
+        return;
+      }
+      // Try to find a canonical key for this rawKey:
+      // - First: if there's an existing matching slot in prevAllocs, use that key
+      // - Else if this rawKey matches any of this client's services fuzzily -> rewrite key to service canonical key
+      // - Else keep raw key (still normalized)
+      let canonicalKey = normalizeAllocationKeyString(rawKey) || rawKey;
+      let found = null;
+      const existingPrev = findAllocationMatchInStore(rawKey, previousAllocations);
+      if (existingPrev.key) {
+        canonicalKey = existingPrev.key;
+        found = { from: 'prev-match' };
+      } else if (clientServices.length) {
+        const tuple9 = splitAllocationKeyToTuple(rawKey);
+        const nonEmptyIdx = tuple9.map((p, i) => p ? i : -1).filter((i) => i >= 0);
+        let bestScore = 0;
+        for (const svc of clientServices) {
+          const svcKey = buildAllocationKeyFromService(svc);
+          const nk = normalizeAllocationKeyString(svcKey);
+          if (nk && normalizeAllocationKeyString(rawKey) === nk) { canonicalKey = svcKey; found = { from: 'service-normalized-exact' }; break; }
+          if (nonEmptyIdx.length) {
+            const k9 = splitAllocationKeyToTuple(svcKey);
+            let same = 0;
+            nonEmptyIdx.forEach((i) => { if (k9[i] === tuple9[i]) same += 1; });
+            const score = same / nonEmptyIdx.length;
+            if (score >= 0.7 && score > bestScore) { bestScore = score; canonicalKey = svcKey; found = { from: `service-fuzzy-${Math.round(score * 100)}` }; }
+          }
+        }
+      }
+      const prevForThisKey = previousAllocations[canonicalKey];
+      const isReuse = prevForThisKey && String(prevForThisKey.userId) === uid;
+      const userObj = foundMap.get(uid) || {};
+      normalized[canonicalKey] = {
+        userId: new mongoose.Types.ObjectId(uid),
+        userIdString: uid,
+        assignedById: req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : null,
+        assignedByIdString: req.user?._id ? String(req.user._id) : '',
+        assignedByName: String(userObj.name || req.user?.name || ''),
+        assignedUserRole: String(userObj.role || ''),
+        assignedAt: isReuse && prevForThisKey?.assignedAt ? new Date(prevForThisKey.assignedAt) : now,
+        updatedAt: now,
+        updatedBy: String(req.user?.name || '')
+      };
+    });
+
+    // Detect changed keys (added, removed, owner different) — only these trigger emails/notifs
     const allKeysNow = new Set([...Object.keys(previousAllocations), ...Object.keys(normalized)]);
     const changedKeys = [];
     for (const k of allKeysNow) {
       const prevUid = previousAllocations[k]?.userId || '';
-      const newVal = normalized[k];
-      const newUid = newVal ? String(typeof newVal.userId === 'object' ? (newVal.userId._id || newVal.userId) : newVal.userId) : '';
+      const newUid = normalized[k] ? userIdFromAllocEntry(normalized[k]) : '';
       if (prevUid !== newUid) changedKeys.push(k);
     }
 
     client.serviceAllocations = normalized;
     client.markModified('serviceAllocations');
     client.updatedAt = now;
-    client.updatedBy = String(req.user.name || '');
+    client.updatedBy = String(req.user?.name || '');
     const saved = await client.save();
     const savedHydrated = await Client.findById(saved._id).populate('selectedLead').lean(false) || saved;
     const savedOverview = readClientOverviewFromRecord(savedHydrated);
 
-    // (3) Hydrate normalized allocation records with userName for mail output
+    // (3) Hydrate normalized allocation records with userName for mail output, also stringify userId for JSON response
     const newAllocationsForMail = {};
+    const responseAllocations = {};
     Object.entries(normalized).forEach(([k, v]) => {
-      const uid = String(typeof v.userId === 'object' ? (v.userId._id || v.userId) : v.userId);
-      newAllocationsForMail[k] = { userId: uid, userName: v.assignedByName || v.userName || '' };
+      const uid = userIdFromAllocEntry(v);
+      const entryName = typeof v === 'object' ? String(v.assignedByName || v.userName || '') : '';
+      newAllocationsForMail[k] = { userId: uid, userName: entryName };
+      const match = findAllocationMatchInStore(k, previousAllocations);
+      responseAllocations[k] = {
+        userId: uid,
+        userIdString: uid,
+        assignedByName: entryName,
+        assignedById: String(req.user?._id || ''),
+        assignedAt: typeof v === 'object' && v.assignedAt ? v.assignedAt : now,
+        updatedAt: now,
+        matchedExistingEntry: match.key ? match : undefined
+      };
     });
 
     // (4) Audit log, emails + notifications (non-blocking for response)
@@ -2390,9 +2569,9 @@ exports.upsertClientServiceAllocations = async (req, res) => {
         await AuditLog.create({
           entityName: 'Client.serviceAllocations',
           recordId: String(saved._id),
-          userName: String(req.user.name || ''),
-          userId: String(req.user._id || ''),
-          description: `Assigned ${entries.length} service(s) on client ${auditClientLabel}: ${entries.map(([k, v]) => `${k}->${String(typeof v === 'object' ? (v?.userId || v?.name || '') : v).slice(-8)}`).join(', ')}`,
+          userName: String(req.user?.name || ''),
+          userId: String(req.user?._id || ''),
+          description: `Assigned ${rawEntries.length} service(s) on client ${auditClientLabel}: ${Object.entries(responseAllocations).map(([k, v]) => `${k.split('::').slice(0, 3).join('|')} -> ${(v.assignedByName || v.userId).slice(0, 16)}`).join(', ')}`,
           createdAt: now
         });
       } catch (err) {
@@ -2416,10 +2595,12 @@ exports.upsertClientServiceAllocations = async (req, res) => {
 
     res.json({
       ok: true,
-      message: `Saved ${entries.length} service allocation(s)`,
-      allocations: normalized,
+      message: `Saved ${Object.keys(responseAllocations).length} service allocation(s) for ${savedOverview.companyName || 'client'}${savedOverview.leadCode ? ' · ' + savedOverview.leadCode : ''}`,
+      allocations: responseAllocations,
+      allocationKeysCanonical: clientServices.map(buildAllocationKeyFromService),
       changedServices: changedKeys.length,
-      notificationsTriggered: changedKeys.length > 0
+      notificationsTriggered: changedKeys.length > 0,
+      client: savedOverview
     });
 
     // Fire-and-forget audit + email resolution log

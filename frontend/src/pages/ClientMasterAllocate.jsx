@@ -35,7 +35,7 @@ import { adminRoles, roleLabels } from '../constants/dashboard';
 
 function clientMasterGroupingIdentityForAllocation({ applicantType = '', subApplicantType = '', plantUnit = '', eprCategory = '', piboCategory = '', servicesOffered = '', servicePeriod = '', financialYear = '', applicantLabel = '' }) {
   const clean = (v = '') => String(v || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  return [
+  const tuple = [
     clean(applicantType),
     clean(subApplicantType),
     clean(plantUnit),
@@ -45,7 +45,83 @@ function clientMasterGroupingIdentityForAllocation({ applicantType = '', subAppl
     clean(servicePeriod),
     clean(financialYear),
     clean(applicantLabel)
-  ].filter(Boolean).join('::');
+  ];
+  return tuple.filter(Boolean).join('::');
+}
+
+function splitAllocationKeyToTuple(key) {
+  if (!key || typeof key !== 'string') return Array(9).fill('');
+  const arr = String(key).split('::').map((p) => String(p || '').trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
+  while (arr.length < 9) arr.push('');
+  return arr.slice(0, 9);
+}
+
+function normalizeAllocationKeyString(key) {
+  return splitAllocationKeyToTuple(key).filter(Boolean).join('::');
+}
+
+function findAllocationEntry({ svc, idx, servicesAllocs }) {
+  const allocs = (servicesAllocs && typeof servicesAllocs === 'object')
+    ? (servicesAllocs.toObject ? servicesAllocs.toObject() : servicesAllocs)
+    : {};
+  const key9 = splitAllocationKeyToTuple(clientMasterGroupingIdentityForAllocation({
+    applicantType: svc?.applicantType,
+    subApplicantType: svc?.piboCategory,
+    plantUnit: svc?.plantUnit,
+    eprCategory: svc?.eprCategory || svc?.serviceCategory,
+    piboCategory: svc?.piboCategory,
+    servicesOffered: svc?.servicesOffered,
+    financialYear: svc?.financialYear
+  }));
+  const normExactKey = key9.filter(Boolean).join('::');
+  const allocEntries = Object.entries(allocs);
+
+  // 1) Exact normalized match
+  if (normExactKey) {
+    for (const [k, v] of allocEntries) {
+      const normK = normalizeAllocationKeyString(k);
+      if (normK && normK === normExactKey) return { key: k, rawEntry: v, matchKind: 'normalized-exact' };
+    }
+  }
+
+  // 2) Fuzzy tuple component match (≥ 70% of non-empty parts are equal)
+  const nonEmptyIdx = key9.map((p, i) => p ? i : -1).filter((i) => i >= 0);
+  if (nonEmptyIdx.length) {
+    let bestMatch = null;
+    let bestScore = 0;
+    for (const [k, v] of allocEntries) {
+      const k9 = splitAllocationKeyToTuple(k);
+      let same = 0;
+      nonEmptyIdx.forEach((i) => { if (k9[i] === key9[i]) same += 1; });
+      const score = same / nonEmptyIdx.length;
+      if (score >= 0.7 && score > bestScore) { bestScore = score; bestMatch = { key: k, rawEntry: v, matchKind: `fuzzy-${Math.round(score * 100)}` }; }
+    }
+    if (bestMatch) return bestMatch;
+  }
+
+  // 3) Legacy fallbacks: assignedServiceId or numeric idx key
+  const legacyKey = String(svc?.assignedServiceId || idx || '');
+  if (legacyKey && allocs[legacyKey]) return { key: legacyKey, rawEntry: allocs[legacyKey], matchKind: 'legacy-id' };
+  if (allocs[idx]) return { key: String(idx), rawEntry: allocs[idx], matchKind: 'legacy-index' };
+  return { key: null, rawEntry: null, matchKind: 'none' };
+}
+
+function allocationEntryUserId(entry) {
+  const v = entry && typeof entry === 'object' ? entry : {};
+  const raw = v?.userId || v?.user || v?.assignedTo || v?.uid || v?.assigneeId || '';
+  if (raw == null) return '';
+  if (typeof raw === 'object') {
+    const id = String(raw?._id || raw?.id || raw?.$oid || raw || '').trim();
+    return id && id !== '[object Object]' ? id : '';
+  }
+  const s = String(raw || '').trim();
+  const m = s.match(/[a-f0-9]{24}/i);
+  return m ? m[0] : s;
+}
+
+function allocationEntryAssignedName(entry) {
+  const v = entry && typeof entry === 'object' ? entry : {};
+  return String(v?.assignedByName || v?.assignedToName || v?.userName || v?.name || v?.assigneeName || '').trim();
 }
 
 function extractServicesFromClient(client = {}) {
@@ -155,16 +231,32 @@ function allocationsForClient(client) {
     : {};
   let assigned = 0;
   services.forEach((svc, idx) => {
-    const key = clientMasterGroupingIdentityForAllocation({
-      applicantType: svc.applicantType, subApplicantType: svc.piboCategory,
-      plantUnit: svc.plantUnit, eprCategory: svc.eprCategory || svc.serviceCategory,
-      servicesOffered: svc.servicesOffered, financialYear: svc.financialYear, piboCategory: svc.piboCategory
-    }) || `fallback_${idx}`;
-    const entry = allocs[key] || allocs[String(svc.assignedServiceId || idx)] || {};
-    const uid = String(entry?.userId || entry?.user || entry?.assignedTo || '').trim();
+    const match = findAllocationEntry({ svc, idx, servicesAllocs: allocs });
+    const uid = allocationEntryUserId(match.rawEntry);
     if (uid) assigned += 1;
   });
-  return { services, total: services.length, assigned, unassigned: services.length - assigned };
+  return { services, total: services.length, assigned, unassigned: services.length - assigned, _debugAllocs: Object.keys(allocs).length };
+}
+
+function allocationOverviewWithAssignees(client, users) {
+  const services = extractServicesFromClient(client);
+  const allocs = (client.serviceAllocations && typeof client.serviceAllocations === 'object')
+    ? (client.serviceAllocations.toObject ? client.serviceAllocations.toObject() : client.serviceAllocations)
+    : {};
+  const userById = new Map((users || []).map((u) => [String(u?._id || u?.id || ''), u]));
+  const assignees = [];
+  let assigned = 0;
+  services.forEach((svc, idx) => {
+    const match = findAllocationEntry({ svc, idx, servicesAllocs: allocs });
+    const uid = allocationEntryUserId(match.rawEntry);
+    if (uid) {
+      assigned += 1;
+      const u = userById.get(uid);
+      const name = allocationEntryAssignedName(match.rawEntry) || (u ? u.name : '') || 'Unknown user';
+      if (!assignees.some((a) => a.uid === uid)) assignees.push({ uid, name, role: u?.role || '' });
+    }
+  });
+  return { services, total: services.length, assigned, unassigned: services.length - assigned, assignees, userById };
 }
 
 function filterSegmentsFor(acc) {
@@ -317,8 +409,9 @@ export default function ClientMasterAllocate() {
         eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered,
         financialYear: svc.financialYear, piboCategory: svc.piboCategory
       }) || `fallback_${idx}`;
-      const entry = existingAllocs[key] || existingAllocs[String(svc.assignedServiceId || idx)] || {};
-      next[key] = String(entry.userId || entry.user || entry.assignedTo || '').trim();
+      const match = findAllocationEntry({ svc, idx, servicesAllocs: existingAllocs });
+      const uid = allocationEntryUserId(match.rawEntry);
+      next[key] = uid;
     });
     setAllocationsByKey(next);
     setModalClient({ client, services });
@@ -331,12 +424,26 @@ export default function ClientMasterAllocate() {
       const body = Object.fromEntries(Object.entries(allocationsByKey).filter(([, v]) => v && String(v).trim()));
       const res = await api.put(API_ENDPOINTS.clients.allocations(modalClient.client._id), { allocations: body });
       if (res.data?.ok) {
+        const serverAllocs = (res.data.allocations && typeof res.data.allocations === 'object') ? res.data.allocations : {};
+        const normalizedServer = {};
+        Object.entries(serverAllocs).forEach(([k, rawEntry]) => {
+          const uid = allocationEntryUserId(rawEntry);
+          const entryName = allocationEntryAssignedName(rawEntry) || '';
+          normalizedServer[k] = uid || rawEntry ? { ...(typeof rawEntry === 'object' && rawEntry ? rawEntry : {}), ...(uid ? { __uid: uid } : {}) } : null;
+          normalizedServer[k] = {
+            ...(typeof rawEntry === 'object' && rawEntry ? rawEntry : { value: rawEntry }),
+            userId: uid || (typeof rawEntry === 'object' ? String(rawEntry?.userId || '') : String(rawEntry || ''))
+          };
+          if (entryName) normalizedServer[k].assignedByName = entryName;
+        });
         const idx = clients.findIndex((c) => String(c._id) === String(modalClient.client._id));
         if (idx >= 0) {
-          const patched = [...clients]; patched[idx] = { ...patched[idx], serviceAllocations: res.data.allocations };
+          const patched = [...clients];
+          patched[idx] = { ...patched[idx], serviceAllocations: Object.assign({}, patched[idx].serviceAllocations || {}, normalizedServer) };
           setClients(patched);
         }
         showToast('success', 'Allocations saved', res.data.message || 'Service allocations updated successfully');
+        setTimeout(() => refresh().catch(() => {}), 350);
         setModalClient(null);
       } else {
         showToast('error', 'Save failed', res.data?.error || res.data?.message || 'Unknown error');
@@ -576,32 +683,64 @@ export default function ClientMasterAllocate() {
                         <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-500 ring-1 ring-slate-200"><BriefcaseBusiness className="h-3 w-3" /> {alloc.total} total</div>
                       </td>
                       <td className="px-5 py-4 align-middle">
-                        {alloc.total === 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-500 ring-1 ring-slate-200"><CircleAlert className="h-3.5 w-3.5" /> No services</span>
-                        ) : (
-                          <div className="w-[200px]">
-                            <div className="flex items-center justify-between gap-2">
-                              {alloc.assigned === alloc.total ? (
-                                <div className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-2.5 py-1 text-[11px] font-black text-white shadow-emerald-100 ring-1 ring-emerald-400/30"><CheckCircle2 className="h-3.5 w-3.5" /> Fully allocated</div>
-                              ) : alloc.assigned > 0 ? (
-                                <div className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1 text-[11px] font-black text-white shadow-amber-100 ring-1 ring-amber-400/30"><Percent className="h-3.5 w-3.5" /> Partial {alloc.assigned}/{alloc.total}</div>
-                              ) : (
-                                <div className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-2.5 py-1 text-[11px] font-black text-white shadow-rose-100 ring-1 ring-rose-400/30"><CircleAlert className="h-3.5 w-3.5" /> Unassigned</div>
+                        {(() => {
+                          const overview = allocationOverviewWithAssignees(client, userList);
+                          if (overview.total === 0) return <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-500 ring-1 ring-slate-200"><CircleAlert className="h-3.5 w-3.5" /> No services</span>;
+                          const pills = [];
+                          if (overview.assigned === overview.total && overview.total > 0) {
+                            pills.push(<div key="fully" className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-2.5 py-1 text-[11px] font-black text-white shadow-emerald-100 ring-1 ring-emerald-400/30"><CheckCircle2 className="h-3.5 w-3.5" /> Fully allocated</div>);
+                          } else if (overview.assigned > 0) {
+                            pills.push(<div key="partial" className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1 text-[11px] font-black text-white shadow-amber-100 ring-1 ring-amber-400/30"><Percent className="h-3.5 w-3.5" /> Partial {overview.assigned}/{overview.total}</div>);
+                          } else {
+                            pills.push(<div key="none" className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-2.5 py-1 text-[11px] font-black text-white shadow-rose-100 ring-1 ring-rose-400/30"><CircleAlert className="h-3.5 w-3.5" /> Unassigned</div>);
+                          }
+                          return (
+                            <div className="w-[260px]">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">{pills}</div>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{progress}%</span>
+                              </div>
+                              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-700 ${
+                                    overview.assigned === 0 ? 'bg-gradient-to-r from-rose-400 to-pink-400'
+                                      : overview.assigned === overview.total ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                                      : 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500'
+                                  }`}
+                                  style={{ width: `${String(progress)}%` }}
+                                />
+                              </div>
+                              {overview.assigned > 0 && overview.assignees.length > 0 && (
+                                <div className="mt-2.5 space-y-1.5">
+                                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Allocated to</div>
+                                  <div className="flex max-w-full flex-wrap items-center gap-1.5">
+                                    {overview.assignees.slice(0, 3).map((u) => (
+                                      <span key={u.uid} className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 px-2.5 py-1 text-[11px] font-black text-emerald-900 ring-1 ring-white shadow-sm" title={`Allocated services for this client: ${u.name}${u.role ? ` · ${roleLabels[u.role] || u.role}` : ''}`}>
+                                        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 text-white ring-1 ring-white/50"><UserCheck className="h-3 w-3" /></span>
+                                        <span className="truncate">{u.name}</span>
+                                        {u.role && <span className="truncate rounded-full bg-white px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-800 ring-1 ring-emerald-200">{roleLabels[u.role] || u.role}</span>}
+                                      </span>
+                                    ))}
+                                    {overview.assignees.length > 3 && (
+                                      <span className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-600 ring-1 ring-white shadow-sm">+{String(overview.assignees.length - 3)} more</span>
+                                    )}
+                                  </div>
+                                  {overview.assignees.length > 0 && (
+                                    <div className="text-[10px] font-semibold leading-4 text-slate-500 truncate">
+                                      {overview.assignees.length === 1
+                                        ? <>Owner: <b className="text-emerald-800">{overview.assignees[0].name}</b></>
+                                        : <>Assigned to <b className="text-emerald-800">{String(overview.assignees.length)} user{overview.assignees.length === 1 ? '' : 's'}</b>: {overview.assignees.slice(0, 2).map((u) => u.name).join(', ')}{overview.assignees.length > 2 ? `, +${String(overview.assignees.length - 2)}` : ''}</>
+                                      }
+                                    </div>
+                                  )}
+                                </div>
                               )}
-                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{progress}%</span>
+                              {overview.assigned === 0 && (
+                                <div className="mt-2 text-[11px] font-bold leading-4 text-rose-700/80">No staff user assigned yet. Click <b className="text-rose-800">Allocate Client</b> on the right.</div>
+                              )}
                             </div>
-                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
-                              <div
-                                className={`h-full rounded-full transition-all duration-700 ${
-                                  alloc.assigned === 0 ? 'bg-gradient-to-r from-rose-400 to-pink-400'
-                                    : alloc.assigned === alloc.total ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                                    : 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500'
-                                }`}
-                                style={{ width: `${String(progress)}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </td>
                       <td className="px-5 py-4 text-right align-middle">
                         <div className="flex flex-wrap justify-end gap-2">
@@ -677,9 +816,9 @@ function AllocationModal({ isOpen, onClose, client, services = [], users = [], v
       eprCategory: svc.eprCategory || svc.serviceCategory, servicesOffered: svc.servicesOffered,
       financialYear: svc.financialYear, piboCategory: svc.piboCategory
     }) || `fallback_${idx}`;
-    const current = String(values[key] || '').trim();
-    const existingEntry = existingAllocs[key] || existingAllocs[String(svc.assignedServiceId || idx)] || null;
-    const existingUserId = String(existingEntry?.userId || existingEntry?.assignedTo || '').trim();
+    const existingMatch = findAllocationEntry({ svc, idx, servicesAllocs: existingAllocs });
+    const existingUserId = allocationEntryUserId(existingMatch.rawEntry);
+    const current = String(values[key] || values[existingMatch.key] || '').trim();
     const fallbackText = existingUserId && userById.has(existingUserId) ? userDisplay(userById.get(existingUserId)) : null;
     const selectedUser = current && userById.has(current) ? userById.get(current) : (existingUserId && userById.has(existingUserId) ? userById.get(existingUserId) : null);
     return { svc, idx, key, current, existingUserId, selectedUser, fallbackText };
