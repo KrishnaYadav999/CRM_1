@@ -31,7 +31,14 @@ test('Lead staff filter uses Sales MIS creator ownership with assignment fallbac
 
 test('actual creator and generated-for owner can both quote lead services', () => {
   const quotationPage = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  const leadPage = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  const quotationController = fs.readFileSync(path.resolve(__dirname, '../src/controllers/quotationController.js'), 'utf8');
   assert.match(quotationPage, /lead\.generatedForUser\?\._id/);
   assert.match(quotationPage, /lead\.generatedForName/);
   assert.match(quotationPage, /participantTokens\.some\(\(token\) => userTokens\.includes\(token\)\)/);
+  assert.match(leadPage, /const participantCanSeeAllServices =/);
+  assert.match(leadPage, /viewLead\.generatedForUser\?\._id/);
+  assert.match(leadPage, /if \(participantCanSeeAllServices\) return true/);
+  assert.match(quotationController, /\{ generatedForUser: userId \}/);
+  assert.match(quotationController, /\{ generatedForEmail: exact \}/);
 });

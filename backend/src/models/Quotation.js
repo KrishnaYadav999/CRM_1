@@ -68,6 +68,7 @@ const QuotationSchema = new mongoose.Schema({
   combinedBasicAmount: { type: Number, default: 0 },
   items: { type: [QuoteItemSchema], default: [] },
   terms: { type: [String], default: [] },
+  paymentTerm: { type: String, trim: true },
   scopeOfWork: { type: [String], default: [] },
   subtotal: { type: Number, default: 0 },
   grandTotal: { type: Number, default: 0 },

@@ -2084,12 +2084,19 @@ export default function LeadGeneration() {
                 const allServices = Array.isArray(viewLead.serviceSelections) && viewLead.serviceSelections.length
                   ? viewLead.serviceSelections
                   : [createServiceSelection(viewLead)];
-                const adminCanSeeAllServices = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+                const leadParticipantTokens = [
+                  ...leadCreatorTokens,
+                  viewLead.generatedForUser?._id, viewLead.generatedForUser?.id,
+                  viewLead.generatedForUser?.name, viewLead.generatedForUser?.email,
+                  viewLead.generatedForName, viewLead.generatedForEmail
+                ].map(normalizePersonName).filter(Boolean);
+                const participantCanSeeAllServices = adminRoles.includes(String(currentUser?.role || '').toLowerCase())
+                  || leadParticipantTokens.some((token) => currentUserTokens.includes(token));
                 const ownedServices = allServices.map((service, sourceServiceIndex) => ({
                   ...service,
                   sourceServiceIndex
                 })).filter((service) => {
-                  if (adminCanSeeAllServices) return true;
+                  if (participantCanSeeAllServices) return true;
                   const explicitOwnerTokens = [
                     service.createdByCrmUserId, service.createdByName, service.createdByEmail
                   ].map(normalizePersonName).filter(Boolean);
@@ -2137,12 +2144,19 @@ export default function LeadGeneration() {
                 const allServices = Array.isArray(viewLead.serviceSelections) && viewLead.serviceSelections.length
                   ? viewLead.serviceSelections
                   : [createServiceSelection(viewLead)];
-                const adminCanSeeAllServices = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+                const leadParticipantTokens = [
+                  ...leadCreatorTokens,
+                  viewLead.generatedForUser?._id, viewLead.generatedForUser?.id,
+                  viewLead.generatedForUser?.name, viewLead.generatedForUser?.email,
+                  viewLead.generatedForName, viewLead.generatedForEmail
+                ].map(normalizePersonName).filter(Boolean);
+                const participantCanSeeAllServices = adminRoles.includes(String(currentUser?.role || '').toLowerCase())
+                  || leadParticipantTokens.some((token) => currentUserTokens.includes(token));
                 const ownedServices = allServices.map((service, sourceServiceIndex) => ({
                   ...service,
                   sourceServiceIndex
                 })).filter((service) => {
-                  if (adminCanSeeAllServices) return true;
+                  if (participantCanSeeAllServices) return true;
                   const explicitOwnerTokens = [
                     service.createdByCrmUserId, service.createdByName, service.createdByEmail
                   ].map(normalizePersonName).filter(Boolean);

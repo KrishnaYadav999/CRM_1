@@ -76,6 +76,8 @@ async function quotationAccessFilter(user) {
       { createdByEmail: exact },
       { createdByName: exact },
       { importedCreatedBy: exact },
+      { generatedForName: exact },
+      { generatedForEmail: exact },
       { assignedToText: exact },
       { assignedStaffText: exact },
       { assignedStaffEmail: exact },
@@ -91,6 +93,7 @@ async function quotationAccessFilter(user) {
   const leads = await Lead.find({
     $or: [
       { createdBy: userId },
+      { generatedForUser: userId },
       { assignedTo: userId },
       { assignedStaff: userId },
       { 'assignments.assignedTo': userId },
@@ -354,8 +357,15 @@ const PAYMENT_TERM_OPTIONS = [
   '100% advance payment'
 ];
 
-function validatePaymentTerms(terms = []) {
-  return terms.filter((term) => PAYMENT_TERM_OPTIONS.includes(term)).length === 1 ? '' : 'Select exactly one Terms & Conditions payment option.';
+function cleanPaymentTerm(paymentTerm, terms = []) {
+  const selected = cleanString(paymentTerm);
+  if (selected && terms.includes(selected)) return selected;
+  const legacySelections = terms.filter((term) => PAYMENT_TERM_OPTIONS.includes(term));
+  return legacySelections.length === 1 ? legacySelections[0] : '';
+}
+
+function validatePaymentTerms(terms = [], paymentTerm = '') {
+  return paymentTerm && terms.includes(paymentTerm) ? '' : 'Select exactly one Terms & Conditions payment option.';
 }
 
 async function validateQuotationPiboItems(items = []) {
@@ -390,6 +400,7 @@ function validateQuotationItemDates(items = []) {
 
 function cleanBody(body, user = null, existingItems = []) {
   const items = cleanItems(body.items, user, existingItems, body.quotationDate);
+  const terms = cleanTerms(body.terms);
   const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
   const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
   const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(body.combinedBasicAmount) : 0;
@@ -407,7 +418,8 @@ function cleanBody(body, user = null, existingItems = []) {
     companyName: cleanString(body.companyName || body.leadDetails?.companyName),
     quotationDate: body.quotationDate || undefined,
     items,
-    terms: cleanTerms(body.terms),
+    terms,
+    paymentTerm: cleanPaymentTerm(body.paymentTerm, terms),
     scopeOfWork: cleanTerms(body.scopeOfWork),
     subtotal: roundMoney(body.subtotal || calculatedTotal),
     grandTotal: roundMoney(body.grandTotal || calculatedTotal),
@@ -730,7 +742,7 @@ exports.createQuotation = async (req, res) => {
   try {
     data = cleanBody(req.body, req.user);
     data = await refreshQuotationLeadDetails(data);
-    const termsError = validatePaymentTerms(data.terms);
+    const termsError = validatePaymentTerms(data.terms, data.paymentTerm);
     if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);
@@ -763,7 +775,7 @@ exports.updateQuotation = async (req, res) => {
   try {
     data = cleanBody(req.body, req.user, quotation.items || []);
     data = await refreshQuotationLeadDetails(data, quotation);
-    const termsError = validatePaymentTerms(data.terms);
+    const termsError = validatePaymentTerms(data.terms, data.paymentTerm);
     if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);
     await validateQuotationPiboItems(data.items);
@@ -773,7 +785,7 @@ exports.updateQuotation = async (req, res) => {
   const previous = quotation.toObject();
   const labels = {
     leadId: 'Lead', leadCode: 'Lead Code', fromName: 'From Name', preparedByName: 'Prepared By Name', companyName: 'Company', leadDetails: 'Lead Details',
-    quotationDate: 'Quotation Date', validUntil: 'Valid Until', items: 'Quotation Items', terms: 'Terms', scopeOfWork: 'Scope of Work',
+    quotationDate: 'Quotation Date', validUntil: 'Valid Until', items: 'Quotation Items', terms: 'Terms', paymentTerm: 'Selected Payment Term', scopeOfWork: 'Scope of Work',
     subtotal: 'Subtotal', grandTotal: 'Grand Total'
   };
   const changes = Object.keys(labels).filter((field) => JSON.stringify(previous[field] ?? null) !== JSON.stringify(data[field] ?? null)).map((field) => ({

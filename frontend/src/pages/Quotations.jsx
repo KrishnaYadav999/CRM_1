@@ -259,6 +259,7 @@ const emptyQuotation = {
   combinedBasicAmount: '',
   items: [],
   terms: [],
+  paymentTerm: '',
   scopeOfWork: [],
   status: 'draft'
 };
@@ -278,6 +279,14 @@ const PAYMENT_TERM_OPTIONS = [
   '50% upon receipt of PO and 50% upon completion of EPR Annual Filing',
   '100% advance payment'
 ];
+
+function quotationPaymentTerm(row = {}) {
+  const terms = Array.isArray(row.terms) ? row.terms.map((term) => String(term ?? '').trim()).filter(Boolean) : [];
+  const selected = String(row.paymentTerm || '').trim();
+  if (selected && terms.includes(selected)) return selected;
+  const legacySelections = terms.filter((term) => PAYMENT_TERM_OPTIONS.includes(term));
+  return legacySelections.length === 1 ? legacySelections[0] : '';
+}
 const ANANT_TATTVA_GST_NUMBER = '27AAZCA6657R1ZB';
 
 function cleanScopePresetItem(value) {
@@ -692,6 +701,7 @@ function normalizeQuotationSnapshot(row) {
           basicAmount: row.basicAmount || ''
         }],
     terms: Array.isArray(row.terms) ? row.terms : [],
+    paymentTerm: quotationPaymentTerm(row),
     scopeOfWork: Array.isArray(row.scopeOfWork) ? row.scopeOfWork : [],
     status: row.status || 'draft'
   };
@@ -874,6 +884,9 @@ export default function Quotations() {
   const financialYearIsPwpEprCredit = isPwpEprCreditItem(financialYearDraft || {});
   const financialYearNeedsEprData = !financialYearIsPwpEprCredit && requiresEprDataYear(financialYearDraft?.serviceCategory || financialYearDraft?.eprCategory);
   const financialYearNeedsEprCreditYears = isEprCreditItem(financialYearDraft || {}) && !financialYearIsPwpEprCredit;
+  const normalizedFinancialYearService = String(financialYearDraft?.servicesOffered || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const financialYearIsRegistration = normalizedFinancialYearService === 'registration' || normalizedFinancialYearService.includes('newregistration');
+  const financialYearEprYearHeading = financialYearIsRegistration ? 'Registration EPR Year' : 'Annual Return EPR Year';
   const financialYearDisplayEnd = financialYearDraft?.transitionPeriod === 'Yes'
     ? normalizeDateInputValue(financialYearDraft?.serviceEndDate)
     : serviceEndDateFrom(financialYearDraft?.serviceStartDate, financialYearDraft?.servicePeriod || 1, financialYearDraft?.periodUnit || 'annual');
@@ -1094,6 +1107,7 @@ export default function Quotations() {
       terms: Array.isArray(savedQuotation.terms)
         ? savedQuotation.terms.map((term) => String(term ?? ''))
         : current.terms,
+      paymentTerm: quotationPaymentTerm(savedQuotation),
       scopeOfWork: Array.isArray(savedQuotation.scopeOfWork) ? savedQuotation.scopeOfWork.map(String) : current.scopeOfWork,
       status: savedQuotation.status || current.status
     }));
@@ -1247,6 +1261,7 @@ export default function Quotations() {
       combinedBasicAmount: row.combinedBasicAmount ?? '',
       items: Array.isArray(syncedItems) ? syncedItems.map((item) => ({ ...emptyItem, ...item, basicAmount: item.basicAmount ?? '' })) : [],
       terms: Array.isArray(row.terms) ? row.terms.map((term) => String(term ?? '')) : [],
+      paymentTerm: quotationPaymentTerm(row),
       scopeOfWork: Array.isArray(row.scopeOfWork) ? row.scopeOfWork.map((item) => String(item ?? '')) : [],
       status: row.status || 'draft'
     });
@@ -1288,6 +1303,7 @@ export default function Quotations() {
       terms: Array.isArray(savedQuotation?.terms)
         ? savedQuotation.terms.map((term) => String(term ?? ''))
         : [],
+      paymentTerm: quotationPaymentTerm(savedQuotation),
       scopeOfWork: Array.isArray(savedQuotation?.scopeOfWork) ? savedQuotation.scopeOfWork.map(String) : [],
       status: savedQuotation?.status || 'draft'
     }));
@@ -1609,7 +1625,8 @@ export default function Quotations() {
   function togglePaymentTerm(term) {
     setQuotation((current) => ({
       ...current,
-      terms: [term, ...current.terms.filter((item) => !PAYMENT_TERM_OPTIONS.includes(item))]
+      terms: [term, ...current.terms.filter((item) => !PAYMENT_TERM_OPTIONS.includes(item))],
+      paymentTerm: term
     }));
   }
 
@@ -1618,11 +1635,22 @@ export default function Quotations() {
   }
 
   function setCustomTerm(termIndex, value) {
-    setQuotation((current) => ({ ...current, terms: current.terms.map((term, index) => index === termIndex ? value : term) }));
+    setQuotation((current) => {
+      const previous = current.terms[termIndex];
+      return {
+        ...current,
+        terms: current.terms.map((term, index) => index === termIndex ? value : term),
+        paymentTerm: current.paymentTerm === previous ? value : current.paymentTerm
+      };
+    });
   }
 
   function removeCustomTerm(termIndex) {
-    setQuotation((current) => ({ ...current, terms: current.terms.filter((_, index) => index !== termIndex) }));
+    setQuotation((current) => ({
+      ...current,
+      terms: current.terms.filter((_, index) => index !== termIndex),
+      paymentTerm: current.paymentTerm === current.terms[termIndex] ? '' : current.paymentTerm
+    }));
   }
 
   function addScopeItem() {
@@ -1667,7 +1695,7 @@ export default function Quotations() {
       setError('Please enter a valid 15-character GST Number.');
       return;
     }
-    if (quotation.terms.filter((term) => PAYMENT_TERM_OPTIONS.includes(term)).length !== 1) {
+    if (!String(quotation.paymentTerm || '').trim() || !quotation.terms.map((term) => String(term || '').trim()).includes(String(quotation.paymentTerm || '').trim())) {
       setError('Select exactly one Terms & Conditions payment option before saving the quotation.');
       return;
     }
@@ -2157,8 +2185,8 @@ export default function Quotations() {
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">Terms & Conditions</h2>
           <p className="mt-1 text-sm font-bold text-slate-500">Select exactly one payment term. Additional custom terms can be added below.</p>
-          <div className="mt-4 grid gap-3">{PAYMENT_TERM_OPTIONS.map((term) => { const checked = quotation.terms.includes(term); return <label key={term} className={`flex cursor-pointer items-center gap-4 rounded-xl border p-4 transition ${checked ? 'border-emerald-400 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-100' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200'}`}><input type="radio" name="quotation-payment-term" checked={checked} onChange={() => togglePaymentTerm(term)} className="h-5 w-5 border-slate-300 accent-emerald-700" /><span className="font-black">{term}</span></label>; })}</div>
-          <div className="mt-4 space-y-3">{quotation.terms.map((term, index) => PAYMENT_TERM_OPTIONS.includes(term) ? null : <div key={`custom-term-${index}`} className="flex items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-xs font-black text-slate-500">+</span><input value={String(term || '')} onChange={(event) => setCustomTerm(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter additional term or condition" /><button type="button" onClick={() => removeCustomTerm(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50"><X className="h-4 w-4" />Remove</button></div>)}</div>
+          <div className="mt-4 grid gap-3">{PAYMENT_TERM_OPTIONS.map((term) => { const checked = quotation.paymentTerm === term; return <label key={term} className={`flex cursor-pointer items-center gap-4 rounded-xl border p-4 transition ${checked ? 'border-emerald-400 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-100' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200'}`}><input type="radio" name="quotation-payment-term" checked={checked} onChange={() => togglePaymentTerm(term)} className="h-5 w-5 border-slate-300 accent-emerald-700" /><span className="font-black">{term}</span></label>; })}</div>
+          <div className="mt-4 space-y-3">{quotation.terms.map((term, index) => PAYMENT_TERM_OPTIONS.includes(term) ? null : <div key={`custom-term-${index}`} className={`flex items-center gap-3 rounded-xl border p-3 transition ${quotation.paymentTerm === term && String(term || '').trim() ? 'border-emerald-400 bg-emerald-50 ring-2 ring-emerald-100' : 'border-slate-200 bg-white'}`}><input type="radio" name="quotation-payment-term" checked={quotation.paymentTerm === term && Boolean(String(term || '').trim())} disabled={!String(term || '').trim()} onChange={() => setQuotation((current) => ({ ...current, paymentTerm: term }))} className="h-5 w-5 shrink-0 border-slate-300 accent-emerald-700 disabled:cursor-not-allowed" aria-label="Select this custom payment term" /><input value={String(term || '')} onChange={(event) => setCustomTerm(index, event.target.value)} className="form-input flex-1 font-black" placeholder="Enter additional term or condition" /><button type="button" onClick={() => removeCustomTerm(index)} className="inline-flex h-10 items-center gap-2 rounded-lg px-3 font-black text-red-500 hover:bg-red-50"><X className="h-4 w-4" />Remove</button></div>)}</div>
           <button type="button" onClick={addCustomTerm} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 font-black text-slate-700 hover:bg-slate-50"><Plus className="h-4 w-4" />Add Term</button>
         </section>
 
@@ -2206,7 +2234,7 @@ export default function Quotations() {
             <div className="max-h-[calc(92vh-165px)] overflow-y-auto p-6">
               <div className="overflow-x-auto rounded-2xl border border-slate-200">
                 <table className={`w-full text-left text-sm ${financialYearNeedsEprData ? (financialYearNeedsEprCreditYears ? 'min-w-[1720px]' : 'min-w-[1450px]') : (financialYearNeedsEprCreditYears ? 'min-w-[1380px]' : 'min-w-[1120px]')}`}>
-                  <thead className="bg-gradient-to-r from-teal-50 to-cyan-50 text-[10px] uppercase tracking-[.13em] text-teal-900"><tr>{['Sr. No', ...(financialYearNeedsEprData ? ['EPR Data Validity'] : []), 'Service Period', 'Select Period', 'Transition Period', ...(financialYearNeedsEprData ? ['Annual Return EPR Year'] : []), ...(financialYearNeedsEprCreditYears ? ['Annual Return EPR Credit Years'] : []), 'Applicant Type', 'Service Category', 'Business Category', 'Services Offered'].map((heading) => <th key={heading} className={`px-4 py-4 ${heading === 'Annual Return EPR Credit Years' || heading === 'Annual Return EPR Year' ? 'min-w-[220px]' : heading === 'Applicant Type' ? 'min-w-[140px]' : ''}`}>{heading}</th>)}</tr></thead>
+                  <thead className="bg-gradient-to-r from-teal-50 to-cyan-50 text-[10px] uppercase tracking-[.13em] text-teal-900"><tr>{['Sr. No', ...(financialYearNeedsEprData ? ['EPR Data Validity'] : []), 'Service Period', 'Select Period', 'Transition Period', ...(financialYearNeedsEprData ? [financialYearEprYearHeading] : []), ...(financialYearNeedsEprCreditYears ? ['Annual Return EPR Credit Years'] : []), 'Applicant Type', 'Service Category', 'Business Category', 'Services Offered'].map((heading) => <th key={heading} className={`px-4 py-4 ${heading === 'Annual Return EPR Credit Years' || heading === financialYearEprYearHeading ? 'min-w-[220px]' : heading === 'Applicant Type' ? 'min-w-[140px]' : ''}`}>{heading}</th>)}</tr></thead>
                   <tbody><tr className="align-top">
                     <td className="p-4"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 font-black">{Number(financialYearItemIndex) + 1}</span></td>
                     {financialYearNeedsEprData && <td className="p-4"><div className="flex h-12 w-40 overflow-hidden rounded-xl border border-slate-200"><input type="number" min="1" max="50" value={financialYearDraft.validityPeriod || ''} onChange={(event) => { const limit = Math.max(1, Math.min(50, Number(event.target.value) || 1)); setFinancialYearDraft((current) => ({ ...current, validityPeriod: String(limit), annualReturnYears: (current.annualReturnYears || []).slice(0, limit) })); }} className="min-w-0 flex-1 px-4 font-black outline-none" /><span className="grid place-items-center border-l bg-slate-50 px-3 text-xs font-black text-slate-500">Year</span></div></td>}
