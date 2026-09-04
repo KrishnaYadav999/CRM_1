@@ -524,6 +524,19 @@ function resolvePersonName(value, people = []) {
 }
 
 function getAssignedName(item, people = []) {
+  const serviceAllocations = item?.serviceAllocations && typeof item.serviceAllocations === 'object'
+    ? Object.values(item.serviceAllocations)
+    : [];
+  const serviceAssigneeNames = [...new Set(serviceAllocations.map((entry) => {
+    if (!entry) return '';
+    const assignee = typeof entry === 'object'
+      ? (entry.userId || entry.userIdString || entry.user || entry.assignedTo || entry.assigneeId || entry.assignedUserId || entry._id || entry.id)
+      : entry;
+    return resolvePersonName(assignee, people)
+      || (typeof entry === 'object' ? String(entry.userName || entry.assignedUserName || entry.assigneeName || entry.assignedByName || '').trim() : '');
+  }).filter(Boolean))];
+  if (serviceAssigneeNames.length) return serviceAssigneeNames.join(', ');
+
   const assigned = item?.adminControls?.assignedTo;
   const data = readClientData(item);
   const selectedLeadAssigned = item?.selectedLead?.assignedTo;

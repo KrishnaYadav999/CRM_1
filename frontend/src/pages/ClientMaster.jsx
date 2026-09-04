@@ -1752,9 +1752,12 @@ export default function ClientMaster() {
         bootstrapData: buildCpcbBootstrapData(pending)
       });
       const saved = response.data.client || response.data.data?.client || {};
+      const savedData = readClientData(saved);
+      const savedAssignedServiceId = String(saved.assignedServiceId || savedData.assignedServiceId || savedData.selectedLeadSnapshot?.assignedServiceId || assignedServiceId).trim();
       const nextService = {
         ...pending.service,
         clientMasterId: saved._id || saved.id || pending.service.clientMasterId,
+        assignedServiceId: savedAssignedServiceId,
         workflowStatus: saved.workflowStatus || pending.service.workflowStatus || 'draft',
         cpcbPortalRegistered: pending.cpcbPortalRegistered,
         cpcbApplicationStatus: pending.cpcbPortalRegistered ? null : pending.cpcbApplicationStatus
