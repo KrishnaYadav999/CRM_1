@@ -614,6 +614,7 @@ export default function LeadGeneration() {
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const canUseExcelBulkImport = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
   const canManageServiceCatalog = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+  const canRemoveFrozenAddress = adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase());
   const serviceCategoryOptions = serviceCatalog.map((entry) => entry.category);
   const servicesForCategory = (category) => serviceCatalog.find((entry) => entry.category === category)?.servicesOffered || [];
   const withCustomOptions = (field, base = []) => [...new Map([...(base || []), ...(customDropdownOptions[field] || [])].filter(Boolean).map((item) => [String(item).trim().toLowerCase(), item])).values()];
@@ -1012,6 +1013,9 @@ export default function LeadGeneration() {
     if (addressRows.length === 1) return;
     const next = addressRows.filter((_, rowIndex) => rowIndex !== index);
     setLead((current) => ({ ...current, addresses: next, ...next[0] }));
+    if (index < frozenAddressRowCount) {
+      setFrozenAddressRowCount((count) => Math.max(0, count - 1));
+    }
   }
 
   function updateContactRow(index, field, value) {
@@ -2486,7 +2490,7 @@ export default function LeadGeneration() {
             {activeTab === 'address' && (
               <section className="min-w-0 max-w-full overflow-hidden">
                 <div className="lead-address-title"><div><h2>Address Information</h2><p>Add one or more office, registered, factory, or correspondence addresses.</p></div><button type="button" onClick={() => setAddRowConfirmation('address')}><Plus className="h-4 w-4" />Add Address</button></div>
-                {serviceOnlyMode && <div className="lead-service-only-banner mt-4"><CheckCircle2 className="h-5 w-5" /><div><strong>Existing addresses are frozen</strong><p>Use Add Address to create an editable new row.</p></div></div>}
+                {serviceOnlyMode && <div className="lead-service-only-banner mt-4"><CheckCircle2 className="h-5 w-5" /><div><strong>Existing addresses are frozen</strong><p>{canRemoveFrozenAddress ? 'Admin and Super Admin can remove an existing address; use Add Address to create an editable new row.' : 'Use Add Address to create an editable new row.'}</p></div></div>}
                 {locationError && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800" role="status">{locationError}</div>}
                 <fieldset className="mt-5 min-w-0 max-w-full">
                   <div className="lead-address-matrix">
@@ -2505,7 +2509,7 @@ export default function LeadGeneration() {
                         <div className="lead-service-select-cell"><SearchableSelect value={row.city} options={withCustomOptions('city', rowCities)} disabled={rowFrozen || !row.state || citiesLoading} onChange={(value) => updateAddressRow(index, 'city', value)} placeholder={!row.state ? 'State first' : citiesLoading ? 'Loading cities...' : 'Select city'} allowCustom={false} />{canManageServiceCatalog && !rowFrozen && row.state && <button type="button" onClick={() => openDropdownDialog({ field: 'city', label: 'City', scope: 'address', index, targetField: 'city' })} className="lead-service-catalog-add"><Plus className="h-3.5 w-3.5" />Add City</button>}</div>
                         <input disabled={rowFrozen} className="form-input" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={row.pinCode} onChange={(event) => updateAddressRow(index, 'pinCode', event.target.value)} placeholder="6-digit PIN" />
                         <input disabled={rowFrozen} className="form-input" value={row.website} onChange={(event) => updateAddressRow(index, 'website', event.target.value)} placeholder="https://" />
-                        <button type="button" disabled={(rowFrozen && hasDetailRowData(row)) || addressRows.length === 1} onClick={() => removeAddressRow(index)} className="lead-matrix-remove"><X className="h-4 w-4" /></button>
+                        <button type="button" disabled={(rowFrozen && hasDetailRowData(row) && !canRemoveFrozenAddress) || addressRows.length === 1} onClick={() => removeAddressRow(index)} className="lead-matrix-remove" aria-label={`Remove address ${index + 1}`} title={rowFrozen && !canRemoveFrozenAddress ? 'Existing addresses can only be removed by Admin or Super Admin' : 'Remove address'}><X className="h-4 w-4" /></button>
                       </div>;
                     })}
                   </div>
