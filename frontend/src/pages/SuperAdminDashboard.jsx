@@ -254,6 +254,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [workReportUser, setWorkReportUser] = useState(null)
   const [quotations, setQuotations] = useState([])
   const [quotationLeads, setQuotationLeads] = useState([])
+  const [complianceClients, setComplianceClients] = useState([])
 
   async function loadProductivityReport(timeout = 60000) {
     return api.get(API_ENDPOINTS.auth.userProductivityReport, {
@@ -297,6 +298,9 @@ export default function SuperAdminDashboard({ misPage = false }) {
       api.get(API_ENDPOINTS.leads.list, { timeout: 30000 })
         .then((result) => setQuotationLeads(result.data?.leads || []))
         .catch((leadError) => console.error('Unable to load PO statuses for Quotation MIS', leadError))
+      api.get(API_ENDPOINTS.clients.pendingApprovals, { timeout: 30000, params: { _: Date.now() } })
+        .then((result) => setComplianceClients(result.data?.pendingClients || []))
+        .catch((approvalError) => console.error('Unable to load Compliance MIS', approvalError))
     }
   }
 
@@ -330,7 +334,16 @@ export default function SuperAdminDashboard({ misPage = false }) {
     .map((row) => ({ ...row, poMisStatus: quotationPoStatus(row, quotationLeads) })), [quotationLeads, quotations])
   const salesTotals = useMemo(() => salesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [salesMisRows])
   const operationTotals = useMemo(() => operationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), pending: total.pending + Number(group.pendingClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, pending: 0, filled: 0, missing: 0 }), [operationGroups])
-  const complianceTotals = useMemo(() => rows.reduce((total, row) => ({ pending: total.pending + Number(row.pendingClients || 0), partial: total.partial + Number(row.partiallyApprovedClients || 0), approved: total.approved + Number(row.approvedClients || 0) }), { pending: 0, partial: 0, approved: 0 }), [rows])
+  const complianceTotals = useMemo(() => {
+    if (complianceClients.length) return complianceClients.reduce((total, client) => {
+      const status = String(client.approvalStatus || client.status || 'PENDING').toUpperCase()
+      if (status === 'APPROVED') total.approved += 1
+      else if (status === 'PARTIALLY_APPROVED') total.partial += 1
+      else if (status === 'PENDING') total.pending += 1
+      return total
+    }, { pending: 0, partial: 0, approved: 0 })
+    return rows.reduce((total, row) => ({ pending: total.pending + Number(row.pendingClients || 0), partial: total.partial + Number(row.partiallyApprovedClients || 0), approved: total.approved + Number(row.approvedClients || 0) }), { pending: 0, partial: 0, approved: 0 })
+  }, [complianceClients, rows])
   const quotationTotals = useMemo(() => ({ total: quotationMisRows.length, open: quotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: quotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [quotationMisRows])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
