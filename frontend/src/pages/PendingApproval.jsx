@@ -1494,7 +1494,8 @@ export default function PendingApproval() {
                 actions={<div className="flex flex-wrap gap-2" aria-label="Client approval status tabs">{[
                   ['PENDING', 'Pending'],
                   ['PARTIALLY_APPROVED', 'Partially Approved'],
-                  ['APPROVED', 'Approved']
+                  ['APPROVED', 'Approved'],
+                  ['REJECTED', 'Rejected']
                 ].map(([status, label]) => { const count = pendingClients.filter((client) => getApprovalStatus(client) === status).length; return <button type="button" key={status} onClick={() => setStatusFilter(status)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black transition ${statusFilter === status ? status === 'APPROVED' ? 'border-emerald-600 bg-emerald-600 text-white' : status === 'PARTIALLY_APPROVED' ? 'border-amber-500 bg-amber-500 text-white' : 'border-rose-200 bg-rose-100 text-rose-700' : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300'}`}><span className="client-status-tab-label">{label}</span><b className={`rounded-full px-2 py-0.5 ${statusFilter === status ? status === 'PENDING' ? 'bg-rose-200 text-rose-800' : 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>{count}</b></button> })}</div>}
               >
                 {visibleClients.map((client) => {
@@ -1503,7 +1504,7 @@ export default function PendingApproval() {
                   const partiallyApproved = approvalState === 'PARTIALLY_APPROVED';
                   return <tr key={client.id} className="transition-colors hover:bg-slate-50">
                     <Cell strong><span className="flex items-center gap-2">{complianceApproved ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Compliance approved" /> : partiallyApproved ? <AlertTriangle className="h-4 w-4 shrink-0 fill-amber-100 text-amber-500" aria-label="Compliance partially approved" /> : <AlertTriangle className="h-4 w-4 shrink-0 fill-rose-100 text-rose-600" aria-label="Compliance approval pending" />}<button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></span></Cell>
-                    <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{client.reminderFlag === 'RED' && <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">48H RED FLAG</span>}</div></Cell>
+                    <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{['RED', 'PERMANENT_RED'].includes(client.reminderFlag) && <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">{client.reminderFlag === 'PERMANENT_RED' ? 'PERMANENT RED FLAG' : '48H RED FLAG'}</span>}</div></Cell>
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>
                     <Cell>{formatApprovalValue(client.createdBy)}</Cell>

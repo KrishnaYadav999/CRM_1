@@ -105,9 +105,46 @@ exports.completeReview = async (req, res) => {
   client.adminControls = { ...(client.adminControls || {}), approvalStatus };
   client.data = { ...(client.data || {}), approvalMeta: { status: approvalStatus, actionBy: req.user._id, actionAt: new Date(), remarks, complianceReviewId: review._id } };
   client.markModified('data'); await client.save();
-  await PendingApproval.findOneAndUpdate({ sourceClientId: String(client._id), approvalStatus: 'PENDING' }, { approvalStatus, actionBy: req.user._id, actionAt: new Date(), remarks, nextReminderAt: decision === 'CHANGES_REQUIRED' ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null });
+  const decidedAt = new Date();
+  const existingPendingRecord = await PendingApproval.findOne({ sourceClientId: String(client._id), type: 'client' }).lean();
+  const correctionRequired = decision === 'CHANGES_REQUIRED' || decision === 'REJECTED';
+  const correctionFields = correctionRequired ? {
+    correctionStatus: 'OPEN',
+    correctionDecision: decision === 'REJECTED' ? 'REJECTED' : 'PARTIALLY_APPROVED',
+    correctionStartedAt: decidedAt,
+    correctionReminderAt: new Date(decidedAt.getTime() + 24 * 60 * 60 * 1000),
+    correctionReminderSentAt: null,
+    correctionDueAt: new Date(decidedAt.getTime() + 48 * 60 * 60 * 1000),
+    correctionBreachedAt: null,
+    correctionResolvedAt: null,
+    correctionEmailError: '',
+    reminderFlag: 'GREEN',
+    redFlagAt: null,
+    greenFlagDeadline: new Date(decidedAt.getTime() + 48 * 60 * 60 * 1000)
+  } : {
+    correctionStatus: 'RESOLVED',
+    correctionResolvedAt: decidedAt,
+    correctionReminderAt: null,
+    correctionDueAt: null,
+    correctionEmailError: '',
+    reminderFlag: existingPendingRecord?.reminderFlag === 'PERMANENT_RED' ? 'PERMANENT_RED' : 'GREEN',
+    greenFlagAt: decidedAt,
+    redFlagAt: existingPendingRecord?.reminderFlag === 'PERMANENT_RED' ? existingPendingRecord.redFlagAt : null,
+    greenFlagDeadline: null
+  };
+  const pendingRecord = await PendingApproval.findOneAndUpdate(
+    { sourceClientId: String(client._id), type: 'client' },
+    { $set: { approvalStatus, actionBy: req.user._id, actionAt: decidedAt, remarks, nextReminderAt: null, ...correctionFields } },
+    { new: true }
+  );
   const notificationMode = approvalMode || (decision === 'CHANGES_REQUIRED' ? 'CORRECTION' : decision);
   const notification = await notifyClientApprovalDecision({ record: { clientName: client.data?.basic?.clientLegalName }, client, status: approvalStatus, remarks, reviewer: req.user, sections: review.sections, approvalMode: notificationMode }).catch((error) => ({ sent: false, reason: error.message }));
+  if (pendingRecord && correctionRequired && notification?.email) {
+    pendingRecord.correctionRecipientId = notification.recipientId || undefined;
+    pendingRecord.correctionRecipientEmail = notification.email;
+    pendingRecord.correctionRecipientName = notification.recipientName || '';
+    await pendingRecord.save();
+  }
   return res.json({ ok: true, review, client, notification });
 };
 

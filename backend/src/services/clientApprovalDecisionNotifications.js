@@ -10,6 +10,29 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+function allocationUserIds(client = {}) {
+  const allocations = client.serviceAllocations && typeof client.serviceAllocations === 'object'
+    ? Object.values(client.serviceAllocations)
+    : [];
+  return allocations.map((entry) => String(
+    (entry && typeof entry === 'object'
+      ? entry.userId || entry.userIdString || entry.user || entry.assignedTo || entry.assigneeId || entry.assignedUserId || entry._id || entry.id
+      : entry) || ''
+  ).trim()).filter(Boolean);
+}
+
+async function resolveClientManager(client = {}, payload = {}) {
+  const assigned = client.adminControls?.assignedTo;
+  const assignedId = String(assigned?._id || assigned?.id || assigned || '').trim();
+  const candidateIds = [...new Set([assignedId, ...allocationUserIds(client)].filter(Boolean))];
+  for (const id of candidateIds) {
+    const manager = await User.findById(id).select('name email role isActive').lean();
+    if (manager?.isActive !== false && manager?.email) return manager;
+  }
+  const creatorId = String(client.createdBy?._id || client.createdBy || payload.createdByUserId || payload.createdById || '').trim();
+  return creatorId ? User.findById(creatorId).select('name email role isActive').lean() : null;
+}
+
 function buildClientApprovalDecisionEmail({ clientName = 'Client Master', status, remarks = '', reviewerName = 'Admin', recipientName = 'User', sections = [], approvalMode = '' } = {}) {
   const approved = String(status || '').toUpperCase() === 'APPROVED';
   const partial = String(approvalMode || '').toUpperCase() === 'PARTIAL';
@@ -30,6 +53,7 @@ function buildClientApprovalDecisionEmail({ clientName = 'Client Master', status
           <p style="font-size:15px;line-height:1.7">Your Client Master request for <strong>${escapeHtml(clientName)}</strong> has been <strong style="color:${color}">${decision}</strong>.</p>
           <div style="margin:20px 0;padding:16px;border:1px solid ${color}33;border-radius:12px;background:${background}"><p style="margin:0 0 8px"><strong>Decision:</strong> ${approved ? 'Final Approved' : partial ? 'Partially Approved' : correction ? 'Changes Requested' : 'Rejected'}</p><p style="margin:0"><strong>Reviewed by:</strong> ${escapeHtml(reviewerName)}</p>${safeRemarks ? `<p style="margin:8px 0 0"><strong>Remarks:</strong> ${escapeHtml(safeRemarks)}</p>` : ''}</div>
           <div style="display:grid;gap:14px"><div style="padding:16px;border:1px solid #a7f3d0;border-radius:12px;background:#f0fdf4"><strong style="color:#047857">Completed / Approved Tabs (${approvedSections.length})</strong>${sectionList(approvedSections, '#166534')}</div><div style="padding:16px;border:1px solid #fed7aa;border-radius:12px;background:#fff7ed"><strong style="color:#c2410c">Pending / Action Required Tabs (${pendingSections.length})</strong>${sectionList(pendingSections, '#9a3412')}</div></div>
+          ${approved ? '' : '<div style="margin:18px 0;padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b;font-size:14px;line-height:1.7"><strong>Action required within 48 hours.</strong> One reminder will be sent after 24 hours. If the Client Master is not corrected and approved within 48 hours, it will receive a permanent red flag.</div>'}
           <p style="font-size:14px;line-height:1.7">Please sign in to CRM and open Pending Approval or Client Master to review the updated status.</p>
           <p style="margin:24px 0 0;font-size:14px;line-height:1.7">Thanks and regards,<br><strong>Team AnantTattva</strong></p>
         </div>
@@ -40,22 +64,21 @@ function buildClientApprovalDecisionEmail({ clientName = 'Client Master', status
 
 async function notifyClientApprovalDecision({ record = {}, client = {}, status, remarks = '', reviewer = {}, sections = [], approvalMode = '' } = {}) {
   const payload = record.payload || {};
-  const creatorId = client.createdBy || payload.createdByUserId || payload.createdById;
-  const creator = creatorId ? await User.findById(creatorId).select('name email').lean() : null;
-  const email = String(creator?.email || payload.createdByEmail || payload.userEmail || '').trim().toLowerCase();
-  if (!email) return { sent: false, reason: 'requester_email_missing' };
+  const manager = await resolveClientManager(client, payload);
+  const email = String(manager?.email || payload.createdByEmail || payload.userEmail || '').trim().toLowerCase();
+  if (!email) return { sent: false, reason: 'client_manager_email_missing' };
   const clientName = record.clientName || payload.clientName || payload.companyName || client.data?.basic?.clientLegalName || client.data?.basic?.tradeName || 'Client Master';
   const content = buildClientApprovalDecisionEmail({
     clientName,
     status,
     remarks,
     reviewerName: reviewer.name || reviewer.email || 'Admin',
-    recipientName: creator?.name || record.createdByName || payload.createdBy || payload.userName || 'User',
+    recipientName: manager?.name || record.createdByName || payload.createdBy || payload.userName || 'Manager',
     sections,
     approvalMode
   });
   await sendMail(email, content.subject, content.html, { branded: false });
-  return { sent: true, email };
+  return { sent: true, email, recipientId: manager?._id, recipientName: manager?.name || '', recipientRole: manager?.role || '' };
 }
 
-module.exports = { buildClientApprovalDecisionEmail, notifyClientApprovalDecision };
+module.exports = { buildClientApprovalDecisionEmail, notifyClientApprovalDecision, resolveClientManager };

@@ -21,6 +21,7 @@ const purchaseOrderRoutes = require('./routes/purchaseOrders');
 const purchaseProofRoutes = require('./routes/purchaseProofs');
 const healthReportAssignmentRoutes = require('./routes/healthReportAssignments');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
+const { startClientComplianceCorrectionReminderScheduler } = require('./services/clientComplianceCorrectionReminders');
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
@@ -59,6 +60,7 @@ function connectAndStartServices() {
     await applyKnownDataCorrections().catch((error) => console.error('Known CRM data correction failed', error));
     if (!schedulerStarted) {
       startPendingApprovalReminderScheduler();
+      startClientComplianceCorrectionReminderScheduler();
       startClientOnboardingReminderScheduler();
       startLeadWorkflowReminderScheduler();
       startStaffOnboardingWorkflowScheduler();
