@@ -30,6 +30,7 @@ const API_ENDPOINTS = {
     create: '/leads',
     bulk: '/leads/bulk',
     detail: (id) => `/leads/${encodePathValue(id)}`
+    ,allocation: (id) => `/leads/${encodePathValue(id)}/allocation`
     ,history: (id) => `/leads/${encodePathValue(id)}/history`
     ,emailHistory: (id) => `/leads/${encodePathValue(id)}/history/email`
     ,claimRoyalty: (id) => `/leads/${encodePathValue(id)}/royalty-claims`

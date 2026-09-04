@@ -24,6 +24,7 @@ router.post('/duplicate-approvals', requireAuth, leadCtrl.requestDuplicateLeadAp
 router.patch('/duplicate-approvals/:id', requireAuth, leadCtrl.updateDuplicateLeadApproval);
 router.post('/bulk', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.bulkCreateLeads);
 router.post('/', requireAuth, leadCtrl.createLead);
+router.patch('/:id/allocation', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.allocateLead);
 router.get('/:id/history', requireAuth, leadCtrl.getLeadHistory);
 router.post('/:id/history/email', requireAuth, leadCtrl.recordIntroductionEmail);
 router.post('/:id/royalty-claims', requireAuth, leadCtrl.claimLeadRoyalty);

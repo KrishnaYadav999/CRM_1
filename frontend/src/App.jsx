@@ -9,6 +9,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import LeadGeneration from './pages/LeadGeneration'
 import ClientMaster from './pages/ClientMaster'
 import ClientMasterAllocate from './pages/ClientMasterAllocate'
+import LeadAllocate from './pages/LeadAllocate'
 import HealthReportCheck from './pages/HealthReportCheck'
 import Quotations from './pages/Quotations'
 import AnnualReturns from './pages/AnnualReturns'
@@ -100,6 +101,7 @@ function App(){
         <Route path="/calendar" element={<ProtectedRoute><CalendarTodo/></ProtectedRoute>} />
         <Route path="/assistant" element={<ProtectedRoute><AssistantPage/></ProtectedRoute>} />
         <Route path="/sales/lead-generation" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
+        <Route path="/sales/lead-allocate" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><LeadAllocate/></ProtectedRoute>} />
         <Route path="/sales/lead-generation/temporary" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/sales/compliance-health-report/:leadId" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/compliance/health-report" element={<ProtectedRoute><ComplianceHealthDashboard/></ProtectedRoute>} />

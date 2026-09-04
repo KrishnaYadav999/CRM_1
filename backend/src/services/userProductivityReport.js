@@ -170,6 +170,7 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
       clientFieldsMissing: Math.max(0, clientFieldsTotal - clientFieldsFilled),
       draftClients: ownClients.filter((client) => String(client.workflowStatus || 'draft').toLowerCase() === 'draft').length,
       submittedClients: ownClients.filter((client) => String(client.workflowStatus || '').toLowerCase() === 'submitted').length,
+      pendingClients: ownClients.filter((client) => String(client.adminControls?.approvalStatus || 'PENDING').toUpperCase() === 'PENDING').length,
       clientCompletionPercentage: clientFieldsTotal ? Math.round((clientFieldsFilled / clientFieldsTotal) * 100) : 0,
       activeSeconds, openSeconds, awaySeconds, activityCount, sessions: ownSessions.length,
       awayRatio: openSeconds ? awaySeconds / openSeconds : 0, online,
@@ -224,7 +225,7 @@ async function getUserProductivityReport({ from, to, requester }) {
     reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } })
       .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
     reportQuery('leads', Lead.find(ownerFilter).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
-    reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus createdAt').maxTimeMS(20000).lean()),
+    reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus adminControls.approvalStatus createdAt updatedAt selectedLead assignedServiceId').maxTimeMS(20000).lean()),
     reportQuery('tickets', SupportTicket.aggregate([
       { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },
       { $group: {

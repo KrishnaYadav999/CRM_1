@@ -962,6 +962,43 @@ exports.createLead = async (req, res) => {
   }
 };
 
+exports.allocateLead = async (req, res) => {
+  try {
+    const userId = String(req.body?.userId || '').trim();
+    if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ error: 'A valid admin user is required.' });
+    const target = await User.findById(userId).select('name email crmUserId role isActive');
+    if (!target || target.isActive === false) return res.status(404).json({ error: 'Active admin user not found.' });
+    const targetRole = String(target.role || '').trim().toLowerCase();
+    if (!ADMIN_ROLES.includes(targetRole)) return res.status(400).json({ error: 'Leads can only be allocated to Admin or Super Admin users.' });
+
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+    const previousOwner = lead.generatedForName || lead.createdByName || lead.createdByEmail || lead.importedCreatedBy || 'Unassigned';
+    lead.createdBy = target._id;
+    lead.createdByCrmUserId = String(target.crmUserId || target._id);
+    lead.createdByName = target.name || target.email;
+    lead.createdByEmail = target.email || '';
+    lead.generatedForUser = target._id;
+    lead.generatedForName = target.name || target.email;
+    lead.generatedForEmail = target.email || '';
+    lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
+    await lead.save();
+    await LeadActivity.create({
+      lead: lead._id,
+      type: 'lead_allocated',
+      title: 'Lead allocated',
+      description: `${lead.company || lead.leadCode || 'Lead'} reallocated from ${previousOwner} to ${target.name || target.email}`,
+      actor: req.user?._id
+    });
+    const saved = await Lead.findById(lead._id)
+      .populate('createdBy', 'name email role')
+      .populate('generatedForUser', 'name email crmUserId role');
+    res.json({ ok: true, message: `Lead allocated to ${target.name || target.email}.`, lead: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to allocate lead.' });
+  }
+};
+
 exports.updateLead = async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.id);

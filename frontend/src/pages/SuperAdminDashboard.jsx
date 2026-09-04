@@ -133,6 +133,7 @@ function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = 
       clientMasters: ownedClients.length, clientFieldsFilled, clientFieldsMissing,
       draftClients: ownedClients.filter((client) => String(client.workflowStatus || 'draft').toLowerCase() === 'draft').length,
       submittedClients: ownedClients.filter((client) => String(client.workflowStatus || '').toLowerCase() === 'submitted').length,
+      pendingClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || 'PENDING').toUpperCase() === 'PENDING').length,
       clientCompletionPercentage: clientFieldsFilled + clientFieldsMissing ? Math.round(clientFieldsFilled / (clientFieldsFilled + clientFieldsMissing) * 100) : 0,
       activeSeconds: 0, openSeconds: 0, awaySeconds: 0, activityCount: 0, sessions: 0, score: 0,
       tickets: { total: 0, open: 0, resolved: 0 }, risk: { key: account.lastLogin ? 'healthy' : 'never', level: account.lastLogin ? 'Low Risk' : 'Never Logged In', reason: account.lastLogin ? 'Fallback MIS data' : 'No successful CRM login recorded', rank: account.lastLogin ? 1 : 5 },
@@ -180,7 +181,7 @@ function buildOperationGroups(rows, teams = []) {
     const people = [...(manager ? [manager] : []), ...members]
     const filled = people.reduce((sum, row) => sum + Number(row.clientFieldsFilled || 0), 0)
     const missing = people.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
-    return { id: String(team.id), name: team.name, manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 }
+    return { id: String(team.id), name: team.name, manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), pendingClients: people.reduce((sum, row) => sum + Number(row.pendingClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 }
   })
   const managers = rows.filter((row) => String(row.role).toLowerCase() === 'manager')
   const operationUsers = rows.filter((row) => String(row.role).toLowerCase() === 'operation')
@@ -192,7 +193,7 @@ function buildOperationGroups(rows, teams = []) {
     return {
       id: String(manager.id), name: manager.team || `Team ${String.fromCharCode(65 + index)}`,
       manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0),
-      filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0
+      filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), pendingClients: people.reduce((sum, row) => sum + Number(row.pendingClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0
     }
   })
   const assigned = new Set(groups.flatMap((group) => group.members.map((row) => String(row.id))))
@@ -202,7 +203,7 @@ function buildOperationGroups(rows, teams = []) {
     const missing = unassigned.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
     groups.push({ id: 'unassigned', name: 'Unassigned Operations', manager: null, members: unassigned,
       clientMasters: unassigned.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing,
-      draftClients: unassigned.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: unassigned.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 })
+      draftClients: unassigned.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: unassigned.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), pendingClients: unassigned.reduce((sum, row) => sum + Number(row.pendingClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 })
   }
   return groups
 }
@@ -314,7 +315,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   }, [draftFilters])
 
   const rows = useMemo(() => (report.users || []).map((row) => ({ ...row, roleLabel: roleLabels[row.role] || row.role || '-' })), [report.users])
-  const salesMisRows = useMemo(() => rows.filter((row) => String(row.role).toLowerCase() === 'sales'), [rows])
+  const salesMisRows = useMemo(() => rows.filter((row) => ['sales', 'admin', 'superadmin'].includes(String(row.role).toLowerCase())), [rows])
   const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
   const operationsOnlyMis = misPage && !misAccess.isAdmin
   const misTitle = operationsOnlyMis
@@ -325,7 +326,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
     .sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0))
     .map((row) => ({ ...row, poMisStatus: quotationPoStatus(row, quotationLeads) })), [quotationLeads, quotations])
   const salesTotals = useMemo(() => salesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [salesMisRows])
-  const operationTotals = useMemo(() => operationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, filled: 0, missing: 0 }), [operationGroups])
+  const operationTotals = useMemo(() => operationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), pending: total.pending + Number(group.pendingClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, pending: 0, filled: 0, missing: 0 }), [operationGroups])
   const quotationTotals = useMemo(() => ({ total: quotationMisRows.length, open: quotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: quotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [quotationMisRows])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
@@ -421,7 +422,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
 
         {misPage && <section className="mis-overview-grid mt-4 grid gap-4 md:grid-cols-2">
           <MisOverviewCard title="Sales MIS" subtitle="Complete lead ownership" icon={Users} tone="emerald" loading={loading} metrics={[["Total Leads", salesTotals.leads], ["Open Leads", salesTotals.open], ["Closed Leads", salesTotals.closed], ["Close Rate", `${salesTotals.leads ? ((salesTotals.closed / salesTotals.leads) * 100).toFixed(1) : 0}%`]]} />
-          <MisOverviewCard title="Operation MIS" subtitle="Client Master workflow overview" icon={Building2} tone="blue" loading={loading} metrics={[["Client Masters", operationTotals.clients], ["Total Draft", operationTotals.draft], ["Total Submitted", operationTotals.submitted], ["Completion", `${operationTotals.filled + operationTotals.missing ? Math.round(operationTotals.filled / (operationTotals.filled + operationTotals.missing) * 100) : 0}%`]]} />
+          <MisOverviewCard title="Operation MIS" subtitle="Client Master workflow overview" icon={Building2} tone="blue" loading={loading} metrics={[["Client Masters", operationTotals.clients], ["Total Draft", operationTotals.draft], ["Total Submitted", operationTotals.submitted], ["Pending Clients", operationTotals.pending], ["Completion", `${operationTotals.filled + operationTotals.missing ? Math.round(operationTotals.filled / (operationTotals.filled + operationTotals.missing) * 100) : 0}%`]]} />
           <MisOverviewCard title="Quotation MIS" subtitle="Commercial performance" icon={FileText} tone="orange" loading={loading} metrics={[["Total", quotationTotals.total], ["Open", quotationTotals.open], ["Converted", quotationTotals.converted], ["Conversion", `${quotationTotals.total ? ((quotationTotals.converted / quotationTotals.total) * 100).toFixed(1) : 0}%`]]} />
           <MisOverviewCard title="Overall Summary" subtitle="Live CRM overview" icon={BarChart3} tone="violet" loading={loading} metrics={[["CRM Users", rows.length], ["Active Users", rows.filter((row) => row.active).length], ["Clients", operationTotals.clients], ["Quotations", quotationTotals.total]]} />
         </section>}
