@@ -75,7 +75,9 @@ export default function LeadAllocate() {
       setSavingId(leadId)
       const result = await api.patch(API_ENDPOINTS.leads.allocation(leadId), { userId })
       setLeads((current) => current.map((item) => idOf(item) === leadId ? result.data.lead : item))
-      setMessage({ kind: 'success', text: result.data.message || 'Lead allocation saved in database.' })
+      const delivery = result.data.emailDelivery
+      const emailNote = delivery?.sent ? ` Assignment email sent to ${delivery.recipient}.` : delivery?.requested ? ' Allocation saved, but the email could not be delivered.' : ' Allocation saved; this user has no email address.'
+      setMessage({ kind: delivery?.requested && !delivery?.sent ? 'error' : 'success', text: `${result.data.message || 'Lead allocation saved in database.'}${emailNote}` })
     } catch (error) {
       setMessage({ kind: 'error', text: error.response?.data?.error || 'Unable to allocate this lead.' })
     } finally {

@@ -991,7 +991,42 @@ exports.allocateLead = async (req, res) => {
     const saved = await Lead.findById(lead._id)
       .populate('createdBy', 'name email role')
       .populate('generatedForUser', 'name email crmUserId role');
-    res.json({ ok: true, message: `Lead allocated to ${target.name || target.email}.`, lead: saved });
+    let emailDelivery = { requested: Boolean(target.email), sent: false };
+    if (target.email) {
+      const appUrl = String(process.env.FRONTEND_URL || 'https://crmananttattva.vercel.app').replace(/\/$/, '');
+      const assigneeName = target.name || target.email;
+      const allocatorName = req.user?.name || req.user?.email || 'CRM Administrator';
+      const company = lead.company || 'Unnamed company';
+      const leadCode = lead.leadCode || 'Lead';
+      const html = `
+        <div style="margin:0;background:#f1f5f9;padding:28px 12px;font-family:Arial,Helvetica,sans-serif;color:#334155">
+          <div style="max-width:640px;margin:0 auto;overflow:hidden;border:1px solid #dbeafe;border-radius:18px;background:#ffffff;box-shadow:0 12px 34px rgba(15,23,42,.10)">
+            <div style="background:linear-gradient(135deg,#1d4ed8,#4f46e5,#7c3aed);padding:26px 30px;color:#ffffff">
+              <div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;opacity:.85">CRM Lead Allocation</div>
+              <h1 style="margin:8px 0 0;font-size:25px;line-height:1.25">A lead has been allocated to you</h1>
+            </div>
+            <div style="padding:28px 30px">
+              <p style="margin:0 0 18px;font-size:15px;line-height:1.7">Hello <strong style="color:#0f172a">${escapeHtml(assigneeName)}</strong>,</p>
+              <p style="margin:0 0 22px;font-size:14px;line-height:1.7">${escapeHtml(allocatorName)} has assigned the following CRM lead to you. It is now available under your ownership and will be reflected in Sales MIS.</p>
+              <table role="presentation" style="width:100%;border-collapse:separate;border-spacing:0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
+                <tr><td style="width:145px;background:#f8fafc;padding:12px 14px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:800;color:#64748b">LEAD CODE</td><td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;font-size:14px;font-weight:800;color:#1d4ed8">${escapeHtml(leadCode)}</td></tr>
+                <tr><td style="background:#f8fafc;padding:12px 14px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:800;color:#64748b">COMPANY</td><td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;font-size:14px;font-weight:800;color:#0f172a">${escapeHtml(company)}</td></tr>
+                <tr><td style="background:#f8fafc;padding:12px 14px;font-size:12px;font-weight:800;color:#64748b">ALLOCATED BY</td><td style="padding:12px 14px;font-size:14px;font-weight:700;color:#334155">${escapeHtml(allocatorName)}</td></tr>
+              </table>
+              <p style="margin:24px 0 0"><a href="${escapeHtml(appUrl)}/sales/lead-generation" target="_blank" rel="noopener noreferrer" style="display:inline-block;border-radius:11px;background:#1d4ed8;padding:13px 22px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:800">Open Lead in CRM →</a></p>
+              <p style="margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:18px;font-size:11px;line-height:1.6;color:#94a3b8">This is an automated CRM allocation notification. Please sign in to review the complete lead details and next actions.</p>
+            </div>
+          </div>
+        </div>`;
+      try {
+        await sendMail(target.email, `New Lead Allocated - ${leadCode} - ${company}`, html, { branded: false });
+        emailDelivery = { requested: true, sent: true, recipient: target.email };
+      } catch (mailError) {
+        console.error('Lead allocation email failed', { leadId: String(lead._id), recipient: target.email, error: mailError.message });
+        emailDelivery = { requested: true, sent: false, recipient: target.email, error: mailError.message };
+      }
+    }
+    res.json({ ok: true, message: `Lead allocated to ${target.name || target.email}.`, lead: saved, emailDelivery });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to allocate lead.' });
   }

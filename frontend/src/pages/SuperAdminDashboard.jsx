@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   Activity, ArrowUpDown, Building2, CalendarDays, CheckCircle2, Clock3, Download, Eye, FileSpreadsheet,
-  Lightbulb, Loader2, Monitor, RefreshCw, RotateCcw, Search, ShieldAlert,
+  Lightbulb, Loader2, Monitor, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck,
   TicketCheck, Timer, UserCheck, Users, X, FileText, BarChart3
 } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
