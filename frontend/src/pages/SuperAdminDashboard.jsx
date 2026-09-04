@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
-  Activity, ArrowUpDown, Building2, CalendarDays, CheckCircle2, Clock3, Download, Eye, FileSpreadsheet,
+  Activity, ArrowUpDown, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Download, Eye, FileSpreadsheet,
   Lightbulb, Loader2, Monitor, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck,
   TicketCheck, Timer, UserCheck, Users, X, FileText, BarChart3
 } from 'lucide-react'
@@ -17,6 +17,7 @@ import {
 
 const roleLabels = { superadmin: 'Super Admin', admin: 'Admin', manager: 'Manager', operation: 'Operation', sales: 'Sales', compliance: 'Compliance', accounts: 'Accounts' }
 const DEFAULT_REPORT_FROM_DATE = '2026-08-01'
+const MIS_PAGE_SIZE = 10
 const defaultRange = () => ({ from: DEFAULT_REPORT_FROM_DATE, to: inputDate(0), search: '', role: 'all', user: 'all', risk: 'all', status: 'all' })
 
 function inputDate(offsetDays = 0) {
@@ -231,6 +232,15 @@ function MisOverviewCard({ title, subtitle, icon: Icon, tone, metrics, loading }
   </article>
 }
 
+function MisPagination({ page, total, pageSize = MIS_PAGE_SIZE, onPageChange }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  if (total <= pageSize) return <div className="border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs font-bold text-slate-500">Showing {total} of {total} records</div>
+  const safePage = Math.min(page, totalPages)
+  const start = (safePage - 1) * pageSize + 1
+  const end = Math.min(total, safePage * pageSize)
+  return <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-3"><span className="text-xs font-bold text-slate-500">Showing {start}-{end} of {total} records</span><div className="flex items-center gap-2"><button type="button" disabled={safePage <= 1} onClick={() => onPageChange(safePage - 1)} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button><span className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white">Page {safePage} / {totalPages}</span><button type="button" disabled={safePage >= totalPages} onClick={() => onPageChange(safePage + 1)} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button></div></div>
+}
+
 function SortHeading({ label, value, sort, onSort, align = 'left' }) {
   return <th className={`sticky top-0 z-10 bg-slate-50 px-3 py-3 ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'}`}><button type="button" onClick={() => onSort(value)} className="inline-flex items-center gap-1 whitespace-nowrap text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-emerald-700">{label}<ArrowUpDown className={`h-3 w-3 ${sort.key === value ? 'text-emerald-600' : 'text-slate-300'}`} /></button></th>
 }
@@ -255,6 +265,10 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [quotations, setQuotations] = useState([])
   const [quotationLeads, setQuotationLeads] = useState([])
   const [complianceClients, setComplianceClients] = useState([])
+  const [salesPage, setSalesPage] = useState(1)
+  const [operationPage, setOperationPage] = useState(1)
+  const [compliancePage, setCompliancePage] = useState(1)
+  const [quotationPage, setQuotationPage] = useState(1)
 
   async function loadProductivityReport(timeout = 60000) {
     return api.get(API_ENDPOINTS.auth.userProductivityReport, {
@@ -322,18 +336,21 @@ export default function SuperAdminDashboard({ misPage = false }) {
   }, [draftFilters])
 
   const rows = useMemo(() => (report.users || []).map((row) => ({ ...row, roleLabel: roleLabels[row.role] || row.role || '-' })), [report.users])
-  const salesMisRows = useMemo(() => rows, [rows])
+  const allSalesMisRows = useMemo(() => rows, [rows])
   const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
   const operationsOnlyMis = misPage && !misAccess.isAdmin
   const misTitle = operationsOnlyMis
     ? (misAccess.scope === 'operation-head' ? 'Complete Operations MIS' : `${misAccess.operationTeams?.[0]?.name || 'Team'} Operations MIS`)
     : 'Complete MIS'
-  const operationGroups = useMemo(() => buildOperationGroups(rows, misAccess.operationTeams), [rows, misAccess.operationTeams])
-  const quotationMisRows = useMemo(() => [...quotations]
+  const allOperationGroups = useMemo(() => buildOperationGroups(rows, misAccess.operationTeams), [rows, misAccess.operationTeams])
+  const allQuotationMisRows = useMemo(() => [...quotations]
     .sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0))
     .map((row) => ({ ...row, poMisStatus: quotationPoStatus(row, quotationLeads) })), [quotationLeads, quotations])
-  const salesTotals = useMemo(() => salesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [salesMisRows])
-  const operationTotals = useMemo(() => operationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), pending: total.pending + Number(group.pendingClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, pending: 0, filled: 0, missing: 0 }), [operationGroups])
+  const salesMisRows = useMemo(() => allSalesMisRows.slice((salesPage - 1) * MIS_PAGE_SIZE, salesPage * MIS_PAGE_SIZE), [allSalesMisRows, salesPage])
+  const operationGroups = useMemo(() => allOperationGroups.slice((operationPage - 1) * MIS_PAGE_SIZE, operationPage * MIS_PAGE_SIZE), [allOperationGroups, operationPage])
+  const quotationMisRows = useMemo(() => allQuotationMisRows.slice((quotationPage - 1) * MIS_PAGE_SIZE, quotationPage * MIS_PAGE_SIZE), [allQuotationMisRows, quotationPage])
+  const salesTotals = useMemo(() => allSalesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [allSalesMisRows])
+  const operationTotals = useMemo(() => allOperationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), pending: total.pending + Number(group.pendingClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, pending: 0, filled: 0, missing: 0 }), [allOperationGroups])
   const complianceTotals = useMemo(() => {
     if (complianceClients.length) return complianceClients.reduce((total, client) => {
       const status = String(client.approvalStatus || client.status || 'PENDING').toUpperCase()
@@ -344,7 +361,11 @@ export default function SuperAdminDashboard({ misPage = false }) {
     }, { pending: 0, partial: 0, approved: 0 })
     return rows.reduce((total, row) => ({ pending: total.pending + Number(row.pendingClients || 0), partial: total.partial + Number(row.partiallyApprovedClients || 0), approved: total.approved + Number(row.approvedClients || 0) }), { pending: 0, partial: 0, approved: 0 })
   }, [complianceClients, rows])
-  const quotationTotals = useMemo(() => ({ total: quotationMisRows.length, open: quotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: quotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [quotationMisRows])
+  const compliancePendingClients = useMemo(() => complianceClients.filter((client) => String(client.approvalStatus || client.status || 'PENDING').toUpperCase() === 'PENDING'), [complianceClients])
+  const paginatedComplianceClients = useMemo(() => compliancePendingClients.slice((compliancePage - 1) * MIS_PAGE_SIZE, compliancePage * MIS_PAGE_SIZE), [compliancePendingClients, compliancePage])
+
+  useEffect(() => { setSalesPage(1); setOperationPage(1); setCompliancePage(1); setQuotationPage(1) }, [appliedFilters.from, appliedFilters.to])
+  const quotationTotals = useMemo(() => ({ total: allQuotationMisRows.length, open: allQuotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: allQuotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [allQuotationMisRows])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
     const search = appliedFilters.search.trim().toLowerCase()
@@ -403,8 +424,8 @@ export default function SuperAdminDashboard({ misPage = false }) {
     setGeneratingMisPdf(type)
     setExportError('')
     try {
-      if (type === 'sales') await downloadSalesMisPdf({ rows: salesMisRows, period: report.period })
-      else await downloadOperationMisPdf({ groups: operationGroups, period: report.period })
+      if (type === 'sales') await downloadSalesMisPdf({ rows: allSalesMisRows, period: report.period })
+      else await downloadOperationMisPdf({ groups: allOperationGroups, period: report.period })
     } catch (pdfError) {
       console.error(`Unable to generate ${type} MIS PDF`, pdfError)
       setExportError(`Unable to generate the ${type === 'sales' ? 'Sales' : 'Operation'} MIS report. Please try again.`)
@@ -475,6 +496,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
             {loading ? <tr><td colSpan="6" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr> : salesMisRows.map((row, index) => { const rate = row.totalLeads ? Math.round((row.closedLeads / row.totalLeads) * 100) : 0; return <tr key={String(row.id)} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-emerald-50/50"><td className="px-5 py-4 font-black text-slate-400">{index + 1}</td><td className="px-5 py-4"><button type="button" onClick={() => setWorkReportUser(row)} className="text-left"><strong className="block text-slate-950 hover:text-emerald-700">{row.name}</strong><small className="text-slate-500">{row.email}</small></button></td><td className="px-5 py-4 text-right text-lg font-black text-slate-950">{row.totalLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-orange-600">{row.openLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{row.closedLeads}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-28 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${rate}%` }} /></div><strong className="text-emerald-800">{rate}%</strong></div></td></tr> })}
             {!loading && !salesMisRows.length && <tr><td colSpan="6" className="p-10 text-center font-bold text-slate-400">No Sales users found.</td></tr>}
           </tbody></table></div>
+          <MisPagination page={salesPage} total={allSalesMisRows.length} onPageChange={setSalesPage} />
         </section>}
 
         {misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
@@ -491,6 +513,19 @@ export default function SuperAdminDashboard({ misPage = false }) {
             })}
             {!loading && !operationGroups.length && <tr><td colSpan="7" className="p-10 text-center font-bold text-slate-400">No Operation teams found.</td></tr>}
           </tbody></table></div>
+          <MisPagination page={operationPage} total={allOperationGroups.length} onPageChange={setOperationPage} />
+        </section>}
+
+        {misPage && currentUserIsAdmin && <section className="mt-4 overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-sm">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-rose-50 to-white px-5 py-4">
+            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-rose-100 text-rose-700"><ShieldCheck className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-rose-700">Pending client approvals</p><h2 className="text-xl font-black text-slate-950">Compliance MIS</h2><p className="text-xs font-semibold text-slate-500">Only Pending Approval → Pending Clients records</p></div></div>
+            <button type="button" onClick={() => navigate('/pending-approval?tab=clients')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-black text-white">Open Pending Clients</button>
+          </header>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Sr. No.</th><th className="px-5 py-3">Client Name</th><th className="px-5 py-3">Approval Status</th><th className="px-5 py-3">Applicant Type</th><th className="px-5 py-3">Service Category</th><th className="px-5 py-3">Created By</th><th className="px-5 py-3">Request Date</th><th className="px-5 py-3">Action</th></tr></thead><tbody>
+            {loading ? <tr><td colSpan="8" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr> : paginatedComplianceClients.map((client, index) => <tr key={entityId(client.id || client.approvalRecordId) || index} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-rose-50/50"><td className="px-5 py-4 font-black text-slate-400">{(compliancePage - 1) * MIS_PAGE_SIZE + index + 1}</td><td className="px-5 py-4 font-black text-slate-950">{displayText(client.clientName)}</td><td className="px-5 py-4"><span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-black uppercase text-rose-700">Pending</span></td><td className="px-5 py-4">{displayText(client.piboCategory)}</td><td className="px-5 py-4">{displayText(client.eprCategory)}</td><td className="px-5 py-4">{displayText(client.createdBy)}</td><td className="px-5 py-4">{displayText(client.requestDate)} {displayText(client.requestTime, '')}</td><td className="px-5 py-4"><button type="button" onClick={() => navigate(`/pending-approval/clients/${encodeURIComponent(entityId(client.id))}/review`)} className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white">Review</button></td></tr>)}
+            {!loading && !compliancePendingClients.length && <tr><td colSpan="8" className="p-10 text-center font-bold text-slate-400">No pending client approvals found.</td></tr>}
+          </tbody></table></div>
+          <MisPagination page={compliancePage} total={compliancePendingClients.length} onPageChange={setCompliancePage} />
         </section>}
 
         {misPage && misAccess.showQuotations && <section className="mt-4 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
@@ -502,6 +537,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
             {quotationMisRows.map((row, index) => { const poStatus = poStatusDisplay(row.poMisStatus); return <tr key={entityId(row._id || row.id) || index} className={`border-t border-slate-100 font-semibold text-slate-700 hover:bg-orange-50/50 ${index === 0 ? 'bg-orange-50/60' : ''}`}><td className="px-5 py-3"><strong className="text-orange-700">{displayText(row.quotationNumber)}</strong>{index === 0 && <small className="ml-2 rounded-full bg-orange-500 px-2 py-1 text-[9px] font-black uppercase text-white">Latest</small>}</td><td className="px-5 py-3 font-black text-slate-950">{displayText(row.companyName || row.leadDetails?.companyName)}</td><td className="px-5 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${poStatus.tone}`}>{poStatus.label}</span></td><td className="px-5 py-3">{displayText(row.preparedBy || row.createdByName || row.createdBy)}</td><td className="px-5 py-3">{formatReportDate(row.validUntil)}</td><td className="px-5 py-3 text-right font-black">{row.items?.length || 0}</td><td className="px-5 py-3 text-right font-black text-orange-700">₹{(Number(row.grandTotal) || 0).toLocaleString('en-IN')}</td><td className="px-5 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-700">{displayText(row.status, 'draft')}</span></td></tr> })}
             {!loading && !quotationMisRows.length && <tr><td colSpan="8" className="p-10 text-center font-bold text-slate-400">No quotations found.</td></tr>}
           </tbody></table></div>
+          <MisPagination page={quotationPage} total={allQuotationMisRows.length} onPageChange={setQuotationPage} />
         </section>}
 
         <section onClickCapture={(event) => { const cell = event.target.closest('td'); if (!cell || cell.cellIndex !== 1) return; const tableRow = cell.closest('tr'); const index = tableRow ? tableRow.sectionRowIndex : -1; if (index >= 0 && visible[index]) setWorkReportUser(visible[index]) }} className={`${misPage ? 'hidden' : ''} mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm`}>
