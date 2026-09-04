@@ -134,6 +134,8 @@ function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = 
       draftClients: ownedClients.filter((client) => String(client.workflowStatus || 'draft').toLowerCase() === 'draft').length,
       submittedClients: ownedClients.filter((client) => String(client.workflowStatus || '').toLowerCase() === 'submitted').length,
       pendingClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || 'PENDING').toUpperCase() === 'PENDING').length,
+      partiallyApprovedClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'PARTIALLY_APPROVED').length,
+      approvedClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'APPROVED').length,
       clientCompletionPercentage: clientFieldsFilled + clientFieldsMissing ? Math.round(clientFieldsFilled / (clientFieldsFilled + clientFieldsMissing) * 100) : 0,
       activeSeconds: 0, openSeconds: 0, awaySeconds: 0, activityCount: 0, sessions: 0, score: 0,
       tickets: { total: 0, open: 0, resolved: 0 }, risk: { key: account.lastLogin ? 'healthy' : 'never', level: account.lastLogin ? 'Low Risk' : 'Never Logged In', reason: account.lastLogin ? 'Fallback MIS data' : 'No successful CRM login recorded', rank: account.lastLogin ? 1 : 5 },
@@ -220,6 +222,7 @@ function MisOverviewCard({ title, subtitle, icon: Icon, tone, metrics, loading }
     emerald: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white text-emerald-700',
     blue: 'border-blue-200 bg-gradient-to-br from-blue-50 to-white text-blue-700',
     orange: 'border-orange-200 bg-gradient-to-br from-orange-50 to-white text-orange-600',
+    rose: 'border-rose-200 bg-gradient-to-br from-rose-50 to-white text-rose-700',
     violet: 'border-violet-200 bg-gradient-to-br from-violet-50 to-white text-violet-700'
   }
   return <article className={`rounded-2xl border p-4 shadow-sm ${tones[tone]}`}>
@@ -315,7 +318,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   }, [draftFilters])
 
   const rows = useMemo(() => (report.users || []).map((row) => ({ ...row, roleLabel: roleLabels[row.role] || row.role || '-' })), [report.users])
-  const salesMisRows = useMemo(() => rows.filter((row) => ['sales', 'admin', 'superadmin'].includes(String(row.role).toLowerCase())), [rows])
+  const salesMisRows = useMemo(() => rows, [rows])
   const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
   const operationsOnlyMis = misPage && !misAccess.isAdmin
   const misTitle = operationsOnlyMis
@@ -327,6 +330,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
     .map((row) => ({ ...row, poMisStatus: quotationPoStatus(row, quotationLeads) })), [quotationLeads, quotations])
   const salesTotals = useMemo(() => salesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [salesMisRows])
   const operationTotals = useMemo(() => operationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), pending: total.pending + Number(group.pendingClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, pending: 0, filled: 0, missing: 0 }), [operationGroups])
+  const complianceTotals = useMemo(() => rows.reduce((total, row) => ({ pending: total.pending + Number(row.pendingClients || 0), partial: total.partial + Number(row.partiallyApprovedClients || 0), approved: total.approved + Number(row.approvedClients || 0) }), { pending: 0, partial: 0, approved: 0 }), [rows])
   const quotationTotals = useMemo(() => ({ total: quotationMisRows.length, open: quotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: quotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [quotationMisRows])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
@@ -422,7 +426,8 @@ export default function SuperAdminDashboard({ misPage = false }) {
 
         {misPage && <section className="mis-overview-grid mt-4 grid gap-4 md:grid-cols-2">
           <MisOverviewCard title="Sales MIS" subtitle="Complete lead ownership" icon={Users} tone="emerald" loading={loading} metrics={[["Total Leads", salesTotals.leads], ["Open Leads", salesTotals.open], ["Closed Leads", salesTotals.closed], ["Close Rate", `${salesTotals.leads ? ((salesTotals.closed / salesTotals.leads) * 100).toFixed(1) : 0}%`]]} />
-          <MisOverviewCard title="Operation MIS" subtitle="Client Master workflow overview" icon={Building2} tone="blue" loading={loading} metrics={[["Client Masters", operationTotals.clients], ["Total Draft", operationTotals.draft], ["Total Submitted", operationTotals.submitted], ["Pending Clients", operationTotals.pending], ["Completion", `${operationTotals.filled + operationTotals.missing ? Math.round(operationTotals.filled / (operationTotals.filled + operationTotals.missing) * 100) : 0}%`]]} />
+          <MisOverviewCard title="Operation MIS" subtitle="Client Master workflow overview" icon={Building2} tone="blue" loading={loading} metrics={[["Client Masters", operationTotals.clients], ["Total Draft", operationTotals.draft], ["Total Submitted", operationTotals.submitted], ["Completion", `${operationTotals.filled + operationTotals.missing ? Math.round(operationTotals.filled / (operationTotals.filled + operationTotals.missing) * 100) : 0}%`]]} />
+          <MisOverviewCard title="Compliance MIS" subtitle="Client approval workflow" icon={ShieldCheck} tone="rose" loading={loading} metrics={[["Total Requests", complianceTotals.pending + complianceTotals.partial + complianceTotals.approved], ["Pending Clients", complianceTotals.pending], ["Partially Approved", complianceTotals.partial], ["Approved", complianceTotals.approved]]} />
           <MisOverviewCard title="Quotation MIS" subtitle="Commercial performance" icon={FileText} tone="orange" loading={loading} metrics={[["Total", quotationTotals.total], ["Open", quotationTotals.open], ["Converted", quotationTotals.converted], ["Conversion", `${quotationTotals.total ? ((quotationTotals.converted / quotationTotals.total) * 100).toFixed(1) : 0}%`]]} />
           <MisOverviewCard title="Overall Summary" subtitle="Live CRM overview" icon={BarChart3} tone="violet" loading={loading} metrics={[["CRM Users", rows.length], ["Active Users", rows.filter((row) => row.active).length], ["Clients", operationTotals.clients], ["Quotations", quotationTotals.total]]} />
         </section>}

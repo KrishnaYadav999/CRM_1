@@ -967,9 +967,7 @@ exports.allocateLead = async (req, res) => {
     const userId = String(req.body?.userId || '').trim();
     if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ error: 'A valid admin user is required.' });
     const target = await User.findById(userId).select('name email crmUserId role isActive');
-    if (!target || target.isActive === false) return res.status(404).json({ error: 'Active admin user not found.' });
-    const targetRole = String(target.role || '').trim().toLowerCase();
-    if (!ADMIN_ROLES.includes(targetRole)) return res.status(400).json({ error: 'Leads can only be allocated to Admin or Super Admin users.' });
+    if (!target || target.isActive === false) return res.status(404).json({ error: 'Active CRM user not found.' });
 
     const lead = await Lead.findById(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found.' });
