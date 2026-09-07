@@ -21,6 +21,7 @@ const { normalizeFinancialYear, resolveAnnualReturnPO } = require('../services/a
 const { syncStaffOnboardingCpcbStatus } = require('../services/staffOnboardingWorkflow');
 const { sendMail } = require('../utils/mailer');
 const Notification = require('../models/Notification');
+const { userHasAnyRole } = require('../utils/userRoles');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -39,8 +40,7 @@ function normalizeRoleName(value = '') {
 }
 
 function hasAnnualRole(user, roles = []) {
-  const userRole = normalizeRoleName(user?.role);
-  return roles.some((role) => userRole === normalizeRoleName(role));
+  return userHasAnyRole(user, roles);
 }
 
 function readAnnualWorkflowStage(workflow = {}) {
@@ -1248,9 +1248,8 @@ exports.getAnnualReturnPoStatus = async (req, res) => {
 exports.listPendingApprovals = async (req, res) => {
   const startedAt = Date.now();
   const storedFallback = await readStoredPendingApprovals();
-  const requesterRole = normalizeRoleName(req.user?.role);
-  const isAdministrativeReviewer = ['admin', 'superadmin'].includes(requesterRole);
-  const isClientReviewer = isAdministrativeReviewer || requesterRole.includes('compliance');
+  const isAdministrativeReviewer = userHasAnyRole(req.user, ['admin', 'superadmin']);
+  const isClientReviewer = isAdministrativeReviewer || userHasAnyRole(req.user, ['compliance']);
 
   res.json({
     ok: true,

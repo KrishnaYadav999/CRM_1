@@ -6,13 +6,13 @@ import ProfileModal from '../components/dashboard/ProfileModal';
 import ApprovalTabs from '../components/dashboard/ApprovalTabs';
 import BrandLoader from '../components/BrandLoader';
 import ToastMessage from '../components/ToastMessage';
-import { adminRoles, isComplianceRole } from '../constants/dashboard';
+import { adminRoles, getUserRoles, hasAnyRole } from '../constants/dashboard';
 import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { uploadMedia } from '../services/mediaUpload';
 
 const rowsPerPage = 5;
-const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v4';
+const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v5';
 const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
 const PENDING_APPROVAL_AUTH_TIMEOUT_MS = 4500;
 const PENDING_APPROVAL_DATA_TIMEOUT_MS = 20000;
@@ -654,11 +654,12 @@ export default function PendingApproval() {
   const loadRequestRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
-  const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-  const canApprove = adminRoles.includes(normalizedRole);
-  const isSuperAdmin = normalizedRole === 'superadmin';
-  const canApproveTemporary = ['admin', 'superadmin'].includes(normalizedRole);
-  const isComplianceApprovalView = isComplianceRole(currentUser?.role) && !canApprove;
+  const effectiveRoles = getUserRoles(currentUser);
+  const normalizedRole = effectiveRoles.join('|');
+  const canApprove = hasAnyRole(currentUser, adminRoles);
+  const isSuperAdmin = hasAnyRole(currentUser, ['superadmin']);
+  const canApproveTemporary = hasAnyRole(currentUser, ['admin', 'superadmin']);
+  const isComplianceApprovalView = hasAnyRole(currentUser, ['compliance']) && !canApprove;
   const canApproveClients = canApprove || isComplianceApprovalView;
 
   useEffect(() => {
