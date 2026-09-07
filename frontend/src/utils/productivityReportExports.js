@@ -229,6 +229,158 @@ export async function exportProductivityExcel({ rows, summary, period }) {
   XLSX.writeFile(workbook, `User_Activity_Productivity_Report_${period.to}.xlsx`)
 }
 
+const MIS_EXCEL_COLORS = {
+  navy: 'FF102A43', teal: 'FF075848', emerald: 'FF0F766E', orange: 'FFF97316',
+  rose: 'FFE11D48', cyan: 'FF0E7490', violet: 'FF6D28D9', white: 'FFFFFFFF',
+  ink: 'FF172033', muted: 'FF64748B', line: 'FFDCE7E3', soft: 'FFF3F8F6', pale: 'FFF8FAFC'
+}
+
+function excelDisplayText(value, fallback = '-') {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'object') return String(value.name || value.email || value.label || value._id || value.id || fallback)
+  return String(value)
+}
+
+function excelBorder(color = MIS_EXCEL_COLORS.line) {
+  return { top: { style: 'thin', color: { argb: color } }, left: { style: 'thin', color: { argb: color } }, bottom: { style: 'thin', color: { argb: color } }, right: { style: 'thin', color: { argb: color } } }
+}
+
+function styleMisTitle(sheet, title, subtitle, period, accent) {
+  sheet.mergeCells('D2:J3')
+  const titleCell = sheet.getCell('D2')
+  titleCell.value = title
+  titleCell.font = { name: 'Aptos Display', size: 22, bold: true, color: { argb: MIS_EXCEL_COLORS.navy } }
+  titleCell.alignment = { vertical: 'middle' }
+  sheet.mergeCells('D4:J4')
+  sheet.getCell('D4').value = subtitle
+  sheet.getCell('D4').font = { name: 'Aptos', size: 10, color: { argb: MIS_EXCEL_COLORS.muted } }
+  sheet.mergeCells('D5:J5')
+  sheet.getCell('D5').value = `Report Period: ${formatReportDate(period.from)} - ${formatReportDate(period.to)}  |  Generated: ${formatDateTime(new Date())}`
+  sheet.getCell('D5').font = { name: 'Aptos', size: 9, bold: true, color: { argb: accent } }
+  sheet.getRow(1).height = 8
+  sheet.getRow(2).height = 20
+  sheet.getRow(3).height = 20
+  for (let row = 1; row <= 6; row += 1) {
+    for (let column = 1; column <= 10; column += 1) sheet.getCell(row, column).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: MIS_EXCEL_COLORS.soft } }
+  }
+  sheet.getRow(6).height = 5
+  for (let column = 1; column <= 10; column += 1) sheet.getCell(6, column).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: accent } }
+}
+
+function addMisKpis(sheet, cards, row, accent) {
+  cards.forEach((card, index) => {
+    const start = 1 + index * 2
+    sheet.mergeCells(row, start, row, start + 1)
+    sheet.mergeCells(row + 1, start, row + 2, start + 1)
+    const label = sheet.getCell(row, start)
+    const value = sheet.getCell(row + 1, start)
+    label.value = String(card.label).toUpperCase()
+    value.value = card.value
+    label.font = { name: 'Aptos', size: 9, bold: true, color: { argb: MIS_EXCEL_COLORS.muted } }
+    value.font = { name: 'Aptos Display', size: 18, bold: true, color: { argb: accent } }
+    ;[label, value].forEach((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: MIS_EXCEL_COLORS.white } }
+      cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 }
+      cell.border = excelBorder()
+    })
+  })
+  sheet.getRow(row).height = 20
+  sheet.getRow(row + 1).height = 20
+  sheet.getRow(row + 2).height = 20
+}
+
+function addMisTable(sheet, startRow, headers, data, accent, widths) {
+  const headerRow = sheet.getRow(startRow)
+  headers.forEach((header, index) => {
+    const cell = headerRow.getCell(index + 1)
+    cell.value = header
+    cell.font = { name: 'Aptos', size: 10, bold: true, color: { argb: MIS_EXCEL_COLORS.white } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: accent } }
+    cell.alignment = { vertical: 'middle', horizontal: index === 0 ? 'center' : 'left', wrapText: true }
+    cell.border = excelBorder(accent)
+  })
+  headerRow.height = 28
+  data.forEach((values, rowIndex) => {
+    const row = sheet.getRow(startRow + rowIndex + 1)
+    values.forEach((value, columnIndex) => {
+      const cell = row.getCell(columnIndex + 1)
+      cell.value = value === undefined || value === null || value === '' ? '-' : value
+      cell.font = { name: 'Aptos', size: 10, color: { argb: MIS_EXCEL_COLORS.ink }, bold: columnIndex === 1 }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowIndex % 2 ? MIS_EXCEL_COLORS.pale : MIS_EXCEL_COLORS.white } }
+      cell.alignment = { vertical: 'middle', horizontal: typeof value === 'number' ? 'right' : 'left', wrapText: true }
+      cell.border = excelBorder()
+    })
+    row.height = 23
+  })
+  widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width })
+  sheet.autoFilter = { from: { row: startRow, column: 1 }, to: { row: startRow + data.length, column: headers.length } }
+  sheet.views = [{ state: 'frozen', ySplit: startRow, activeCell: `A${startRow + 1}` }]
+  sheet.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } }
+  sheet.headerFooter.oddFooter = '&LAnantTattva CRM&CConfidential MIS Report&RPage &P of &N'
+}
+
+export async function exportCompleteMisExcel({ salesRows = [], operationGroups = [], complianceRows = [], period }) {
+  const ExcelJSModule = await import('exceljs')
+  const ExcelJS = ExcelJSModule.default || ExcelJSModule
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'AnantTattva CRM'
+  workbook.company = 'AnantTattva'
+  workbook.subject = 'Complete Management Information System Report'
+  workbook.created = new Date()
+  workbook.calcProperties.fullCalcOnLoad = true
+
+  let logoId = null
+  try { logoId = workbook.addImage({ base64: await logoDataUrl(), extension: 'png' }) } catch (error) { console.warn('Excel logo unavailable', error) }
+  const prepare = (name, title, subtitle, accent) => {
+    const sheet = workbook.addWorksheet(name, { properties: { tabColor: { argb: accent }, defaultRowHeight: 22 } })
+    styleMisTitle(sheet, title, subtitle, period, accent)
+    if (logoId !== null) sheet.addImage(logoId, { tl: { col: 0.25, row: 1.15 }, ext: { width: 190, height: 68 }, editAs: 'oneCell' })
+    sheet.sheetProperties.pageSetUpPr = { fitToPage: true }
+    return sheet
+  }
+
+  const salesTotals = salesRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 })
+  const operationPeople = operationGroups.flatMap((group) => [...(group.manager ? [group.manager] : []), ...(group.members || [])].map((row) => ({ group, row })))
+  const clientTotal = operationGroups.reduce((sum, group) => sum + Number(group.clientMasters || 0), 0)
+  const complianceUsers = salesRows.filter((row) => Number(row.clientMasters || 0) + Number(row.pendingClients || 0) + Number(row.approvedClients || 0) + Number(row.partiallyApprovedClients || 0) > 0)
+  const approvalTotals = complianceUsers.reduce((total, row) => ({ clients: total.clients + Number(row.clientMasters || 0), pending: total.pending + Number(row.pendingClients || 0), partial: total.partial + Number(row.partiallyApprovedClients || 0), approved: total.approved + Number(row.approvedClients || 0), rejected: total.rejected + Number(row.rejectedClients || 0) }), { clients: 0, pending: 0, partial: 0, approved: 0, rejected: 0 })
+
+  const summary = prepare('Executive Summary', 'Complete MIS', 'Sales, Operations & Compliance Management Report', MIS_EXCEL_COLORS.teal)
+  addMisKpis(summary, [{ label: 'Total Leads', value: salesTotals.leads }, { label: 'Closed Leads', value: salesTotals.closed }, { label: 'Client Masters', value: clientTotal }, { label: 'Approval Requests', value: approvalTotals.pending + approvalTotals.partial + approvalTotals.approved + approvalTotals.rejected }, { label: 'CRM Users', value: salesRows.length }], 8, MIS_EXCEL_COLORS.teal)
+  addMisTable(summary, 13, ['#', 'Department', 'Primary Metric', 'Total', 'Open / Pending', 'Completed / Approved', 'Performance', 'Report Status'], [
+    [1, 'Sales', 'Leads', salesTotals.leads, salesTotals.open, salesTotals.closed, `${salesTotals.leads ? Math.round(salesTotals.closed / salesTotals.leads * 100) : 0}% close rate`, 'Live'],
+    [2, 'Operations', 'Client Masters', clientTotal, operationGroups.reduce((sum, group) => sum + Number(group.draftClients || 0), 0), operationGroups.reduce((sum, group) => sum + Number(group.submittedClients || 0), 0), `${operationGroups.length} teams`, 'Live'],
+    [3, 'Compliance', 'Client Approvals', approvalTotals.clients, approvalTotals.pending, approvalTotals.approved, `${approvalTotals.partial} partially approved`, 'Live']
+  ], MIS_EXCEL_COLORS.teal, [7, 22, 24, 15, 18, 22, 24, 16])
+
+  const sales = prepare('Sales MIS', 'Sales MIS', 'User-wise lead ownership and closure performance', MIS_EXCEL_COLORS.emerald)
+  addMisKpis(sales, [{ label: 'Sales Users', value: salesRows.length }, { label: 'Total Leads', value: salesTotals.leads }, { label: 'Open Leads', value: salesTotals.open }, { label: 'Closed Leads', value: salesTotals.closed }, { label: 'Close Rate', value: `${salesTotals.leads ? Math.round(salesTotals.closed / salesTotals.leads * 100) : 0}%` }], 8, MIS_EXCEL_COLORS.emerald)
+  addMisTable(sales, 13, ['#', 'User Name', 'Email', 'Role', 'Total Leads', 'Open Leads', 'Closed Leads', 'Close Rate', 'User Status', 'Last Activity'], salesRows.map((row, index) => [index + 1, row.name, row.email, row.roleLabel || row.role, Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active ? 'Active' : 'Inactive'), formatDateTime(row.lastActivity)]), MIS_EXCEL_COLORS.emerald, [7, 24, 32, 16, 14, 14, 15, 14, 16, 23])
+
+  const operations = prepare('Operations MIS', 'Operations MIS', 'Team, manager, user and Client Master completion analysis', MIS_EXCEL_COLORS.cyan)
+  addMisKpis(operations, [{ label: 'Teams', value: operationGroups.length }, { label: 'Users', value: operationPeople.length }, { label: 'Client Masters', value: clientTotal }, { label: 'Draft', value: operationGroups.reduce((sum, group) => sum + Number(group.draftClients || 0), 0) }, { label: 'Submitted', value: operationGroups.reduce((sum, group) => sum + Number(group.submittedClients || 0), 0) }], 8, MIS_EXCEL_COLORS.cyan)
+  addMisTable(operations, 13, ['#', 'Team', 'User Name', 'Level', 'Reports To', 'Total Clients', 'Draft', 'Submitted', 'Pending', 'Completion', 'Status'], operationPeople.map(({ group, row }, index) => [index + 1, group.name, row.name, row === group.manager ? 'Manager' : 'Operation User', row === group.manager ? '-' : group.manager?.name || 'Not Assigned', Number(row.clientMasters || 0), Number(row.draftClients || 0), Number(row.submittedClients || 0), Number(row.pendingClients || 0), `${Number(row.clientCompletionPercentage || 0)}%`, row.active === false ? 'Inactive' : 'Active']), MIS_EXCEL_COLORS.cyan, [7, 23, 24, 18, 24, 15, 12, 14, 13, 14, 14])
+
+  const compliance = prepare('Compliance MIS', 'Compliance MIS', 'User-wise client approval counts and approval request details', MIS_EXCEL_COLORS.rose)
+  addMisKpis(compliance, [{ label: 'Users', value: complianceUsers.length }, { label: 'Total Clients', value: approvalTotals.clients }, { label: 'Pending', value: approvalTotals.pending }, { label: 'Partially Approved', value: approvalTotals.partial }, { label: 'Approved', value: approvalTotals.approved }], 8, MIS_EXCEL_COLORS.rose)
+  addMisTable(compliance, 13, ['#', 'User Name', 'Role', 'Total Clients', 'Pending', 'Partially Approved', 'Approved', 'Rejected', 'Completion', 'User Status'], complianceUsers.map((row, index) => [index + 1, row.name, row.roleLabel || row.role, Number(row.clientMasters || 0), Number(row.pendingClients || 0), Number(row.partiallyApprovedClients || 0), Number(row.approvedClients || 0), Number(row.rejectedClients || 0), `${Number(row.clientCompletionPercentage || 0)}%`, row.active === false ? 'Inactive' : 'Active']), MIS_EXCEL_COLORS.rose, [7, 25, 18, 16, 13, 21, 14, 14, 15, 16])
+
+  const details = prepare('Approval Details', 'Client Approval Details', 'Individual Compliance approval requests with current status', MIS_EXCEL_COLORS.violet)
+  addMisKpis(details, [{ label: 'Total Records', value: complianceRows.length }, { label: 'Pending', value: complianceRows.filter((row) => String(row.approvalStatus || row.status || 'PENDING').toUpperCase() === 'PENDING').length }, { label: 'Partially Approved', value: complianceRows.filter((row) => String(row.approvalStatus || row.status || '').toUpperCase() === 'PARTIALLY_APPROVED').length }, { label: 'Approved', value: complianceRows.filter((row) => String(row.approvalStatus || row.status || '').toUpperCase() === 'APPROVED').length }, { label: 'Rejected', value: complianceRows.filter((row) => String(row.approvalStatus || row.status || '').toUpperCase() === 'REJECTED').length }], 8, MIS_EXCEL_COLORS.violet)
+  addMisTable(details, 13, ['#', 'Client Name', 'Approval Status', 'Applicant Type', 'Service Category', 'Created By', 'Request Date', 'Request Time', 'Remarks / Detail'], complianceRows.map((row, index) => [index + 1, row.clientName, String(row.approvalStatus || row.status || 'PENDING').replaceAll('_', ' '), row.piboCategory, row.eprCategory, excelDisplayText(row.createdBy || row.createdByName), row.requestDate || formatReportDate(String(row.createdAt || '').slice(0, 10)), row.requestTime, row.remarks || row.detail || '-']), MIS_EXCEL_COLORS.violet, [7, 28, 20, 22, 24, 24, 17, 15, 42])
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `AnantTattva_Complete_MIS_${period.from}_to_${period.to}.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export async function downloadSuperAdminGuidePdf() {
   const [{ jsPDF }, autoTableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
   const autoTable = autoTableModule.default || autoTableModule.autoTable

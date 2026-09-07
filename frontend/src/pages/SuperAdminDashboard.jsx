@@ -12,7 +12,7 @@ import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import {
   downloadOperationMisPdf, downloadProductivityPdf, downloadSalesMisPdf, exportProductivityExcel,
-  formatDateTime, formatDuration, formatReportDate, REPORT_TITLE
+  exportCompleteMisExcel, formatDateTime, formatDuration, formatReportDate, REPORT_TITLE
 } from '../utils/productivityReportExports'
 
 const roleLabels = { superadmin: 'Super Admin', admin: 'Admin', manager: 'Manager', operation: 'Operation', sales: 'Sales', compliance: 'Compliance', accounts: 'Accounts' }
@@ -137,6 +137,7 @@ function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = 
       pendingClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || 'PENDING').toUpperCase() === 'PENDING').length,
       partiallyApprovedClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'PARTIALLY_APPROVED').length,
       approvedClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'APPROVED').length,
+      rejectedClients: ownedClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'REJECTED').length,
       clientCompletionPercentage: clientFieldsFilled + clientFieldsMissing ? Math.round(clientFieldsFilled / (clientFieldsFilled + clientFieldsMissing) * 100) : 0,
       activeSeconds: 0, openSeconds: 0, awaySeconds: 0, activityCount: 0, sessions: 0, score: 0,
       tickets: { total: 0, open: 0, resolved: 0 }, risk: { key: account.lastLogin ? 'healthy' : 'never', level: account.lastLogin ? 'Low Risk' : 'Never Logged In', reason: account.lastLogin ? 'Fallback MIS data' : 'No successful CRM login recorded', rank: account.lastLogin ? 1 : 5 },
@@ -419,6 +420,15 @@ export default function SuperAdminDashboard({ misPage = false }) {
     finally { setExportingExcel(false) }
   }
 
+  async function downloadCompleteMisExcel() {
+    if (exportingExcel) return
+    setExportingExcel(true)
+    setExportError('')
+    try { await exportCompleteMisExcel({ salesRows: allSalesMisRows, operationGroups: allOperationGroups, complianceRows: complianceClients, period: report.period }) }
+    catch (excelError) { console.error('Unable to export Complete MIS Excel', excelError); setExportError('Unable to export Complete MIS Excel. Please try again.') }
+    finally { setExportingExcel(false) }
+  }
+
   async function downloadMisPdf(type) {
     if (generatingMisPdf) return
     setGeneratingMisPdf(type)
@@ -447,7 +457,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
       <div className="w-full">
         <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div><p className="text-[10px] font-black uppercase tracking-[.24em] text-orange-500">{misPage ? 'Management information system' : 'Super admin control center'}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{misPage ? misTitle : REPORT_TITLE}</h1><p className="mt-2 text-sm font-semibold text-slate-500">Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)} · {misPage ? (operationsOnlyMis ? 'Operations and Client Master completion for your authorised team scope.' : 'Sales, Operations and Quotation MIS in one place.') : 'user presence, CRM activity, leads, tickets and risk.'}</p></div>
-          <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>{!misPage && <><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></>}</div>
+          <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>{misPage && <button onClick={downloadCompleteMisExcel} disabled={loading || exportingExcel} className="group inline-flex h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 via-teal-700 to-cyan-700 px-5 text-sm font-black text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:shadow-xl disabled:opacity-50"><span className="grid h-7 w-7 place-items-center rounded-lg bg-white/15 ring-1 ring-white/20">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}</span><span><span className="block leading-4">{exportingExcel ? 'Preparing Excel...' : 'Download Excel'}</span><span className="block text-[9px] font-bold tracking-wide text-emerald-100">COMPLETE MIS</span></span></button>}{!misPage && <><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></>}</div>
         </header>
 
         {misPage && <section className="mt-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">

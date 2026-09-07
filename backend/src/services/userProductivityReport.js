@@ -173,6 +173,7 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
       pendingClients: ownClients.filter((client) => String(client.adminControls?.approvalStatus || 'PENDING').toUpperCase() === 'PENDING').length,
       partiallyApprovedClients: ownClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'PARTIALLY_APPROVED').length,
       approvedClients: ownClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'APPROVED').length,
+      rejectedClients: ownClients.filter((client) => String(client.adminControls?.approvalStatus || '').toUpperCase() === 'REJECTED').length,
       clientCompletionPercentage: clientFieldsTotal ? Math.round((clientFieldsFilled / clientFieldsTotal) * 100) : 0,
       activeSeconds, openSeconds, awaySeconds, activityCount, sessions: ownSessions.length,
       awayRatio: openSeconds ? awaySeconds / openSeconds : 0, online,
