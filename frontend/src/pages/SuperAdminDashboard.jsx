@@ -185,7 +185,7 @@ function buildOperationGroups(rows, teams = []) {
     const people = [...(manager ? [manager] : []), ...members]
     const filled = people.reduce((sum, row) => sum + Number(row.clientFieldsFilled || 0), 0)
     const missing = people.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
-    return { id: String(team.id), name: team.name, manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), pendingClients: people.reduce((sum, row) => sum + Number(row.pendingClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 }
+    return { id: String(team.id), name: team.name, manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), approvedClients: people.reduce((sum, row) => sum + Number(row.approvedClients || 0), 0), partiallyApprovedClients: people.reduce((sum, row) => sum + Number(row.partiallyApprovedClients || 0), 0), rejectedClients: people.reduce((sum, row) => sum + Number(row.rejectedClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 }
   })
   const managers = rows.filter((row) => String(row.role).toLowerCase() === 'manager')
   const operationUsers = rows.filter((row) => String(row.role).toLowerCase() === 'operation')
@@ -197,7 +197,7 @@ function buildOperationGroups(rows, teams = []) {
     return {
       id: String(manager.id), name: manager.team || `Team ${String.fromCharCode(65 + index)}`,
       manager, members, clientMasters: people.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0),
-      filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), pendingClients: people.reduce((sum, row) => sum + Number(row.pendingClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0
+      filled, missing, draftClients: people.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: people.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), approvedClients: people.reduce((sum, row) => sum + Number(row.approvedClients || 0), 0), partiallyApprovedClients: people.reduce((sum, row) => sum + Number(row.partiallyApprovedClients || 0), 0), rejectedClients: people.reduce((sum, row) => sum + Number(row.rejectedClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0
     }
   })
   const assigned = new Set(groups.flatMap((group) => group.members.map((row) => String(row.id))))
@@ -207,7 +207,7 @@ function buildOperationGroups(rows, teams = []) {
     const missing = unassigned.reduce((sum, row) => sum + Number(row.clientFieldsMissing || 0), 0)
     groups.push({ id: 'unassigned', name: 'Unassigned Operations', manager: null, members: unassigned,
       clientMasters: unassigned.reduce((sum, row) => sum + Number(row.clientMasters || 0), 0), filled, missing,
-      draftClients: unassigned.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: unassigned.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), pendingClients: unassigned.reduce((sum, row) => sum + Number(row.pendingClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 })
+      draftClients: unassigned.reduce((sum, row) => sum + Number(row.draftClients || 0), 0), submittedClients: unassigned.reduce((sum, row) => sum + Number(row.submittedClients || 0), 0), approvedClients: unassigned.reduce((sum, row) => sum + Number(row.approvedClients || 0), 0), partiallyApprovedClients: unassigned.reduce((sum, row) => sum + Number(row.partiallyApprovedClients || 0), 0), rejectedClients: unassigned.reduce((sum, row) => sum + Number(row.rejectedClients || 0), 0), percentage: filled + missing ? Math.round((filled / (filled + missing)) * 100) : 0 })
   }
   return groups
 }
@@ -265,10 +265,8 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [workReportUser, setWorkReportUser] = useState(null)
   const [quotations, setQuotations] = useState([])
   const [quotationLeads, setQuotationLeads] = useState([])
-  const [complianceClients, setComplianceClients] = useState([])
   const [salesPage, setSalesPage] = useState(1)
   const [operationPage, setOperationPage] = useState(1)
-  const [compliancePage, setCompliancePage] = useState(1)
   const [quotationPage, setQuotationPage] = useState(1)
 
   async function loadProductivityReport(timeout = 60000) {
@@ -313,9 +311,6 @@ export default function SuperAdminDashboard({ misPage = false }) {
       api.get(API_ENDPOINTS.leads.list, { timeout: 30000 })
         .then((result) => setQuotationLeads(result.data?.leads || []))
         .catch((leadError) => console.error('Unable to load PO statuses for Quotation MIS', leadError))
-      api.get(API_ENDPOINTS.clients.pendingApprovals, { timeout: 30000, params: { _: Date.now() } })
-        .then((result) => setComplianceClients(result.data?.pendingClients || []))
-        .catch((approvalError) => console.error('Unable to load Compliance MIS', approvalError))
     }
   }
 
@@ -352,20 +347,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const quotationMisRows = useMemo(() => allQuotationMisRows.slice((quotationPage - 1) * MIS_PAGE_SIZE, quotationPage * MIS_PAGE_SIZE), [allQuotationMisRows, quotationPage])
   const salesTotals = useMemo(() => allSalesMisRows.reduce((total, row) => ({ leads: total.leads + Number(row.totalLeads || 0), open: total.open + Number(row.openLeads || 0), closed: total.closed + Number(row.closedLeads || 0) }), { leads: 0, open: 0, closed: 0 }), [allSalesMisRows])
   const operationTotals = useMemo(() => allOperationGroups.reduce((total, group) => ({ clients: total.clients + Number(group.clientMasters || 0), draft: total.draft + Number(group.draftClients || 0), submitted: total.submitted + Number(group.submittedClients || 0), pending: total.pending + Number(group.pendingClients || 0), filled: total.filled + Number(group.filled || 0), missing: total.missing + Number(group.missing || 0) }), { clients: 0, draft: 0, submitted: 0, pending: 0, filled: 0, missing: 0 }), [allOperationGroups])
-  const complianceTotals = useMemo(() => {
-    if (complianceClients.length) return complianceClients.reduce((total, client) => {
-      const status = String(client.approvalStatus || client.status || 'PENDING').toUpperCase()
-      if (status === 'APPROVED') total.approved += 1
-      else if (status === 'PARTIALLY_APPROVED') total.partial += 1
-      else if (status === 'PENDING') total.pending += 1
-      return total
-    }, { pending: 0, partial: 0, approved: 0 })
-    return rows.reduce((total, row) => ({ pending: total.pending + Number(row.pendingClients || 0), partial: total.partial + Number(row.partiallyApprovedClients || 0), approved: total.approved + Number(row.approvedClients || 0) }), { pending: 0, partial: 0, approved: 0 })
-  }, [complianceClients, rows])
-  const compliancePendingClients = useMemo(() => complianceClients.filter((client) => String(client.approvalStatus || client.status || 'PENDING').toUpperCase() === 'PENDING'), [complianceClients])
-  const paginatedComplianceClients = useMemo(() => compliancePendingClients.slice((compliancePage - 1) * MIS_PAGE_SIZE, compliancePage * MIS_PAGE_SIZE), [compliancePendingClients, compliancePage])
-
-  useEffect(() => { setSalesPage(1); setOperationPage(1); setCompliancePage(1); setQuotationPage(1) }, [appliedFilters.from, appliedFilters.to])
+  useEffect(() => { setSalesPage(1); setOperationPage(1); setQuotationPage(1) }, [appliedFilters.from, appliedFilters.to])
   const quotationTotals = useMemo(() => ({ total: allQuotationMisRows.length, open: allQuotationMisRows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length, converted: allQuotationMisRows.filter((row) => ['approved', 'converted'].includes(String(row.status || '').toLowerCase())).length }), [allQuotationMisRows])
   const roles = useMemo(() => [...new Set(rows.map((row) => row.role).filter(Boolean))].sort(), [rows])
   const visible = useMemo(() => {
@@ -424,7 +406,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
     if (exportingExcel) return
     setExportingExcel(true)
     setExportError('')
-    try { await exportCompleteMisExcel({ salesRows: allSalesMisRows, operationGroups: allOperationGroups, complianceRows: complianceClients, period: report.period }) }
+    try { await exportCompleteMisExcel({ salesRows: allSalesMisRows, operationGroups: allOperationGroups, period: report.period }) }
     catch (excelError) { console.error('Unable to export Complete MIS Excel', excelError); setExportError('Unable to export Complete MIS Excel. Please try again.') }
     finally { setExportingExcel(false) }
   }
@@ -433,7 +415,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
     if (generatingMisPdf) return
     setGeneratingMisPdf('complete')
     setExportError('')
-    try { await downloadCompleteMisPdf({ salesRows: allSalesMisRows, operationGroups: allOperationGroups, complianceRows: complianceClients, period: report.period }) }
+    try { await downloadCompleteMisPdf({ salesRows: allSalesMisRows, operationGroups: allOperationGroups, period: report.period }) }
     catch (pdfError) { console.error('Unable to generate Complete MIS PDF', pdfError); setExportError('Unable to generate Complete MIS PDF. Please try again.') }
     finally { setGeneratingMisPdf('') }
   }
@@ -479,8 +461,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
 
         {misPage && <section className="mis-overview-grid mt-4 grid gap-4 md:grid-cols-2">
           <MisOverviewCard title="Sales MIS" subtitle="Complete lead ownership" icon={Users} tone="emerald" loading={loading} metrics={[["Total Leads", salesTotals.leads], ["Open Leads", salesTotals.open], ["Closed Leads", salesTotals.closed], ["Close Rate", `${salesTotals.leads ? ((salesTotals.closed / salesTotals.leads) * 100).toFixed(1) : 0}%`]]} />
-          <MisOverviewCard title="Operation MIS" subtitle="Client Master workflow overview" icon={Building2} tone="blue" loading={loading} metrics={[["Client Masters", operationTotals.clients], ["Total Draft", operationTotals.draft], ["Total Submitted", operationTotals.submitted], ["Completion", `${operationTotals.filled + operationTotals.missing ? Math.round(operationTotals.filled / (operationTotals.filled + operationTotals.missing) * 100) : 0}%`]]} />
-          <MisOverviewCard title="Compliance MIS" subtitle="Client approval workflow" icon={ShieldCheck} tone="rose" loading={loading} metrics={[["Total Requests", complianceTotals.pending + complianceTotals.partial + complianceTotals.approved], ["Pending Clients", complianceTotals.pending], ["Partially Approved", complianceTotals.partial], ["Approved", complianceTotals.approved]]} />
+          <MisOverviewCard title="Operation MIS" subtitle="Client Master workflow overview" icon={Building2} tone="blue" loading={loading} metrics={[["Client Masters", operationTotals.clients], ["Total Draft", operationTotals.draft], ["Total Submitted", operationTotals.submitted], ["Approved", allOperationGroups.reduce((sum, group) => sum + Number(group.approvedClients || 0), 0)]]} />
           <MisOverviewCard title="Quotation MIS" subtitle="Commercial performance" icon={FileText} tone="orange" loading={loading} metrics={[["Total", quotationTotals.total], ["Open", quotationTotals.open], ["Converted", quotationTotals.converted], ["Conversion", `${quotationTotals.total ? ((quotationTotals.converted / quotationTotals.total) * 100).toFixed(1) : 0}%`]]} />
           <MisOverviewCard title="Overall Summary" subtitle="Live CRM overview" icon={BarChart3} tone="violet" loading={loading} metrics={[["CRM Users", rows.length], ["Active Users", rows.filter((row) => row.active).length], ["Clients", operationTotals.clients], ["Quotations", quotationTotals.total]]} />
         </section>}
@@ -523,28 +504,16 @@ export default function SuperAdminDashboard({ misPage = false }) {
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-100 text-cyan-700"><Building2 className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-700">Team hierarchy MIS</p><h2 className="text-xl font-black text-slate-950">Operation MIS</h2><p className="text-xs font-semibold text-slate-500">Team → Manager → Users · Client Master data completion analysis</p></div></div>
             <button type="button" onClick={() => downloadMisPdf('operation')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'operation' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'operation' ? 'Generating...' : 'Download Operation PDF'}</button>
           </header>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Team / User</th><th className="px-5 py-3">Level</th><th className="px-5 py-3">Reports To</th><th className="px-5 py-3 text-right">Client Masters</th><th className="px-5 py-3 text-right">Total Draft</th><th className="px-5 py-3 text-right">Total Submitted</th><th className="px-5 py-3">Completion</th></tr></thead><tbody>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-sm"><thead className="bg-cyan-800 text-left text-[10px] font-black uppercase tracking-wider text-white"><tr><th className="px-5 py-3">Team / User</th><th className="px-5 py-3">Level</th><th className="px-5 py-3">Reports To</th><th className="px-5 py-3 text-right">Total Clients</th><th className="px-5 py-3 text-right">Draft</th><th className="px-5 py-3 text-right">Submitted</th><th className="px-5 py-3 text-right">Approved</th><th className="px-5 py-3 text-right">Partially Approved</th><th className="px-5 py-3 text-right">Reject</th></tr></thead><tbody>
             {operationGroups.flatMap((group) => {
               const people = [...(group.manager ? [group.manager] : []), ...group.members]
-              const teamRow = <tr key={`team-${group.id}`} className="border-t-2 border-cyan-100 bg-cyan-50/70 font-black text-slate-900"><td className="px-5 py-4"><span className="inline-flex items-center gap-2"><Building2 className="h-4 w-4 text-cyan-700" />{group.name}</span></td><td className="px-5 py-4"><span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] uppercase text-cyan-800">Team Total</span></td><td className="px-5 py-4">{group.manager?.name || '-'}</td><td className="px-5 py-4 text-right text-lg">{group.clientMasters}</td><td className="px-5 py-4 text-right text-orange-600">{group.draftClients || 0}</td><td className="px-5 py-4 text-right text-emerald-700">{group.submittedClients || 0}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-32 overflow-hidden rounded-full bg-white ring-1 ring-cyan-100"><div className="h-full rounded-full bg-cyan-600" style={{ width: `${group.percentage}%` }} /></div><strong>{group.percentage}%</strong></div></td></tr>
-              const peopleRows = people.map((row) => <tr key={`${group.id}-${row.id}`} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-slate-50"><td className="py-3 pl-10 pr-5"><button type="button" onClick={() => setWorkReportUser({ ...row, initialView: "clients" })} className="block text-left font-black text-slate-950 hover:text-cyan-700 hover:underline">{row.name}</button><small className="text-slate-500">{row.email}</small></td><td className="px-5 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${row === group.manager ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}`}>{row === group.manager ? 'Manager' : 'User'}</span></td><td className="px-5 py-3">{row === group.manager ? '—' : group.manager?.name || 'Not assigned'}</td><td className="px-5 py-3 text-right font-black">{row.clientMasters || 0}</td><td className="px-5 py-3 text-right font-black text-orange-600">{row.draftClients || 0}</td><td className="px-5 py-3 text-right font-black text-emerald-700">{row.submittedClients || 0}</td><td className="px-5 py-3"><div className="flex items-center gap-3"><div className="h-2 w-32 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${row.clientCompletionPercentage || 0}%` }} /></div><strong>{row.clientCompletionPercentage || 0}%</strong></div></td></tr>)
+              const teamRow = <tr key={`team-${group.id}`} className="border-t-2 border-cyan-100 bg-cyan-50/70 font-black text-slate-900"><td className="px-5 py-4"><span className="inline-flex items-center gap-2"><Building2 className="h-4 w-4 text-cyan-700" />{group.name}</span></td><td className="px-5 py-4"><span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] uppercase text-cyan-800">Team Total</span></td><td className="px-5 py-4">{group.manager?.name || '-'}</td><td className="px-5 py-4 text-right text-lg">{group.clientMasters}</td><td className="px-5 py-4 text-right text-orange-600">{group.draftClients || 0}</td><td className="px-5 py-4 text-right text-emerald-700">{group.submittedClients || 0}</td><td className="px-5 py-4 text-right text-emerald-700">{group.approvedClients || 0}</td><td className="px-5 py-4 text-right text-amber-600">{group.partiallyApprovedClients || 0}</td><td className="px-5 py-4 text-right text-rose-600">{group.rejectedClients || 0}</td></tr>
+              const peopleRows = people.map((row) => <tr key={`${group.id}-${row.id}`} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-slate-50"><td className="py-3 pl-10 pr-5"><button type="button" onClick={() => setWorkReportUser({ ...row, initialView: "clients" })} className="block text-left font-black text-slate-950 hover:text-cyan-700 hover:underline">{row.name}</button><small className="text-slate-500">{row.email}</small></td><td className="px-5 py-3"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${row === group.manager ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}`}>{row === group.manager ? 'Manager' : 'User'}</span></td><td className="px-5 py-3">{row === group.manager ? '—' : group.manager?.name || 'Not assigned'}</td><td className="px-5 py-3 text-right font-black">{row.clientMasters || 0}</td><td className="px-5 py-3 text-right font-black text-orange-600">{row.draftClients || 0}</td><td className="px-5 py-3 text-right font-black text-emerald-700">{row.submittedClients || 0}</td><td className="px-5 py-3 text-right font-black text-emerald-700">{row.approvedClients || 0}</td><td className="px-5 py-3 text-right font-black text-amber-600">{row.partiallyApprovedClients || 0}</td><td className="px-5 py-3 text-right font-black text-rose-600">{row.rejectedClients || 0}</td></tr>)
               return [teamRow, ...peopleRows]
             })}
-            {!loading && !operationGroups.length && <tr><td colSpan="7" className="p-10 text-center font-bold text-slate-400">No Operation teams found.</td></tr>}
+            {!loading && !operationGroups.length && <tr><td colSpan="9" className="p-10 text-center font-bold text-slate-400">No Operation teams found.</td></tr>}
           </tbody></table></div>
           <MisPagination page={operationPage} total={allOperationGroups.length} onPageChange={setOperationPage} />
-        </section>}
-
-        {misPage && currentUserIsAdmin && <section className="mt-4 overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-sm">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-rose-50 to-white px-5 py-4">
-            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-rose-100 text-rose-700"><ShieldCheck className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-rose-700">Pending client approvals</p><h2 className="text-xl font-black text-slate-950">Compliance MIS</h2><p className="text-xs font-semibold text-slate-500">Only Pending Approval → Pending Clients records</p></div></div>
-            <button type="button" onClick={() => navigate('/pending-approval?tab=clients')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-black text-white">Open Pending Clients</button>
-          </header>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Sr. No.</th><th className="px-5 py-3">Client Name</th><th className="px-5 py-3">Approval Status</th><th className="px-5 py-3">Applicant Type</th><th className="px-5 py-3">Service Category</th><th className="px-5 py-3">Created By</th><th className="px-5 py-3">Request Date</th><th className="px-5 py-3">Action</th></tr></thead><tbody>
-            {loading ? <tr><td colSpan="8" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr> : paginatedComplianceClients.map((client, index) => <tr key={entityId(client.id || client.approvalRecordId) || index} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-rose-50/50"><td className="px-5 py-4 font-black text-slate-400">{(compliancePage - 1) * MIS_PAGE_SIZE + index + 1}</td><td className="px-5 py-4 font-black text-slate-950">{displayText(client.clientName)}</td><td className="px-5 py-4"><span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-black uppercase text-rose-700">Pending</span></td><td className="px-5 py-4">{displayText(client.piboCategory)}</td><td className="px-5 py-4">{displayText(client.eprCategory)}</td><td className="px-5 py-4">{displayText(client.createdBy)}</td><td className="px-5 py-4">{displayText(client.requestDate)} {displayText(client.requestTime, '')}</td><td className="px-5 py-4"><button type="button" onClick={() => navigate(`/pending-approval/clients/${encodeURIComponent(entityId(client.id))}/review`)} className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white">Review</button></td></tr>)}
-            {!loading && !compliancePendingClients.length && <tr><td colSpan="8" className="p-10 text-center font-bold text-slate-400">No pending client approvals found.</td></tr>}
-          </tbody></table></div>
-          <MisPagination page={compliancePage} total={compliancePendingClients.length} onPageChange={setCompliancePage} />
         </section>}
 
         {misPage && misAccess.showQuotations && <section className="mt-4 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
