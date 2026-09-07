@@ -208,6 +208,22 @@ function clientAllocationGroupIdentity(client = {}) {
   return `client:${String(client._id || client.id || '').trim().toLowerCase()}`;
 }
 
+function deduplicateClientMastersForAllocation(clients = []) {
+  const byIdentity = new Map();
+  clients.forEach((client) => {
+    const identity = clientAllocationGroupIdentity(client);
+    const current = byIdentity.get(identity);
+    if (!current) {
+      byIdentity.set(identity, client);
+      return;
+    }
+    const currentServiceCount = extractServicesFromClient(current).length;
+    const nextServiceCount = extractServicesFromClient(client).length;
+    if (nextServiceCount > currentServiceCount) byIdentity.set(identity, client);
+  });
+  return Array.from(byIdentity.values());
+}
+
 function allocationKeyForService(svc = {}, idx = 0) {
   return clientMasterGroupingIdentityForAllocation({
     applicantType: svc.applicantType, subApplicantType: svc.piboCategory, plantUnit: svc.plantUnit,
@@ -399,7 +415,8 @@ export default function ClientMasterAllocate() {
     return adminRoles.includes(r) || r === 'manager';
   };
 
-  const enrichedRows = useMemo(() => clients.map((c) => ({ client: c, alloc: allocationsForClient(c), overview: readClientOverview(c) })), [clients]);
+  const uniqueClients = useMemo(() => deduplicateClientMastersForAllocation(clients), [clients]);
+  const enrichedRows = useMemo(() => uniqueClients.map((c) => ({ client: c, alloc: allocationsForClient(c), overview: readClientOverview(c) })), [uniqueClients]);
   const searchMatched = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return enrichedRows;
@@ -683,7 +700,7 @@ export default function ClientMasterAllocate() {
           <div className="flex flex-col gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 via-amber-50 to-yellow-50 px-5 py-4 md:flex-row md:items-center md:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               <div className="text-xs font-black text-orange-900">
-                Showing <b className="rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-2 py-0.5 text-white shadow-[0_6px_18px_-6px_rgba(249,115,22,0.55)]">{pagination.total === 0 ? '0' : `${String(pagination.pageRangeStart)}-${String(pagination.pageRangeEnd)}`}</b> of <b className="text-orange-950">{String(pagination.total)}</b> client{String(pagination.total) === '1' ? '' : 's'} · <b className="text-amber-900">{String(clients.length)}</b> total masters · <b className="text-orange-700">{String(aggregates.progress)}%</b> service allocation progress
+                Showing <b className="rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-2 py-0.5 text-white shadow-[0_6px_18px_-6px_rgba(249,115,22,0.55)]">{pagination.total === 0 ? '0' : `${String(pagination.pageRangeStart)}-${String(pagination.pageRangeEnd)}`}</b> of <b className="text-orange-950">{String(pagination.total)}</b> client{String(pagination.total) === '1' ? '' : 's'} · <b className="text-amber-900">{String(uniqueClients.length)}</b> total masters · <b className="text-orange-700">{String(aggregates.progress)}%</b> service allocation progress
               </div>
               <div className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-2.5 py-1.5 text-[11px] font-black text-orange-800 ring-1 ring-orange-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
                 <span className="pl-1 pr-0.5 text-orange-500">Rows per page</span>
@@ -732,6 +749,7 @@ export default function ClientMasterAllocate() {
             <table className="min-w-full divide-y divide-slate-100 text-sm">
               <thead>
                 <tr className="bg-gradient-to-r from-orange-200/80 via-amber-200/80 to-yellow-200/80 text-[10px] font-black uppercase tracking-[0.18em] text-orange-950 ring-1 ring-inset ring-orange-300/50">
+                  <th className="w-[72px] px-5 py-4 text-center">Sr.No</th>
                   <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Building2 className="h-3.5 w-3.5 text-orange-700" /> Company / Lead</span></th>
                   <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-amber-700" /> Contact</span></th>
                   <th className="px-5 py-4 text-left"><span className="inline-flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-yellow-700" /> GST / Location</span></th>
@@ -741,10 +759,10 @@ export default function ClientMasterAllocate() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {loading && <tr><td colSpan="6" className="px-5 py-16 text-center">
+                {loading && <tr><td colSpan="7" className="px-5 py-16 text-center">
                   <div className="inline-flex items-center gap-3 rounded-2xl bg-emerald-50 px-5 py-3 text-sm font-bold text-emerald-700 ring-1 ring-emerald-100"><RefreshCw className="h-4 w-4 animate-spin" /> Loading client master allocations…</div>
                 </td></tr>}
-                {!loading && visibleRows.length === 0 && <tr><td colSpan="6" className="px-5 py-16">
+                {!loading && visibleRows.length === 0 && <tr><td colSpan="7" className="px-5 py-16">
                   <div className="mx-auto flex max-w-lg flex-col items-center gap-3 text-center">
                     <div className="grid h-16 w-16 place-items-center rounded-3xl bg-slate-50 text-slate-400 ring-1 ring-slate-200"><Search className="h-7 w-7" /></div>
                     <h3 className="text-xl font-black text-slate-900">No clients{search ? ' matching filters' : ''}</h3>
@@ -757,6 +775,7 @@ export default function ClientMasterAllocate() {
                   const progress = alloc.total ? Math.round((alloc.assigned / alloc.total) * 100) : 0;
                   return (
                     <tr key={String(client._id)} className="group transition hover:bg-[linear-gradient(90deg,rgba(16,185,129,0.04)_0%,rgba(14,165,233,0.03)_100%)] even:bg-slate-50/40">
+                      <td className="px-5 py-4 text-center text-xs font-black text-slate-500">{absoluteIdx + 1}</td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
                           <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-700 ring-1 ring-emerald-200/70 group-hover:from-emerald-200 group-hover:to-teal-200 transition`}>

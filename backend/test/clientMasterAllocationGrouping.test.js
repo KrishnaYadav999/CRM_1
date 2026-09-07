@@ -12,6 +12,13 @@ test('allocation modal groups sibling Client Masters by selected lead', () => {
   assert.match(page, /__allocationClientId/);
 });
 
+test('allocation list removes duplicate client masters and shows stable serial numbers', () => {
+  assert.match(page, /function deduplicateClientMastersForAllocation\(clients = \[\]\)/);
+  assert.match(page, /const uniqueClients = useMemo\(\(\) => deduplicateClientMastersForAllocation\(clients\)/);
+  assert.match(page, />Sr\.No<\/th>/);
+  assert.match(page, /\{absoluteIdx \+ 1\}<\/td>/);
+});
+
 test('duplicate service labels keep independent allocation state and database writes', () => {
   assert.match(page, /function allocationStateKey\(clientId, serviceKey\)/);
   assert.match(page, /allocationsByClient = new Map/);

@@ -235,13 +235,13 @@ test('quotation views and printable tables omit period-unit and transition colum
   assert.doesNotMatch(page, /\['Select Period', periodUnitLongLabel/);
 });
 
-test('quotation PDF places applicant beside the applicable annual return and registration year', () => {
+test('quotation PDF main amount table uses serial numbers and omits the year column', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function quotationServiceDateRange\(item = \{\}\)/);
   assert.match(page, /return `\$\{formatServiceDate\(startDate\)\} - \$\{formatServiceDate\(endDate\)\}`/);
-  assert.match(page, /function quotationPrimaryPeriodHeader\(items = \[\]\)/);
-  assert.match(page, /'Annual Return & Registration Year' : 'Service Period'/);
-  assert.match(page, /<td[^>]*>\{quotationPrimaryPeriodDisplay\(item\)\}<\/td>\s*<td[^>]*>\{getQuotationApplicantType\(item\)\}<\/td>/);
+  assert.match(page, /'Sr\.No', 'Business Category', 'Service Category', 'Applicant Type'/);
+  assert.match(page, /<tr><th>Sr\.No<\/th><th>Business Category<\/th><th>Service Category<\/th><th>Applicant Type<\/th>/);
+  assert.doesNotMatch(page, /quotationPrimaryPeriodHeader|quotationPrimaryPeriodDisplay/);
   assert.match(page, /Annual Return EPR Year \/ Credit Year/);
   assert.match(page, /quotationAnnualReturnRegistrationYear\(item\)/);
   assert.doesNotMatch(page, /EPR \/ Service Period<\/th><th[^>]*>Applicant Type/);
@@ -315,7 +315,7 @@ test('quotation PDF capture bypasses desktop zoom and uses a high-resolution can
 test('quotation preview keeps business and service categories inside separate cells', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   const density = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/14-desktop-density.css'), 'utf8');
-  assert.match(page, /<col className="w-\[16%\]" \/><col className="w-\[18%\]"/);
+  assert.match(page, /<col className="w-\[5%\]" \/><col className="w-\[16%\]" \/><col className="w-\[18%\]"/);
   assert.match(page, /\[overflow-wrap:anywhere\]/);
   assert.match(page, /overflow-wrap: anywhere; word-break: normal/);
   assert.match(density, /\[data-quotation-pdf\] table th/);

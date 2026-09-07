@@ -220,16 +220,6 @@ function isEprConsultancyItem(item = {}) {
   return String(item.businessCategory || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '') === 'eprconsultancy';
 }
 
-function quotationPrimaryPeriodHeader(items = []) {
-  return items.some(isEprConsultancyItem) ? 'Annual Return & Registration Year' : 'Service Period';
-}
-
-function quotationPrimaryPeriodDisplay(item = {}) {
-  return isEprConsultancyItem(item)
-    ? quotationAnnualReturnRegistrationYear(item)
-    : quotationServiceDateRange(item);
-}
-
 function isPwpEprCreditItem(item = {}) {
   return isEprCreditItem(item) && String(getQuotationApplicantType(item) || '').trim().toLowerCase() === 'pwp';
 }
@@ -2944,18 +2934,18 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
               {combined && <div className="mt-5 px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
               <div className={`${combined ? '' : 'mt-5'} overflow-hidden border border-slate-950`}>
                 <table className="w-full table-fixed text-[10px]">
-                  <colgroup><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[15%]" /><col className="w-[11%]" /><col className="w-[11%]" /><col className="w-[6%]" /><col className="w-[11%]" /><col className="w-[12%]" /></colgroup>
+                  <colgroup><col className="w-[5%]" /><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[11%]" /><col className="w-[16%]" /><col className="w-[6%]" /><col className="w-[14%]" /><col className="w-[14%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
-                      {['Business Category', 'Service Category', quotationPrimaryPeriodHeader(items), 'Applicant Type', 'Services Offered', 'Unit', 'Unit Name', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
+                      {['Sr.No', 'Business Category', 'Service Category', 'Applicant Type', 'Services Offered', 'Unit', 'Unit Name', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((item, index) => (
                       <tr key={index} className="font-black uppercase">
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{index + 1}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.businessCategory || '-'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.eprCategory || item.serviceCategory || '-'}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{quotationPrimaryPeriodDisplay(item)}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{getQuotationApplicantType(item)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationUnitLabel(item)}</td>
@@ -3060,9 +3050,9 @@ function buildQuotationPrintHtml(quotation) {
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const rows = items.map((item, index) => `
     <tr>
+      <td class="center">${index + 1}</td>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
       <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
-      <td>${escapeHtml(quotationPrimaryPeriodDisplay(item))}</td>
       <td>${escapeHtml(getQuotationApplicantType(item))}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(quotationUnitLabel(item))}</td>
@@ -3103,8 +3093,9 @@ function buildQuotationPrintHtml(quotation) {
       table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 4px; }
       th { background: #f97316; color: white; border: 1px solid #020617; padding: 7px 6px; text-align: left; font-size: 9px; line-height: 1.15; font-weight: 900; text-transform: uppercase; overflow-wrap: anywhere; }
       td { background: #fff; border: 1px solid #020617; padding: 7px 6px; font-size: 9px; line-height: 1.2; font-weight: 700; text-transform: uppercase; overflow-wrap: anywhere; word-break: normal; }
-      table:first-of-type th:nth-child(1), table:first-of-type td:nth-child(1) { width: 16%; }
-      table:first-of-type th:nth-child(2), table:first-of-type td:nth-child(2) { width: 18%; }
+      table:first-of-type th:nth-child(1), table:first-of-type td:nth-child(1) { width: 5%; text-align: center; }
+      table:first-of-type th:nth-child(2), table:first-of-type td:nth-child(2) { width: 16%; }
+      table:first-of-type th:nth-child(3), table:first-of-type td:nth-child(3) { width: 18%; }
       td.amount { font-weight: 800; }
       td.combined-amount { text-align: center; vertical-align: middle; font-size: 11px; }
       .center { text-align: center; }
@@ -3166,7 +3157,7 @@ function buildQuotationPrintHtml(quotation) {
       ${combinedPackageHeader}
       <table>
         <thead>
-          <tr><th>Business Category</th><th>Service Category</th><th>${escapeHtml(quotationPrimaryPeriodHeader(items))}</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Sr.No</th><th>Business Category</th><th>Service Category</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
         </thead>
         <tbody>${rows || '<tr><td colspan="8" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
