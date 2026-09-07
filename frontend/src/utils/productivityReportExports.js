@@ -198,7 +198,7 @@ export async function downloadSalesMisPdf({ rows, period }) {
 }
 
 export async function downloadOperationMisPdf({ groups, period }) {
-  const { pdf, autoTable } = await createMisPdf('Operation MIS Report', 'Team and Client Master completion', period)
+  const { pdf, autoTable } = await createMisPdf('Operations & Compliance MIS', 'Team, Client Master and approval status counts', period)
   const totals = groups.reduce((sum, group) => ({ clients: sum.clients + Number(group.clientMasters || 0), approved: sum.approved + Number(group.approvedClients || 0), partial: sum.partial + Number(group.partiallyApprovedClients || 0), rejected: sum.rejected + Number(group.rejectedClients || 0) }), { clients: 0, approved: 0, partial: 0, rejected: 0 })
   drawKpiCards(pdf, [{ label: 'Total Clients', value: totals.clients }, { label: 'Approved', value: totals.approved }, { label: 'Partially Approved', value: totals.partial }, { label: 'Reject', value: totals.rejected }], 36)
   const body = groups.flatMap((group) => {
@@ -225,16 +225,10 @@ export async function downloadCompleteMisPdf({ salesRows = [], operationGroups =
   }
   const tableOptions = (head, body, startY, color) => ({ startY, margin: { left: 9, right: 9, top: 35, bottom: 13 }, head: Array.isArray(head[0]) ? head : [head], body, theme: 'grid', showHead: 'everyPage', rowPageBreak: 'avoid', headStyles: { fillColor: color, textColor: 255, fontStyle: 'bold', fontSize: 7.5, cellPadding: 2.2 }, bodyStyles: { textColor: [51, 65, 85], fontSize: 7.2, cellPadding: 2, overflow: 'linebreak', valign: 'middle' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { lineColor: [203, 213, 225], lineWidth: 0.15 } })
   const salesTotals = salesRows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
-  header('Complete MIS Report', 'Executive Sales and Operations overview')
-  drawKpiCards(pdf, [{ label: 'CRM Users', value: salesRows.length }, { label: 'Total Leads', value: salesTotals.total }, { label: 'Open Leads', value: salesTotals.open }, { label: 'Closed Leads', value: salesTotals.closed }], 36)
-  autoTable(pdf, tableOptions(['Department', 'Records', 'Pending / Open', 'Completed / Approved', 'Performance'], [
-    ['Sales', salesTotals.total, salesTotals.open, salesTotals.closed, `${salesTotals.total ? Math.round(salesTotals.closed / salesTotals.total * 100) : 0}% close rate`],
-    ['Operations', operationGroups.reduce((sum, group) => sum + Number(group.clientMasters || 0), 0), operationGroups.reduce((sum, group) => sum + Number(group.draftClients || 0), 0), operationGroups.reduce((sum, group) => sum + Number(group.submittedClients || 0), 0), `${operationGroups.length} teams`]
-  ], 55, [7, 88, 72]))
-  pdf.addPage(); header('Sales MIS', 'User-wise lead ownership and closure performance', [15, 118, 110])
+  header('Sales MIS', 'User-wise lead ownership and closure performance', [15, 118, 110])
   drawKpiCards(pdf, [{ label: 'Total Leads', value: salesTotals.total }, { label: 'Open Leads', value: salesTotals.open }, { label: 'Closed Leads', value: salesTotals.closed }, { label: 'Close Rate', value: `${salesTotals.total ? Math.round(salesTotals.closed / salesTotals.total * 100) : 0}%` }], 36)
   autoTable(pdf, tableOptions(['#', 'User Name', 'Email', 'Total Leads', 'Open Leads', 'Closed Leads', 'Close Rate', 'Status'], salesRows.map((row, index) => [index + 1, row.name, row.email, Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active === false ? 'Inactive' : 'Active')]), 55, [15, 118, 110]))
-  pdf.addPage(); header('Operations MIS', 'Team, user, Client Master and approval status counts', [14, 116, 144])
+  pdf.addPage(); header('Operations & Compliance MIS', 'Team, user, Client Master and approval status counts', [14, 116, 144])
   const operationTotals = operationGroups.reduce((sum, group) => ({ clients: sum.clients + Number(group.clientMasters || 0), approved: sum.approved + Number(group.approvedClients || 0), partial: sum.partial + Number(group.partiallyApprovedClients || 0), rejected: sum.rejected + Number(group.rejectedClients || 0) }), { clients: 0, approved: 0, partial: 0, rejected: 0 })
   drawKpiCards(pdf, [{ label: 'Total Clients', value: operationTotals.clients }, { label: 'Approved', value: operationTotals.approved }, { label: 'Partially Approved', value: operationTotals.partial }, { label: 'Reject', value: operationTotals.rejected }], 36)
   const operationBody = operationGroups.flatMap((group) => [...(group.manager ? [group.manager] : []), ...(group.members || [])].map((row) => [group.name, row.name, row === group.manager ? 'Manager' : 'Operation User', row === group.manager ? '-' : group.manager?.name || 'Not Assigned', Number(row.clientMasters || 0), Number(row.draftClients || 0), Number(row.submittedClients || 0), Number(row.approvedClients || 0), Number(row.partiallyApprovedClients || 0), Number(row.rejectedClients || 0)]))
