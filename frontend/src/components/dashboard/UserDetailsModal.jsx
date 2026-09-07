@@ -1,6 +1,6 @@
 import React from 'react'
 import { CalendarDays, Edit3, Mail, ShieldCheck, UserRound, X } from 'lucide-react'
-import { roleLabels } from '../../constants/dashboard'
+import { getUserRoles, roleLabels } from '../../constants/dashboard'
 
 function formatValue(value) {
   if (!value) return 'Never'
@@ -27,7 +27,7 @@ export default function UserDetailsModal({ user, onClose, onEdit }) {
     ['First Name', name.firstName, UserRound],
     ['Last Name', name.lastName, UserRound],
     ['Email', user?.email, Mail],
-    ['Role', roleLabels[user?.role] || user?.role, ShieldCheck],
+    ['Roles', getUserRoles(user).map((role) => roleLabels[role] || role).join(' • '), ShieldCheck],
     ['Team', user?.team || 'No team assigned', UserRound],
     ['Enabled', user?.isActive ? 'Yes' : 'No', ShieldCheck],
     ['Account Status', user?.isActive ? 'Active' : 'Inactive', ShieldCheck],

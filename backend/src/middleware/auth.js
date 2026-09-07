@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { activityAudit } = require('./activityAudit');
+const { userHasAnyRole } = require('../utils/userRoles');
 
 async function requireAuth(req, res, next) {
   try {
@@ -28,10 +29,7 @@ async function requireAuth(req, res, next) {
 
 function requireRoles(roles) {
   return (req, res, next) => {
-    const normalizedRole = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-    const normalizedAllowedRoles = roles.map((role) => String(role || '').trim().toLowerCase().replace(/[\s_-]+/g, ''));
-    const complianceFamilyAllowed = normalizedAllowedRoles.includes('compliance') && normalizedRole.includes('compliance');
-    if (!req.user || (!normalizedAllowedRoles.includes(normalizedRole) && !complianceFamilyAllowed)) {
+    if (!req.user || !userHasAnyRole(req.user, roles)) {
       return res.status(403).json({ error: 'You do not have permission for this action' });
     }
 

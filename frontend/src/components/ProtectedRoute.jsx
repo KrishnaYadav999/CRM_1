@@ -3,9 +3,10 @@ import { Navigate } from 'react-router-dom'
 import BrandLoader from './BrandLoader'
 import api, { clearStoredSession, hasStoredAuthToken, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
+import { hasAnyRole } from '../constants/dashboard'
 
 export default function ProtectedRoute({ children, allowedRoles }) {
-  const roleAllowed = (user) => !allowedRoles?.length || allowedRoles.includes(String(user?.role || '').trim().toLowerCase())
+  const roleAllowed = (user) => !allowedRoles?.length || hasAnyRole(user, allowedRoles)
   const [state, setState] = useState(() => {
     if (!hasStoredAuthToken()) return { loading: true, allowed: false }
     try {

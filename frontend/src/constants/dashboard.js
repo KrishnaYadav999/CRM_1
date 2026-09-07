@@ -19,6 +19,16 @@ import {
 export const roles = ['operation', 'admin', 'superadmin', 'manager', 'compliance', 'sales', 'accounts']
 export const adminRoles = ['admin', 'superadmin']
 export const isComplianceRole = (role = '') => String(role).trim().toLowerCase().replace(/[\s_-]+/g, '').includes('compliance')
+export const getUserRoles = (user = {}) => [...new Set([user?.role, ...(Array.isArray(user?.roles) ? user.roles : [])]
+  .map((role) => String(role || '').trim().toLowerCase())
+  .filter(Boolean))]
+export const hasAnyRole = (user, allowed = []) => {
+  const normalizedAllowed = allowed.map((role) => String(role || '').trim().toLowerCase().replace(/[\s_-]+/g, ''))
+  return getUserRoles(user).some((role) => {
+    const normalized = role.replace(/[\s_-]+/g, '')
+    return normalizedAllowed.includes(normalized) || (normalizedAllowed.includes('compliance') && normalized.includes('compliance'))
+  })
+}
 export const defaultTeams = ['No team assigned', 'Operations', 'Compliance', 'Sales', 'Accounts', 'Client Success', 'Management']
 
 export const roleLabels = {
@@ -38,6 +48,7 @@ export const defaultUserForm = {
   password: '',
   avatarUrl: '',
   role: 'operation',
+  roles: ['operation'],
   team: 'No team assigned',
   teamId: '',
   managerId: '',

@@ -13,6 +13,14 @@ const UserSchema = new mongoose.Schema({
   password: { type: String }, // used for seeded admin only
   avatarUrl: { type: String },
   role: { type: String, trim: true, default: 'operation', index: true },
+  roles: {
+    type: [{ type: String, trim: true }],
+    default: undefined,
+    validate: {
+      validator: (values) => !values || (values.length >= 1 && values.length <= 3 && new Set(values).size === values.length),
+      message: 'A user must have between 1 and 3 unique roles'
+    }
+  },
   team: { type: String, default: 'No team assigned' },
   teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
   managerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -30,5 +38,14 @@ const UserSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 UserSchema.index({ _id: 1, 'milestoneAcknowledgements.key': 1 });
+
+UserSchema.pre('validate', function syncPrimaryRole(next) {
+  const normalizedRoles = [...new Set([this.role, ...(Array.isArray(this.roles) ? this.roles : [])]
+    .map((role) => String(role || '').trim().toLowerCase())
+    .filter(Boolean))].slice(0, 3);
+  this.roles = normalizedRoles.length ? normalizedRoles : ['operation'];
+  this.role = this.roles[0];
+  next();
+});
 
 module.exports = mongoose.model('User', UserSchema);

@@ -1,11 +1,23 @@
 import React, { useState } from 'react'
 import { Plus, ShieldCheck, X } from 'lucide-react'
 
-export default function RoleSelectManager({ value, roles, onChange, onAddRole, saving, canAddRole }) {
+export default function RoleSelectManager({ value, values, roles, onChange, onAddRole, saving, canAddRole }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
+  const selected = [...new Set((Array.isArray(values) && values.length ? values : [value]).filter(Boolean))].slice(0, 3)
+  const available = roles.filter((role) => !selected.includes(role.name))
+
+  function addSelectedRole(role) {
+    if (!role || selected.includes(role) || selected.length >= 3) return
+    onChange([...selected, role])
+  }
+
+  function removeSelectedRole(role) {
+    if (selected.length <= 1) return
+    onChange(selected.filter((item) => item !== role))
+  }
 
   async function saveRole() {
     const label = name.trim()
@@ -14,7 +26,7 @@ export default function RoleSelectManager({ value, roles, onChange, onAddRole, s
     setError('')
     try {
       const role = await onAddRole(label)
-      onChange(role.name)
+      addSelectedRole(role.name)
       setName('')
       setOpen(false)
     } catch (err) {
@@ -26,13 +38,26 @@ export default function RoleSelectManager({ value, roles, onChange, onAddRole, s
 
   return (
     <>
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-        <select value={value} onChange={(event) => onChange(event.target.value)} className="form-input">
-          {roles.map((role) => <option key={role.name} value={role.name}>{role.label}</option>)}
-        </select>
-        {canAddRole && <button type="button" onClick={() => setOpen(true)} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 px-4 text-sm font-black text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60">
-          <Plus className="h-4 w-4" /> Add Role
+      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+        <div className="flex min-h-8 flex-wrap gap-2">
+          {selected.map((roleName, index) => {
+            const role = roles.find((item) => item.name === roleName)
+            return <span key={roleName} className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-sm font-black text-emerald-800 shadow-sm">
+              {role?.label || roleName}{index === 0 && <small className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide">Primary</small>}
+              <button type="button" disabled={selected.length <= 1 || saving} onClick={() => removeSelectedRole(roleName)} className="rounded-full text-slate-400 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30" aria-label={`Remove ${role?.label || roleName}`}><X className="h-3.5 w-3.5" /></button>
+            </span>
+          })}
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <select value="" disabled={selected.length >= 3 || !available.length || saving} onChange={(event) => addSelectedRole(event.target.value)} className="form-input">
+            <option value="">{selected.length >= 3 ? 'Maximum 3 roles selected' : 'Select another role'}</option>
+            {available.map((role) => <option key={role.name} value={role.name}>{role.label}</option>)}
+          </select>
+        {canAddRole && <button type="button" onClick={() => setOpen(true)} disabled={saving || selected.length >= 3} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 px-4 text-sm font-black text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60">
+          <Plus className="h-4 w-4" /> Create Role
         </button>}
+        </div>
+        <p className="mt-2 text-xs font-bold text-slate-500">Assign up to 3 roles. The user receives the combined access of every selected role.</p>
       </div>
 
       {open && (

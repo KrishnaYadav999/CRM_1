@@ -62,7 +62,7 @@ import UserActionsMenu from '../components/dashboard/UserActionsMenu'
 import UserDetailsModal from '../components/dashboard/UserDetailsModal'
 import PremiumQuotationModal from '../components/PremiumQuotationModal'
 import ToastMessage from '../components/ToastMessage'
-import { adminRoles, defaultUserForm, roleLabels, roles as defaultRoles } from '../constants/dashboard'
+import { adminRoles, defaultUserForm, getUserRoles, hasAnyRole, roleLabels, roles as defaultRoles } from '../constants/dashboard'
 import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
@@ -4830,7 +4830,7 @@ export default function AdminDashboard() {
   const isUserManagementView = location.pathname === '/dashboard/users'
 
   const routeRole = normalizeKey(currentUser?.role)
-  const canManageUsers = adminRoles.includes(routeRole)
+  const canManageUsers = hasAnyRole(currentUser, adminRoles)
   const currentRole = normalizeKey(currentUser?.role)
   const showDashboardSwitcher = !isUserManagementView && canSwitchDashboard(currentUser)
   const isSalesDashboardView = !isUserManagementView && (isSalesDashboardUser(currentUser) || (showDashboardSwitcher && dashboardMode === 'sales'))
@@ -4846,7 +4846,7 @@ export default function AdminDashboard() {
 
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
-      const text = `${user.name || ''} ${user.email || ''} ${user.role || ''} ${user.team || ''}`.toLowerCase()
+      const text = `${user.name || ''} ${user.email || ''} ${getUserRoles(user).join(' ')} ${user.team || ''}`.toLowerCase()
       const matchesSearch = text.includes(query.toLowerCase())
       const matchesStatus =
         statusFilter === 'all' ||
@@ -5268,6 +5268,7 @@ export default function AdminDashboard() {
         password: form.password,
         avatarUrl: form.avatarUrl,
         role: form.role,
+        roles: form.roles,
         team: form.team,
         teamId: form.teamId,
         managerId: form.managerId,
@@ -5327,6 +5328,7 @@ export default function AdminDashboard() {
         email: editForm.email,
         avatarUrl: editForm.avatarUrl,
         role: editForm.role,
+        roles: editForm.roles,
         team: editForm.team,
         teamId: editForm.teamId,
         managerId: editForm.managerId,
@@ -5400,6 +5402,7 @@ export default function AdminDashboard() {
       email: user.email || '',
       avatarUrl: user.avatarUrl || '',
       role: user.role || 'operation',
+      roles: getUserRoles(user),
         team: user.team || 'No team assigned',
         teamId: user.teamId || '',
         managerId: user.managerId || '',
@@ -5942,7 +5945,9 @@ export default function AdminDashboard() {
                             {user.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" /> : initial}
                           </div>
                           <h3 className="mt-4 truncate text-xl font-black text-slate-950">{user.name || 'Unnamed user'}</h3>
-                          <p className="mt-1 text-sm font-black text-indigo-600">{roleLabels[user.role] || user.role || '-'}</p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {getUserRoles(user).map((role, index) => <span key={role} className={`rounded-full px-2.5 py-1 text-xs font-black ${index === 0 ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>{roleLabels[role] || role}</span>)}
+                          </div>
 
                           <div className="mt-6 rounded-xl bg-slate-50 p-4 text-left">
                             <div className="grid grid-cols-2 gap-4 border-b border-slate-200 pb-3">
@@ -6034,7 +6039,7 @@ export default function AdminDashboard() {
           teams={teams}
           roles={availableRoles}
           onAddRole={handleCreateRole}
-          canAddRole={adminRoles.includes(currentUser?.role)}
+          canAddRole={hasAnyRole(currentUser, adminRoles)}
         />
       )}
       {teamModalOpen && (
@@ -6062,7 +6067,7 @@ export default function AdminDashboard() {
           saving={saving}
           roles={availableRoles}
           onAddRole={handleCreateRole}
-          canAddRole={adminRoles.includes(currentUser?.role)}
+          canAddRole={hasAnyRole(currentUser, adminRoles)}
           onChange={setEditForm}
           onClose={() => {
             if (saving) return

@@ -133,8 +133,8 @@ export default function AddUserModal({ form, saving, error, teams: savedTeams = 
         {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
 
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
-          <Field label="Role">
-            <RoleSelectManager value={form.role} roles={roles} saving={saving} canAddRole={canAddRole} onAddRole={onAddRole} onChange={(role) => onChange({ ...form, role })} />
+          <Field label="Roles (1–3)">
+            <RoleSelectManager value={form.role} values={form.roles} roles={roles} saving={saving} canAddRole={canAddRole} onAddRole={onAddRole} onChange={(selectedRoles) => onChange({ ...form, role: selectedRoles[0], roles: selectedRoles })} />
           </Field>
 
           <Field label="Status">

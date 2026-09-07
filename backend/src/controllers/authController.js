@@ -11,6 +11,7 @@ const Lead = require('../models/Lead');
 const SupportTicket = require('../models/SupportTicket');
 const { clientIp } = require('../middleware/activityAudit');
 const { getUserProductivityReport, getUserWorkReport } = require('../services/userProductivityReport');
+const { getUserRoles } = require('../utils/userRoles');
  
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -44,6 +45,23 @@ async function isAvailableRole(name) {
   return ROLES.includes(name) || Boolean(await Role.exists({ name }));
 }
 
+async function readRequestedRoles(body = {}) {
+  const requested = Array.isArray(body.roles) ? body.roles : [body.role];
+  const roles = [...new Set(requested.map(roleKey).filter(Boolean))];
+  if (!roles.length || roles.length > 3) {
+    const error = new Error('Please select between 1 and 3 roles');
+    error.statusCode = 400;
+    throw error;
+  }
+  const availability = await Promise.all(roles.map(isAvailableRole));
+  if (availability.some((available) => !available)) {
+    const error = new Error('Please select valid roles');
+    error.statusCode = 400;
+    throw error;
+  }
+  return roles;
+}
+
 function normalizeLoginMode(value) {
   return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
 }
@@ -53,8 +71,7 @@ function normalizeRole(value) {
 }
 
 function validateLoginModeForUser(user, loginMode) {
-  const role = normalizeRole(user?.role);
-  const isAdminUser = ADMIN_LOGIN_ROLES.includes(role);
+  const isAdminUser = getUserRoles(user).some((role) => ADMIN_LOGIN_ROLES.includes(normalizeRole(role)));
 
   if (loginMode === 'admin' && !isAdminUser) {
     const error = new Error('Admin Login is only available for Admin and Super Admin.');
@@ -417,7 +434,7 @@ exports.createUserByAdmin = async (req, res) => {
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').toLowerCase().trim();
   const password = String(req.body.password || '');
-  const role = roleKey(req.body.role);
+  let roles;
   const team = String(req.body.team || 'No team assigned').trim();
   const teamId = String(req.body.teamId || '').trim() || undefined;
   const managerId = String(req.body.managerId || '').trim() || undefined;
@@ -431,12 +448,13 @@ exports.createUserByAdmin = async (req, res) => {
     return res.status(err.statusCode || 400).json({ error: err.message });
   }
  
-  if (!email || !role) return res.status(400).json({ error: 'Email and role required' });
+  try { roles = await readRequestedRoles(req.body); } catch (err) { return res.status(err.statusCode || 400).json({ error: err.message }); }
+  const role = roles[0];
+  if (!email) return res.status(400).json({ error: 'Email and role required' });
   if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  if (!(await isAvailableRole(role))) return res.status(400).json({ error: 'Please select a valid role' });
   let existing = await User.findOne({ email });
   if (existing) return res.status(400).json({ error: 'User already exists' });
-  const user = new User({ name, email, password: await bcrypt.hash(password, 10), role, team, teamId, managerId, operationHeadId, isActive, avatarUrl, createdBy: req.user?._id });
+  const user = new User({ name, email, password: await bcrypt.hash(password, 10), role, roles, team, teamId, managerId, operationHeadId, isActive, avatarUrl, createdBy: req.user?._id });
   await user.save();
   await ensureCrmUserId(user);
   res.status(201).json({ ok: true, user: publicUser(user) });
@@ -446,7 +464,7 @@ exports.updateUserByAdmin = async (req, res) => {
   const userId = req.params.id;
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').toLowerCase().trim();
-  const role = roleKey(req.body.role);
+  let roles;
   const team = String(req.body.team || 'No team assigned').trim();
   const teamId = String(req.body.teamId || '').trim() || undefined;
   const managerId = String(req.body.managerId || '').trim() || undefined;
@@ -460,8 +478,9 @@ exports.updateUserByAdmin = async (req, res) => {
     return res.status(err.statusCode || 400).json({ error: err.message });
   }
  
-  if (!email || !role) return res.status(400).json({ error: 'Email and role required' });
-  if (!(await isAvailableRole(role))) return res.status(400).json({ error: 'Please select a valid role' });
+  try { roles = await readRequestedRoles(req.body); } catch (err) { return res.status(err.statusCode || 400).json({ error: err.message }); }
+  const role = roles[0];
+  if (!email) return res.status(400).json({ error: 'Email and role required' });
  
   const user = await User.findById(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -472,6 +491,7 @@ exports.updateUserByAdmin = async (req, res) => {
   user.name = name;
   user.email = email;
   user.role = role;
+  user.roles = roles;
   user.team = team;
   user.teamId = teamId;
   user.managerId = managerId;
@@ -747,7 +767,7 @@ exports.listAuditLogs = async (req, res) => {
  
 exports.listActiveUsers = async (req, res) => {
   const users = await User.find({ isActive: true })
-    .select('crmUserId source name email avatarUrl role team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
+    .select('crmUserId source name email avatarUrl role roles team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, email: 1 });
   res.json({ ok: true, users });
 };
@@ -761,6 +781,7 @@ function publicUser(user) {
     email: user.email,
     avatarUrl: user.avatarUrl,
     role: user.role,
+    roles: getUserRoles(user),
     team: user.team,
     teamId: user.teamId,
     managerId: user.managerId,

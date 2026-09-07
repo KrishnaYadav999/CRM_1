@@ -1,17 +1,18 @@
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
+const { getUserRoles, userHasAnyRole } = require('../utils/userRoles');
 
 const adminRoles = ['admin', 'superadmin'];
 
 function canSeeNotification(user, item) {
   if (!user) return false;
   if ((item.hiddenBy || []).some((id) => String(id) === String(user._id))) return false;
-  if (adminRoles.includes(user.role)) return true;
+  if (userHasAnyRole(user, adminRoles)) return true;
   const userId = String(user._id || '');
   const audience = (item.audience || []).map((id) => String(id));
   const roles = item.visibleToRoles || [];
-  return audience.includes(userId) || roles.includes(user.role) || item.kind === 'announcement';
+  return audience.includes(userId) || getUserRoles(user).some((role) => roles.includes(role)) || item.kind === 'announcement';
 }
 
 function mapNotification(item) {
@@ -98,13 +99,14 @@ async function ensureCrmNotificationId(item) {
 }
 
 exports.listNotifications = async (req, res) => {
-  const query = adminRoles.includes(req.user.role)
+  const userRoles = getUserRoles(req.user);
+  const query = userHasAnyRole(req.user, adminRoles)
     ? {}
     : {
         $or: [
           { kind: 'announcement' },
           { audience: req.user._id },
-          { visibleToRoles: req.user.role }
+          { visibleToRoles: { $in: userRoles } }
         ]
       };
 
