@@ -116,19 +116,20 @@ test('Operation MIS database query does not exclude draft Client Masters', () =>
   assert.doesNotMatch(source, /Client\.find\(\{ \.\.\.ownerFilter, workflowStatus: 'submitted'/);
 });
 
-test('Sales MIS counts complete lead ownership across legacy creator identities', () => {
+test('Sales MIS Total Leads follows the Lead Generation Assigned To owner', () => {
   const gaurav = { ...user('user-gaurav', 'Gaurav Chandra'), crmUserId: 'CRM-42', email: 'gaurav@example.com', role: 'sales' };
   const leads = [
+    { assignedTo: 'user-gaurav', status: 'Open' },
+    { assignedToText: '  Gaurav   Chandra ', status: 'Open' },
+    { assignedToEmail: 'GAURAV@EXAMPLE.COM', closedAt: new Date() },
+    { generatedForUser: 'user-gaurav', status: 'Closed' },
     { createdBy: 'user-gaurav', status: 'Open' },
-    { createdByCrmUserId: 'CRM-42', status: 'Open' },
-    { createdByEmail: 'GAURAV@EXAMPLE.COM', closedAt: new Date() },
-    { createdByName: '  Gaurav   Chandra ', status: 'Closed' },
-    { importedCreatedBy: 'Gaurav Chandra', status: 'Open' }
+    { assignedToText: 'Another User', createdBy: 'user-gaurav', status: 'Open' }
   ];
   const report = buildUserProductivityReport({ users: [gaurav], sessions: [], activities: [], leads, clients: [], ticketStats: [], period: { from: '2026-08-08', to: '2026-08-14' } });
-  assert.equal(report.users[0].totalLeads, 5);
+  assert.equal(report.users[0].totalLeads, 4);
   assert.equal(report.users[0].closedLeads, 2);
-  assert.equal(report.users[0].openLeads, 3);
+  assert.equal(report.users[0].openLeads, 2);
 });
 
 test('company drill-down calculates section completion without exposing sensitive fields', () => {
