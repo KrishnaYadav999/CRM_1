@@ -258,6 +258,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [loading, setLoading] = useState(true)
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const [exportingExcel, setExportingExcel] = useState(false)
+  const [approvalCountsLoading, setApprovalCountsLoading] = useState(misPage && currentUserIsAdmin)
   const [generatingMisPdf, setGeneratingMisPdf] = useState('')
   const [error, setError] = useState('')
   const [exportError, setExportError] = useState('')
@@ -265,6 +266,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const [workReportUser, setWorkReportUser] = useState(null)
   const [quotations, setQuotations] = useState([])
   const [quotationLeads, setQuotationLeads] = useState([])
+  const [approvalWorkflowClients, setApprovalWorkflowClients] = useState([])
   const [salesPage, setSalesPage] = useState(1)
   const [operationPage, setOperationPage] = useState(1)
   const [quotationPage, setQuotationPage] = useState(1)
@@ -305,12 +307,17 @@ export default function SuperAdminDashboard({ misPage = false }) {
       } else setError(requestError?.response?.data?.error || 'Unable to load the user activity report. Please try again.')
     } finally { setLoading(false) }
     if (misPage && currentUserIsAdmin) {
+      setApprovalCountsLoading(true)
       api.get(API_ENDPOINTS.quotations.list, { timeout: 30000 })
         .then((result) => setQuotations(result.data?.quotations || []))
         .catch((quotationError) => console.error('Unable to load Quotation MIS', quotationError))
       api.get(API_ENDPOINTS.leads.list, { timeout: 30000 })
         .then((result) => setQuotationLeads(result.data?.leads || []))
         .catch((leadError) => console.error('Unable to load PO statuses for Quotation MIS', leadError))
+      api.get(API_ENDPOINTS.clients.pendingApprovals, { timeout: 30000, params: { _: Date.now() } })
+        .then((result) => setApprovalWorkflowClients(result.data?.pendingClients || []))
+        .catch((approvalError) => console.error('Unable to load approval status counts for Operations MIS', approvalError))
+        .finally(() => setApprovalCountsLoading(false))
     }
   }
 
@@ -331,7 +338,27 @@ export default function SuperAdminDashboard({ misPage = false }) {
     return () => window.clearTimeout(timer)
   }, [draftFilters])
 
-  const rows = useMemo(() => (report.users || []).map((row) => ({ ...row, roleLabel: roleLabels[row.role] || row.role || '-' })), [report.users])
+  const rows = useMemo(() => {
+    const approvalCounts = new Map()
+    approvalWorkflowClients.forEach((client) => {
+      const owner = displayText(client.createdBy || client.createdByName, '').trim().toLowerCase().replace(/\s+/g, ' ')
+      if (!owner) return
+      const current = approvalCounts.get(owner) || { approved: 0, partial: 0, rejected: 0 }
+      const status = String(client.approvalStatus || client.status || '').trim().toUpperCase()
+      if (status === 'APPROVED') current.approved += 1
+      else if (status === 'PARTIALLY_APPROVED') current.partial += 1
+      else if (status === 'REJECTED') current.rejected += 1
+      approvalCounts.set(owner, current)
+    })
+    return (report.users || []).map((row) => {
+      const aliases = [row.name, row.email].map((value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')).filter(Boolean)
+      const workflow = aliases.map((alias) => approvalCounts.get(alias)).find(Boolean)
+      return { ...row, roleLabel: roleLabels[row.role] || row.role || '-',
+        approvedClients: workflow ? workflow.approved : Number(row.approvedClients || 0),
+        partiallyApprovedClients: workflow ? workflow.partial : Number(row.partiallyApprovedClients || 0),
+        rejectedClients: workflow ? workflow.rejected : Number(row.rejectedClients || 0) }
+    })
+  }, [approvalWorkflowClients, report.users])
   const allSalesMisRows = useMemo(() => rows, [rows])
   const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
   const operationsOnlyMis = misPage && !misAccess.isAdmin
@@ -448,7 +475,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
       <div className="w-full">
         <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div><p className="text-[10px] font-black uppercase tracking-[.24em] text-orange-500">{misPage ? 'Management information system' : 'Super admin control center'}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{misPage ? misTitle : REPORT_TITLE}</h1><p className="mt-2 text-sm font-semibold text-slate-500">Report Period: {formatReportDate(report.period.from)} - {formatReportDate(report.period.to)} · {misPage ? (operationsOnlyMis ? 'Operations and Client Master completion for your authorised team scope.' : 'Sales, Operations and Quotation MIS in one place.') : 'user presence, CRM activity, leads, tickets and risk.'}</p></div>
-          <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>{misPage && <><button onClick={downloadCompleteMisExcel} disabled={loading || exportingExcel} className="group inline-flex h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 via-teal-700 to-cyan-700 px-5 text-sm font-black text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:shadow-xl disabled:opacity-50"><span className="grid h-7 w-7 place-items-center rounded-lg bg-white/15 ring-1 ring-white/20">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}</span><span><span className="block leading-4">{exportingExcel ? 'Preparing Excel...' : 'Download Excel'}</span><span className="block text-[9px] font-bold tracking-wide text-emerald-100">COMPLETE MIS</span></span></button><button onClick={downloadCompletePdf} disabled={loading || Boolean(generatingMisPdf)} className="group inline-flex h-11 items-center gap-2 rounded-xl border border-orange-200 bg-white px-5 text-sm font-black text-orange-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-orange-50 hover:shadow-md disabled:opacity-50">{generatingMisPdf === 'complete' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}<span>{generatingMisPdf === 'complete' ? 'Preparing PDF...' : 'Download PDF'}</span></button></>}{!misPage && <><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></>}</div>
+          <div className="flex flex-wrap gap-2"><button onClick={load} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-teal-700 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>{misPage && <><button onClick={downloadCompleteMisExcel} disabled={loading || approvalCountsLoading || exportingExcel} className="group inline-flex h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 via-teal-700 to-cyan-700 px-5 text-sm font-black text-white shadow-lg shadow-emerald-900/20 transition hover:-translate-y-0.5 hover:shadow-xl disabled:opacity-50"><span className="grid h-7 w-7 place-items-center rounded-lg bg-white/15 ring-1 ring-white/20">{exportingExcel || approvalCountsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}</span><span><span className="block leading-4">{approvalCountsLoading ? 'Loading Counts...' : exportingExcel ? 'Preparing Excel...' : 'Download Excel'}</span><span className="block text-[9px] font-bold tracking-wide text-emerald-100">COMPLETE MIS</span></span></button><button onClick={downloadCompletePdf} disabled={loading || approvalCountsLoading || Boolean(generatingMisPdf)} className="group inline-flex h-11 items-center gap-2 rounded-xl border border-orange-200 bg-white px-5 text-sm font-black text-orange-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-orange-50 hover:shadow-md disabled:opacity-50">{generatingMisPdf === 'complete' || approvalCountsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}<span>{approvalCountsLoading ? 'Loading Counts...' : generatingMisPdf === 'complete' ? 'Preparing PDF...' : 'Download PDF'}</span></button></>}{!misPage && <><button onClick={downloadExcel} disabled={loading || exportingExcel} className="inline-flex h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-black text-emerald-700 disabled:opacity-50">{exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportingExcel ? 'Exporting...' : 'Export Excel'}</button><button onClick={downloadPdf} disabled={loading || generatingPdf} className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingPdf ? 'Generating PDF...' : 'Download PDF'}</button><button onClick={() => navigate('/dashboard/users')} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Users className="h-4 w-4" />User Management</button></>}</div>
         </header>
 
         {misPage && <section className="mt-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
@@ -502,9 +529,9 @@ export default function SuperAdminDashboard({ misPage = false }) {
         {misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-white px-5 py-4">
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-100 text-cyan-700"><Building2 className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-700">Team hierarchy MIS</p><h2 className="text-xl font-black text-slate-950">Operation MIS</h2><p className="text-xs font-semibold text-slate-500">Team → Manager → Users · Client Master data completion analysis</p></div></div>
-            <button type="button" onClick={() => downloadMisPdf('operation')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'operation' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'operation' ? 'Generating...' : 'Download Operation PDF'}</button>
+            <button type="button" onClick={() => downloadMisPdf('operation')} disabled={loading || approvalCountsLoading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-cyan-700 px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'operation' || approvalCountsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{approvalCountsLoading ? 'Loading Counts...' : generatingMisPdf === 'operation' ? 'Generating...' : 'Download Operation PDF'}</button>
           </header>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-sm"><thead className="bg-cyan-800 text-left text-[10px] font-black uppercase tracking-wider text-white"><tr><th className="px-5 py-3">Team / User</th><th className="px-5 py-3">Level</th><th className="px-5 py-3">Reports To</th><th className="px-5 py-3 text-right">Total Clients</th><th className="px-5 py-3 text-right">Draft</th><th className="px-5 py-3 text-right">Submitted</th><th className="px-5 py-3 text-right">Approved</th><th className="px-5 py-3 text-right">Partially Approved</th><th className="px-5 py-3 text-right">Reject</th></tr></thead><tbody>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-sm"><thead className="bg-cyan-800 text-left text-[10px] font-black uppercase tracking-wider text-white"><tr className="border-b border-cyan-600"><th colSpan="6" className="bg-cyan-900/20 px-5 py-2"></th><th colSpan="3" className="bg-cyan-700 px-5 py-2 text-center text-xs tracking-[.16em]">Compliance Status</th></tr><tr><th className="px-5 py-3">Team / User</th><th className="px-5 py-3">Level</th><th className="px-5 py-3">Reports To</th><th className="px-5 py-3 text-right">Total Clients</th><th className="px-5 py-3 text-right">Draft</th><th className="px-5 py-3 text-right">Submitted</th><th className="px-5 py-3 text-right">Approved</th><th className="px-5 py-3 text-right">Partially Approved</th><th className="px-5 py-3 text-right">Reject</th></tr></thead><tbody>
             {operationGroups.flatMap((group) => {
               const people = [...(group.manager ? [group.manager] : []), ...group.members]
               const teamRow = <tr key={`team-${group.id}`} className="border-t-2 border-cyan-100 bg-cyan-50/70 font-black text-slate-900"><td className="px-5 py-4"><span className="inline-flex items-center gap-2"><Building2 className="h-4 w-4 text-cyan-700" />{group.name}</span></td><td className="px-5 py-4"><span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] uppercase text-cyan-800">Team Total</span></td><td className="px-5 py-4">{group.manager?.name || '-'}</td><td className="px-5 py-4 text-right text-lg">{group.clientMasters}</td><td className="px-5 py-4 text-right text-orange-600">{group.draftClients || 0}</td><td className="px-5 py-4 text-right text-emerald-700">{group.submittedClients || 0}</td><td className="px-5 py-4 text-right text-emerald-700">{group.approvedClients || 0}</td><td className="px-5 py-4 text-right text-amber-600">{group.partiallyApprovedClients || 0}</td><td className="px-5 py-4 text-right text-rose-600">{group.rejectedClients || 0}</td></tr>
