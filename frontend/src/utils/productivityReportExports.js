@@ -215,11 +215,12 @@ function managementSalesGroups(rows = []) {
   const department = (row) => {
     const role = String(row.role || '').toLowerCase()
     const team = String(row.team || '').toLowerCase()
+    if (['admin', 'super admin', 'superadmin', 'management'].includes(role) || team.includes('management')) return 'Management'
     if (role === 'sales' || team.includes('sales')) return 'Sales Team'
     if (['operation', 'manager', 'operation head', 'operations head'].includes(role) || team.includes('operation')) return 'Operations Team'
     return 'Other Departments'
   }
-  return ['Sales Team', 'Operations Team', 'Other Departments'].map((name) => {
+  return ['Sales Team', 'Operations Team', 'Management', 'Other Departments'].map((name) => {
     const members = rows.filter((row) => department(row) === name)
     const totals = members.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
     return { name, members, ...totals }

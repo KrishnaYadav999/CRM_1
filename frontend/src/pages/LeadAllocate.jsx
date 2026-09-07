@@ -22,6 +22,10 @@ function creatorName(lead) {
   return lead.createdBy?.name || lead.createdByName || lead.createdByEmail || lead.importedCreatedBy || 'Unknown creator'
 }
 
+function creatorId(lead) {
+  return idOf(lead.createdBy)
+}
+
 export default function LeadAllocate() {
   const navigate = useNavigate()
   const [currentUser, setCurrentUser] = useState(null)
@@ -90,6 +94,21 @@ export default function LeadAllocate() {
     }
   }
 
+  const updateCreator = async (lead, userId) => {
+    if (!userId || savingId) return
+    const leadId = idOf(lead)
+    try {
+      setSavingId(`creator-${leadId}`)
+      const result = await api.patch(API_ENDPOINTS.leads.creator(leadId), { userId })
+      setLeads((current) => current.map((item) => idOf(item) === leadId ? result.data.lead : item))
+      setMessage({ kind: 'success', text: result.data.message || 'Created By saved in database.' })
+    } catch (error) {
+      setMessage({ kind: 'error', text: error.response?.data?.error || 'Unable to update Created By.' })
+    } finally {
+      setSavingId('')
+    }
+  }
+
   const logout = async () => {
     await api.post(API_ENDPOINTS.auth.logout, {}).catch(() => {})
     localStorage.clear()
@@ -118,11 +137,23 @@ export default function LeadAllocate() {
       {message && <div className={`mx-auto mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${message.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>{message.text}</div>}
       <section className="mt-5 overflow-hidden rounded-[28px] border border-white bg-white shadow-[0_20px_70px_rgba(15,23,42,.08)]">
         <div className="border-b border-slate-200 px-5 py-4 text-sm font-black text-slate-700">Showing {rows.length} of {leads.length} leads · {admins.length} active CRM users available</div>
-        <div className="overflow-x-auto"><table className="min-w-[1180px] text-sm"><thead className="bg-indigo-50 text-left text-[10px] font-black uppercase tracking-[.16em] text-indigo-900"><tr><th className="px-5 py-4">Lead / Company</th><th className="px-5 py-4">Contact</th><th className="px-5 py-4">Status</th><th className="px-5 py-4">Lead Owner / Created For</th><th className="px-5 py-4">Created By</th><th className="px-5 py-4">Allocate Lead Owner</th></tr></thead><tbody className="divide-y divide-slate-100">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1180px] table-fixed text-sm">
+            <thead className="bg-indigo-50 text-left text-[10px] font-black uppercase tracking-[.16em] text-indigo-900"><tr><th className="px-5 py-4">Lead / Company</th><th className="px-5 py-4">Contact</th><th className="px-5 py-4">Status</th><th className="px-5 py-4">Lead Owner / Created For</th><th className="px-5 py-4">Edit Created By</th><th className="px-5 py-4">Allocate Lead Owner</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading && <tr><td colSpan="6" className="px-5 py-16 text-center font-bold text-indigo-600"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Loading live leads...</td></tr>}
+              {!loading && !rows.length && <tr><td colSpan="6" className="px-5 py-16 text-center font-bold text-slate-500">No matching leads found.</td></tr>}
+              {!loading && rows.map((lead) => <tr key={idOf(lead)} className="hover:bg-slate-50"><td className="px-5 py-4"><div className="font-black text-slate-950">{lead.company || 'Unnamed company'}</div><div className="mt-1 text-xs font-bold text-indigo-600">{lead.leadCode || '-'}</div></td><td className="px-5 py-4"><div className="font-bold text-slate-700">{lead.contactPerson || '-'}</div><div className="text-xs text-slate-500">{lead.mobileNo1 || lead.emails || '-'}</div></td><td className="px-5 py-4"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{lead.status || lead.workflowStatus || 'Open'}</span></td><td className="px-5 py-4"><span className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black ${ownerId(lead) ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' : 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'}`}>{ownerId(lead) && <CheckCircle2 className="h-3.5 w-3.5" />}{ownerName(lead)}</span></td><td className="px-5 py-4"><select aria-label={`Edit Created By for ${lead.company || lead.leadCode}`} disabled={savingId === `creator-${idOf(lead)}`} value={creatorId(lead)} onChange={(event) => updateCreator(lead, event.target.value)} className="w-full min-w-[190px] rounded-xl border border-violet-200 bg-violet-50/40 px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-4 focus:ring-violet-100"><option value="">Select creator</option>{admins.map((admin) => <option key={idOf(admin)} value={idOf(admin)}>{admin.name || admin.email}</option>)}</select><small className="mt-1 block truncate text-[10px] font-bold text-slate-400">Current: {creatorName(lead)}</small></td><td className="px-5 py-4"><select disabled={savingId === idOf(lead)} value={ownerId(lead)} onChange={(event) => allocate(lead, event.target.value)} className="w-full min-w-[210px] rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-4 focus:ring-indigo-100"><option value="">Select active CRM user</option>{admins.map((admin) => <option key={idOf(admin)} value={idOf(admin)}>{admin.name || admin.email} · {String(admin.role).toUpperCase()}</option>)}</select></td></tr>)}
+            </tbody>
+          </table>
+        </div>
+        <div className="hidden">
+        <div className="border-b border-slate-200 px-5 py-4 text-sm font-black text-slate-700">Showing {rows.length} of {leads.length} leads · {admins.length} active CRM users available</div>
+        <div className="w-full overflow-x-auto"><table className="w-full min-w-[1180px] table-fixed text-sm"><thead className="bg-indigo-50 text-left text-[10px] font-black uppercase tracking-[.16em] text-indigo-900"><tr><th className="px-5 py-4">Lead / Company</th><th className="px-5 py-4">Contact</th><th className="px-5 py-4">Status</th><th className="px-5 py-4">Lead Owner / Created For</th><th className="px-5 py-4">Edit Created By</th><th className="px-5 py-4">Allocate Lead Owner</th></tr></thead><tbody className="divide-y divide-slate-100">
           {loading && <tr><td colSpan="6" className="px-5 py-16 text-center font-bold text-indigo-600"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Loading live leads...</td></tr>}
           {!loading && !rows.length && <tr><td colSpan="6" className="px-5 py-16 text-center font-bold text-slate-500">No matching leads found.</td></tr>}
           {!loading && rows.map((lead) => <tr key={idOf(lead)} className="hover:bg-slate-50"><td className="px-5 py-4"><div className="font-black text-slate-950">{lead.company || 'Unnamed company'}</div><div className="mt-1 text-xs font-bold text-indigo-600">{lead.leadCode || '-'}</div></td><td className="px-5 py-4"><div className="font-bold text-slate-700">{lead.contactPerson || '-'}</div><div className="text-xs text-slate-500">{lead.mobileNo1 || lead.emails || '-'}</div></td><td className="px-5 py-4"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{lead.status || lead.workflowStatus || 'Open'}</span></td><td className="px-5 py-4"><span className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black ${ownerId(lead) ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' : 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'}`}>{ownerId(lead) && <CheckCircle2 className="h-3.5 w-3.5" />}{ownerName(lead)}</span></td><td className="px-5 py-4"><strong className="block text-xs text-slate-800">{creatorName(lead)}</strong><small className="mt-1 block text-[10px] font-bold uppercase tracking-wide text-slate-400">Original creator</small></td><td className="px-5 py-4"><select disabled={savingId === idOf(lead)} value={ownerId(lead)} onChange={(event) => allocate(lead, event.target.value)} className="min-w-[230px] rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-4 focus:ring-indigo-100"><option value="">Select active CRM user</option>{admins.map((admin) => <option key={idOf(admin)} value={idOf(admin)}>{admin.name || admin.email} · {String(admin.role).toUpperCase()}</option>)}</select></td></tr>)}
-        </tbody></table></div>
+        </tbody></table></div></div>
       </section>
       {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={logout} onSave={() => {}} onUpdatePassword={() => {}} />}
     </main>

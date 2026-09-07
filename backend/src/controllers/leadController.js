@@ -1042,6 +1042,32 @@ exports.allocateLead = async (req, res) => {
   }
 };
 
+exports.updateLeadCreator = async (req, res) => {
+  try {
+    const userId = String(req.body?.userId || '').trim();
+    if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ error: 'A valid creator user is required.' });
+    const target = await User.findById(userId).select('name email crmUserId role isActive');
+    if (!target || target.isActive === false) return res.status(404).json({ error: 'Active CRM user not found.' });
+    const lead = await Lead.findById(req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+    const previous = { userId: lead.createdBy || null, crmUserId: lead.createdByCrmUserId || '', name: lead.createdByName || lead.createdByEmail || lead.importedCreatedBy || 'Unknown creator', email: lead.createdByEmail || '' };
+    if (String(previous.userId || '') !== String(target._id)) {
+      lead.creatorChangeHistory.push({ fromUserId: previous.userId, fromCrmUserId: previous.crmUserId, fromName: previous.name, fromEmail: previous.email, toUserId: target._id, toCrmUserId: target.crmUserId || String(target._id), toName: target.name || target.email, toEmail: target.email || '', changedBy: req.user?._id, changedByName: req.user?.name || req.user?.email || 'CRM Administrator', changedAt: new Date() });
+    }
+    lead.createdBy = target._id;
+    lead.createdByCrmUserId = target.crmUserId || String(target._id);
+    lead.createdByName = target.name || target.email;
+    lead.createdByEmail = target.email || '';
+    lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
+    await lead.save();
+    await LeadActivity.create({ lead: lead._id, type: 'lead_creator_changed', title: 'Created By updated', description: `${lead.company || lead.leadCode || 'Lead'} creator changed from ${previous.name} to ${target.name || target.email}`, actor: req.user?._id });
+    const saved = await Lead.findById(lead._id).populate('createdBy', 'name email crmUserId role').populate('generatedForUser', 'name email crmUserId role');
+    res.json({ ok: true, message: `Created By updated to ${target.name || target.email}. Lead Owner was not changed.`, lead: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to update lead creator.' });
+  }
+};
+
 exports.updateLead = async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.id);

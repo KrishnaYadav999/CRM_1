@@ -61,6 +61,7 @@ const LeadSchema = new mongoose.Schema({
   createdByCrmUserId: { type: String, trim: true, index: true },
   createdByName: { type: String, trim: true },
   createdByEmail: { type: String, trim: true, lowercase: true },
+  creatorChangeHistory: { type: Array, default: [] },
   generatedForUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   generatedForName: { type: String, trim: true },
   generatedForEmail: { type: String, trim: true, lowercase: true },

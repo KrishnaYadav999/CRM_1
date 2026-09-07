@@ -240,13 +240,14 @@ function MisOverviewCard({ title, subtitle, icon: Icon, tone, metrics, loading }
 function salesDepartment(row = {}) {
   const role = String(row.role || '').toLowerCase()
   const team = String(row.team || '').toLowerCase()
+  if (['admin', 'super admin', 'superadmin', 'management'].includes(role) || team.includes('management')) return 'Management'
   if (role === 'sales' || team.includes('sales')) return 'Sales Team'
   if (['operation', 'manager', 'operation head', 'operations head'].includes(role) || team.includes('operation')) return 'Operations Team'
   return 'Other Departments'
 }
 
 function buildSalesDepartmentGroups(rows = []) {
-  return ['Sales Team', 'Operations Team', 'Other Departments'].map((name) => {
+  return ['Sales Team', 'Operations Team', 'Management', 'Other Departments'].map((name) => {
     const members = rows.filter((row) => salesDepartment(row) === name)
     const totals = members.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
     return { name, members, ...totals }
@@ -392,6 +393,8 @@ export default function SuperAdminDashboard({ misPage = false }) {
   }, [approvalWorkflowClients, report.users])
   const allSalesMisRows = useMemo(() => rows, [rows])
   const salesDepartmentGroups = useMemo(() => buildSalesDepartmentGroups(allSalesMisRows), [allSalesMisRows])
+  const managementSalesGroups = useMemo(() => salesDepartmentGroups.filter((group) => group.name === 'Management'), [salesDepartmentGroups])
+  const departmentSalesGroups = useMemo(() => salesDepartmentGroups.filter((group) => group.name !== 'Management'), [salesDepartmentGroups])
   const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
   const operationsOnlyMis = misPage && !misAccess.isAdmin
   const misTitle = operationsOnlyMis
@@ -551,8 +554,14 @@ export default function SuperAdminDashboard({ misPage = false }) {
             <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Management · Lead Ownership MIS</p><h2 className="text-xl font-black text-slate-950">Sales & Operations Team Performance</h2><p className="text-xs font-semibold text-slate-500">Permanent Lead Owner based counts · manager allocation never changes ownership credit</p></div></div>
             <button type="button" onClick={() => downloadMisPdf('sales')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'sales' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'sales' ? 'Generating...' : 'Download Sales PDF'}</button>
           </header>
-          <SalesOwnershipTable groups={salesDepartmentGroups} loading={loading} onOpenUser={setWorkReportUser} />
-          <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 text-xs font-bold text-slate-500">Showing {allSalesMisRows.length} lead owners across {salesDepartmentGroups.length} department groups</div>
+          <SalesOwnershipTable groups={departmentSalesGroups} loading={loading} onOpenUser={setWorkReportUser} />
+          <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 text-xs font-bold text-slate-500">Showing {departmentSalesGroups.reduce((sum, group) => sum + group.members.length, 0)} lead owners across {departmentSalesGroups.length} department groups</div>
+        </section>}
+
+        {misPage && misAccess.showSales && <section className="mt-4 overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+          <header className="border-b border-violet-100 bg-gradient-to-r from-violet-50 to-white px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-100 text-violet-700"><ShieldCheck className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-violet-700">Separate Management MIS</p><h2 className="text-xl font-black text-slate-950">Management Lead Ownership</h2><p className="text-xs font-semibold text-slate-500">Admin, Super Admin and Management team owners shown separately</p></div></div></header>
+          <SalesOwnershipTable groups={managementSalesGroups} loading={loading} onOpenUser={setWorkReportUser} />
+          <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 text-xs font-bold text-slate-500">Showing {managementSalesGroups.reduce((sum, group) => sum + group.members.length, 0)} management lead owners</div>
         </section>}
 
         {misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
