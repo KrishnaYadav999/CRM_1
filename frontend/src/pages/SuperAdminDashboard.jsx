@@ -120,8 +120,11 @@ function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = 
   const rows = users.map((account) => {
     const id = entityId(account._id || account.id)
     const aliases = new Set([id, account.crmUserId, account.email, account.name].map(identity).filter(Boolean))
-    const ownedLeads = leads.filter((lead) => [lead.assignedTo, lead.assignedToText, lead.assignedToEmail,
-      lead.generatedForUser, lead.generatedForName, lead.generatedForEmail].map(identity).some((value) => aliases.has(value)))
+    const ownedLeads = leads.filter((lead) => {
+      const generatedOwner = [lead.generatedForUser, lead.generatedForName, lead.generatedForEmail].filter(Boolean)
+      const owner = generatedOwner.length ? generatedOwner : [lead.createdBy, lead.createdByCrmUserId, lead.createdByEmail, lead.createdByName, lead.importedCreatedBy]
+      return owner.map(identity).some((value) => aliases.has(value))
+    })
     const ownedClients = periodClients.filter((client) => entityId(client.createdBy) === id)
     const completion = ownedClients.map((client) => fallbackCompletion(client.data || {}))
     const clientFieldsFilled = completion.reduce((sum, item) => sum + item.filled, 0)

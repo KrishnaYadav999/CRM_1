@@ -108,10 +108,9 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
     });
   });
   const leadsByUser = leads.reduce((map, lead) => {
-    // Keep Sales MIS aligned with the Lead Generation "Assigned To" column.
-    // generatedFor is the UI's legacy fallback when assignedTo is empty.
-    const ownerCandidates = [lead.assignedTo, lead.assignedToText, lead.assignedToEmail,
-      lead.generatedForUser, lead.generatedForName, lead.generatedForEmail];
+    // Sales MIS follows the stable owner selected through Yourself / Other User.
+    const generatedOwner = [lead.generatedForUser, lead.generatedForName, lead.generatedForEmail].filter(Boolean);
+    const ownerCandidates = generatedOwner.length ? generatedOwner : [lead.createdBy, lead.createdByCrmUserId, lead.createdByEmail, lead.createdByName, lead.importedCreatedBy];
     const ownerId = ownerCandidates.map((identity) => userByIdentity.get(normalizeIdentity(entityId(identity)))).find(Boolean);
     if (!ownerId) return map;
     if (!map.has(ownerId)) map.set(ownerId, []);
@@ -230,7 +229,7 @@ async function getUserProductivityReport({ from, to, requester }) {
       .select('userId loginAt lastActivityAt logoutAt activeSeconds activityCount presenceState ipAddress userAgent').sort({ loginAt: -1 }).limit(5000).maxTimeMS(15000).lean()),
     reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } })
       .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
-    reportQuery('leads', Lead.find(ownerFilter).select('createdBy assignedTo assignedToText assignedToEmail generatedForUser generatedForName generatedForEmail status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
+    reportQuery('leads', Lead.find(ownerFilter).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy generatedForUser generatedForName generatedForEmail status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
     reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus adminControls.approvalStatus createdAt updatedAt selectedLead assignedServiceId').maxTimeMS(20000).lean()),
     reportQuery('tickets', SupportTicket.aggregate([
       { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },

@@ -147,10 +147,17 @@ function cleanBody(body) {
     'generatedForUser',
     'generatedForName',
     'generatedForEmail',
+    'creationMode',
+    'createdOnBehalfOfUser',
+    'createdOnBehalfOfName',
+    'createdOnBehalfOfEmail',
     'updatedBy',
     'closedBy',
     'closedByText',
     'closedByEmail',
+    'closedOnBehalfOfUser',
+    'closedOnBehalfOfName',
+    'closedOnBehalfOfEmail',
     'closedAt',
     'leadDate',
     'nextFollowUpDate',
@@ -172,7 +179,7 @@ function cleanBody(body) {
   ].forEach((key) => {
     if (body[key] !== undefined) {
       const value = typeof body[key] === 'string' ? body[key].trim() : body[key];
-      if (['assignedTo', 'assignedStaff', 'closedBy', 'generatedForUser'].includes(key) && !value) return;
+      if (['assignedTo', 'assignedStaff', 'closedBy', 'generatedForUser', 'createdOnBehalfOfUser', 'closedOnBehalfOfUser'].includes(key) && !value) return;
       if (key === 'complianceHealthReport') {
         if (value && typeof value === 'object' && !Array.isArray(value)) data[key] = value;
         return;
@@ -249,6 +256,9 @@ function cleanBody(body) {
           closedBy: String(row?.closedBy || '').trim(),
           closedByText: String(row?.closedByText || '').trim(),
           closedByEmail: String(row?.closedByEmail || '').trim(),
+          closedOnBehalfOfUser: String(row?.closedOnBehalfOfUser || '').trim(),
+          closedOnBehalfOfName: String(row?.closedOnBehalfOfName || '').trim(),
+          closedOnBehalfOfEmail: String(row?.closedOnBehalfOfEmail || '').trim().toLowerCase(),
           assignedStaff: String(row?.assignedStaff || '').trim(),
           assignedStaffText: String(row?.assignedStaffText || '').trim(),
           assignedStaffEmail: String(row?.assignedStaffEmail || '').trim(),
@@ -972,13 +982,13 @@ exports.allocateLead = async (req, res) => {
     const lead = await Lead.findById(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found.' });
     const previousOwner = lead.generatedForName || lead.createdByName || lead.createdByEmail || lead.importedCreatedBy || 'Unassigned';
-    lead.createdBy = target._id;
-    lead.createdByCrmUserId = String(target.crmUserId || target._id);
-    lead.createdByName = target.name || target.email;
-    lead.createdByEmail = target.email || '';
     lead.generatedForUser = target._id;
     lead.generatedForName = target.name || target.email;
     lead.generatedForEmail = target.email || '';
+    lead.creationMode = String(lead.createdBy || '') === String(target._id) ? 'self' : 'other';
+    lead.createdOnBehalfOfUser = target._id;
+    lead.createdOnBehalfOfName = target.name || target.email;
+    lead.createdOnBehalfOfEmail = target.email || '';
     lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
     await lead.save();
     await LeadActivity.create({

@@ -68,6 +68,9 @@ const emptyLead = {
   closedBy: '',
   closedByText: '',
   closedByEmail: '',
+  closedOnBehalfOfUser: '',
+  closedOnBehalfOfName: '',
+  closedOnBehalfOfEmail: '',
   leadDate: '',
   nextFollowUpDate: '',
   nextFollowUpTime: '',
@@ -496,6 +499,9 @@ function createAssignmentRow(source = {}) {
     closedBy: source.closedBy?._id || source.closedBy || '',
     closedByText: source.closedByText || source.closedBy?.name || '',
     closedByEmail: source.closedByEmail || source.closedBy?.email || '',
+    closedOnBehalfOfUser: source.closedOnBehalfOfUser?._id || source.closedOnBehalfOfUser || '',
+    closedOnBehalfOfName: source.closedOnBehalfOfName || source.closedOnBehalfOfUser?.name || '',
+    closedOnBehalfOfEmail: source.closedOnBehalfOfEmail || source.closedOnBehalfOfUser?.email || '',
     assignedStaff: source.assignedStaff?._id || source.assignedStaff || '',
     assignedStaffText: source.assignedStaffText || source.assignedStaff?.name || '',
     assignedStaffEmail: source.assignedStaffEmail || source.assignedStaff?.email || '',
@@ -1116,7 +1122,8 @@ export default function LeadGeneration() {
     const savedPoRows = Array.isArray(matchingAssignment.poYearRows) ? matchingAssignment.poYearRows : [];
     const hydratedPoRows = fetchedPoRows.map((row, rowIndex) => ({ ...row, ...(savedPoRows[rowIndex] || {}) }));
     const poYearRows = [...hydratedPoRows, ...savedPoRows.slice(fetchedPoRows.length)];
-    setClosureDialog({ index, value, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
+    const actorId = String(currentUser?._id || currentUser?.id || '');
+    setClosureDialog({ index, value: actorId || value, behalfMode: String(value) === actorId ? 'self' : 'other', behalfUserId: String(value) === actorId ? actorId : value, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
   }
 
   async function uploadClosureFile(event, type, rowIndex = 0) {
@@ -1141,6 +1148,9 @@ export default function LeadGeneration() {
 
   async function confirmLeadClosure() {
     if (!closureDialog?.choice) return showToast('Please select Yes or No.', 'warning');
+    if (!closureDialog?.behalfMode || (closureDialog.behalfMode === 'other' && !closureDialog.behalfUserId)) return showToast('Select who this lead is being closed on behalf of.', 'warning');
+    const behalfUser = [...staff, ...(currentUser ? [currentUser] : [])].find((user) => [user?._id, user?.id, user?.crmUserId, user?.userId].some((id) => String(id || '') === String(closureDialog.behalfUserId || '')));
+    const behalfFields = { closedOnBehalfOfUser: behalfUser?._id || behalfUser?.id || closureDialog.behalfUserId, closedOnBehalfOfName: behalfUser?.name || behalfUser?.email || '', closedOnBehalfOfEmail: behalfUser?.email || '' };
     let closurePatch;
     if (closureDialog.choice === 'yes') {
       if (!closureDialog.quotationSent) return showToast('Please select whether a quotation was sent.', 'warning');
@@ -1152,6 +1162,7 @@ export default function LeadGeneration() {
       if (!closureDialog.approvalProofUrl) return showToast('Upload Super Admin approval proof before closing without PO.', 'warning');
       closurePatch = { poStatus: 'provisional', poYearRows: [], closureApprovalProofUrl: closureDialog.approvalProofUrl, closureApprovalProofName: closureDialog.approvalProofName, provisionalCloseExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), kickoffEmailConsent: '' };
     }
+    closurePatch = { ...closurePatch, ...behalfFields };
     const nextAssignments = buildUpdatedAssignmentRows(closureDialog.index, 'closedBy', closureDialog.value, closurePatch);
     if (closureDialog.choice === 'yes') {
       nextAssignments[closureDialog.index].closedBy = '';
@@ -1805,6 +1816,10 @@ export default function LeadGeneration() {
       generatedForUser: generatedForOwnerId,
       generatedForName: generatedForOwnerName,
       generatedForEmail: generatedForOwnerEmail,
+      creationMode: String(generatedForOwnerId) === String(actualCreatorId) ? 'self' : 'other',
+      createdOnBehalfOfUser: generatedForOwnerId,
+      createdOnBehalfOfName: generatedForOwnerName,
+      createdOnBehalfOfEmail: generatedForOwnerEmail,
       serviceSelections: serviceRows.map((row, index) => ({
         ...row,
         createdByCrmUserId: index < frozenServiceRowCount ? (row.createdByCrmUserId || '') : String(actualCreatorId),
@@ -2697,6 +2712,15 @@ export default function LeadGeneration() {
           <section className="flex h-screen w-full flex-col overflow-hidden bg-white">
             <header className="flex flex-col gap-4 border-b bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Closure Verification</p><h2 className="mt-1 text-2xl font-black">Have you received the Purchase Order?</h2><p className="mt-1 text-sm font-bold text-slate-500">PO or Super Admin approval proof is required before closing this service.</p></div><div className="flex items-start gap-3">{String(closureDialog.quotation?.approvalDecision?.status || closureDialog.quotation?.status || '').toLowerCase() === 'approved' && (() => { const decision = closureDialog.quotation.approvalDecision || {}; const reviewer = decision.actionBy || {}; const role = String(reviewer.role || decision.reviewerRole || 'Admin').replace(/[_-]+/g, ' '); return <div className="min-w-[310px] rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-800">Quotation Approved</span><span className="text-xs font-black text-slate-500">{closureDialog.quotation.leadCode || closureDialog.quotation.businessLeadCode || lead.leadCode || '-'}</span></div><p className="mt-3 text-sm font-black text-slate-900">Approved by {reviewer.name || reviewer.email || role}</p><p className="mt-1 text-xs font-bold capitalize text-slate-500">{role}{decision.actionAt ? ` • ${new Date(decision.actionAt).toLocaleString('en-IN')}` : ''}</p>{decision.proofUrl ? <a href={decision.proofUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800"><Eye className="h-4 w-4" />View approval proof{decision.proofName ? ` • ${decision.proofName}` : ''}</a> : <p className="mt-3 text-xs font-bold text-slate-400">Direct approval — no proof uploaded.</p>}</div> })()}<button type="button" onClick={() => setClosureDialog(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border bg-white"><X className="h-5 w-5" /></button></div></header>
             <div className="flex-1 overflow-y-auto p-6 lg:px-10">
+              <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+                <h3 className="font-black text-indigo-950">Closed On Behalf Of</h3>
+                <p className="mt-1 text-sm font-bold text-indigo-700">You remain the actual Closed By user. Select whose lead credit this closure belongs to.</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <button type="button" onClick={() => setClosureDialog((current) => ({ ...current, behalfMode: 'self', behalfUserId: String(currentUser?._id || currentUser?.id || '') }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.behalfMode === 'self' ? 'border-indigo-500 bg-white text-indigo-800' : 'border-white bg-white/70 text-slate-700'}`}>Yourself<span className="mt-1 block text-xs font-bold text-slate-500">Close under your own lead credit</span></button>
+                  <button type="button" onClick={() => setClosureDialog((current) => ({ ...current, behalfMode: 'other', behalfUserId: '' }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.behalfMode === 'other' ? 'border-indigo-500 bg-white text-indigo-800' : 'border-white bg-white/70 text-slate-700'}`}>Other User<span className="mt-1 block text-xs font-bold text-slate-500">Close on behalf of another CRM user</span></button>
+                </div>
+                {closureDialog.behalfMode === 'other' && <div className="mt-4"><SearchableSelect value={closureDialog.behalfUserId} options={generatedForOptions} onChange={(behalfUserId) => setClosureDialog((current) => ({ ...current, behalfUserId }))} placeholder="Search and select user" /></div>}
+              </section>
               {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes', poModeConfirmed: true, poMode: 'quotation' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter PO details against every quotation service.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
               {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 10-minute deadline to keep it closed.</p></div>}
               {closureDialog.choice === 'yes' && <div className="mt-6 space-y-5"><section className="rounded-2xl border border-blue-200 bg-blue-50 p-5"><h3 className="font-black text-blue-950">Was a quotation sent to the customer?</h3><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, quotationSent: 'yes' }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-white bg-white text-slate-700'}`}>Yes — Quotation Sent</button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, quotationSent: 'no' }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'no' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-white bg-white text-slate-700'}`}>No — Use Earlier Quotation Proof</button></div>{closureDialog.quotationSent === 'no' && <div className="mt-4"><p className="mb-3 text-sm font-bold text-amber-900">Upload proof of the earlier quotation. PO details can then be entered manually and sent to Admin for approval.</p><label className="flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.earlierQuotationProofName || 'Upload Earlier Quotation Proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'quotation')} /></label></div>}</section>{closureDialog.quotationSent === 'yes' && <QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}{closureDialog.quotationSent === 'no' && closureDialog.earlierQuotationProofUrl && <QuotationClosureSummary quotation={{ quotationNumber: 'Earlier quotation proof attached' }} items={closureDialog.quotationItems.length ? closureDialog.quotationItems : closureDialog.poYearRows.map(() => ({}))} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}</div>}
@@ -3542,14 +3566,15 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
         <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} temporaryLeadCount={temporaryLeadCount} onTemporaryOpen={onTemporaryOpen} />
         <div className="lead-directory-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
           <div className="lead-directory-scroll max-h-[680px] overflow-auto">
-            <table className="crm-data-table lead-directory-table w-full min-w-[1620px] table-fixed text-left text-sm">
+            <table className="crm-data-table lead-directory-table w-full min-w-[2050px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
                   {[
                     ['Lead ID', 'w-[140px]'], ['Company', 'w-[170px]'], ['Service Category', 'w-[160px]'],
                     ['Contact Person', 'w-[170px]'], ['Mobile 1', 'w-[135px]'],
                     ['Email', 'w-[215px]'], ['Assigned To', 'w-[145px]'], ['Assigned By', 'w-[145px]'],
-                    ['Created By', 'w-[145px]'], ['Status', 'w-[135px]'], ['Actions', 'w-[135px]']
+                    ['Created By', 'w-[145px]'], ['Created For / Behalf Of', 'w-[170px]'],
+                    ['Closed By', 'w-[145px]'], ['Closed On Behalf Of', 'w-[175px]'], ['Status', 'w-[135px]'], ['Actions', 'w-[135px]']
                   ].map(([header, width]) => <th key={header} className={`px-4 py-4 ${width}`}>{header}</th>)}
                 </tr>
               </thead>
@@ -3567,6 +3592,9 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-'}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{personLabel(item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-'))}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '-'}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-indigo-700"><span className="cell-clamp">{item.createdOnBehalfOfName || item.generatedForUser?.name || item.generatedForName || item.createdBy?.name || item.createdByName || '-'}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.closedBy?.name || item.closedByText || item.assignments?.find((row) => row.closedBy || row.closedByText)?.closedByText || '-'}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-violet-700"><span className="cell-clamp">{item.closedOnBehalfOfName || item.assignments?.find((row) => row.closedOnBehalfOfName)?.closedOnBehalfOfName || '-'}</span></td>
                     <td className="px-4 py-4"><span className="lead-status-badge">{item.status || 'Draft'}</span></td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
