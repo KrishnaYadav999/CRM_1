@@ -237,6 +237,33 @@ function MisOverviewCard({ title, subtitle, icon: Icon, tone, metrics, loading }
   </article>
 }
 
+function salesDepartment(row = {}) {
+  const role = String(row.role || '').toLowerCase()
+  const team = String(row.team || '').toLowerCase()
+  if (role === 'sales' || team.includes('sales')) return 'Sales Team'
+  if (['operation', 'manager', 'operation head', 'operations head'].includes(role) || team.includes('operation')) return 'Operations Team'
+  return 'Other Departments'
+}
+
+function buildSalesDepartmentGroups(rows = []) {
+  return ['Sales Team', 'Operations Team', 'Other Departments'].map((name) => {
+    const members = rows.filter((row) => salesDepartment(row) === name)
+    const totals = members.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
+    return { name, members, ...totals }
+  }).filter((group) => group.members.length)
+}
+
+function SalesOwnershipTable({ groups, loading, onOpenUser }) {
+  return <div className="overflow-x-auto"><table className="w-full min-w-[940px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Sr. No.</th><th className="px-5 py-3">Lead Owner</th><th className="px-5 py-3">Role / CRM Team</th><th className="px-5 py-3 text-right">Total Leads</th><th className="px-5 py-3 text-right">Lead Open</th><th className="px-5 py-3 text-right">Lead Close</th><th className="px-5 py-3">Close Rate</th></tr></thead><tbody>
+    {loading && <tr><td colSpan="7" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr>}
+    {!loading && groups.flatMap((group) => {
+      const teamRate = group.total ? Math.round(group.closed / group.total * 100) : 0
+      return [<tr key={`department-${group.name}`} className="border-t-2 border-emerald-200 bg-emerald-50 font-black text-emerald-950"><td className="px-5 py-3" colSpan="3"><span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{group.name}<small className="rounded-full bg-white px-2 py-1 text-[10px] text-emerald-700">{group.members.length} users</small></span></td><td className="px-5 py-3 text-right text-lg">{group.total}</td><td className="px-5 py-3 text-right text-orange-600">{group.open}</td><td className="px-5 py-3 text-right text-emerald-700">{group.closed}</td><td className="px-5 py-3 text-emerald-800">{teamRate}%</td></tr>, ...group.members.map((row, index) => { const rate = row.totalLeads ? Math.round(row.closedLeads / row.totalLeads * 100) : 0; return <tr key={String(row.id)} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-emerald-50/50"><td className="px-5 py-4 pl-8 font-black text-slate-400">{index + 1}</td><td className="px-5 py-4"><button type="button" onClick={() => onOpenUser(row)} className="text-left"><strong className="block text-slate-950 hover:text-emerald-700">{row.name}</strong><small className="text-slate-500">{row.email}</small></button></td><td className="px-5 py-4"><strong className="block text-xs">{row.roleLabel}</strong><small className="text-slate-500">{row.team || group.name}</small></td><td className="px-5 py-4 text-right text-lg font-black text-slate-950">{row.totalLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-orange-600">{row.openLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{row.closedLeads}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${rate}%` }} /></div><strong className="text-emerald-800">{rate}%</strong></div></td></tr> })]
+    })}
+    {!loading && !groups.length && <tr><td colSpan="7" className="p-10 text-center font-bold text-slate-400">No lead owners found.</td></tr>}
+  </tbody></table></div>
+}
+
 function MisPagination({ page, total, pageSize = MIS_PAGE_SIZE, onPageChange }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   if (total <= pageSize) return <div className="border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs font-bold text-slate-500">Showing {total} of {total} records</div>
@@ -364,6 +391,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
     })
   }, [approvalWorkflowClients, report.users])
   const allSalesMisRows = useMemo(() => rows, [rows])
+  const salesDepartmentGroups = useMemo(() => buildSalesDepartmentGroups(allSalesMisRows), [allSalesMisRows])
   const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
   const operationsOnlyMis = misPage && !misAccess.isAdmin
   const misTitle = operationsOnlyMis
@@ -520,14 +548,11 @@ export default function SuperAdminDashboard({ misPage = false }) {
 
         {misPage && misAccess.showSales && <section className="mt-4 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-5 py-4">
-            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Department MIS</p><h2 className="text-xl font-black text-slate-950">Sales MIS</h2><p className="text-xs font-semibold text-slate-500">Only Sales users · live lead status for the selected report period</p></div></div>
+            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Management · Lead Ownership MIS</p><h2 className="text-xl font-black text-slate-950">Sales & Operations Team Performance</h2><p className="text-xs font-semibold text-slate-500">Permanent Lead Owner based counts · manager allocation never changes ownership credit</p></div></div>
             <button type="button" onClick={() => downloadMisPdf('sales')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'sales' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'sales' ? 'Generating...' : 'Download Sales PDF'}</button>
           </header>
-          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Sr. No.</th><th className="px-5 py-3">User Name</th><th className="px-5 py-3 text-right">Total Leads</th><th className="px-5 py-3 text-right">Lead Open</th><th className="px-5 py-3 text-right">Lead Close</th><th className="px-5 py-3">Close Rate</th></tr></thead><tbody>
-            {loading ? <tr><td colSpan="6" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr> : salesMisRows.map((row, index) => { const rate = row.totalLeads ? Math.round((row.closedLeads / row.totalLeads) * 100) : 0; return <tr key={String(row.id)} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-emerald-50/50"><td className="px-5 py-4 font-black text-slate-400">{index + 1}</td><td className="px-5 py-4"><button type="button" onClick={() => setWorkReportUser(row)} className="text-left"><strong className="block text-slate-950 hover:text-emerald-700">{row.name}</strong><small className="text-slate-500">{row.email}</small></button></td><td className="px-5 py-4 text-right text-lg font-black text-slate-950">{row.totalLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-orange-600">{row.openLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{row.closedLeads}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-28 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${rate}%` }} /></div><strong className="text-emerald-800">{rate}%</strong></div></td></tr> })}
-            {!loading && !salesMisRows.length && <tr><td colSpan="6" className="p-10 text-center font-bold text-slate-400">No Sales users found.</td></tr>}
-          </tbody></table></div>
-          <MisPagination page={salesPage} total={allSalesMisRows.length} onPageChange={setSalesPage} />
+          <SalesOwnershipTable groups={salesDepartmentGroups} loading={loading} onOpenUser={setWorkReportUser} />
+          <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 text-xs font-bold text-slate-500">Showing {allSalesMisRows.length} lead owners across {salesDepartmentGroups.length} department groups</div>
         </section>}
 
         {misPage && <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
