@@ -65,6 +65,16 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.match(workspace, /const sectionIcons =/);
 });
 
+test('saving a tab review never changes the overall client approval bucket', () => {
+  const reviewController = fs.readFileSync(path.join(__dirname, '../src/controllers/clientComplianceReviewController.js'), 'utf8');
+  const clientController = fs.readFileSync(path.join(__dirname, '../src/controllers/clientController.js'), 'utf8');
+  const workspace = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/ClientComplianceReview.jsx'), 'utf8');
+  assert.match(reviewController, /review\.status = 'IN_REVIEW'/);
+  assert.doesNotMatch(clientController, /reviewStatusByClient/);
+  assert.match(workspace, /decide\('PARTIALLY_APPROVED', 'PARTIAL'\)/);
+  assert.match(reviewController, /decision === 'PARTIALLY_APPROVED' \? 'PARTIALLY_APPROVED'/);
+});
+
 test('dashboard brand identifies the e-connect workspace', () => {
   const topbar = fs.readFileSync(path.join(__dirname, '../../frontend/src/components/dashboard/Topbar.jsx'), 'utf8');
   assert.match(topbar, />e-connect<\/small>/);

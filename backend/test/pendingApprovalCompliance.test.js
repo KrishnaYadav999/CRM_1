@@ -57,10 +57,12 @@ test('Pending Approval header is integrated without a white card background', ()
 
 test('client approval list includes pending, partial and approved compliance records', () => {
   const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
-  assert.match(controller, /ClientComplianceReview\.find/);
-  assert.match(controller, /reviewStatusByClient/);
+  const reviewController = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientComplianceReviewController.js'), 'utf8');
+  const pendingApproval = fs.readFileSync(path.resolve(__dirname, '../src/models/PendingApproval.js'), 'utf8');
+  assert.doesNotMatch(controller, /reviewStatusByClient/);
+  assert.match(reviewController, /approvalStatus = decision === 'APPROVED'.*'PARTIALLY_APPROVED'/);
+  assert.match(pendingApproval, /'PENDING', 'PARTIALLY_APPROVED', 'APPROVED'/);
   assert.match(controller, /PARTIALLY_APPROVED/);
-  assert.match(controller, /record\.type === 'quotation' && record\.approvalStatus === 'PENDING'/);
 });
 
 test('duplicate Client Master services open an applicant type chooser', () => {

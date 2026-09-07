@@ -11,7 +11,7 @@ const SectionSchema = new mongoose.Schema({
 
 const ClientComplianceReviewSchema = new mongoose.Schema({
   client: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true, unique: true, index: true },
-  status: { type: String, enum: ['PENDING', 'IN_REVIEW', 'CHANGES_REQUIRED', 'APPROVED', 'REJECTED'], default: 'PENDING', index: true },
+  status: { type: String, enum: ['PENDING', 'IN_REVIEW', 'CHANGES_REQUIRED', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED'], default: 'PENDING', index: true },
   sections: { type: [SectionSchema], default: [] },
   finalRemarks: { type: String, trim: true, maxlength: 1000, default: '' },
   assignedReviewer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

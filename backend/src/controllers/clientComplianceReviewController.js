@@ -79,7 +79,9 @@ exports.updateSection = async (req, res) => {
   if (!section) return res.status(404).json({ error: 'Verification section not found' });
   section.status = status; section.remarks = remarks; section.reviewedBy = req.user._id; section.reviewedAt = new Date();
   review.assignedReviewer = review.assignedReviewer || req.user._id;
-  review.status = status === 'CHANGES_REQUIRED' ? 'CHANGES_REQUIRED' : 'IN_REVIEW';
+  // Saving an individual tab is draft review work. It must never move the
+  // Client Master into an overall approval bucket before the final decision.
+  review.status = 'IN_REVIEW';
   review.history.push({ action: `SECTION_${status}`, sectionKey: section.key, remarks, actionBy: req.user._id });
   await review.save();
   return res.json({ review, progress: progress(review.sections) });
@@ -89,25 +91,25 @@ exports.completeReview = async (req, res) => {
   const decision = String(req.body.decision || '').toUpperCase();
   const approvalMode = String(req.body.approvalMode || '').toUpperCase();
   const remarks = String(req.body.remarks || '').trim();
-  if (!['APPROVED', 'CHANGES_REQUIRED', 'REJECTED'].includes(decision)) return res.status(400).json({ error: 'Invalid review decision' });
+  if (!['APPROVED', 'PARTIALLY_APPROVED', 'CHANGES_REQUIRED', 'REJECTED'].includes(decision)) return res.status(400).json({ error: 'Invalid review decision' });
   if (!remarks) return res.status(400).json({ error: 'Final compliance remarks are required' });
   const client = await Client.findById(req.params.id);
   if (!client) return res.status(404).json({ error: 'Client Master not found' });
   const review = await getOrCreateReview(client._id);
   const summary = progress(review.sections);
   const everyTabHasRemarks = review.sections.every((section) => String(section.remarks || '').trim());
-  if (decision === 'APPROVED' && !everyTabHasRemarks) return res.status(409).json({ error: 'Add and save remarks for every tab before approving the client' });
+  if (['APPROVED', 'PARTIALLY_APPROVED'].includes(decision) && !everyTabHasRemarks) return res.status(409).json({ error: 'Add and save remarks for every tab before approving the client' });
   if (decision === 'APPROVED' && (summary.reviewed !== summary.total || summary.issues > 0)) return res.status(409).json({ error: 'Verify every applicable tab and resolve all requested changes before approval' });
   review.status = decision; review.finalRemarks = remarks; review.assignedReviewer = review.assignedReviewer || req.user._id;
   review.history.push({ action: decision, remarks, actionBy: req.user._id });
   await review.save();
-  const approvalStatus = decision === 'APPROVED' ? 'APPROVED' : decision === 'REJECTED' ? 'REJECTED' : 'PENDING';
+  const approvalStatus = decision === 'APPROVED' ? 'APPROVED' : decision === 'PARTIALLY_APPROVED' ? 'PARTIALLY_APPROVED' : decision === 'REJECTED' ? 'REJECTED' : 'PENDING';
   client.adminControls = { ...(client.adminControls || {}), approvalStatus };
   client.data = { ...(client.data || {}), approvalMeta: { status: approvalStatus, actionBy: req.user._id, actionAt: new Date(), remarks, complianceReviewId: review._id } };
   client.markModified('data'); await client.save();
   const decidedAt = new Date();
   const existingPendingRecord = await PendingApproval.findOne({ sourceClientId: String(client._id), type: 'client' }).lean();
-  const correctionRequired = decision === 'CHANGES_REQUIRED' || decision === 'REJECTED';
+  const correctionRequired = decision === 'PARTIALLY_APPROVED' || decision === 'CHANGES_REQUIRED' || decision === 'REJECTED';
   const correctionFields = correctionRequired ? {
     correctionStatus: 'OPEN',
     correctionDecision: decision === 'REJECTED' ? 'REJECTED' : 'PARTIALLY_APPROVED',
@@ -137,7 +139,7 @@ exports.completeReview = async (req, res) => {
     { $set: { approvalStatus, actionBy: req.user._id, actionAt: decidedAt, remarks, nextReminderAt: null, ...correctionFields } },
     { new: true }
   );
-  const notificationMode = approvalMode || (decision === 'CHANGES_REQUIRED' ? 'CORRECTION' : decision);
+  const notificationMode = decision === 'PARTIALLY_APPROVED' ? 'PARTIAL' : decision === 'APPROVED' ? 'FINAL' : approvalMode || (decision === 'CHANGES_REQUIRED' ? 'CORRECTION' : decision);
   const notification = await notifyClientApprovalDecision({ record: { clientName: client.data?.basic?.clientLegalName }, client, status: approvalStatus, remarks, reviewer: req.user, sections: review.sections, approvalMode: notificationMode }).catch((error) => ({ sent: false, reason: error.message }));
   if (pendingRecord && correctionRequired && notification?.email) {
     pendingRecord.correctionRecipientId = notification.recipientId || undefined;

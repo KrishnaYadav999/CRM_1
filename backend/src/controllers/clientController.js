@@ -25,7 +25,7 @@ const { userHasAnyRole } = require('../utils/userRoles');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
-  return ['PENDING', 'APPROVED', 'REJECTED'].includes(status) ? status : '';
+  return ['PENDING', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED'].includes(status) ? status : '';
 }
 
 function validateClientSubmissionCompletion(data = {}, workflowStatus = 'draft') {
@@ -865,15 +865,9 @@ async function readStoredPendingApprovals() {
   const sourceClientIds = clientRecords.map((record) => record.sourceClientId).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
   const submittedClients = await Client.find({ _id: { $in: sourceClientIds }, workflowStatus: 'submitted' }).select('_id').lean();
   const submittedIds = new Set(submittedClients.map((client) => String(client._id)));
-  const complianceReviews = await ClientComplianceReview.find({ client: { $in: sourceClientIds } }).select('client status').lean();
-  const reviewStatusByClient = new Map(complianceReviews.map((review) => [String(review.client), review.status]));
   const clientRows = clientRecords
     .filter((record) => submittedIds.has(String(record.sourceClientId)))
-    .map((record) => {
-      const row = mapPendingApprovalRecord(record);
-      if (row.approvalStatus === 'PENDING' && reviewStatusByClient.get(String(record.sourceClientId)) === 'CHANGES_REQUIRED') row.approvalStatus = 'PARTIALLY_APPROVED';
-      return row;
-    });
+    .map(mapPendingApprovalRecord);
 
   return {
     pendingClients: clientRows,

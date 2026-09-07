@@ -6,7 +6,7 @@ const PendingApprovalSchema = new mongoose.Schema({
   sourceClientId: { type: String, trim: true, index: true },
   uniqueId: { type: String, trim: true, index: true },
   clientName: { type: String, trim: true },
-  approvalStatus: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED', 'REVISION_REQUIRED'], default: 'PENDING', index: true },
+  approvalStatus: { type: String, enum: ['PENDING', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED', 'REVISION_REQUIRED'], default: 'PENDING', index: true },
   piboCategory: { type: String, trim: true },
   eprCategory: { type: String, trim: true },
   createdByName: { type: String, trim: true },
