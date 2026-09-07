@@ -203,35 +203,40 @@ function quotationAnnualReturnOrCreditYears(item = {}) {
   return [...new Set(years.map(String).filter(Boolean))];
 }
 
+function isAnnualReturnRegistrationApplicant(item = {}) {
+  const applicantType = String(getQuotationApplicantType(item) || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+  return applicantType === 'producer' || applicantType === 'importerofrawmaterial';
+}
+
+function quotationAnnualReturnRegistrationYear(item = {}) {
+  if (!isAnnualReturnRegistrationApplicant(item)) return '-';
+  return quotationAnnualReturnOrCreditYears(item).join(', ') || item.financialYear || '-';
+}
+
+function isEprConsultancyItem(item = {}) {
+  return String(item.businessCategory || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '') === 'eprconsultancy';
+}
+
+function quotationPrimaryPeriodHeader(items = []) {
+  return items.some(isEprConsultancyItem) ? 'Annual Return & Registration Year' : 'Service Period';
+}
+
+function quotationPrimaryPeriodDisplay(item = {}) {
+  return isEprConsultancyItem(item)
+    ? quotationAnnualReturnRegistrationYear(item)
+    : quotationServiceDateRange(item);
+}
+
 function isPwpEprCreditItem(item = {}) {
   return isEprCreditItem(item) && String(getQuotationApplicantType(item) || '').trim().toLowerCase() === 'pwp';
 }
 
 function quotationYearMappingHeader(items = []) {
-  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-  const consultancyItems = items.filter((item) => normalize(item.businessCategory) === 'eprconsultancy');
-  const hasAnnualReturnService = consultancyItems.some((item) => {
-    const service = normalize(item.servicesOffered);
-    return service.includes('annualreturn') || service === 'annualfiling' || service === 'annualfilling';
-  });
-  const hasRegistrationService = consultancyItems.some((item) => {
-    const service = normalize(item.servicesOffered);
-    return service === 'registration' || service.includes('newregistration');
-  });
-  if (hasAnnualReturnService && hasRegistrationService) return 'Annual Return & Registration Year';
-  if (hasAnnualReturnService) return 'Annual Return Year';
-  if (hasRegistrationService) return 'Registration Year';
+  if (items.some(isEprConsultancyItem)) return 'Annual Return & Registration Year';
   return 'Annual Return EPR Year / Credit Year';
-}
-
-function hidePwpRegistrationYearColumn(items = []) {
-  const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return items.some((item) => {
-    const service = normalize(item.servicesOffered);
-    return normalize(item.businessCategory) === 'eprconsultancy'
-      && normalize(getQuotationApplicantType(item)) === 'pwp'
-      && (service === 'registration' || service.includes('newregistration'));
-  });
 }
 
 function isMeaningfulQuotationItem(item = {}) {
@@ -2710,7 +2715,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
-  const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0) && !hidePwpRegistrationYearColumn(items);
+  const hasReturnYearItems = items.some(isEprConsultancyItem);
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const isAdminUser = normalizedRole === 'admin' || normalizedRole === 'superadmin';
   const approvalStatus = String(quotation.approvalStatus || quotation.adminApproval || quotation.status || '').trim().toLowerCase();
@@ -2942,7 +2947,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                   <colgroup><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[15%]" /><col className="w-[11%]" /><col className="w-[11%]" /><col className="w-[6%]" /><col className="w-[11%]" /><col className="w-[12%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
-                      {['Business Category', 'Service Category', 'Service Period', 'Applicant Type', 'Services Offered', 'Unit', 'Unit Name', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
+                      {['Business Category', 'Service Category', quotationPrimaryPeriodHeader(items), 'Applicant Type', 'Services Offered', 'Unit', 'Unit Name', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -2950,7 +2955,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                       <tr key={index} className="font-black uppercase">
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.businessCategory || '-'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.eprCategory || item.serviceCategory || '-'}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{quotationServiceDateRange(item)}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2">{quotationPrimaryPeriodDisplay(item)}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{getQuotationApplicantType(item)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationUnitLabel(item)}</td>
@@ -2966,7 +2971,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                 <table className="w-full table-fixed text-[10px] font-bold leading-4 text-slate-950">
                   {hasReturnYearItems ? <colgroup><col className="w-[8%]" /><col className="w-[24%]" /><col className="w-[20%]" /><col className="w-[24%]" /><col className="w-[24%]" /></colgroup> : <colgroup><col className="w-[10%]" /><col className="w-[32%]" /><col className="w-[26%]" /><col className="w-[32%]" /></colgroup>}
                   <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th><th className="border-r border-t border-slate-950 px-2 py-3">Applicant Type</th>{hasReturnYearItems && <th className="border-r border-t border-slate-950 px-2 py-3">{quotationYearMappingHeader(items)}</th>}<th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
-                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{getQuotationApplicantType(item)}</td>{hasReturnYearItems && <td className="border-r border-t border-slate-950 px-2 py-3">{quotationAnnualReturnOrCreditYears(item).join(', ') || '-'}</td>}<td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
+                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{getQuotationApplicantType(item)}</td>{hasReturnYearItems && <td className="border-r border-t border-slate-950 px-2 py-3">{quotationAnnualReturnRegistrationYear(item)}</td>}<td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
                 </table>
               </div>
               <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
@@ -3050,14 +3055,14 @@ function buildQuotationPrintHtml(quotation) {
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
-  const hasReturnYearItems = items.some((item) => quotationAnnualReturnOrCreditYears(item).length > 0) && !hidePwpRegistrationYearColumn(items);
+  const hasReturnYearItems = items.some(isEprConsultancyItem);
   const yearMappingHeader = quotationYearMappingHeader(items);
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
   const rows = items.map((item, index) => `
     <tr>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
       <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
-      <td>${escapeHtml(quotationServiceDateRange(item))}</td>
+      <td>${escapeHtml(quotationPrimaryPeriodDisplay(item))}</td>
       <td>${escapeHtml(getQuotationApplicantType(item))}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(quotationUnitLabel(item))}</td>
@@ -3161,14 +3166,14 @@ function buildQuotationPrintHtml(quotation) {
       ${combinedPackageHeader}
       <table>
         <thead>
-          <tr><th>Business Category</th><th>Service Category</th><th>Service Period</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Business Category</th><th>Service Category</th><th>${escapeHtml(quotationPrimaryPeriodHeader(items))}</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
         </thead>
         <tbody>${rows || '<tr><td colspan="8" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
       <div class="package-header">EPR / Service Period Mapping</div>
       <table>
         <thead><tr><th>Sr.No</th><th>Service Category</th><th>Applicant Type</th>${hasReturnYearItems ? `<th>${escapeHtml(yearMappingHeader)}</th>` : ''}<th>Services Offered</th></tr></thead>
-        <tbody>${items.map((item, index) => `<tr><td class="center">${index + 1}</td><td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td><td>${escapeHtml(getQuotationApplicantType(item))}</td>${hasReturnYearItems ? `<td>${escapeHtml(quotationAnnualReturnOrCreditYears(item).join(', ') || '-')}</td>` : ''}<td>${escapeHtml(item.servicesOffered || '-')}</td></tr>`).join('') || `<tr><td colspan="${hasReturnYearItems ? 5 : 4}" class="center">No quotation items added.</td></tr>`}</tbody>
+        <tbody>${items.map((item, index) => `<tr><td class="center">${index + 1}</td><td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td><td>${escapeHtml(getQuotationApplicantType(item))}</td>${hasReturnYearItems ? `<td>${escapeHtml(quotationAnnualReturnRegistrationYear(item))}</td>` : ''}<td>${escapeHtml(item.servicesOffered || '-')}</td></tr>`).join('') || `<tr><td colspan="${hasReturnYearItems ? 5 : 4}" class="center">No quotation items added.</td></tr>`}</tbody>
       </table>
       <section class="terms">
         <p class="label">Terms & Conditions:</p>

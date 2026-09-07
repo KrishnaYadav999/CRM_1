@@ -235,26 +235,23 @@ test('quotation views and printable tables omit period-unit and transition colum
   assert.doesNotMatch(page, /\['Select Period', periodUnitLongLabel/);
 });
 
-test('quotation PDF places applicant beside the date range and combines annual and credit year mapping', () => {
+test('quotation PDF places applicant beside the applicable annual return and registration year', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function quotationServiceDateRange\(item = \{\}\)/);
   assert.match(page, /return `\$\{formatServiceDate\(startDate\)\} - \$\{formatServiceDate\(endDate\)\}`/);
-  assert.match(page, /'Service Period', 'Applicant Type', 'Services Offered', 'Unit'/);
-  assert.match(page, /<td[^>]*>\{quotationServiceDateRange\(item\)\}<\/td>\s*<td[^>]*>\{getQuotationApplicantType\(item\)\}<\/td>/);
+  assert.match(page, /function quotationPrimaryPeriodHeader\(items = \[\]\)/);
+  assert.match(page, /'Annual Return & Registration Year' : 'Service Period'/);
+  assert.match(page, /<td[^>]*>\{quotationPrimaryPeriodDisplay\(item\)\}<\/td>\s*<td[^>]*>\{getQuotationApplicantType\(item\)\}<\/td>/);
   assert.match(page, /Annual Return EPR Year \/ Credit Year/);
-  assert.match(page, /quotationAnnualReturnOrCreditYears\(item\)\.join\(', '\)/);
+  assert.match(page, /quotationAnnualReturnRegistrationYear\(item\)/);
   assert.doesNotMatch(page, /EPR \/ Service Period<\/th><th[^>]*>Applicant Type/);
   assert.match(page, /const ANANT_TATTVA_GST_NUMBER = '27AAZCA6657R1ZB'/);
 });
 
-test('EPR Consultancy quotation mapping uses service-specific year headers', () => {
+test('EPR Consultancy quotation mapping uses the combined annual return and registration year header', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function quotationYearMappingHeader\(items = \[\]\)/);
-  assert.match(page, /hasAnnualReturnService && hasRegistrationService.*Annual Return & Registration Year/s);
-  assert.match(page, /hasAnnualReturnService\) return 'Annual Return Year'/);
-  assert.match(page, /hasRegistrationService\) return 'Registration Year'/);
-  assert.match(page, /normalize\(item\.businessCategory\) === 'eprconsultancy'/);
-  assert.match(page, /service\.includes\('annualreturn'\)/);
+  assert.match(page, /items\.some\(isEprConsultancyItem\).*Annual Return & Registration Year/);
   assert.match(page, /\{quotationYearMappingHeader\(items\)\}/);
   assert.match(page, /escapeHtml\(yearMappingHeader\)/);
 });
@@ -275,14 +272,14 @@ test('quotation mapping view and download place Applicant Type beside Service Ca
   assert.match(page, /escapeHtml\(item\.eprCategory \|\| item\.serviceCategory \|\| '-'\)\}<\/td><td>\$\{escapeHtml\(getQuotationApplicantType\(item\)\)\}<\/td>/);
 });
 
-test('quotation containing PWP registration consultancy hides Registration Year in view and print', () => {
+test('quotation year mapping shows a dash for PWP and years only for Producer or Importer of Raw Material', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
-  assert.match(page, /function hidePwpRegistrationYearColumn\(items = \[\]\)/);
-  assert.match(page, /return items\.some\(\(item\) => \{/);
-  assert.match(page, /normalize\(item\.businessCategory\) === 'eprconsultancy'/);
-  assert.match(page, /normalize\(getQuotationApplicantType\(item\)\) === 'pwp'/);
-  assert.match(page, /service === 'registration' \|\| service\.includes\('newregistration'\)/);
-  assert.equal((page.match(/&& !hidePwpRegistrationYearColumn\(items\)/g) || []).length, 2);
+  assert.match(page, /function isAnnualReturnRegistrationApplicant\(item = \{\}\)/);
+  assert.match(page, /applicantType === 'producer' \|\| applicantType === 'importerofrawmaterial'/);
+  assert.match(page, /function quotationAnnualReturnRegistrationYear\(item = \{\}\)/);
+  assert.match(page, /if \(!isAnnualReturnRegistrationApplicant\(item\)\) return '-'/);
+  assert.equal((page.match(/const hasReturnYearItems = items\.some\(isEprConsultancyItem\)/g) || []).length, 2);
+  assert.doesNotMatch(page, /hidePwpRegistrationYearColumn/);
 });
 
 test('quotation PDF download requires approval for non-admin users', () => {
