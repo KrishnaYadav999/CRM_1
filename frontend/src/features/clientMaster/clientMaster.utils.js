@@ -826,7 +826,12 @@ function getLatestCompletedFinancialYearStart(date = new Date()) {
 
 function buildAnnualReturnYearOptions() {
   const latestStart = getLatestCompletedFinancialYearStart();
-  return Array.from({ length: 12 }, (_, index) => formatFinancialYear(latestStart - index));
+  const earliestStart = latestStart - 11;
+  const latestSelectableStart = Math.max(2029, latestStart);
+  return Array.from(
+    { length: latestSelectableStart - earliestStart + 1 },
+    (_, index) => formatFinancialYear(latestSelectableStart - index)
+  );
 }
 
 function buildAnnualReturnYears(firstAnnualReturnYear) {

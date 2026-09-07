@@ -10,6 +10,12 @@ test('Client Master consent year choices extend through 2040', () => {
   assert.match(constants, /return `\$\{start\}-\$\{String\(\(start \+ 1\) % 100\)\.padStart\(2, '0'\)\}`/);
 });
 
+test('First Annual Return Year choices include every financial year through 2029-30', () => {
+  const utils = fs.readFileSync(path.join(frontendRoot, 'features/clientMaster/clientMaster.utils.js'), 'utf8');
+  assert.match(utils, /latestSelectableStart = Math\.max\(2029, latestStart\)/);
+  assert.match(utils, /formatFinancialYear\(latestSelectableStart - index\)/);
+});
+
 test('updating a follow-up closes the prior item and keeps closed history visible', () => {
   const page = fs.readFileSync(path.join(frontendRoot, 'pages/LeadGeneration.jsx'), 'utf8');
   assert.match(page, /status:\s*'closed'/);
