@@ -31,19 +31,26 @@ function drawKpiCards(pdf, cards, startY) {
   const margin = 9
   const gap = 3
   const cardWidth = (297 - margin * 2 - gap * 3) / 4
+  const palettes = [
+    { fill: [239, 250, 247], line: [167, 243, 208], value: [5, 150, 105] },
+    { fill: [239, 246, 255], line: [191, 219, 254], value: [37, 99, 235] },
+    { fill: [255, 247, 237], line: [254, 215, 170], value: [234, 88, 12] },
+    { fill: [255, 241, 242], line: [254, 205, 211], value: [225, 29, 72] }
+  ]
   cards.forEach((card, index) => {
     const column = index % 4
     const row = Math.floor(index / 4)
     const x = margin + column * (cardWidth + gap)
     const y = startY + row * 17
-    pdf.setFillColor(index === 6 ? 236 : 248, index === 6 ? 253 : 250, index === 6 ? 245 : 252)
-    pdf.setDrawColor(index === 6 ? 167 : 220, index === 6 ? 243 : 230, index === 6 ? 208 : 233)
+    const palette = palettes[index % palettes.length]
+    pdf.setFillColor(...(card.fill || palette.fill))
+    pdf.setDrawColor(...(card.line || palette.line))
     pdf.roundedRect(x, y, cardWidth, 13.5, 2, 2, 'FD')
     pdf.setTextColor(71, 85, 105)
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(6.5)
     pdf.text(card.label.toUpperCase(), x + 3, y + 4.2)
-    pdf.setTextColor(7, 88, 72)
+    pdf.setTextColor(...(card.color || palette.value))
     pdf.setFontSize(12)
     pdf.text(String(card.value), x + 3, y + 10.5)
   })
@@ -185,18 +192,20 @@ async function createMisPdf(title, subtitle, period) {
 export async function downloadSalesMisPdf({ rows, period }) {
   const { pdf, autoTable } = await createMisPdf('Sales MIS Report', 'Sales lead performance', period)
   const totals = rows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
-  drawKpiCards(pdf, [{ label: 'Sales Users', value: rows.length }, { label: 'Total Leads', value: totals.total }, { label: 'Lead Open', value: totals.open }, { label: 'Lead Close', value: totals.closed }], 36)
+  drawKpiCards(pdf, [{ label: 'Total Leads', value: totals.total }, { label: 'Open Leads', value: totals.open }, { label: 'Closed Leads', value: totals.closed }, { label: 'Close Rate', value: `${totals.total ? Math.round(totals.closed / totals.total * 100) : 0}%` }], 36)
   autoTable(pdf, { startY: 55, margin: { left: 9, right: 9 }, head: [['#', 'User Name', 'Email', 'Total Leads', 'Lead Open', 'Lead Close', 'Close Rate']], body: rows.map((row, index) => [index + 1, row.name, row.email, row.totalLeads, row.openLeads, row.closedLeads, `${row.totalLeads ? Math.round(row.closedLeads / row.totalLeads * 100) : 0}%`]), theme: 'grid', headStyles: { fillColor: [7, 88, 72], fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { fontSize: 8, cellPadding: 2.5, lineColor: [203, 213, 225], lineWidth: 0.15 }, columnStyles: { 0: { halign: 'center' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } } })
   pdf.save(`Sales_MIS_Report_${period.to}.pdf`)
 }
 
 export async function downloadOperationMisPdf({ groups, period }) {
   const { pdf, autoTable } = await createMisPdf('Operation MIS Report', 'Team and Client Master completion', period)
+  const totals = groups.reduce((sum, group) => ({ clients: sum.clients + Number(group.clientMasters || 0), approved: sum.approved + Number(group.approvedClients || 0), partial: sum.partial + Number(group.partiallyApprovedClients || 0), rejected: sum.rejected + Number(group.rejectedClients || 0) }), { clients: 0, approved: 0, partial: 0, rejected: 0 })
+  drawKpiCards(pdf, [{ label: 'Total Clients', value: totals.clients }, { label: 'Approved', value: totals.approved }, { label: 'Partially Approved', value: totals.partial }, { label: 'Reject', value: totals.rejected }], 36)
   const body = groups.flatMap((group) => {
     const people = [...(group.manager ? [group.manager] : []), ...group.members]
     return [[group.name, 'TEAM TOTAL', group.manager?.name || '-', group.clientMasters, group.draftClients || 0, group.submittedClients || 0, group.approvedClients || 0, group.partiallyApprovedClients || 0, group.rejectedClients || 0], ...people.map((row) => ['', row === group.manager ? 'Manager' : 'User', row.name, row.clientMasters || 0, row.draftClients || 0, row.submittedClients || 0, row.approvedClients || 0, row.partiallyApprovedClients || 0, row.rejectedClients || 0])]
   })
-  autoTable(pdf, { startY: 38, margin: { left: 9, right: 9 }, head: [[{ content: '', colSpan: 6 }, { content: 'COMPLIANCE STATUS', colSpan: 3, styles: { halign: 'center', fontSize: 10 } }], ['Team', 'Level', 'Reports To', 'Total Clients', 'Draft', 'Submitted', 'Approved', 'Partially Approved', 'Reject']], body, theme: 'grid', headStyles: { fillColor: [8, 126, 151], textColor: 255, fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { fontSize: 8, cellPadding: 2.5, lineColor: [203, 213, 225], lineWidth: 0.15 }, columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } }, didParseCell: (data) => { if (data.section === 'body' && data.row.raw?.[1] === 'TEAM TOTAL') { data.cell.styles.fillColor = [236, 254, 255]; data.cell.styles.fontStyle = 'bold' } } })
+  autoTable(pdf, { startY: 55, margin: { left: 9, right: 9 }, head: [[{ content: '', colSpan: 6 }, { content: 'COMPLIANCE STATUS', colSpan: 3, styles: { halign: 'center', fontSize: 10 } }], ['Team', 'Level', 'Reports To', 'Total Clients', 'Draft', 'Submitted', 'Approved', 'Partially Approved', 'Reject']], body, theme: 'grid', headStyles: { fillColor: [8, 126, 151], textColor: 255, fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { fontSize: 8, cellPadding: 2.5, lineColor: [203, 213, 225], lineWidth: 0.15 }, columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } }, didParseCell: (data) => { if (data.section === 'body' && data.row.raw?.[1] === 'TEAM TOTAL') { data.cell.styles.fillColor = [236, 254, 255]; data.cell.styles.fontStyle = 'bold' } } })
   pdf.save(`Operation_MIS_Report_${period.to}.pdf`)
 }
 
@@ -223,10 +232,13 @@ export async function downloadCompleteMisPdf({ salesRows = [], operationGroups =
     ['Operations', operationGroups.reduce((sum, group) => sum + Number(group.clientMasters || 0), 0), operationGroups.reduce((sum, group) => sum + Number(group.draftClients || 0), 0), operationGroups.reduce((sum, group) => sum + Number(group.submittedClients || 0), 0), `${operationGroups.length} teams`]
   ], 55, [7, 88, 72]))
   pdf.addPage(); header('Sales MIS', 'User-wise lead ownership and closure performance', [15, 118, 110])
-  autoTable(pdf, tableOptions(['#', 'User Name', 'Email', 'Total Leads', 'Open Leads', 'Closed Leads', 'Close Rate', 'Status'], salesRows.map((row, index) => [index + 1, row.name, row.email, Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active === false ? 'Inactive' : 'Active')]), 36, [15, 118, 110]))
+  drawKpiCards(pdf, [{ label: 'Total Leads', value: salesTotals.total }, { label: 'Open Leads', value: salesTotals.open }, { label: 'Closed Leads', value: salesTotals.closed }, { label: 'Close Rate', value: `${salesTotals.total ? Math.round(salesTotals.closed / salesTotals.total * 100) : 0}%` }], 36)
+  autoTable(pdf, tableOptions(['#', 'User Name', 'Email', 'Total Leads', 'Open Leads', 'Closed Leads', 'Close Rate', 'Status'], salesRows.map((row, index) => [index + 1, row.name, row.email, Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active === false ? 'Inactive' : 'Active')]), 55, [15, 118, 110]))
   pdf.addPage(); header('Operations MIS', 'Team, user, Client Master and approval status counts', [14, 116, 144])
+  const operationTotals = operationGroups.reduce((sum, group) => ({ clients: sum.clients + Number(group.clientMasters || 0), approved: sum.approved + Number(group.approvedClients || 0), partial: sum.partial + Number(group.partiallyApprovedClients || 0), rejected: sum.rejected + Number(group.rejectedClients || 0) }), { clients: 0, approved: 0, partial: 0, rejected: 0 })
+  drawKpiCards(pdf, [{ label: 'Total Clients', value: operationTotals.clients }, { label: 'Approved', value: operationTotals.approved }, { label: 'Partially Approved', value: operationTotals.partial }, { label: 'Reject', value: operationTotals.rejected }], 36)
   const operationBody = operationGroups.flatMap((group) => [...(group.manager ? [group.manager] : []), ...(group.members || [])].map((row) => [group.name, row.name, row === group.manager ? 'Manager' : 'Operation User', row === group.manager ? '-' : group.manager?.name || 'Not Assigned', Number(row.clientMasters || 0), Number(row.draftClients || 0), Number(row.submittedClients || 0), Number(row.approvedClients || 0), Number(row.partiallyApprovedClients || 0), Number(row.rejectedClients || 0)]))
-  autoTable(pdf, tableOptions([[{ content: '', colSpan: 7 }, { content: 'COMPLIANCE STATUS', colSpan: 3, styles: { halign: 'center', fontSize: 10 } }], ['Team', 'User Name', 'Level', 'Reports To', 'Total Clients', 'Draft', 'Submitted', 'Approved', 'Partially Approved', 'Reject']], operationBody, 36, [8, 126, 151]))
+  autoTable(pdf, tableOptions([[{ content: '', colSpan: 7 }, { content: 'COMPLIANCE STATUS', colSpan: 3, styles: { halign: 'center', fontSize: 10 } }], ['Team', 'User Name', 'Level', 'Reports To', 'Total Clients', 'Draft', 'Submitted', 'Approved', 'Partially Approved', 'Reject']], operationBody, 55, [8, 126, 151]))
   const pages = pdf.internal.getNumberOfPages()
   for (let page = 1; page <= pages; page += 1) { pdf.setPage(page); pdf.setDrawColor(226, 232, 240); pdf.line(9, 200, 288, 200); pdf.setTextColor(100, 116, 139); pdf.setFontSize(7); pdf.text('AnantTattva CRM · Confidential Management Report', 9, 205); pdf.text(`Page ${page} of ${pages}`, 288, 205, { align: 'right' }) }
   pdf.save(`AnantTattva_Complete_MIS_${period.from}_to_${period.to}.pdf`)
