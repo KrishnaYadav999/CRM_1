@@ -200,6 +200,41 @@ export async function downloadOperationMisPdf({ groups, period }) {
   pdf.save(`Operation_MIS_Report_${period.to}.pdf`)
 }
 
+export async function downloadCompleteMisPdf({ salesRows = [], operationGroups = [], complianceRows = [], period }) {
+  const [{ jsPDF }, autoTableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+  const autoTable = autoTableModule.default || autoTableModule.autoTable
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
+  let logo = null
+  try { logo = await logoDataUrl() } catch (error) { console.warn('PDF logo unavailable', error) }
+  const header = (title, subtitle, accent = [7, 88, 72]) => {
+    pdf.setFillColor(243, 248, 246); pdf.rect(0, 0, 297, 31, 'F')
+    if (logo) pdf.addImage(logo, 'PNG', 10, 6, 39, 15, undefined, 'FAST')
+    pdf.setTextColor(...accent); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.text(title, 58, 13)
+    pdf.setTextColor(71, 85, 105); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8)
+    pdf.text(subtitle, 58, 19); pdf.text(`${formatReportDate(period.from)} - ${formatReportDate(period.to)}  |  Generated ${formatDateTime(new Date())}`, 58, 24)
+    pdf.setDrawColor(249, 115, 22); pdf.setLineWidth(0.9); pdf.line(9, 30, 288, 30)
+  }
+  const tableOptions = (head, body, startY, color) => ({ startY, margin: { left: 9, right: 9, top: 35, bottom: 13 }, head: [head], body, theme: 'grid', showHead: 'everyPage', rowPageBreak: 'avoid', headStyles: { fillColor: color, textColor: 255, fontStyle: 'bold', fontSize: 7.5, cellPadding: 2.2 }, bodyStyles: { textColor: [51, 65, 85], fontSize: 7.2, cellPadding: 2, overflow: 'linebreak', valign: 'middle' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { lineColor: [203, 213, 225], lineWidth: 0.15 } })
+  const salesTotals = salesRows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
+  header('Complete MIS Report', 'Executive Sales, Operations and Compliance overview')
+  drawKpiCards(pdf, [{ label: 'CRM Users', value: salesRows.length }, { label: 'Total Leads', value: salesTotals.total }, { label: 'Open Leads', value: salesTotals.open }, { label: 'Closed Leads', value: salesTotals.closed }], 36)
+  autoTable(pdf, tableOptions(['Department', 'Records', 'Pending / Open', 'Completed / Approved', 'Performance'], [
+    ['Sales', salesTotals.total, salesTotals.open, salesTotals.closed, `${salesTotals.total ? Math.round(salesTotals.closed / salesTotals.total * 100) : 0}% close rate`],
+    ['Operations', operationGroups.reduce((sum, group) => sum + Number(group.clientMasters || 0), 0), operationGroups.reduce((sum, group) => sum + Number(group.draftClients || 0), 0), operationGroups.reduce((sum, group) => sum + Number(group.submittedClients || 0), 0), `${operationGroups.length} teams`],
+    ['Compliance', complianceRows.length, complianceRows.filter((row) => String(row.approvalStatus || row.status || 'PENDING').toUpperCase() === 'PENDING').length, complianceRows.filter((row) => String(row.approvalStatus || row.status || '').toUpperCase() === 'APPROVED').length, 'Client approvals']
+  ], 55, [7, 88, 72]))
+  pdf.addPage(); header('Sales MIS', 'User-wise lead ownership and closure performance', [15, 118, 110])
+  autoTable(pdf, tableOptions(['#', 'User Name', 'Email', 'Total Leads', 'Open Leads', 'Closed Leads', 'Close Rate', 'Status'], salesRows.map((row, index) => [index + 1, row.name, row.email, Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active === false ? 'Inactive' : 'Active')]), 36, [15, 118, 110]))
+  pdf.addPage(); header('Operations MIS', 'Team, manager, user and Client Master completion', [14, 116, 144])
+  const operationBody = operationGroups.flatMap((group) => [...(group.manager ? [group.manager] : []), ...(group.members || [])].map((row) => [group.name, row.name, row === group.manager ? 'Manager' : 'Operation User', row === group.manager ? '-' : group.manager?.name || 'Not Assigned', Number(row.clientMasters || 0), Number(row.draftClients || 0), Number(row.submittedClients || 0), Number(row.pendingClients || 0), `${Number(row.clientCompletionPercentage || 0)}%`]))
+  autoTable(pdf, tableOptions(['Team', 'User Name', 'Level', 'Reports To', 'Clients', 'Draft', 'Submitted', 'Pending', 'Completion'], operationBody, 36, [14, 116, 144]))
+  pdf.addPage(); header('Compliance MIS', 'Client approval status and request details', [225, 29, 72])
+  autoTable(pdf, tableOptions(['#', 'Client Name', 'Status', 'Applicant Type', 'Service Category', 'Created By', 'Request Date', 'Detail'], complianceRows.map((row, index) => [index + 1, row.clientName || '-', String(row.approvalStatus || row.status || 'PENDING').replaceAll('_', ' '), row.piboCategory || '-', row.eprCategory || '-', excelDisplayText(row.createdBy || row.createdByName), `${row.requestDate || ''} ${row.requestTime || ''}`.trim() || '-', row.remarks || row.detail || '-']), 36, [225, 29, 72]))
+  const pages = pdf.internal.getNumberOfPages()
+  for (let page = 1; page <= pages; page += 1) { pdf.setPage(page); pdf.setDrawColor(226, 232, 240); pdf.line(9, 200, 288, 200); pdf.setTextColor(100, 116, 139); pdf.setFontSize(7); pdf.text('AnantTattva CRM · Confidential Management Report', 9, 205); pdf.text(`Page ${page} of ${pages}`, 288, 205, { align: 'right' }) }
+  pdf.save(`AnantTattva_Complete_MIS_${period.from}_to_${period.to}.pdf`)
+}
+
 export async function exportProductivityExcel({ rows, summary, period }) {
   const XLSX = await import('xlsx')
   const workbook = XLSX.utils.book_new()
@@ -335,7 +370,6 @@ export async function exportCompleteMisExcel({ salesRows = [], operationGroups =
     const sheet = workbook.addWorksheet(name, { properties: { tabColor: { argb: accent }, defaultRowHeight: 22 } })
     styleMisTitle(sheet, title, subtitle, period, accent)
     if (logoId !== null) sheet.addImage(logoId, { tl: { col: 0.25, row: 1.15 }, ext: { width: 190, height: 68 }, editAs: 'oneCell' })
-    sheet.sheetProperties.pageSetUpPr = { fitToPage: true }
     return sheet
   }
 
