@@ -196,6 +196,15 @@ function quotationServiceDateRange(item = {}) {
   return `${formatServiceDate(startDate)} - ${formatServiceDate(endDate)}`;
 }
 
+function QuotationServiceDateRangeCell({ item }) {
+  const [startDate, endDate] = quotationServiceDateRange(item).split(' - ');
+  return <><span className="block whitespace-nowrap">{startDate}{endDate ? ' -' : ''}</span>{endDate && <span className="block whitespace-nowrap">{endDate}</span>}</>;
+}
+
+function quotationServiceDateRangeHtml(item = {}) {
+  return escapeHtml(quotationServiceDateRange(item)).replace(' - ', ' -<br>');
+}
+
 function quotationAnnualReturnOrCreditYears(item = {}) {
   const years = isEprCreditItem(item)
     ? quotationEprCreditYears(item)
@@ -2959,7 +2968,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{index + 1}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.businessCategory || '-'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.eprCategory || item.serviceCategory || '-'}</td>
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationServiceDateRange(item)}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center"><QuotationServiceDateRangeCell item={item} /></td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{getQuotationApplicantType(item)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationUnitLabel(item)}</td>
@@ -3067,7 +3076,7 @@ function buildQuotationPrintHtml(quotation) {
       <td class="center">${index + 1}</td>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
       <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
-      <td class="center">${escapeHtml(quotationServiceDateRange(item))}</td>
+      <td class="center" style="white-space:nowrap">${quotationServiceDateRangeHtml(item)}</td>
       <td>${escapeHtml(getQuotationApplicantType(item))}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(quotationUnitLabel(item))}</td>

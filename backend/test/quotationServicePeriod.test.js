@@ -239,10 +239,13 @@ test('quotation PDF main amount table shows service start and end dates in the s
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function quotationServiceDateRange\(item = \{\}\)/);
   assert.match(page, /return `\$\{formatServiceDate\(startDate\)\} - \$\{formatServiceDate\(endDate\)\}`/);
+  assert.match(page, /function QuotationServiceDateRangeCell\(\{ item \}\)/);
+  assert.match(page, /block whitespace-nowrap/);
+  assert.match(page, /replace\('\s-\s', '\s-<br>'\)/);
   assert.match(page, /'Sr\.No', 'Business Category', 'Service Category', 'Service Period', 'Applicant Type'/);
   assert.match(page, /<tr><th>Sr\.No<\/th><th>Business Category<\/th><th>Service Category<\/th><th>Service Period<\/th><th>Applicant Type<\/th>/);
-  assert.match(page, /\{quotationServiceDateRange\(item\)\}<\/td>/);
-  assert.match(page, /escapeHtml\(quotationServiceDateRange\(item\)\)/);
+  assert.match(page, /<QuotationServiceDateRangeCell item=\{item\} \/>/);
+  assert.match(page, /quotationServiceDateRangeHtml\(item\)/);
   assert.doesNotMatch(page, /quotationPrimaryPeriodHeader|quotationPrimaryPeriodDisplay/);
   assert.match(page, /Annual Return EPR Year \/ Credit Year/);
   assert.match(page, /quotationAnnualReturnRegistrationYear\(item\)/);
