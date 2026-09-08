@@ -3490,13 +3490,34 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
 
   if (temporaryMode) return <TemporaryLeadsWorkspace onClose={onTemporaryClose} onConverted={onRefresh} />;
 
+  function leadClosureDetails(item = {}) {
+    const assignments = Array.isArray(item.assignments) ? item.assignments : [];
+    const poRows = assignments.flatMap((row) => Array.isArray(row?.poYearRows) ? row.poYearRows : []);
+    const hasPo = poRows.some((row) => String(row?.poNumber || '').trim() || String(row?.poFileUrl || row?.poProofUrl || '').trim());
+    const closedAssignment = assignments.find((row) => row?.closedBy || row?.closedByText || row?.closedAt);
+    const closedBy = item.closedBy?.name || item.closedByText || closedAssignment?.closedBy?.name || closedAssignment?.closedByText || '';
+    const closedOnBehalfOf = item.closedOnBehalfOfName || assignments.find((row) => row?.closedOnBehalfOfName)?.closedOnBehalfOfName || '';
+    const hasApprovedClosure = Boolean(item.closedBy || item.closedByText || closedAssignment?.closedBy || closedAssignment?.closedByText || closedAssignment?.closedAt);
+    return {
+      status: hasPo && hasApprovedClosure ? 'Closed' : 'Still Not Closed',
+      pipelineStatus: item.status || '',
+      closedBy,
+      closedOnBehalfOf,
+      poNumbers: [...new Set(poRows.map((row) => String(row?.poNumber || '').trim()).filter(Boolean))],
+      poAmount: poRows.reduce((sum, row) => sum + (Number(row?.poAmount) || 0), 0)
+    };
+  }
+
   function exportExcel() {
-    const rows = filteredLeads.map((item) => ({
+    const rows = filteredLeads.map((item) => {
+      const closure = leadClosureDetails(item);
+      return ({
       'Lead ID': displayLeadId(item),
       'Excel Lead ID': item.sourceLeadId || '',
       Company: item.company || '',
       Industry: item.industryType || '',
-      Status: item.status || '',
+      Status: closure.status,
+      'Lead Pipeline Status': closure.pipelineStatus,
       'Applicant Type': item.piboParent || item.piboCategoryParent || inferPiboParent(item.piboCategory),
       'Sub Applicant Type': item.subApplicantType || item.piboCategory || '',
       'Service Category': item.eprCategory || '',
@@ -3521,8 +3542,13 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
       'Follow-Up Remarks': item.followUpRemarks || '',
       'Created At': item.importedCreatedAt || item.createdAt || '',
       'Updated At': item.importedUpdatedAt || item.updatedAt || '',
+      'Closed By': closure.closedBy,
+      'Closed On Behalf Of': closure.closedOnBehalfOf,
+      'PO Number(s)': closure.poNumbers.join(', '),
+      'Total PO Amount': closure.poAmount || '',
       'Business Card URL': item.businessCardUrl || ''
-    }));
+      });
+    });
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads');
@@ -3595,7 +3621,7 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
                     <td className="px-4 py-4 font-medium uppercase text-indigo-700"><span className="cell-clamp">{item.createdOnBehalfOfName || item.generatedForUser?.name || item.generatedForName || item.createdBy?.name || item.createdByName || '-'}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.closedBy?.name || item.closedByText || item.assignments?.find((row) => row.closedBy || row.closedByText)?.closedByText || '-'}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-violet-700"><span className="cell-clamp">{item.closedOnBehalfOfName || item.assignments?.find((row) => row.closedOnBehalfOfName)?.closedOnBehalfOfName || '-'}</span></td>
-                    <td className="px-4 py-4"><span className="lead-status-badge">{item.status || 'Draft'}</span></td>
+                    <td className="px-4 py-4"><span className={`lead-status-badge ${leadClosureDetails(item).status === 'Closed' ? 'text-emerald-700' : 'text-amber-700'}`}>{leadClosureDetails(item).status}</span></td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>

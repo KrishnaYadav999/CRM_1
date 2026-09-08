@@ -34,6 +34,7 @@ test('pending approvals can be filtered by the responsible user', () => {
 
 test('pending client rows clearly show compliance approval state', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
   assert.match(page, /const approvalState = getApprovalStatus\(client\)/);
   assert.match(page, /aria-label="Compliance approved"/);
   assert.match(page, /aria-label="Compliance approval pending"/);
@@ -45,6 +46,11 @@ test('pending client rows clearly show compliance approval state', () => {
   assert.match(page, /client-status-tab-label/);
   assert.match(page, /PARTIALLY_APPROVED/);
   assert.match(page, /Partially Approved/);
+  assert.match(page, /'Approval Status', 'Decision By', 'Applicant Type'/);
+  assert.match(page, /formatApprovalValue\(client\.decisionBy\)/);
+  assert.match(page, /client\.decisionAt/);
+  assert.match(controller, /populate\('actionBy', 'name email'\)/);
+  assert.match(controller, /decisionBy: record\.actionBy\?\.name \|\| record\.actionBy\?\.email/);
 });
 
 test('Pending Approval header is integrated without a white card background', () => {

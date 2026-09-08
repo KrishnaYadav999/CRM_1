@@ -15,3 +15,12 @@ test('lead directory omits Applicant Type while preserving the service column an
   assert.doesNotMatch(directory, /\{item\.piboCategory \|\| '-'\}/);
   assert.match(directory, /colSpan=\{11\}/);
 });
+
+test('lead directory and Excel export show PO-backed closure status', () => {
+  assert.match(directory, /function leadClosureDetails\(item = \{\}\)/);
+  assert.match(directory, /status: hasPo && hasApprovedClosure \? 'Closed' : 'Still Not Closed'/);
+  assert.match(directory, /Status: closure\.status/);
+  assert.match(directory, /'Lead Pipeline Status': closure\.pipelineStatus/);
+  assert.match(directory, /'PO Number\(s\)': closure\.poNumbers\.join\(', '\)/);
+  assert.match(directory, /\{leadClosureDetails\(item\)\.status\}<\/span>/);
+});

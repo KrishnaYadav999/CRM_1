@@ -812,6 +812,8 @@ function mapPendingApprovalRecord(record) {
     createdBy: record.createdByName || payload.createdBy || payload.userName || '-',
     requestDate: record.requestDate || payload.requestDate || '-',
     requestTime: record.requestTime || payload.requestTime || '-',
+    decisionBy: record.actionBy?.name || record.actionBy?.email || '-',
+    decisionAt: record.actionAt || null,
     reminderFlag: record.reminderFlag || '',
     redFlagAt: record.redFlagAt || null,
     greenFlagDeadline: record.greenFlagDeadline || null
@@ -857,6 +859,7 @@ async function readStoredPendingApprovals() {
   const records = await PendingApproval.find({
     $or: [{ type: 'client' }, { type: 'quotation' }, { approvalStatus: 'PENDING' }]
   })
+    .populate('actionBy', 'name email')
     .sort({ createdAt: -1 })
     .limit(1000)
     .lean();

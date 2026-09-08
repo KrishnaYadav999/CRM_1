@@ -12,7 +12,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { uploadMedia } from '../services/mediaUpload';
 
 const rowsPerPage = 5;
-const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v5';
+const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v6';
 const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
 const PENDING_APPROVAL_AUTH_TIMEOUT_MS = 4500;
 const PENDING_APPROVAL_DATA_TIMEOUT_MS = 20000;
@@ -1484,7 +1484,7 @@ export default function PendingApproval() {
             ) : activeTab === 'clients' ? (
               <ApprovalTable
                 title="Pending Clients"
-                columns={['Client Name', 'Approval Status', 'Applicant Type', 'Service Category', 'Created By', 'Request Date', 'Actions']}
+                columns={['Client Name', 'Approval Status', 'Decision By', 'Applicant Type', 'Service Category', 'Created By', 'Request Date', 'Actions']}
                 emptyText="No pending clients found."
                 page={clientPage}
                 totalPages={clientTotalPages}
@@ -1506,6 +1506,7 @@ export default function PendingApproval() {
                   return <tr key={client.id} className="transition-colors hover:bg-slate-50">
                     <Cell strong><span className="flex items-center gap-2">{complianceApproved ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Compliance approved" /> : partiallyApproved ? <AlertTriangle className="h-4 w-4 shrink-0 fill-amber-100 text-amber-500" aria-label="Compliance partially approved" /> : <AlertTriangle className="h-4 w-4 shrink-0 fill-rose-100 text-rose-600" aria-label="Compliance approval pending" />}<button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></span></Cell>
                     <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{['RED', 'PERMANENT_RED'].includes(client.reminderFlag) && <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">{client.reminderFlag === 'PERMANENT_RED' ? 'PERMANENT RED FLAG' : '48H RED FLAG'}</span>}</div></Cell>
+                    <Cell>{approvalState === 'PENDING' ? '-' : <span className="font-black text-slate-700">{formatApprovalValue(client.decisionBy)}{client.decisionAt && <small className="mt-1 block font-semibold text-slate-400">{new Date(client.decisionAt).toLocaleString('en-IN')}</small>}</span>}</Cell>
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>
                     <Cell>{formatApprovalValue(client.createdBy)}</Cell>
