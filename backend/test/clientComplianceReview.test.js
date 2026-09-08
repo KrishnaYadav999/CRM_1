@@ -54,6 +54,10 @@ test('compliance review workspace exposes uploaded images and documents securely
   assert.doesNotMatch(workspace, /DashboardShell currentUser=\{currentUser\} hideSidebar/);
   assert.match(workspace, /function MsmeReviewTable/);
   assert.match(workspace, /Registered MSME \/ Udyam Records/);
+  assert.match(workspace, /function complianceHeaderMetadata/);
+  assert.match(workspace, /\['Applicant Type', headerMetadata\.applicantTypes\]/);
+  assert.match(workspace, /\['Sub Applicant Type', headerMetadata\.subApplicantTypes\]/);
+  assert.match(workspace, /\['Application Type', headerMetadata\.applicationTypes\]/);
   assert.match(workspace, /getMsmeRows\(data\)/);
   assert.match(workspace, /Classification Year/);
   assert.match(workspace, /Turnover \(CR\.\)/);

@@ -33,3 +33,13 @@ test('client rejection email uses rejection wording and safely escapes values', 
   assert.match(email.html, /A &amp; B/);
   assert.match(email.html, /&lt;missing document&gt;/);
 });
+
+test('client decision email includes all applicant and application metadata', () => {
+  const email = buildClientApprovalDecisionEmail({
+    clientName: 'Acme Industries', status: 'APPROVED',
+    applicantTypes: ['PIBO', 'SIMP'], subApplicantTypes: ['Brand Owner', 'Importer'], applicationTypes: ['New', 'Renewal']
+  });
+  assert.match(email.html, /Applicant Type:<\/strong> PIBO, SIMP/);
+  assert.match(email.html, /Sub Applicant Type:<\/strong> Brand Owner, Importer/);
+  assert.match(email.html, /Application Type:<\/strong> New, Renewal/);
+});

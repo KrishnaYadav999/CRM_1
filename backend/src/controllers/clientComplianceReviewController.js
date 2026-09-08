@@ -49,7 +49,7 @@ function completionByReviewSection(data = {}) {
 }
 async function readClient(id) {
   if (!mongoose.Types.ObjectId.isValid(id)) return null;
-  return Client.findById(id).populate('selectedLead', 'leadCode company piboCategory eprCategory').populate('createdBy', 'name email').lean();
+  return Client.findById(id).populate('selectedLead', 'leadCode company applicantType piboParent piboCategoryParent subApplicantType piboCategory serviceSelections eprCategory').populate('createdBy', 'name email').lean();
 }
 async function getOrCreateReview(clientId) {
   let review = await ClientComplianceReview.findOne({ client: clientId });
@@ -107,6 +107,7 @@ exports.completeReview = async (req, res) => {
   client.adminControls = { ...(client.adminControls || {}), approvalStatus };
   client.data = { ...(client.data || {}), approvalMeta: { status: approvalStatus, actionBy: req.user._id, actionAt: new Date(), remarks, complianceReviewId: review._id } };
   client.markModified('data'); await client.save();
+  await client.populate('selectedLead', 'applicantType piboParent piboCategoryParent subApplicantType piboCategory serviceSelections');
   const decidedAt = new Date();
   const existingPendingRecord = await PendingApproval.findOne({ sourceClientId: String(client._id), type: 'client' }).lean();
   const correctionRequired = decision === 'PARTIALLY_APPROVED' || decision === 'CHANGES_REQUIRED' || decision === 'REJECTED';
