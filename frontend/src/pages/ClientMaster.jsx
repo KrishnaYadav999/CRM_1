@@ -1534,6 +1534,14 @@ export default function ClientMaster() {
           return workflowDifference;
         })
       : [];
+    if (hasAuthoritativeLeadServices && Array.isArray(lead?.clientMasterEligibleServiceIds)) {
+      const eligibleIds = new Set(lead.clientMasterEligibleServiceIds.map((value) => String(value || '').trim()).filter(Boolean));
+      const existingIds = new Set(storedServices.map(readAssignedServiceId).filter(Boolean));
+      rows = rows.filter((row) => {
+        const assignedServiceId = readAssignedServiceId(row);
+        return eligibleIds.has(assignedServiceId) || existingIds.has(assignedServiceId);
+      });
+    }
     if (hasAuthoritativeLeadServices) {
       const usedStoredIndexes = new Set();
       const groupedLeadServices = uniqueClientMasterServices(rows);

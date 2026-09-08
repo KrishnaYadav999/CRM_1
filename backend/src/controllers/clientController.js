@@ -21,6 +21,22 @@ const { normalizeFinancialYear, resolveAnnualReturnPO } = require('../services/a
 const { syncStaffOnboardingCpcbStatus } = require('../services/staffOnboardingWorkflow');
 const { sendMail } = require('../utils/mailer');
 const Notification = require('../models/Notification');
+const {
+  eligibleServiceIds,
+  isLeadEligibleForClientMaster,
+  isLeadServiceEligibleForClientMaster
+} = require('../services/clientMasterEligibility');
+
+const CLIENT_MASTER_CLOSED_LEAD_ERROR = 'Close this lead service before creating its Client Master.';
+
+async function validateNewClientLeadEligibility(selectedLead, assignedServiceId) {
+  if (!selectedLead) return '';
+  const lead = await Lead.findById(selectedLead).lean();
+  if (!lead) return 'Selected lead was not found.';
+  return isLeadServiceEligibleForClientMaster(lead, assignedServiceId)
+    ? ''
+    : CLIENT_MASTER_CLOSED_LEAD_ERROR;
+}
 const { userHasAnyRole } = require('../utils/userRoles');
 
 function normalizeApprovalStatus(value) {
@@ -987,11 +1003,21 @@ exports.searchClientMasterCompanies = async (req, res) => {
   const normalizedCompany = normalizeCompanyIdentity(query);
   const rawRegex = new RegExp(escapeSearchRegex(query), 'i');
   const identityRegex = new RegExp(escapeSearchRegex(normalizedCompany), 'i');
-  const leadFilter = { $or: [
-    { companyIdentity: identityRegex },
-    { company: rawRegex },
-    { leadCode: rawRegex },
-    { sourceLeadId: rawRegex }
+  const leadFilter = { $and: [
+    { $or: [
+      { companyIdentity: identityRegex },
+      { company: rawRegex },
+      { leadCode: rawRegex },
+      { sourceLeadId: rawRegex }
+    ] },
+    { $or: [
+      { closedBy: { $exists: true, $ne: null } },
+      { closedByText: { $exists: true, $ne: '' } },
+      { closedAt: { $exists: true, $ne: null } },
+      { 'assignments.closedBy': { $exists: true, $ne: null } },
+      { 'assignments.closedByText': { $exists: true, $ne: '' } },
+      { 'assignments.closedAt': { $exists: true, $ne: null } }
+    ] }
   ] };
   const clientFilter = { $or: [
     { companyIdentity: identityRegex },
@@ -1121,7 +1147,11 @@ exports.listClientMasterServices = async (req, res) => {
       } }).sort({ workflowStatus: -1, updatedAt: -1 }).toArray()
     : [];
   const services = records.map(normalizeClientMaster).filter((item) => item.clientMasterId);
-  return res.json({ ok: true, lead, services, count: services.length });
+  if (lead && !isLeadEligibleForClientMaster(lead) && !services.length) {
+    return res.status(409).json({ error: CLIENT_MASTER_CLOSED_LEAD_ERROR, code: 'LEAD_NOT_CLOSED' });
+  }
+  const discoveryLead = lead ? { ...lead, clientMasterEligibleServiceIds: eligibleServiceIds(lead) } : lead;
+  return res.json({ ok: true, lead: discoveryLead, services, count: services.length });
 };
 
 exports.getClient = async (req, res) => {
@@ -1177,6 +1207,8 @@ exports.updateCpcbOnboarding = async (req, res) => {
   const creatingClient = !client;
   if (!client) {
     if (!selectedLead) return res.status(400).json({ error: 'Selected lead is required for first-time CPCB onboarding' });
+    const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId);
+    if (eligibilityError) return res.status(409).json({ error: eligibilityError, code: eligibilityError === CLIENT_MASTER_CLOSED_LEAD_ERROR ? 'LEAD_NOT_CLOSED' : 'LEAD_NOT_FOUND' });
     const bootstrapData = isPlainObject(req.body.bootstrapData) ? req.body.bootstrapData : {};
     client = new Client({
       selectedLead,
@@ -1303,6 +1335,10 @@ exports.createClient = async (req, res) => {
     const identityError = validateClientMasterIdentity(existingClient, { assignedServiceId, selectedLead });
     if (identityError) return res.status(409).json({ error: identityError });
   }
+  if (!existingClient) {
+    const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId);
+    if (eligibilityError) return res.status(409).json({ error: eligibilityError, code: eligibilityError === CLIENT_MASTER_CLOSED_LEAD_ERROR ? 'LEAD_NOT_CLOSED' : 'LEAD_NOT_FOUND' });
+  }
   const transition = getClientWorkflowTransition(existingClient?.workflowStatus || 'draft', workflowStatus);
   if (transition.error) return res.status(409).json({ error: transition.error });
   const client = existingClient || new Client();
@@ -1325,6 +1361,10 @@ async function createClientRecord(row, userId) {
   const workflowStatus = row.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(row);
   const selectedLead = readSelectedLeadId(row.selectedLead);
+  const assignedServiceId = readClientAssignedServiceId(row, data);
+
+  const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId);
+  if (eligibilityError) { const error = new Error(eligibilityError); error.statusCode = 409; throw error; }
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
     const error = new Error('Client Legal Name is required before submit');
@@ -1336,6 +1376,7 @@ async function createClientRecord(row, userId) {
 
   const client = await Client.create({
     selectedLead,
+    assignedServiceId,
     adminControls,
     data,
     workflowStatus,
