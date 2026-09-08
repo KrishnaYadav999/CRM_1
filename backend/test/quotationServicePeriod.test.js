@@ -235,12 +235,13 @@ test('quotation views and printable tables omit period-unit and transition colum
   assert.doesNotMatch(page, /\['Select Period', periodUnitLongLabel/);
 });
 
-test('quotation PDF main amount table uses serial numbers and omits the year column', () => {
+test('quotation PDF main amount table uses serial numbers, includes service period, and omits the year column', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function quotationServiceDateRange\(item = \{\}\)/);
   assert.match(page, /return `\$\{formatServiceDate\(startDate\)\} - \$\{formatServiceDate\(endDate\)\}`/);
-  assert.match(page, /'Sr\.No', 'Business Category', 'Service Category', 'Applicant Type'/);
-  assert.match(page, /<tr><th>Sr\.No<\/th><th>Business Category<\/th><th>Service Category<\/th><th>Applicant Type<\/th>/);
+  assert.match(page, /'Sr\.No', 'Business Category', 'Service Category', 'Service Period', 'Applicant Type'/);
+  assert.match(page, /<tr><th>Sr\.No<\/th><th>Business Category<\/th><th>Service Category<\/th><th>Service Period<\/th><th>Applicant Type<\/th>/);
+  assert.match(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
   assert.doesNotMatch(page, /quotationPrimaryPeriodHeader|quotationPrimaryPeriodDisplay/);
   assert.match(page, /Annual Return EPR Year \/ Credit Year/);
   assert.match(page, /quotationAnnualReturnRegistrationYear\(item\)/);
@@ -261,7 +262,6 @@ test('quotation mapping view and print hide the EPR service period column', () =
   assert.doesNotMatch(page, /<th className="border-r border-t border-slate-950 px-2 py-3">EPR \/ Service Period<\/th>/);
   assert.doesNotMatch(page, /<td className="border-r border-t border-slate-950 px-2 py-3">\{quotationServicePeriodDisplay\(item\)\}<\/td>/);
   assert.doesNotMatch(page, /<th>Service Category<\/th><th>EPR \/ Service Period<\/th>/);
-  assert.doesNotMatch(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
 });
 
 test('quotation mapping view and download place Applicant Type beside Service Category', () => {
@@ -318,7 +318,7 @@ test('quotation PDF capture bypasses desktop zoom and uses a high-resolution can
 test('quotation preview keeps business and service categories inside separate cells', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   const density = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/styles/modules/14-desktop-density.css'), 'utf8');
-  assert.match(page, /<col className="w-\[5%\]" \/><col className="w-\[16%\]" \/><col className="w-\[18%\]"/);
+  assert.match(page, /<col className="w-\[5%\]" \/><col className="w-\[14%\]" \/><col className="w-\[16%\]"/);
   assert.match(page, /\[overflow-wrap:anywhere\]/);
   assert.match(page, /overflow-wrap: anywhere; word-break: normal/);
   assert.match(density, /\[data-quotation-pdf\] table th/);

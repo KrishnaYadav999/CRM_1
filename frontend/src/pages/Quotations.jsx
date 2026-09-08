@@ -2947,10 +2947,10 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
               {combined && <div className="mt-5 px-1 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950">Bulk Product Package Service</div>}
               <div className={`${combined ? '' : 'mt-5'} overflow-hidden border border-slate-950`}>
                 <table className="w-full table-fixed text-[10px]">
-                  <colgroup><col className="w-[5%]" /><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[11%]" /><col className="w-[16%]" /><col className="w-[6%]" /><col className="w-[14%]" /><col className="w-[14%]" /></colgroup>
+                  <colgroup><col className="w-[5%]" /><col className="w-[14%]" /><col className="w-[16%]" /><col className="w-[9%]" /><col className="w-[11%]" /><col className="w-[15%]" /><col className="w-[6%]" /><col className="w-[12%]" /><col className="w-[12%]" /></colgroup>
                   <thead className="bg-orange-500 text-left text-[9px] font-black uppercase text-white">
                     <tr>
-                      {['Sr.No', 'Business Category', 'Service Category', 'Applicant Type', 'Services Offered', 'Unit', 'Unit Name', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
+                      {['Sr.No', 'Business Category', 'Service Category', 'Service Period', 'Applicant Type', 'Services Offered', 'Unit', 'Unit Name', 'Basic Amount (INR)'].map((header) => <th key={header} className="border-r border-slate-950 px-1.5 py-2 last:border-r-0">{header}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -2959,6 +2959,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{index + 1}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.businessCategory || '-'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.eprCategory || item.serviceCategory || '-'}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationServicePeriodDisplay(item)}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2">{getQuotationApplicantType(item)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationUnitLabel(item)}</td>
@@ -3066,6 +3067,7 @@ function buildQuotationPrintHtml(quotation) {
       <td class="center">${index + 1}</td>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
       <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
+      <td class="center">${escapeHtml(quotationServicePeriodDisplay(item))}</td>
       <td>${escapeHtml(getQuotationApplicantType(item))}</td>
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(quotationUnitLabel(item))}</td>
@@ -3170,9 +3172,9 @@ function buildQuotationPrintHtml(quotation) {
       ${combinedPackageHeader}
       <table>
         <thead>
-          <tr><th>Sr.No</th><th>Business Category</th><th>Service Category</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
+          <tr><th>Sr.No</th><th>Business Category</th><th>Service Category</th><th>Service Period</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
         </thead>
-        <tbody>${rows || '<tr><td colspan="8" class="center">No quotation items added.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="9" class="center">No quotation items added.</td></tr>'}</tbody>
       </table>
       <div class="package-header">EPR / Service Period Mapping</div>
       <table>
