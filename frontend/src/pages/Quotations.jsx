@@ -211,7 +211,17 @@ function isAnnualReturnRegistrationApplicant(item = {}) {
   return applicantType === 'producer' || applicantType === 'importerofrawmaterial';
 }
 
+function isPwpQuotationApplicant(item = {}) {
+  return [
+    getQuotationApplicantType(item),
+    item.applicantType,
+    item.piboParent,
+    item.piboCategoryParent
+  ].some((value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '') === 'pwp');
+}
+
 function quotationAnnualReturnRegistrationYear(item = {}) {
+  if (isEprCreditItem(item) || isPwpQuotationApplicant(item)) return '';
   if (!isAnnualReturnRegistrationApplicant(item)) return '-';
   return quotationAnnualReturnOrCreditYears(item).join(', ') || item.financialYear || '-';
 }
