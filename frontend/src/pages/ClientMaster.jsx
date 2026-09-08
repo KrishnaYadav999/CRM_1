@@ -897,6 +897,34 @@ function normalizeClientMasterSearchValue(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function isLeadClosedForClientMaster(lead = {}) {
+  const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
+  const assignments = Array.isArray(lead.assignments) && lead.assignments.length ? lead.assignments : [lead];
+  return services.some((service, index) => {
+    const assignment = assignments[index] || {};
+    return Boolean(
+      service?.closedBy || service?.closedByText || service?.closedAt
+      || assignment.closedBy || assignment.closedByText || assignment.closedAt
+      || (services.length === 1 && (lead.closedBy || lead.closedByText || lead.closedAt))
+    );
+  });
+}
+
+function filterClientMasterSearchItems(items = [], leads = []) {
+  const leadByIdentity = new Map();
+  (Array.isArray(leads) ? leads : []).forEach((lead) => {
+    [lead._id, lead.id, lead.sourceLeadId, lead.leadCode].map(normalizeClientMasterSearchValue).filter(Boolean)
+      .forEach((identity) => leadByIdentity.set(identity, lead));
+  });
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    if (item.clientMasterId) return true;
+    const lead = [item.leadId, item.selectionKey, item.leadCode]
+      .map(normalizeClientMasterSearchValue).filter(Boolean)
+      .map((identity) => leadByIdentity.get(identity)).find(Boolean);
+    return Boolean(lead && isLeadClosedForClientMaster(lead));
+  });
+}
+
 function buildSearchableClientMasterLeads(leads = [], clientMasters = []) {
   const sourceLeads = (Array.isArray(leads) ? leads : []).map((lead) => ({ ...lead, _clientMasterServices: [] }));
   const companyCounts = new Map();
@@ -1336,11 +1364,14 @@ export default function ClientMaster() {
     const timer = window.setTimeout(async () => {
       setClientSearchLoading(true);
       try {
-        const response = await api.get(API_ENDPOINTS.clients.discoverySearch, {
-          params: { q: query, limit: 20 },
-          signal: controller.signal
-        });
-        setRemoteClientOptions(response.data.items || []);
+        const [response, leadsResponse] = await Promise.all([
+          api.get(API_ENDPOINTS.clients.discoverySearch, {
+            params: { q: query, limit: 20 },
+            signal: controller.signal
+          }),
+          api.get(API_ENDPOINTS.leads.list, { signal: controller.signal })
+        ]);
+        setRemoteClientOptions(filterClientMasterSearchItems(response.data.items || [], leadsResponse.data.leads || []));
       } catch (err) {
         if (err?.code !== 'ERR_CANCELED' && err?.name !== 'CanceledError') {
           setRemoteClientOptions([]);

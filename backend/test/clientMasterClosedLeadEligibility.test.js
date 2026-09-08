@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   eligibleServiceIds,
   isLeadEligibleForClientMaster,
@@ -29,4 +31,12 @@ test('only closed services on a new lead are eligible', () => {
   assert.equal(isLeadServiceEligibleForClientMaster(lead, 'service-closed'), true);
   assert.equal(isLeadServiceEligibleForClientMaster(lead, 'service-open'), false);
   assert.deepEqual(eligibleServiceIds(lead), ['service-closed']);
+});
+
+test('Client Master search independently filters open leads in the Vercel frontend', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  assert.match(page, /function isLeadClosedForClientMaster\(lead = \{\}\)/);
+  assert.match(page, /if \(item\.clientMasterId\) return true/);
+  assert.match(page, /filterClientMasterSearchItems\(response\.data\.items \|\| \[\], leadsResponse\.data\.leads \|\| \[\]\)/);
+  assert.match(page, /API_ENDPOINTS\.leads\.list/);
 });
