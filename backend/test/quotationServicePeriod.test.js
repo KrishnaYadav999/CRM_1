@@ -235,13 +235,14 @@ test('quotation views and printable tables omit period-unit and transition colum
   assert.doesNotMatch(page, /\['Select Period', periodUnitLongLabel/);
 });
 
-test('quotation PDF main amount table uses serial numbers, includes service period, and omits the year column', () => {
+test('quotation PDF main amount table shows service start and end dates in the service period column', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function quotationServiceDateRange\(item = \{\}\)/);
   assert.match(page, /return `\$\{formatServiceDate\(startDate\)\} - \$\{formatServiceDate\(endDate\)\}`/);
   assert.match(page, /'Sr\.No', 'Business Category', 'Service Category', 'Service Period', 'Applicant Type'/);
   assert.match(page, /<tr><th>Sr\.No<\/th><th>Business Category<\/th><th>Service Category<\/th><th>Service Period<\/th><th>Applicant Type<\/th>/);
-  assert.match(page, /escapeHtml\(quotationServicePeriodDisplay\(item\)\)/);
+  assert.match(page, /\{quotationServiceDateRange\(item\)\}<\/td>/);
+  assert.match(page, /escapeHtml\(quotationServiceDateRange\(item\)\)/);
   assert.doesNotMatch(page, /quotationPrimaryPeriodHeader|quotationPrimaryPeriodDisplay/);
   assert.match(page, /Annual Return EPR Year \/ Credit Year/);
   assert.match(page, /quotationAnnualReturnRegistrationYear\(item\)/);
