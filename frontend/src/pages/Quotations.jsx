@@ -222,6 +222,9 @@ function isPwpQuotationApplicant(item = {}) {
 
 function quotationAnnualReturnRegistrationYear(item = {}) {
   if (isEprCreditItem(item) || isPwpQuotationApplicant(item)) return '';
+  if (isEprConsultancyItem(item)) {
+    return quotationAnnualReturnOrCreditYears(item).join(', ') || item.financialYear || '-';
+  }
   if (!isAnnualReturnRegistrationApplicant(item)) return '-';
   return quotationAnnualReturnOrCreditYears(item).join(', ') || item.financialYear || '-';
 }
