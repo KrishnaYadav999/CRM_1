@@ -17,13 +17,14 @@ test('Quotation persists combined pricing groups with service membership and amo
   assert.ok(groupSchema.path('basicAmount'));
 });
 
-test('Combined Pricing groups start empty and services are selected manually', () => {
-  assert.match(page, /itemKeys: \[\]/);
+test('Combined Pricing groups start with unassigned services and use row removal', () => {
   assert.match(page, /Add Combined Group/);
-  assert.match(page, /Add Services/);
-  assert.match(page, /Select unassigned services/);
+  assert.doesNotMatch(page, /> Add Services</);
+  assert.doesNotMatch(page, /Select unassigned services/);
+  assert.match(page, /current\.items\.map\(quotationItemKey\)/);
+  assert.match(page, /createCombinedPricingGroup\(groups\.length, unassignedKeys\)/);
   assert.match(page, /Remove from this group/);
-  assert.match(page, /Groups start empty/);
+  assert.match(page, /Each group starts with all currently unassigned services/);
 });
 
 test('Combined group validation rejects empty, duplicate, and unassigned services', () => {
@@ -33,8 +34,9 @@ test('Combined group validation rejects empty, duplicate, and unassigned service
   assert.match(page, /assign this service to a combined pricing group/);
 });
 
-test('Quotation previews merge amount cells per pricing group', () => {
+test('Quotation preview, PDF view, and download merge amount cells per pricing group', () => {
   assert.match(page, /function combinedPricingRows/);
   assert.match(page, /rowSpan=\{combined \? groupSize : undefined\}/);
+  assert.match(page, /rowspan="\$\{groupSize\}"/);
   assert.match(page, /combined \? group\.basicAmount : item\.basicAmount/);
 });

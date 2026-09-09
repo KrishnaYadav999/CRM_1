@@ -565,11 +565,11 @@ function quotationItemKey(item = {}, index = 0) {
   return String(item.assignedServiceId || item.id || (Number.isInteger(Number(item.sourceServiceIndex)) ? `source:${Number(item.sourceServiceIndex)}` : `item:${index}`)).trim();
 }
 
-function createCombinedPricingGroup(index = 0) {
+function createCombinedPricingGroup(index = 0, itemKeys = []) {
   return {
     id: `combined-group-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
     name: `Combined Group ${index + 1}`,
-    itemKeys: [],
+    itemKeys: [...new Set(itemKeys.map(String).filter(Boolean))],
     basicAmount: ''
   };
 }
@@ -943,8 +943,6 @@ export default function Quotations() {
   const [successModal, setSuccessModal] = useState(null);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
   const [itemDrafts, setItemDrafts] = useState({});
-  const [combinedGroupPickerId, setCombinedGroupPickerId] = useState('');
-  const [combinedGroupDraftSelections, setCombinedGroupDraftSelections] = useState([]);
   const [financialYearItemIndex, setFinancialYearItemIndex] = useState(null);
   const [financialYearDraft, setFinancialYearDraft] = useState(null);
   const [financialYearError, setFinancialYearError] = useState('');
@@ -1442,13 +1440,13 @@ export default function Quotations() {
     setError('');
     setEditingItemIndex(null);
     setItemDrafts({});
-    setCombinedGroupPickerId('');
-    setCombinedGroupDraftSelections([]);
     setQuotation((current) => ({
       ...current,
       pricingMode: mode,
       combinedBasicAmount: '',
-      combinedPricingGroups: mode === 'combined' ? [createCombinedPricingGroup(0)] : [],
+      combinedPricingGroups: mode === 'combined'
+        ? [createCombinedPricingGroup(0, current.items.map(quotationItemKey))]
+        : [],
       items: current.items.map((item) => ({
         ...emptyItem,
         ...item,
@@ -1474,10 +1472,22 @@ export default function Quotations() {
   }
 
   function addCombinedPricingGroup() {
-    setQuotation((current) => ({
-      ...current,
-      combinedPricingGroups: [...(current.combinedPricingGroups || []), createCombinedPricingGroup((current.combinedPricingGroups || []).length)]
-    }));
+    setError('');
+    setQuotation((current) => {
+      const groups = current.combinedPricingGroups || [];
+      const assignedKeys = new Set(groups.flatMap((group) => group.itemKeys || []).map(String));
+      const unassignedKeys = current.items
+        .map(quotationItemKey)
+        .filter((itemKey) => !assignedKeys.has(itemKey));
+      if (!unassignedKeys.length) {
+        setError('Remove at least one service from an existing group before adding another Combined Pricing Group.');
+        return current;
+      }
+      return {
+        ...current,
+        combinedPricingGroups: [...groups, createCombinedPricingGroup(groups.length, unassignedKeys)]
+      };
+    });
   }
 
   function updateCombinedPricingGroup(groupId, update) {
@@ -1492,37 +1502,6 @@ export default function Quotations() {
       ...current,
       combinedPricingGroups: (current.combinedPricingGroups || []).filter((group) => group.id !== groupId)
     }));
-    if (combinedGroupPickerId === groupId) {
-      setCombinedGroupPickerId('');
-      setCombinedGroupDraftSelections([]);
-    }
-  }
-
-  function openCombinedGroupServicePicker(groupId) {
-    setCombinedGroupPickerId(groupId);
-    setCombinedGroupDraftSelections([]);
-  }
-
-  function toggleCombinedGroupDraftService(itemKey) {
-    setCombinedGroupDraftSelections((current) => current.includes(itemKey)
-      ? current.filter((key) => key !== itemKey)
-      : [...current, itemKey]);
-  }
-
-  function addSelectedServicesToCombinedGroup(groupId) {
-    if (!combinedGroupDraftSelections.length) {
-      setError('Select at least one unassigned service.');
-      return;
-    }
-    setError('');
-    setQuotation((current) => ({
-      ...current,
-      combinedPricingGroups: (current.combinedPricingGroups || []).map((group) => group.id === groupId
-        ? { ...group, itemKeys: [...new Set([...(group.itemKeys || []), ...combinedGroupDraftSelections])] }
-        : group)
-    }));
-    setCombinedGroupPickerId('');
-    setCombinedGroupDraftSelections([]);
   }
 
   function removeServiceFromCombinedGroup(groupId, itemKey) {
@@ -2271,23 +2250,20 @@ export default function Quotations() {
             {quotation.pricingMode === 'combined' && (
               <div className="space-y-4 border-b border-slate-200 bg-emerald-50/30 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div><h4 className="font-black text-slate-950">Combined Pricing Groups</h4><p className="mt-1 text-xs font-bold text-slate-500">Groups start empty. Add only the services you want, then enter one Basic Amount for that group.</p></div>
+                  <div><h4 className="font-black text-slate-950">Combined Pricing Groups</h4><p className="mt-1 text-xs font-bold text-slate-500">Each group starts with all currently unassigned services. Remove any rows you do not want, then enter one Basic Amount for the group.</p></div>
                   <button type="button" onClick={addCombinedPricingGroup} className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-black text-white"><Plus className="h-4 w-4" /> Add Combined Group</button>
                 </div>
                 {(quotation.combinedPricingGroups || []).map((group, groupIndex) => {
-                  const assignedKeys = new Set((quotation.combinedPricingGroups || []).flatMap((row) => row.itemKeys || []).map(String));
                   const indexedItems = quotation.items.map((item, itemIndex) => ({ item, itemIndex, itemKey: quotationItemKey(item, itemIndex) }));
                   const groupItems = indexedItems.filter((row) => (group.itemKeys || []).includes(row.itemKey));
-                  const unassignedItems = indexedItems.filter((row) => !assignedKeys.has(row.itemKey));
                   return (
                     <section key={group.id} className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
                       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-3">
                         <input value={group.name || ''} maxLength={120} onChange={(event) => updateCombinedPricingGroup(group.id, { name: event.target.value })} className="h-10 min-w-56 rounded-lg border border-emerald-200 bg-white px-3 font-black text-slate-900 outline-none focus:ring-4 focus:ring-emerald-100" aria-label={`Combined group ${groupIndex + 1} name`} />
-                        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => openCombinedGroupServicePicker(group.id)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-xs font-black text-emerald-800"><Plus className="h-4 w-4" /> Add Services</button><button type="button" onClick={() => deleteCombinedPricingGroup(group.id)} className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /> Delete Group</button></div>
+                        <button type="button" onClick={() => deleteCombinedPricingGroup(group.id)} className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /> Delete Group</button>
                       </header>
-                      {combinedGroupPickerId === group.id && <div className="border-b border-emerald-100 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-500">Select unassigned services</p><div className="mt-3 grid gap-2 sm:grid-cols-2">{unassignedItems.length ? unassignedItems.map(({ item, itemIndex, itemKey }) => <label key={itemKey} className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"><input type="checkbox" checked={combinedGroupDraftSelections.includes(itemKey)} onChange={() => toggleCombinedGroupDraftService(itemKey)} className="mt-1 h-4 w-4 accent-emerald-700" /><span><strong className="block text-sm text-slate-900">{item.eprCategory || item.serviceCategory || `Service ${itemIndex + 1}`}</strong><small className="mt-1 block font-bold text-slate-500">{item.servicesOffered || getQuotationApplicantType(item)}</small></span></label>) : <p className="text-sm font-bold text-slate-400">All services are already assigned.</p>}</div><div className="mt-3 flex gap-2"><button type="button" disabled={!combinedGroupDraftSelections.length} onClick={() => addSelectedServicesToCombinedGroup(group.id)} className="h-9 rounded-lg bg-emerald-700 px-4 text-xs font-black text-white disabled:opacity-40">Add Selected</button><button type="button" onClick={() => { setCombinedGroupPickerId(''); setCombinedGroupDraftSelections([]); }} className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-600">Cancel</button></div></div>}
                       <div className="overflow-auto">
-                        <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500"><tr><th className="px-3 py-3">Remove</th><th className="px-3 py-3">Sr.No</th><th className="px-3 py-3">Service Category</th><th className="px-3 py-3">Services Offered</th><th className="px-3 py-3">Applicant Type</th><th className="px-3 py-3">Period</th></tr></thead><tbody className="divide-y divide-slate-100">{groupItems.length ? groupItems.map(({ item, itemIndex, itemKey }) => <tr key={itemKey}><td className="px-3 py-3"><button type="button" onClick={() => removeServiceFromCombinedGroup(group.id, itemKey)} className="grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50" title="Remove from this group"><X className="h-4 w-4" /></button></td><td className="px-3 py-3 font-black">{itemIndex + 1}</td><td className="px-3 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="px-3 py-3 font-bold text-emerald-700">{item.servicesOffered || '-'}</td><td className="px-3 py-3 font-bold">{getQuotationApplicantType(item)}</td><td className="px-3 py-3 font-bold">{quotationServicePeriodDisplay(item)}</td></tr>) : <tr><td colSpan={6} className="px-4 py-8 text-center font-black text-slate-400">No services selected. Use Add Services.</td></tr>}</tbody></table>
+                        <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500"><tr><th className="px-3 py-3">Remove</th><th className="px-3 py-3">Sr.No</th><th className="px-3 py-3">Service Category</th><th className="px-3 py-3">Services Offered</th><th className="px-3 py-3">Applicant Type</th><th className="px-3 py-3">Period</th></tr></thead><tbody className="divide-y divide-slate-100">{groupItems.length ? groupItems.map(({ item, itemIndex, itemKey }) => <tr key={itemKey}><td className="px-3 py-3"><button type="button" onClick={() => removeServiceFromCombinedGroup(group.id, itemKey)} className="grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50" title="Remove from this group"><X className="h-4 w-4" /></button></td><td className="px-3 py-3 font-black">{itemIndex + 1}</td><td className="px-3 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="px-3 py-3 font-bold text-emerald-700">{item.servicesOffered || '-'}</td><td className="px-3 py-3 font-bold">{getQuotationApplicantType(item)}</td><td className="px-3 py-3 font-bold">{quotationServicePeriodDisplay(item)}</td></tr>) : <tr><td colSpan={6} className="px-4 py-8 text-center font-black text-slate-400">No services remain in this group. Delete the group or create a group from the unassigned rows.</td></tr>}</tbody></table>
                       </div>
                       <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-emerald-100 bg-emerald-50/50 px-4 py-3"><label className="text-xs font-black uppercase tracking-wider text-emerald-800">Group Basic Amount</label><div className="flex h-10 w-56 overflow-hidden rounded-lg border border-emerald-300 bg-white focus-within:ring-4 focus-within:ring-emerald-100"><span className="grid w-10 place-items-center border-r border-emerald-100 font-black">₹</span><input type="number" min="0" value={group.basicAmount ?? ''} onChange={(event) => updateCombinedPricingGroup(group.id, { basicAmount: event.target.value })} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="50000" /></div></footer>
                     </section>
