@@ -40,3 +40,14 @@ test('Client Master search independently filters open leads in the Vercel fronte
   assert.match(page, /filterClientMasterSearchItems\(response\.data\.items \|\| \[\], leadsResponse\.data\.leads \|\| \[\]\)/);
   assert.match(page, /API_ENDPOINTS\.leads\.list/);
 });
+
+test('partially closed leads show every service but keep open services disabled', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/ClientMaster.jsx'), 'utf8');
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientController.js'), 'utf8');
+  assert.match(page, /_clientMasterEligible: isLeadServiceClosedForClientMaster/);
+  assert.match(page, /Lead Not Closed/);
+  assert.match(page, /disabled=\{!isEligible\}/);
+  assert.match(page, /Close the PO for this service in Lead Generation to unlock Client Master/);
+  assert.match(controller, /closedServiceCount/);
+  assert.match(controller, /totalServiceCount/);
+});

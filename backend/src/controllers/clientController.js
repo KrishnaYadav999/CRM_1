@@ -24,7 +24,8 @@ const Notification = require('../models/Notification');
 const {
   eligibleServiceIds,
   isLeadEligibleForClientMaster,
-  isLeadServiceEligibleForClientMaster
+  isLeadServiceEligibleForClientMaster,
+  serviceClosedAt
 } = require('../services/clientMasterEligibility');
 
 const CLIENT_MASTER_CLOSED_LEAD_ERROR = 'Close this lead service before creating its Client Master.';
@@ -994,6 +995,16 @@ function clientMasterGroupCountForLead(lead = {}) {
   return groups.size;
 }
 
+function clientMasterServiceClosureSummary(lead = {}) {
+  const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length
+    ? lead.serviceSelections
+    : [lead];
+  return {
+    totalServiceCount: services.length,
+    closedServiceCount: services.filter((_, index) => serviceClosedAt(lead, index)).length
+  };
+}
+
 exports.searchClientMasterCompanies = async (req, res) => {
   const startedAt = Date.now();
   const query = String(req.query.q || '').trim();
@@ -1032,7 +1043,7 @@ exports.searchClientMasterCompanies = async (req, res) => {
 
   const [leads, clientRecords] = await Promise.all([
     Lead.find(leadFilter)
-      .select('_id leadCode sourceLeadId company companyIdentity serviceSelections')
+      .select('_id leadCode sourceLeadId company companyIdentity serviceSelections assignments closedBy closedByText closedAt')
       .limit(limit)
       .lean(),
     Client.find(clientFilter)
@@ -1044,6 +1055,7 @@ exports.searchClientMasterCompanies = async (req, res) => {
   const items = new Map();
   leads.forEach((lead) => {
     const leadId = String(lead._id || '');
+    const closureSummary = clientMasterServiceClosureSummary(lead);
     items.set(`lead:${leadId}`, {
       selectionKey: leadId,
       leadId,
@@ -1051,6 +1063,7 @@ exports.searchClientMasterCompanies = async (req, res) => {
       companyName: String(lead.company || '').trim(),
       leadCode: String(lead.leadCode || lead.sourceLeadId || '').trim(),
       serviceGroupCount: clientMasterGroupCountForLead(lead),
+      ...closureSummary,
       clientMasterIds: new Set()
     });
   });
@@ -1084,7 +1097,9 @@ exports.searchClientMasterCompanies = async (req, res) => {
     clientMasterId: item.clientMasterId,
     companyName: item.companyName,
     leadCode: item.leadCode,
-    clientMasterCount: item.serviceGroupCount || item.clientMasterIds.size
+    clientMasterCount: item.serviceGroupCount || item.clientMasterIds.size,
+    closedServiceCount: item.closedServiceCount,
+    totalServiceCount: item.totalServiceCount
     }));
   return res.json({ ok: true, items: responseItems, count: responseItems.length, queryMs: Date.now() - startedAt });
 };

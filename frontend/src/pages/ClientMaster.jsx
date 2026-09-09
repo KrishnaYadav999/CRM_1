@@ -910,6 +910,27 @@ function isLeadClosedForClientMaster(lead = {}) {
   });
 }
 
+function isLeadServiceClosedForClientMaster(lead = {}, service = {}, index = 0) {
+  if (service?._existingClientMaster || service?.clientMasterId) return true;
+  const assignedServiceId = readAssignedServiceId(service);
+  if (Array.isArray(lead?.clientMasterEligibleServiceIds)) {
+    return lead.clientMasterEligibleServiceIds
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .includes(assignedServiceId);
+  }
+  const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead];
+  const assignments = Array.isArray(lead.assignments) && lead.assignments.length ? lead.assignments : [lead];
+  const assignment = assignments.find((row) => assignedServiceId && readAssignedServiceId(row) === assignedServiceId)
+    || assignments[index]
+    || {};
+  return Boolean(
+    service?.closedBy || service?.closedByText || service?.closedAt
+    || assignment.closedBy || assignment.closedByText || assignment.closedAt
+    || (services.length === 1 && (lead.closedBy || lead.closedByText || lead.closedAt))
+  );
+}
+
 function filterClientMasterSearchItems(items = [], leads = []) {
   const leadByIdentity = new Map();
   (Array.isArray(leads) ? leads : []).forEach((lead) => {
@@ -1345,7 +1366,7 @@ export default function ClientMaster() {
   );
   const leadOptions = useMemo(() => remoteClientOptions.map((item) => ({
     value: item.selectionKey,
-    label: `${item.leadCode || 'Client'} - ${item.companyName || 'Untitled client'}${item.clientMasterCount ? ` - ${item.clientMasterCount} service${item.clientMasterCount === 1 ? '' : 's'}` : ''}`
+    label: `${item.leadCode || 'Client'} - ${item.companyName || 'Untitled client'}${Number.isFinite(item.closedServiceCount) && item.totalServiceCount ? ` - ${item.closedServiceCount} of ${item.totalServiceCount} services closed` : item.clientMasterCount ? ` - ${item.clientMasterCount} service${item.clientMasterCount === 1 ? '' : 's'}` : ''}`
   })), [remoteClientOptions]);
   const staffOptions = useMemo(() => staff.map((user) => ({ value: user._id || user.id, label: `${user.name || user.email} (${user.role})` })), [staff]);
 
@@ -1565,14 +1586,6 @@ export default function ClientMaster() {
           return workflowDifference;
         })
       : [];
-    if (hasAuthoritativeLeadServices && Array.isArray(lead?.clientMasterEligibleServiceIds)) {
-      const eligibleIds = new Set(lead.clientMasterEligibleServiceIds.map((value) => String(value || '').trim()).filter(Boolean));
-      const existingIds = new Set(storedServices.map(readAssignedServiceId).filter(Boolean));
-      rows = rows.filter((row) => {
-        const assignedServiceId = readAssignedServiceId(row);
-        return eligibleIds.has(assignedServiceId) || existingIds.has(assignedServiceId);
-      });
-    }
     if (hasAuthoritativeLeadServices) {
       const usedStoredIndexes = new Set();
       const groupedLeadServices = uniqueClientMasterServices(rows);
@@ -1633,6 +1646,7 @@ export default function ClientMaster() {
         || {};
       return {
         ...row,
+        _clientMasterEligible: isLeadServiceClosedForClientMaster(lead, row, index),
         applicantType: row.applicantType || row.piboParent || row.piboCategoryParent || '',
         piboCategory: row.subApplicantType || row.piboCategory || '',
         addressData,
@@ -1709,6 +1723,10 @@ export default function ClientMaster() {
   }
 
   function beginServiceOnboarding(pending, service) {
+    if (!service?._clientMasterEligible) {
+      setError('Lead is not closed for this service. Close its PO before creating the Client Master.');
+      return;
+    }
     if (service.cpcbPortalRegistered === true) {
       setPendingLeadServices(null);
       handleLeadSelect(pending.value, service, pending.lead);
@@ -1997,6 +2015,11 @@ export default function ClientMaster() {
       return;
     }
     const service = selectedService || visibleServices[0] || {};
+    if (!service._clientMasterEligible) {
+      setNotice('');
+      setError('Lead is not closed for this service. Close its PO before creating the Client Master.');
+      return;
+    }
     const selectedLead = { ...baseLead, ...service };
     const leadValue = getLeadSelectValue(selectedLead);
     const requestId = ++clientRecordRequestRef.current;
@@ -2939,16 +2962,28 @@ export default function ClientMaster() {
                 <header className="bg-gradient-to-r from-emerald-50 to-cyan-50 px-6 py-5">
                   <p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Multiple assigned services</p>
                   <h2 id="service-choice-title" className="mt-1 text-xl font-black text-slate-950">{pendingLeadServices.lead.company}</h2>
-                  <p className="mt-1 text-sm font-bold text-slate-500">Select the assigned service you want to onboard in Client Master.</p>
+                  <p className="mt-1 text-sm font-bold text-slate-500">
+                    {pendingLeadServices.services.filter((service) => service._clientMasterEligible).length} of {pendingLeadServices.services.length} services are PO closed. Only closed services can be onboarded.
+                  </p>
                 </header>
                 <div className="grid gap-3 p-6 sm:grid-cols-2">
                   {pendingLeadServices.services.map((service, index) => {
                     const applicantType = service.applicantType || service.piboParent || service.piboCategoryParent || '-';
                     const subApplicantType = service.subApplicantType || service.piboCategory || 'Not applicable';
+                    const isEligible = Boolean(service._clientMasterEligible);
                     return (
-                    <button key={service.clientMasterId || readAssignedServiceId(service) || clientMasterServiceFingerprint(service)} type="button" onClick={() => beginServiceOnboarding(pendingLeadServices, service)} className="rounded-xl border border-slate-200 p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50">
+                    <button
+                      key={service.clientMasterId || readAssignedServiceId(service) || clientMasterServiceFingerprint(service)}
+                      type="button"
+                      disabled={!isEligible}
+                      onClick={() => beginServiceOnboarding(pendingLeadServices, service)}
+                      className={`rounded-xl border p-5 text-left transition ${isEligible ? 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50' : 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-75'}`}
+                    >
+                      <span className={`mb-3 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${isEligible ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                        {isEligible ? 'PO Closed - Available' : 'Lead Not Closed'}
+                      </span>
                       <strong className="block text-base font-black text-slate-950">{service.eprCategory || `Service ${index + 1}`} · {applicantType}</strong>
-                      <span className="mt-2 block text-sm font-bold text-emerald-700">{service.servicesOffered || '-'}</span>
+                      <span className={`mt-2 block text-sm font-bold ${isEligible ? 'text-emerald-700' : 'text-slate-500'}`}>{service.servicesOffered || '-'}</span>
                       {service.applicableService && <span className="mt-1 block rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">Applicable: {service.applicableService}</span>}
                       <span className="mt-2 block text-xs font-bold text-slate-500">Industry Type: {service.industryType || '-'}</span>
                       <span className="mt-1 block text-xs font-black text-teal-700">Plant Unit: {service.plantUnit || '-'}</span>
@@ -2963,6 +2998,7 @@ export default function ClientMaster() {
                           Sub Applicant Type: {subApplicantType}
                         </span>
                       </span>
+                      {!isEligible && <span className="mt-3 block text-xs font-black text-amber-700">Close the PO for this service in Lead Generation to unlock Client Master.</span>}
                     </button>
                   )})}
                 </div>
