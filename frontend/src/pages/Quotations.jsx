@@ -274,6 +274,7 @@ const emptyQuotation = {
   validUntil: '',
   pricingMode: '',
   combinedBasicAmount: '',
+  combinedPricingGroups: [],
   items: [],
   terms: [],
   paymentTerm: '',
@@ -560,6 +561,49 @@ function quotationItemsTotal(items = []) {
   return items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
 }
 
+function quotationItemKey(item = {}, index = 0) {
+  return String(item.assignedServiceId || item.id || (Number.isInteger(Number(item.sourceServiceIndex)) ? `source:${Number(item.sourceServiceIndex)}` : `item:${index}`)).trim();
+}
+
+function createCombinedPricingGroup(index = 0) {
+  return {
+    id: `combined-group-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    name: `Combined Group ${index + 1}`,
+    itemKeys: [],
+    basicAmount: ''
+  };
+}
+
+function normalizeCombinedPricingGroups(quotation = {}, items = []) {
+  const groups = Array.isArray(quotation.combinedPricingGroups) ? quotation.combinedPricingGroups : [];
+  if (groups.length) {
+    return groups.map((group, index) => ({
+      id: String(group.id || `combined-group-${index + 1}`),
+      name: String(group.name || `Combined Group ${index + 1}`),
+      itemKeys: [...new Set((Array.isArray(group.itemKeys) ? group.itemKeys : []).map(String).filter(Boolean))],
+      basicAmount: group.basicAmount ?? ''
+    }));
+  }
+  if (quotation.pricingMode !== 'combined' || !items.length) return [];
+  return [{
+    id: 'legacy-combined-group',
+    name: 'Combined Group 1',
+    itemKeys: items.map(quotationItemKey),
+    basicAmount: quotation.combinedBasicAmount ?? ''
+  }];
+}
+
+function combinedPricingRows(quotation = {}, items = []) {
+  const groups = normalizeCombinedPricingGroups(quotation, items);
+  const itemByKey = new Map(items.map((item, index) => [quotationItemKey(item, index), { item, index }]));
+  const rows = [];
+  groups.forEach((group) => {
+    const members = group.itemKeys.map((key) => itemByKey.get(String(key))).filter(Boolean);
+    members.forEach((member, memberIndex) => rows.push({ ...member, group, groupSize: members.length, firstInGroup: memberIndex === 0 }));
+  });
+  return rows;
+}
+
 function scopePresetKeyForAmount(amount) {
   const basicAmount = Number(amount) || 0;
   if (basicAmount <= 0) return '';
@@ -591,6 +635,8 @@ function sanitizePdfClone(clonedDocument) {
 }
 
 function combinedQuotationTotal(quotation = {}, items = []) {
+  const groups = normalizeCombinedPricingGroups(quotation, items);
+  if (groups.length) return groups.reduce((sum, group) => sum + (Number(group.basicAmount) || 0), 0);
   const itemTotal = quotationItemsTotal(items);
   return itemTotal || Number(quotation.combinedBasicAmount) || Number(quotation.grandTotal) || 0;
 }
@@ -680,7 +726,7 @@ function buildQuotationFromContext(context) {
 
 function normalizeQuotationSnapshot(row) {
   if (!row) return null;
-  return {
+  const normalized = {
     ...row,
     _id: row._id || row.quotationId || row.id,
     id: row.id || row.quotationId || row._id,
@@ -722,6 +768,8 @@ function normalizeQuotationSnapshot(row) {
     scopeOfWork: Array.isArray(row.scopeOfWork) ? row.scopeOfWork : [],
     status: row.status || 'draft'
   };
+  normalized.combinedPricingGroups = normalizeCombinedPricingGroups(normalized, normalized.items);
+  return normalized;
 }
 
 function readQuotationStatus(row = {}) {
@@ -895,6 +943,8 @@ export default function Quotations() {
   const [successModal, setSuccessModal] = useState(null);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
   const [itemDrafts, setItemDrafts] = useState({});
+  const [combinedGroupPickerId, setCombinedGroupPickerId] = useState('');
+  const [combinedGroupDraftSelections, setCombinedGroupDraftSelections] = useState([]);
   const [financialYearItemIndex, setFinancialYearItemIndex] = useState(null);
   const [financialYearDraft, setFinancialYearDraft] = useState(null);
   const [financialYearError, setFinancialYearError] = useState('');
@@ -1025,7 +1075,7 @@ export default function Quotations() {
   const listTotal = listMode === 'company' ? companyGroups.length : allQuotations.length;
   const totalPages = Math.max(1, Math.ceil(listTotal / rowsPerPage));
   const scopeBasicAmount = quotation.pricingMode === 'combined'
-    ? Number(quotation.combinedBasicAmount) || 0
+    ? combinedQuotationTotal(quotation, quotation.items)
     : quotationItemsTotal(quotation.items);
   const eligibleScopePresetKey = scopePresetKeyForAmount(scopeBasicAmount);
   const visibleCompanyGroups = companyGroups.slice((page - 1) * rowsPerPage, page * rowsPerPage);
@@ -1117,6 +1167,7 @@ export default function Quotations() {
       ...current,
       pricingMode: savedQuotation.pricingMode,
       combinedBasicAmount: savedQuotation.pricingMode === 'combined' ? (savedQuotation.combinedBasicAmount ?? '') : '',
+      combinedPricingGroups: normalizeCombinedPricingGroups(savedQuotation, savedQuotation.items || []),
       validUntil: savedQuotation.validUntil || current.validUntil || '',
       items: Array.isArray(savedQuotation.items)
         ? savedQuotation.items.map((item) => ({ ...emptyItem, ...item, basicAmount: item.basicAmount ?? '' }))
@@ -1276,6 +1327,7 @@ export default function Quotations() {
       validUntil: row.validUntil || '',
       pricingMode: row.pricingMode || (Array.isArray(row.items) && row.items.length ? 'individual' : ''),
       combinedBasicAmount: row.combinedBasicAmount ?? '',
+      combinedPricingGroups: normalizeCombinedPricingGroups(row, syncedItems || []),
       items: Array.isArray(syncedItems) ? syncedItems.map((item) => ({ ...emptyItem, ...item, basicAmount: item.basicAmount ?? '' })) : [],
       terms: Array.isArray(row.terms) ? row.terms.map((term) => String(term ?? '')) : [],
       paymentTerm: quotationPaymentTerm(row),
@@ -1315,6 +1367,9 @@ export default function Quotations() {
       leadDetails: mapLeadToDetails(lead),
       pricingMode: savedQuotation?.pricingMode || current.pricingMode || '',
       combinedBasicAmount: savedQuotation?.pricingMode === 'combined' ? (savedQuotation.combinedBasicAmount ?? '') : '',
+      combinedPricingGroups: savedQuotation?.pricingMode === 'combined'
+        ? normalizeCombinedPricingGroups(savedQuotation, savedQuotation.items || [])
+        : [],
       validUntil: savedQuotation?.validUntil || '',
       items: mapLeadServiceRows(lead, Array.isArray(savedQuotation?.items) ? savedQuotation.items : [], 'open', currentUser),
       terms: Array.isArray(savedQuotation?.terms)
@@ -1376,9 +1431,10 @@ export default function Quotations() {
     }
     setQuotation((current) => {
       const nextIndex = current.items.length;
+      const nextItem = { ...emptyItem, id: `quote-item-${Date.now()}-${nextIndex}` };
       setEditingItemIndex(nextIndex);
-      setItemDrafts((drafts) => ({ ...drafts, [nextIndex]: emptyItem }));
-      return { ...current, items: [...current.items, emptyItem] };
+      setItemDrafts((drafts) => ({ ...drafts, [nextIndex]: nextItem }));
+      return { ...current, items: [...current.items, nextItem] };
     });
   }
 
@@ -1386,10 +1442,13 @@ export default function Quotations() {
     setError('');
     setEditingItemIndex(null);
     setItemDrafts({});
+    setCombinedGroupPickerId('');
+    setCombinedGroupDraftSelections([]);
     setQuotation((current) => ({
       ...current,
       pricingMode: mode,
       combinedBasicAmount: '',
+      combinedPricingGroups: mode === 'combined' ? [createCombinedPricingGroup(0)] : [],
       items: current.items.map((item) => ({
         ...emptyItem,
         ...item,
@@ -1399,9 +1458,80 @@ export default function Quotations() {
   }
 
   function removeItem(index) {
-    setQuotation((current) => ({ ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) }));
+    setQuotation((current) => {
+      const removedKey = quotationItemKey(current.items[index] || {}, index);
+      return {
+        ...current,
+        items: current.items.filter((_, itemIndex) => itemIndex !== index),
+        combinedPricingGroups: (current.combinedPricingGroups || []).map((group) => ({
+          ...group,
+          itemKeys: (group.itemKeys || []).filter((key) => String(key) !== removedKey)
+        }))
+      };
+    });
     setEditingItemIndex(null);
     setItemDrafts({});
+  }
+
+  function addCombinedPricingGroup() {
+    setQuotation((current) => ({
+      ...current,
+      combinedPricingGroups: [...(current.combinedPricingGroups || []), createCombinedPricingGroup((current.combinedPricingGroups || []).length)]
+    }));
+  }
+
+  function updateCombinedPricingGroup(groupId, update) {
+    setQuotation((current) => ({
+      ...current,
+      combinedPricingGroups: (current.combinedPricingGroups || []).map((group) => group.id === groupId ? { ...group, ...update } : group)
+    }));
+  }
+
+  function deleteCombinedPricingGroup(groupId) {
+    setQuotation((current) => ({
+      ...current,
+      combinedPricingGroups: (current.combinedPricingGroups || []).filter((group) => group.id !== groupId)
+    }));
+    if (combinedGroupPickerId === groupId) {
+      setCombinedGroupPickerId('');
+      setCombinedGroupDraftSelections([]);
+    }
+  }
+
+  function openCombinedGroupServicePicker(groupId) {
+    setCombinedGroupPickerId(groupId);
+    setCombinedGroupDraftSelections([]);
+  }
+
+  function toggleCombinedGroupDraftService(itemKey) {
+    setCombinedGroupDraftSelections((current) => current.includes(itemKey)
+      ? current.filter((key) => key !== itemKey)
+      : [...current, itemKey]);
+  }
+
+  function addSelectedServicesToCombinedGroup(groupId) {
+    if (!combinedGroupDraftSelections.length) {
+      setError('Select at least one unassigned service.');
+      return;
+    }
+    setError('');
+    setQuotation((current) => ({
+      ...current,
+      combinedPricingGroups: (current.combinedPricingGroups || []).map((group) => group.id === groupId
+        ? { ...group, itemKeys: [...new Set([...(group.itemKeys || []), ...combinedGroupDraftSelections])] }
+        : group)
+    }));
+    setCombinedGroupPickerId('');
+    setCombinedGroupDraftSelections([]);
+  }
+
+  function removeServiceFromCombinedGroup(groupId, itemKey) {
+    setQuotation((current) => ({
+      ...current,
+      combinedPricingGroups: (current.combinedPricingGroups || []).map((group) => group.id === groupId
+        ? { ...group, itemKeys: (group.itemKeys || []).filter((key) => key !== itemKey) }
+        : group)
+    }));
   }
 
   function startEditItem(index) {
@@ -1724,9 +1854,33 @@ export default function Quotations() {
       setError('Select Combined Price or Individual Price.');
       return;
     }
-    if (quotation.pricingMode === 'combined' && (String(quotation.combinedBasicAmount ?? '').trim() === '' || Number(quotation.combinedBasicAmount) < 0)) {
-      setError('Enter a valid Combined Basic Amount.');
-      return;
+    if (quotation.pricingMode === 'combined') {
+      const groups = quotation.combinedPricingGroups || [];
+      if (!groups.length) {
+        setError('Add at least one Combined Pricing Group.');
+        return;
+      }
+      const emptyGroupIndex = groups.findIndex((group) => !(group.itemKeys || []).length);
+      if (emptyGroupIndex >= 0) {
+        setError(`Combined pricing group ${emptyGroupIndex + 1}: select at least one service.`);
+        return;
+      }
+      const invalidGroupAmountIndex = groups.findIndex((group) => String(group.basicAmount ?? '').trim() === '' || !Number.isFinite(Number(group.basicAmount)) || Number(group.basicAmount) < 0);
+      if (invalidGroupAmountIndex >= 0) {
+        setError(`Combined pricing group ${invalidGroupAmountIndex + 1}: enter a valid Basic Amount.`);
+        return;
+      }
+      const assignedKeys = groups.flatMap((group) => group.itemKeys || []).map(String);
+      const duplicateKey = assignedKeys.find((key, index) => assignedKeys.indexOf(key) !== index);
+      if (duplicateKey) {
+        setError('A quotation service cannot belong to more than one combined pricing group.');
+        return;
+      }
+      const unassignedIndex = quotation.items.findIndex((item, index) => !assignedKeys.includes(quotationItemKey(item, index)));
+      if (unassignedIndex >= 0) {
+        setError(`Quotation item ${unassignedIndex + 1}: assign this service to a combined pricing group.`);
+        return;
+      }
     }
     if (quotation.pricingMode === 'individual') {
       const missingAmountIndex = quotation.items.findIndex((item) => String(item.basicAmount ?? '').trim() === '' || Number(item.basicAmount) < 0);
@@ -1791,7 +1945,8 @@ export default function Quotations() {
       const payload = {
         ...quotation,
         serviceState: quotation.serviceState || 'open',
-        combinedBasicAmount: quotation.pricingMode === 'combined' ? quotation.combinedBasicAmount : 0,
+        combinedBasicAmount: quotation.pricingMode === 'combined' ? combinedQuotationTotal(quotation, quotation.items) : 0,
+        combinedPricingGroups: quotation.pricingMode === 'combined' ? quotation.combinedPricingGroups : [],
         leadDetails: { ...quotation.leadDetails, gstNumber },
         items: quotation.items.map((item) => ({
           ...item,
@@ -2110,9 +2265,37 @@ export default function Quotations() {
               </button>}
             </div>
             {!quotation.pricingMode ? <div className="grid gap-4 p-5 sm:grid-cols-2">
-              <button type="button" onClick={() => selectPricingMode('combined')} className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/70 p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-lg"><span className="text-base font-black text-emerald-800">Combined Price</span><span className="mt-1 block text-sm font-bold text-emerald-700/80">One total basic amount for all quotation rows.</span></button>
+              <button type="button" onClick={() => selectPricingMode('combined')} className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/70 p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-lg"><span className="text-base font-black text-emerald-800">Combined Price</span><span className="mt-1 block text-sm font-bold text-emerald-700/80">Create manual service groups with a separate combined price for each group.</span></button>
               <button type="button" onClick={() => selectPricingMode('individual')} className="rounded-2xl border-2 border-blue-200 bg-blue-50/70 p-5 text-left transition hover:-translate-y-0.5 hover:border-blue-500 hover:shadow-lg"><span className="text-base font-black text-blue-800">Individual Price</span><span className="mt-1 block text-sm font-bold text-blue-700/80">Separate basic amount for every quotation row.</span></button>
-            </div> : <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3"><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${quotation.pricingMode === 'combined' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>{quotation.pricingMode} Price</span>{quotation.pricingMode === 'combined' && <span className="text-sm font-black text-emerald-700">Combined total: {formatInr(quotation.combinedBasicAmount)}</span>}</div><button type="button" onClick={() => setQuotation((current) => ({ ...current, pricingMode: '', combinedBasicAmount: '' }))} className="text-xs font-black text-slate-500 hover:text-orange-600">Change pricing type</button></div>}
+            </div> : <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3"><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${quotation.pricingMode === 'combined' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>{quotation.pricingMode} Price</span>{quotation.pricingMode === 'combined' && <span className="text-sm font-black text-emerald-700">Combined total: {formatInr(combinedQuotationTotal(quotation, quotation.items))}</span>}</div><button type="button" onClick={() => setQuotation((current) => ({ ...current, pricingMode: '', combinedBasicAmount: '', combinedPricingGroups: [] }))} className="text-xs font-black text-slate-500 hover:text-orange-600">Change pricing type</button></div>}
+            {quotation.pricingMode === 'combined' && (
+              <div className="space-y-4 border-b border-slate-200 bg-emerald-50/30 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div><h4 className="font-black text-slate-950">Combined Pricing Groups</h4><p className="mt-1 text-xs font-bold text-slate-500">Groups start empty. Add only the services you want, then enter one Basic Amount for that group.</p></div>
+                  <button type="button" onClick={addCombinedPricingGroup} className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-black text-white"><Plus className="h-4 w-4" /> Add Combined Group</button>
+                </div>
+                {(quotation.combinedPricingGroups || []).map((group, groupIndex) => {
+                  const assignedKeys = new Set((quotation.combinedPricingGroups || []).flatMap((row) => row.itemKeys || []).map(String));
+                  const indexedItems = quotation.items.map((item, itemIndex) => ({ item, itemIndex, itemKey: quotationItemKey(item, itemIndex) }));
+                  const groupItems = indexedItems.filter((row) => (group.itemKeys || []).includes(row.itemKey));
+                  const unassignedItems = indexedItems.filter((row) => !assignedKeys.has(row.itemKey));
+                  return (
+                    <section key={group.id} className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+                      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-3">
+                        <input value={group.name || ''} maxLength={120} onChange={(event) => updateCombinedPricingGroup(group.id, { name: event.target.value })} className="h-10 min-w-56 rounded-lg border border-emerald-200 bg-white px-3 font-black text-slate-900 outline-none focus:ring-4 focus:ring-emerald-100" aria-label={`Combined group ${groupIndex + 1} name`} />
+                        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => openCombinedGroupServicePicker(group.id)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-xs font-black text-emerald-800"><Plus className="h-4 w-4" /> Add Services</button><button type="button" onClick={() => deleteCombinedPricingGroup(group.id)} className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /> Delete Group</button></div>
+                      </header>
+                      {combinedGroupPickerId === group.id && <div className="border-b border-emerald-100 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-500">Select unassigned services</p><div className="mt-3 grid gap-2 sm:grid-cols-2">{unassignedItems.length ? unassignedItems.map(({ item, itemIndex, itemKey }) => <label key={itemKey} className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"><input type="checkbox" checked={combinedGroupDraftSelections.includes(itemKey)} onChange={() => toggleCombinedGroupDraftService(itemKey)} className="mt-1 h-4 w-4 accent-emerald-700" /><span><strong className="block text-sm text-slate-900">{item.eprCategory || item.serviceCategory || `Service ${itemIndex + 1}`}</strong><small className="mt-1 block font-bold text-slate-500">{item.servicesOffered || getQuotationApplicantType(item)}</small></span></label>) : <p className="text-sm font-bold text-slate-400">All services are already assigned.</p>}</div><div className="mt-3 flex gap-2"><button type="button" disabled={!combinedGroupDraftSelections.length} onClick={() => addSelectedServicesToCombinedGroup(group.id)} className="h-9 rounded-lg bg-emerald-700 px-4 text-xs font-black text-white disabled:opacity-40">Add Selected</button><button type="button" onClick={() => { setCombinedGroupPickerId(''); setCombinedGroupDraftSelections([]); }} className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-600">Cancel</button></div></div>}
+                      <div className="overflow-auto">
+                        <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500"><tr><th className="px-3 py-3">Remove</th><th className="px-3 py-3">Sr.No</th><th className="px-3 py-3">Service Category</th><th className="px-3 py-3">Services Offered</th><th className="px-3 py-3">Applicant Type</th><th className="px-3 py-3">Period</th></tr></thead><tbody className="divide-y divide-slate-100">{groupItems.length ? groupItems.map(({ item, itemIndex, itemKey }) => <tr key={itemKey}><td className="px-3 py-3"><button type="button" onClick={() => removeServiceFromCombinedGroup(group.id, itemKey)} className="grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50" title="Remove from this group"><X className="h-4 w-4" /></button></td><td className="px-3 py-3 font-black">{itemIndex + 1}</td><td className="px-3 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="px-3 py-3 font-bold text-emerald-700">{item.servicesOffered || '-'}</td><td className="px-3 py-3 font-bold">{getQuotationApplicantType(item)}</td><td className="px-3 py-3 font-bold">{quotationServicePeriodDisplay(item)}</td></tr>) : <tr><td colSpan={6} className="px-4 py-8 text-center font-black text-slate-400">No services selected. Use Add Services.</td></tr>}</tbody></table>
+                      </div>
+                      <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-emerald-100 bg-emerald-50/50 px-4 py-3"><label className="text-xs font-black uppercase tracking-wider text-emerald-800">Group Basic Amount</label><div className="flex h-10 w-56 overflow-hidden rounded-lg border border-emerald-300 bg-white focus-within:ring-4 focus-within:ring-emerald-100"><span className="grid w-10 place-items-center border-r border-emerald-100 font-black">₹</span><input type="number" min="0" value={group.basicAmount ?? ''} onChange={(event) => updateCombinedPricingGroup(group.id, { basicAmount: event.target.value })} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="50000" /></div></footer>
+                    </section>
+                  );
+                })}
+                {!(quotation.combinedPricingGroups || []).length && <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No pricing groups. Use Add Combined Group.</div>}
+              </div>
+            )}
             <div className="overflow-auto p-4">
               {!quotation.pricingMode ? null : quotation.items.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center font-black text-slate-400">No quotation items added.</div>
@@ -2120,7 +2303,7 @@ export default function Quotations() {
                 <table className="w-full min-w-[1180px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                     <tr>
-                      {['Sr.No', 'EPR / Service Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', ...(showUomColumn ? ['UOM'] : []), 'Unit', 'Unit Name', 'Basic Amount (INR)', 'Actions'].map((header) => (
+                      {['Sr.No', 'EPR / Service Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Added By', ...(showUomColumn ? ['UOM'] : []), 'Unit', 'Unit Name', ...(quotation.pricingMode === 'individual' ? ['Basic Amount (INR)'] : []), 'Actions'].map((header) => (
                         <th key={header} className="px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -2160,7 +2343,6 @@ export default function Quotations() {
                                 <input type="number" min="0" value={String(readItemDraftValue(index, 'basicAmount', item.basicAmount ?? '') ?? '')} onChange={(event) => setItemDraft(index, 'basicAmount', event.target.value)} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="20000" />
                               </div>
                             </td>}
-                            {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="min-w-56 border-l border-slate-100 bg-emerald-50/60 px-3 py-4 align-middle"><label className="block text-[11px] font-black uppercase tracking-wider text-emerald-700">Combined Basic Amount</label><div className="mt-2 flex h-11 overflow-hidden rounded-lg border border-emerald-300 bg-white focus-within:ring-4 focus-within:ring-emerald-100"><span className="grid w-10 place-items-center border-r border-emerald-100 font-black">₹</span><input type="number" min="0" value={quotation.combinedBasicAmount ?? ''} onChange={(event) => setQuotation((current) => ({ ...current, combinedBasicAmount: event.target.value }))} className="min-w-0 flex-1 px-3 font-black outline-none" placeholder="50000" /></div></td>}
                             <td className="px-3 py-4">
                               <div className="flex items-center gap-2">
                                 <button type="button" onClick={() => saveItem(index)} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-black text-white"><Save className="h-4 w-4" /> Save</button>
@@ -2181,7 +2363,6 @@ export default function Quotations() {
                             <td className="px-3 py-4 font-black uppercase">{item.unit || '-'}</td>
                             <td className="px-3 py-4 font-black uppercase">{item.unitName || '-'}</td>
                             {quotation.pricingMode === 'individual' && <td className="px-3 py-4 font-black text-orange-600">{formatInr(item.basicAmount)}</td>}
-                            {quotation.pricingMode === 'combined' && index === 0 && <td rowSpan={quotation.items.length} className="border-l border-slate-100 bg-emerald-50/60 px-3 py-4 text-center align-middle font-black text-emerald-700">{formatInr(quotation.combinedBasicAmount)}</td>}
                             <td className="px-3 py-4">
                               <div className="flex items-center gap-3">
                                 <button type="button" onClick={() => startEditItem(index)} className="inline-flex h-9 items-center gap-2 rounded-lg px-2 text-sm font-black text-blue-600 hover:bg-blue-50"><Edit3 className="h-4 w-4" /> Edit</button>
@@ -2375,7 +2556,7 @@ function QuotationTableRow({ row, expanded, menuOpen, onToggleItems, onToggleMen
 
 function QuotationItemsPanel({ quotation, items }) {
   const combined = isCombinedQuotation(quotation);
-  const combinedTotal = combinedQuotationTotal(quotation, items);
+  const displayRows = combined ? combinedPricingRows(quotation, items) : items.map((item, index) => ({ item, index }));
   const hasEprCreditItems = items.some(isEprCreditItem);
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -2388,10 +2569,10 @@ function QuotationItemsPanel({ quotation, items }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {items.length === 0 ? (
+          {displayRows.length === 0 ? (
             <tr><td colSpan={hasEprCreditItems ? 10 : 9} className="px-4 py-8 text-center font-black text-slate-400">No items added.</td></tr>
-          ) : items.map((item, index) => (
-            <tr key={index} className="font-black uppercase text-slate-600">
+          ) : displayRows.map(({ item, index, group, groupSize, firstInGroup }) => (
+            <tr key={`${group?.id || 'item'}-${index}`} className="font-black uppercase text-slate-600">
               <td className="px-4 py-4">{item.businessCategory || '-'}</td>
               <td className="px-4 py-4">{item.eprCategory || item.serviceCategory || '-'}</td>
               <td className="px-4 py-4">{quotationServicePeriodDisplay(item)}</td>
@@ -2399,7 +2580,7 @@ function QuotationItemsPanel({ quotation, items }) {
               <td className="px-4 py-4">{getQuotationApplicantType(item)}</td>
               <td className="px-4 py-4">{quotationUnitLabel(item)}</td>
               <td className="px-4 py-4">{item.unitName || '-'}</td>
-              {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
+              {(!combined || firstInGroup) && <td rowSpan={combined ? groupSize : undefined} className={`px-4 py-4 ${combined ? 'align-middle text-center text-orange-600' : ''}`}>{formatInr(combined ? group.basicAmount : item.basicAmount)}</td>}
               <td className="px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
               <td className="px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
             </tr>
@@ -2486,6 +2667,7 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
   const items = Array.isArray(quotation.items) ? quotation.items : [];
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
+  const displayRows = combined ? combinedPricingRows(quotation, items) : items.map((item, index) => ({ item, index }));
   const meaningfulItems = items.filter((item) => isMeaningfulQuotationItem(item));
   const latestItem = meaningfulItems[meaningfulItems.length - 1] || items[items.length - 1] || {};
   const userName = quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-';
@@ -2538,8 +2720,8 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                   </tr>
                 </thead>
                 <tbody>
-                  {items.length ? items.map((item, index) => (
-                    <tr key={index} className="font-black uppercase text-slate-700">
+                  {displayRows.length ? displayRows.map(({ item, index, group, groupSize, firstInGroup }) => (
+                    <tr key={`${group?.id || 'item'}-${index}`} className="font-black uppercase text-slate-700">
                       <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
@@ -2547,11 +2729,11 @@ function QuotationDetailModal({ quotation, revisionCount = 0, onClose, onRevise 
                       {hasEprCreditItems && <td className="border-b border-r border-slate-100 px-4 py-4">{isEprCreditItem(item) ? (quotationEprCreditYears(item).join(', ') || '-') : '-'}</td>}
                       <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
-                      {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
+                      {(!combined || firstInGroup) && <td rowSpan={combined ? groupSize : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? group.basicAmount : item.basicAmount)}</td>}
                       <td className="border-b border-r border-slate-100 px-4 py-4">{getQuotationApplicantType(item)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{quotationUnitLabel(item)}</td>
                       <td className="border-b border-r border-slate-100 px-4 py-4">{item.unitName || '-'}</td>
-                      {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? combinedTotal : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
+                      {(!combined || firstInGroup) && <td rowSpan={combined ? groupSize : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle font-black text-orange-600">{formatInr(combined ? group.basicAmount : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)))}</td>}
                     </tr>
                   )) : (
                     <tr><td colSpan={hasEprCreditItems ? 12 : 11} className="px-4 py-10 text-center font-black text-slate-400">No quotation items added.</td></tr>
@@ -2584,6 +2766,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
   const items = Array.isArray(quotation.items) ? quotation.items : [];
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
+  const displayRows = combined ? combinedPricingRows(quotation, items) : items.map((item, index) => ({ item, index }));
   const terms = Array.isArray(quotation.terms) ? quotation.terms : [];
   const firstItem = items[0] || {};
   const createdDate = formatDisplayDate(quotation.createdAt);
@@ -2612,7 +2795,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
     ...(isEprCreditItem(firstItem) ? [['Annual Return EPR Credit Years', quotationEprCreditYears(firstItem).join(', ') || '-']] : []),
     ['Quantity/Unit', quotationUnitLabel(firstItem)],
     ['Unit Name', firstItem.unitName || '-'],
-    ['Basic Amount (INR)', formatInr(firstItem.basicAmount)],
+    ['Basic Amount (INR)', formatInr(combined ? combinedTotal : firstItem.basicAmount)],
     ['Quotation Valid Until', quotation.validUntil || '-'],
     ['Quotation Date', createdDate]
   ];
@@ -2654,8 +2837,8 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
               </tr>
             </thead>
             <tbody>
-              {items.length ? items.map((item, index) => (
-                <tr key={index} className="font-black uppercase text-slate-700">
+              {displayRows.length ? displayRows.map(({ item, index, group, groupSize, firstInGroup }) => (
+                <tr key={`${group?.id || 'item'}-${index}`} className="font-black uppercase text-slate-700">
                   <td className="border-b border-r border-slate-100 px-4 py-4 text-center">{index + 1}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.businessCategory || '-'}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.serviceCategory || '-'}</td>
@@ -2663,7 +2846,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
                   {hasEprCreditItems && <td className="border-b border-r border-slate-100 px-4 py-4">{isEprCreditItem(item) ? (quotationEprCreditYears(item).join(', ') || '-') : '-'}</td>}
                   <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceStartDate)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{formatServiceDate(item.serviceEndDate)}</td>
-                  {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
+                  {(!combined || firstInGroup) && <td rowSpan={combined ? groupSize : undefined} className="border-b border-slate-100 px-4 py-4 text-center align-middle text-orange-600">{formatInr(combined ? group.basicAmount : item.basicAmount)}</td>}
                   <td className="border-b border-r border-slate-100 px-4 py-4">{getQuotationApplicantType(item)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{quotationUnitLabel(item)}</td>
                   <td className="border-b border-r border-slate-100 px-4 py-4">{item.unitName || '-'}</td>
@@ -2727,6 +2910,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
   const combinedTotal = combinedQuotationTotal(quotation, items);
+  const displayRows = combined ? combinedPricingRows(quotation, items) : items.map((item, index) => ({ item, index }));
   const hasReturnYearItems = items.some(isEprConsultancyItem);
   const normalizedRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   const isAdminUser = normalizedRole === 'admin' || normalizedRole === 'superadmin';
@@ -2963,8 +3147,8 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item, index) => (
-                      <tr key={index} className="font-black uppercase">
+                    {displayRows.map(({ item, index, group, groupSize, firstInGroup }) => (
+                      <tr key={`${group?.id || 'item'}-${index}`} className="font-black uppercase">
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{index + 1}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.businessCategory || '-'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.eprCategory || item.serviceCategory || '-'}</td>
@@ -2973,7 +3157,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.servicesOffered || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{quotationUnitLabel(item)}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2">{item.unitName || '-'}</td>
-                        {(!combined || index === 0) && <td rowSpan={combined ? items.length : undefined} className="border-t border-slate-950 px-1.5 py-2 text-center align-middle">{formatInr(combined ? combinedTotal : item.basicAmount)}</td>}
+                        {(!combined || firstInGroup) && <td rowSpan={combined ? groupSize : undefined} className="border-t border-slate-950 px-1.5 py-2 text-center align-middle">{formatInr(combined ? group.basicAmount : item.basicAmount)}</td>}
                       </tr>
                     ))}
                   </tbody>
@@ -3071,7 +3255,8 @@ function buildQuotationPrintHtml(quotation) {
   const hasReturnYearItems = items.some(isEprConsultancyItem);
   const yearMappingHeader = quotationYearMappingHeader(items);
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
-  const rows = items.map((item, index) => `
+  const displayRows = combined ? combinedPricingRows(quotation, items) : items.map((item, index) => ({ item, index }));
+  const rows = displayRows.map(({ item, index, group, groupSize, firstInGroup }) => `
     <tr>
       <td class="center">${index + 1}</td>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
@@ -3081,7 +3266,7 @@ function buildQuotationPrintHtml(quotation) {
       <td>${escapeHtml(item.servicesOffered || '-')}</td>
       <td class="center">${escapeHtml(quotationUnitLabel(item))}</td>
       <td>${escapeHtml(item.unitName || '-')}</td>
-      ${!combined || index === 0 ? `<td class="amount${combined ? ' combined-amount' : ''}"${combined ? ` rowspan="${items.length}"` : ''}>${escapeHtml(formatInr(combined ? combinedTotal : item.basicAmount))}</td>` : ''}
+      ${!combined || firstInGroup ? `<td class="amount${combined ? ' combined-amount' : ''}"${combined ? ` rowspan="${groupSize}"` : ''}>${escapeHtml(formatInr(combined ? group.basicAmount : item.basicAmount))}</td>` : ''}
     </tr>
   `).join('');
   const terms = (quotation.terms || []).length

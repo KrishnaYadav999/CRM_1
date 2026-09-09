@@ -52,6 +52,13 @@ const QuoteItemSchema = new mongoose.Schema({
   basicAmount: { type: Number, default: 0 }
 }, { _id: false });
 
+const CombinedPricingGroupSchema = new mongoose.Schema({
+  id: { type: String, required: true, trim: true },
+  name: { type: String, trim: true, maxlength: 120 },
+  itemKeys: { type: [String], default: [] },
+  basicAmount: { type: Number, default: 0 }
+}, { _id: false });
+
 const QuotationSchema = new mongoose.Schema({
   quotationNumber: { type: String, trim: true, index: true },
   leadId: { type: String, trim: true, index: true },
@@ -66,6 +73,7 @@ const QuotationSchema = new mongoose.Schema({
   pricingMode: { type: String, enum: ['combined', 'individual'], default: 'individual' },
   serviceState: { type: String, enum: ['open', 'closed'], default: 'open', index: true },
   combinedBasicAmount: { type: Number, default: 0 },
+  combinedPricingGroups: { type: [CombinedPricingGroupSchema], default: [] },
   items: { type: [QuoteItemSchema], default: [] },
   terms: { type: [String], default: [] },
   paymentTerm: { type: String, trim: true },

@@ -345,6 +345,39 @@ function cleanItems(items, user = null, existingItems = [], systemStartDate = ''
     .filter((item) => isMeaningfulItem(item));
 }
 
+function quotationItemKey(item = {}, index = 0) {
+  return cleanString(item.assignedServiceId || item.id || (Number.isInteger(Number(item.sourceServiceIndex)) ? `source:${Number(item.sourceServiceIndex)}` : `item:${index}`));
+}
+
+function cleanCombinedPricingGroups(groups, items, legacyAmount = 0) {
+  if (!Array.isArray(groups) || !groups.length) {
+    return items.length ? [{ id: 'legacy-combined-group', name: 'Combined Group 1', itemKeys: items.map(quotationItemKey), basicAmount: roundMoney(legacyAmount) }] : [];
+  }
+  const validKeys = new Set(items.map(quotationItemKey));
+  const assignedKeys = new Set();
+  const cleaned = groups.map((group, index) => {
+    const itemKeys = [...new Set((Array.isArray(group?.itemKeys) ? group.itemKeys : []).map(cleanString).filter((key) => validKeys.has(key)))];
+    if (!itemKeys.length) throw new Error(`Combined pricing group ${index + 1}: select at least one quotation service.`);
+    itemKeys.forEach((key) => {
+      if (assignedKeys.has(key)) throw new Error(`Combined pricing group ${index + 1}: a quotation service cannot belong to more than one group.`);
+      assignedKeys.add(key);
+    });
+    const rawAmount = group?.basicAmount;
+    if (rawAmount === '' || rawAmount === null || rawAmount === undefined || !Number.isFinite(Number(rawAmount)) || Number(rawAmount) < 0) {
+      throw new Error(`Combined pricing group ${index + 1}: enter a valid Basic Amount.`);
+    }
+    return {
+      id: cleanString(group?.id) || `combined-group-${index + 1}`,
+      name: cleanString(group?.name).slice(0, 120) || `Combined Group ${index + 1}`,
+      itemKeys,
+      basicAmount: roundMoney(rawAmount)
+    };
+  });
+  const unassignedIndex = items.findIndex((item, index) => !assignedKeys.has(quotationItemKey(item, index)));
+  if (unassignedIndex >= 0) throw new Error(`Quotation item ${unassignedIndex + 1}: assign this service to a combined pricing group.`);
+  return cleaned;
+}
+
 function cleanTerms(terms) {
   if (!Array.isArray(terms)) return [];
   return terms.map(cleanString).filter(Boolean);
@@ -403,7 +436,12 @@ function cleanBody(body, user = null, existingItems = []) {
   const terms = cleanTerms(body.terms);
   const pricingMode = body.pricingMode === 'combined' ? 'combined' : 'individual';
   const individualTotal = roundMoney(items.reduce((sum, item) => sum + ((Number(item.unit) || 0) * (Number(item.basicAmount) || 0)), 0));
-  const combinedBasicAmount = pricingMode === 'combined' ? roundMoney(body.combinedBasicAmount) : 0;
+  const combinedPricingGroups = pricingMode === 'combined'
+    ? cleanCombinedPricingGroups(body.combinedPricingGroups, items, body.combinedBasicAmount)
+    : [];
+  const combinedBasicAmount = pricingMode === 'combined'
+    ? roundMoney(combinedPricingGroups.reduce((sum, group) => sum + group.basicAmount, 0))
+    : 0;
   const calculatedTotal = pricingMode === 'combined' ? combinedBasicAmount : individualTotal;
   return {
     leadId: cleanString(body.leadId),
@@ -415,6 +453,7 @@ function cleanBody(body, user = null, existingItems = []) {
     pricingMode,
     serviceState: body.serviceState === 'closed' ? 'closed' : 'open',
     combinedBasicAmount,
+    combinedPricingGroups,
     companyName: cleanString(body.companyName || body.leadDetails?.companyName),
     quotationDate: body.quotationDate || undefined,
     items,
@@ -492,6 +531,7 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     validUntil: quotation.validUntil || '',
     pricingMode: quotation.pricingMode || 'individual',
     combinedBasicAmount: quotation.combinedBasicAmount || 0,
+    combinedPricingGroups: Array.isArray(quotation.combinedPricingGroups) ? quotation.combinedPricingGroups : [],
     items: Array.isArray(quotation.items) ? quotation.items : [],
     terms: Array.isArray(quotation.terms) ? quotation.terms : [],
     scopeOfWork: Array.isArray(quotation.scopeOfWork) ? quotation.scopeOfWork : [],
