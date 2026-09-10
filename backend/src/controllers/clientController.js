@@ -1295,15 +1295,42 @@ exports.listPendingApprovals = async (req, res) => {
   const isAdministrativeReviewer = userHasAnyRole(req.user, ['admin', 'superadmin']);
   const isClientReviewer = isAdministrativeReviewer || userHasAnyRole(req.user, ['compliance']);
 
+  // PendingApproval is a read-optimised index. Older quotations (or writes made
+  // while the index update failed) can still be pending in the source
+  // collection without having an index row. Reconcile only quotations here;
+  // unlike the former full client + quotation scan, this indexed query stays
+  // small and keeps the approval page responsive.
+  let liveQuotationRows = [];
+  if (isAdministrativeReviewer) {
+    try {
+      const liveQuotations = await Quotation.find({ status: { $in: ['draft', 'submitted', 'sent'] } })
+        .populate('createdBy', 'name email')
+        .sort({ createdAt: -1 })
+        .limit(1000)
+        .lean();
+      liveQuotationRows = liveQuotations.map((quotation) => mapQuotationPendingApprovalRow(quotation, 'CREATE'));
+    } catch (error) {
+      console.error('Pending quotation reconciliation failed', error);
+    }
+  }
+
+  const storedQuotationIds = new Set(storedFallback.pendingQuotations.map((row) => String(
+    row.quotationId || row.payload?.quotationId || row.sourceClientId || row.id || row._id || ''
+  )).filter(Boolean));
+  const missingQuotationRows = liveQuotationRows.filter((row) => !storedQuotationIds.has(String(row.quotationId || row.id || '')));
+  const responseQuotations = [...missingQuotationRows, ...storedFallback.pendingQuotations];
+  if (missingQuotationRows.length) backgroundSyncPendingApprovals([], missingQuotationRows);
+
   res.json({
     ok: true,
     pendingClients: isClientReviewer ? storedFallback.pendingClients : [],
-    pendingQuotations: isAdministrativeReviewer ? storedFallback.pendingQuotations : [],
+    pendingQuotations: isAdministrativeReviewer ? responseQuotations : [],
     debug: {
-      source: 'indexed-pending-approvals',
+      source: missingQuotationRows.length ? 'indexed-with-live-reconciliation' : 'indexed-pending-approvals',
       ms: Date.now() - startedAt,
       storedClients: storedFallback.pendingClients.length,
-      storedQuotations: storedFallback.pendingQuotations.length
+      storedQuotations: storedFallback.pendingQuotations.length,
+      recoveredQuotations: missingQuotationRows.length
     }
   });
 };
