@@ -3,7 +3,12 @@ import { API_ENDPOINTS } from './apiEndpoints'
 
 const productionBaseURL = '/api'
 const defaultBaseURL = productionBaseURL
-const configuredBaseURL = import.meta.env.VITE_CRM_API_URL || import.meta.env.VITE_API_URL
+// Production must stay on the same-origin Vercel proxy. A stale dashboard env
+// value previously sent browsers directly to Render, bypassing the proxy and
+// causing CORS failures across every authenticated API request.
+const configuredBaseURL = import.meta.env.DEV
+  ? (import.meta.env.VITE_CRM_API_URL || import.meta.env.VITE_API_URL)
+  : ''
 
 function normalizeApiBaseURL(value) {
   const configured = String(value || '').trim().replace(/\/+$/, '')
