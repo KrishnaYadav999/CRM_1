@@ -873,13 +873,25 @@ async function syncPendingApprovalRows(rows, type = 'client') {
 }
 
 async function readStoredPendingApprovals() {
-  const records = await PendingApproval.find({
-    $or: [{ type: 'client' }, { type: 'quotation' }, { approvalStatus: 'PENDING' }]
-  })
-    .populate('actionBy', 'name email')
-    .sort({ createdAt: -1 })
-    .limit(1000)
-    .lean();
+  const [pendingRecords, recentDecisionRecords] = await Promise.all([
+    PendingApproval.find({
+      type: { $in: ['client', 'quotation'] },
+      approvalStatus: { $in: ['PENDING', 'PARTIALLY_APPROVED', 'REVISION_REQUIRED'] }
+    })
+      .populate('actionBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean(),
+    PendingApproval.find({
+      type: { $in: ['client', 'quotation'] },
+      approvalStatus: { $in: ['APPROVED', 'REJECTED'] }
+    })
+      .populate('actionBy', 'name email')
+      .sort({ actionAt: -1, createdAt: -1 })
+      .limit(100)
+      .lean()
+  ]);
+  const records = [...pendingRecords, ...recentDecisionRecords];
 
   const clientRecords = records.filter((record) => record.type === 'client');
   const sourceClientIds = clientRecords.map((record) => record.sourceClientId).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
@@ -1306,7 +1318,7 @@ exports.listPendingApprovals = async (req, res) => {
       const liveQuotations = await Quotation.find({ status: { $in: ['draft', 'submitted', 'sent'] } })
         .populate('createdBy', 'name email')
         .sort({ createdAt: -1 })
-        .limit(1000)
+        .limit(500)
         .lean();
       liveQuotationRows = liveQuotations.map((quotation) => mapQuotationPendingApprovalRow(quotation, 'CREATE'));
     } catch (error) {

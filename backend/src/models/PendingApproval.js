@@ -51,4 +51,8 @@ PendingApprovalSchema.index(
   { partialFilterExpression: { uniqueId: { $type: 'string' } } }
 );
 
+// The Pending Approval screen reads by type + status and orders newest first.
+// Keeping this as one compound index avoids scanning large historical payloads.
+PendingApprovalSchema.index({ type: 1, approvalStatus: 1, createdAt: -1 });
+
 module.exports = mongoose.model('PendingApproval', PendingApprovalSchema);

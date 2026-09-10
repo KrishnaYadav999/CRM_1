@@ -11,3 +11,10 @@ test('pending approval endpoint recovers quotations missing from the approval in
   assert.match(controllerSource, /backgroundSyncPendingApprovals\(\[\], missingQuotationRows\)/);
   assert.match(controllerSource, /pendingQuotations: isAdministrativeReviewer \? responseQuotations : \[\]/);
 });
+
+test('pending approval reads active rows separately from bounded decision history', () => {
+  assert.match(controllerSource, /const \[pendingRecords, recentDecisionRecords\] = await Promise\.all/);
+  assert.match(controllerSource, /approvalStatus: \{ \$in: \['PENDING', 'PARTIALLY_APPROVED', 'REVISION_REQUIRED'\] \}/);
+  assert.match(controllerSource, /approvalStatus: \{ \$in: \['APPROVED', 'REJECTED'\] \}/);
+  assert.match(controllerSource, /\.limit\(100\)/);
+});
