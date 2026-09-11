@@ -154,24 +154,24 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
 
   useEffect(() => {
     let cancelled = false
+    let timerId
+    let requestInFlight = false
+    let pollDelay = 60000
+    const MAX_POLL_DELAY_MS = 5 * 60 * 1000
 
-    async function syncServerCalendarItems() {
+    async function syncServerData() {
+      if (cancelled || requestInFlight || document.visibilityState !== 'visible') return
+      requestInFlight = true
       try {
-        const response = await api.get(API_ENDPOINTS.calendarItems.list)
+        const [calendarResponse, notificationResponse] = await Promise.all([
+          api.get(API_ENDPOINTS.calendarItems.list),
+          api.get(API_ENDPOINTS.notifications.list)
+        ])
         if (cancelled) return
-        const serverItems = Array.isArray(response.data?.items) ? response.data.items : []
+        const serverItems = Array.isArray(calendarResponse.data?.items) ? calendarResponse.data.items : []
         localStorage.setItem(CALENDAR_STORAGE_KEY, JSON.stringify(serverItems))
         window.dispatchEvent(new CustomEvent('crm-calendar-items-updated'))
-      } catch {
-        // Local reminders still work when calendar API is temporarily unavailable.
-      }
-    }
-
-    async function syncServerNotifications() {
-      try {
-        const response = await api.get(API_ENDPOINTS.notifications.list)
-        if (cancelled) return
-        const serverAnnouncements = (response.data?.notifications || [])
+        const serverAnnouncements = (notificationResponse.data?.notifications || [])
           .filter((item) => item.status !== 'Inactive' && item.kind !== 'announcement' && item.kind !== 'announcement-local')
           .slice(0, 5)
         setBellData((current) => {
@@ -184,20 +184,27 @@ export default function Topbar({ currentUser, onOpenProfile, onOpenSidebar, onLo
             count: current.reminders.length + uniqueAnnouncements.length
           }
         })
-      } catch {
+        pollDelay = 60000
+      } catch (error) {
+        if ([429, 502, 503, 504].includes(error?.response?.status)) pollDelay = Math.min(pollDelay * 2, MAX_POLL_DELAY_MS)
         // Local reminder data still works when server notifications are temporarily unavailable.
+      } finally {
+        requestInFlight = false
+        if (!cancelled) timerId = window.setTimeout(syncServerData, pollDelay)
       }
     }
 
-    syncServerCalendarItems()
-    syncServerNotifications()
-    const intervalId = window.setInterval(() => {
-      syncServerCalendarItems()
-      syncServerNotifications()
-    }, 15000)
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      window.clearTimeout(timerId)
+      syncServerData()
+    }
+    syncServerData()
+    document.addEventListener('visibilitychange', handleVisibility)
     return () => {
       cancelled = true
-      window.clearInterval(intervalId)
+      window.clearTimeout(timerId)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [])
 

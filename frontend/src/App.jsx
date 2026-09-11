@@ -35,12 +35,31 @@ function ActiveCrmTracker() {
     let timer
     let idleTimer
     let loggingOut = false
+    let heartbeatInFlight = false
+    let heartbeatDelay = 60000
     const IDLE_LOGOUT_MS = 30 * 60 * 1000
+    const MAX_HEARTBEAT_DELAY_MS = 5 * 60 * 1000
     const isActive = () => hasStoredAuthToken() && document.visibilityState === 'visible' && document.hasFocus()
-    const heartbeat = (state = 'active') => api.post(API_ENDPOINTS.auth.activityHeartbeat, { state }).catch(() => {})
+    const scheduleHeartbeat = () => {
+      clearTimeout(timer)
+      if (isActive()) timer = window.setTimeout(() => heartbeat('active'), heartbeatDelay)
+    }
+    const heartbeat = async (state = 'active') => {
+      if (heartbeatInFlight || !hasStoredAuthToken()) return
+      heartbeatInFlight = true
+      try {
+        await api.post(API_ENDPOINTS.auth.activityHeartbeat, { state })
+        heartbeatDelay = 60000
+      } catch (error) {
+        if ([429, 502, 503, 504].includes(error?.response?.status)) heartbeatDelay = Math.min(heartbeatDelay * 2, MAX_HEARTBEAT_DELAY_MS)
+      } finally {
+        heartbeatInFlight = false
+        if (state === 'active') scheduleHeartbeat()
+      }
+    }
     const refresh = () => {
-      clearInterval(timer)
-      if (isActive()) { heartbeat('active'); resetIdleTimer(); timer = setInterval(() => heartbeat('active'), 15000) }
+      clearTimeout(timer)
+      if (isActive()) { heartbeat('active'); resetIdleTimer() }
       else if (hasStoredAuthToken()) heartbeat('away')
     }
     const clearLocalSession = () => {
@@ -52,7 +71,7 @@ function ActiveCrmTracker() {
     const logoutForInactivity = async () => {
       if (loggingOut || !hasStoredAuthToken()) return
       loggingOut = true
-      clearInterval(timer)
+      clearTimeout(timer)
       try { await api.post(API_ENDPOINTS.auth.logout, { reason: 'inactivity' }) } catch {}
       clearLocalSession()
       window.location.replace('/')
@@ -69,7 +88,7 @@ function ActiveCrmTracker() {
     document.addEventListener('visibilitychange', refresh)
     refresh()
     resetIdleTimer()
-    return () => { clearInterval(timer); clearTimeout(idleTimer); activityEvents.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer)); window.removeEventListener('focus', refresh); window.removeEventListener('blur', refresh); document.removeEventListener('visibilitychange', refresh) }
+    return () => { clearTimeout(timer); clearTimeout(idleTimer); activityEvents.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer)); window.removeEventListener('focus', refresh); window.removeEventListener('blur', refresh); document.removeEventListener('visibilitychange', refresh) }
   }, [])
   return null
 }

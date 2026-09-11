@@ -54,11 +54,14 @@ app.use(cors({
 
 let schedulerStarted = false;
 let dbReady;
+const isServerlessRuntime = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
 function connectAndStartServices() {
   dbReady = connectDB().then(async () => {
     await applyKnownDataCorrections().catch((error) => console.error('Known CRM data correction failed', error));
-    if (!schedulerStarted) {
+    // Persistent interval schedulers must never run inside short-lived serverless
+    // function instances. Their work is handled by explicit cron endpoints.
+    if (!schedulerStarted && !isServerlessRuntime) {
       startPendingApprovalReminderScheduler();
       startClientComplianceCorrectionReminderScheduler();
       startClientOnboardingReminderScheduler();

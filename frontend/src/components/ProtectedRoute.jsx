@@ -31,9 +31,21 @@ export default function ProtectedRoute({ children, allowedRoles }) {
         }
         setState({ loading: false, allowed: roleAllowed(response.data?.user), authenticated: true })
       })
-      .catch(() => {
-        clearStoredSession()
-        setState({ loading: false, allowed: false })
+      .catch((error) => {
+        const status = error?.response?.status
+        if (status === 401 || status === 403) {
+          clearStoredSession()
+          setState({ loading: false, allowed: false })
+          return
+        }
+        // Preserve a valid cached session during temporary 429/5xx outages.
+        // The API interceptor will still clear genuinely invalid tokens.
+        try {
+          const storedUser = JSON.parse(localStorage.getItem('user') || 'null')
+          setState({ loading: false, allowed: Boolean(storedUser) && roleAllowed(storedUser), authenticated: Boolean(storedUser) })
+        } catch {
+          setState({ loading: false, allowed: false })
+        }
       })
   }, [])
 
