@@ -24,12 +24,12 @@ test('completing a calendar follow-up closes its linked lead service reminder', 
   assert.match(controller, /await closeLinkedLeadFollowUp\(item, req\.user\)/);
 });
 
-test('calendar follow-ups are filtered to the current user on both API and local cache', () => {
+test('calendar follow-ups are filtered to the visible user hierarchy on the API and current user in local cache', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/CalendarTodo.jsx'), 'utf8');
   const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/calendarItemController.js'), 'utf8');
   assert.match(page, /function calendarItemsForUser/);
   assert.match(page, /calendarItemsForUser\(extractList\(response, 'items'\), storedUser\)/);
   assert.match(page, /calendarItemsForUser\(localItems, storedUser\)/);
-  assert.match(controller, /CalendarItem\.find\(calendarVisibilityFilter\(req\.user\)\)/);
-  assert.match(controller, /if \(!canAccessCalendarItem\(item, req\.user\)\) return res\.status\(403\)/);
+  assert.match(controller, /CalendarItem\.find\(calendarScopeFilter\(await getVisibleUserScope\(req\.user\)\)\)/);
+  assert.match(controller, /if \(!canAccessCalendarScope\(item, await getVisibleUserScope\(req\.user\)\)\) return res\.status\(403\)/);
 });

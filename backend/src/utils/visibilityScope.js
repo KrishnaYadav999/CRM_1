@@ -1,3 +1,7 @@
+const User = require('../models/User');
+const Team = require('../models/Team');
+const { getUserRoles } = require('./userRoles');
+
 function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -12,9 +16,32 @@ function buildIdentityConditions(paths, identities) {
 
 async function getVisibleUserScope(user) {
   if (!user?._id) return { ids: [], identities: [] };
-  // CRM records are a shared working catalog. Authentication controls read access;
-  // role and ownership checks continue to control privileged actions and edits.
-  return null;
+  const roles = getUserRoles(user);
+  const roleFamilies = roles.map((role) => role.replace(/-/g, ''));
+  if (roleFamilies.some((role) => ['admin', 'superadmin'].includes(role))) return null;
+
+  const visibleUsers = [user];
+  if (roleFamilies.includes('manager')) {
+    const managedTeams = await Team.find({ manager: user._id }).select('_id members').lean();
+    const teamIds = managedTeams.map((team) => team._id).filter(Boolean);
+    const memberIds = managedTeams.flatMap((team) => team.members || []).filter(Boolean);
+    const assignmentConditions = [{ managerId: user._id }];
+    if (teamIds.length) assignmentConditions.push({ teamId: { $in: teamIds } });
+    if (memberIds.length) assignmentConditions.push({ _id: { $in: memberIds } });
+    const reports = await User.find({
+      isActive: { $ne: false },
+      $or: assignmentConditions
+    }).select('_id crmUserId name email').lean();
+    visibleUsers.push(...reports);
+  }
+
+  const ids = [...new Map(visibleUsers
+    .filter((entry) => entry?._id)
+    .map((entry) => [String(entry._id), entry._id])).values()];
+  const identities = [...new Set(visibleUsers.flatMap((entry) => [
+    String(entry?._id || ''), entry?.crmUserId, entry?.name, entry?.email
+  ]).map((value) => String(value || '').trim()).filter(Boolean))];
+  return { ids, identities };
 }
 
 async function getVisibleUserIds(user) {
@@ -23,15 +50,16 @@ async function getVisibleUserIds(user) {
   return scope.ids;
 }
 
-function ownerFilter(scope, createdByPath = 'createdBy', assignedToPath = 'assignedTo', identityPaths = []) {
+function ownerFilter(scope, createdByPath = 'createdBy', assignedToPath = 'assignedTo', identityPaths = [], idPaths = []) {
   if (scope === null) return {};
 
   const ids = Array.isArray(scope) ? scope : (scope?.ids || []);
   const identities = Array.isArray(scope) ? [] : (scope?.identities || []);
   const conditions = [
     ...(ids.length ? [
-      { [createdByPath]: { $in: ids } },
-      { [assignedToPath]: { $in: ids } }
+      ...(createdByPath ? [{ [createdByPath]: { $in: ids } }] : []),
+      ...(assignedToPath ? [{ [assignedToPath]: { $in: ids } }] : []),
+      ...idPaths.map((path) => ({ [path]: { $in: ids } }))
     ] : []),
     ...buildIdentityConditions(identityPaths, identities)
   ];

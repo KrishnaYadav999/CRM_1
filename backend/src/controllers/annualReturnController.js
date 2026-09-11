@@ -1,5 +1,6 @@
 const AnnualReturn = require('../models/AnnualReturn');
 const Client = require('../models/Client');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
 function readClientData(client) {
   return client?.data && typeof client.data === 'object' ? client.data : {};
@@ -173,7 +174,14 @@ function shouldUseClientFiling(existing = {}, candidate = {}) {
 }
 
 exports.listAnnualReturns = async (req, res) => {
-  const annualReturns = await AnnualReturn.find()
+  const scope = await getVisibleUserScope(req.user);
+  const clientFilter = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
+    'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
+    'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
+  ]);
+  const visibleClients = await Client.find(clientFilter).select('_id').lean();
+  const visibleClientIds = visibleClients.map((client) => client._id);
+  const annualReturns = await AnnualReturn.find(scope === null ? {} : { client: { $in: visibleClientIds } })
     .populate('client', 'data adminControls')
     .populate('updatedBy', 'name email role')
     .sort({ updatedAt: -1 })
@@ -185,7 +193,7 @@ exports.listAnnualReturns = async (req, res) => {
     });
   });
 
-  const clients = await Client.find({ 'data.annualReturn.filings': { $exists: true } })
+  const clients = await Client.find({ $and: [{ 'data.annualReturn.filings': { $exists: true } }, clientFilter] })
     .select('data adminControls updatedAt')
     .lean();
   clients.forEach((client) => {

@@ -20,18 +20,18 @@ const REQUIRED_NORMAL_CHECKLIST_ROWS = [
 
 const CATEGORIES = ['Cat-I', 'Cat-II', 'Cat-III', 'Cat-IV'];
 const HEADER_ALIASES = {
-  financialYear: ['financialyear', 'fy'],
-  entityName: ['nameofentity', 'entityname', 'nameoftheentity'],
-  registrationType: ['registrationtype', 'registrationstatus', 'registeredunregistered'],
+  financialYear: ['financialyear', 'financialyr', 'fy', 'year'],
+  entityName: ['nameofentity', 'entityname', 'nameoftheentity', 'entity', 'companyname', 'suppliername'],
+  registrationType: ['registrationtype', 'registrationstatus', 'registeredunregistered', 'typeofregistration'],
   gstin: ['gstin', 'gstnumber', 'gstno'],
   invoiceNumber: ['invoicenumber', 'invoiceno'],
   invoiceDate: ['invoicedate'],
   portalReferenceNumber: ['portalreferencenumber', 'portalreferenceno', 'portalrefno'],
-  plasticCategory: ['categoryofplastic', 'plasticcategory', 'category'],
-  materialType: ['plasticmaterialtype', 'materialtype', 'typeofplasticmaterial'],
-  baseQuantity: ['qtyofplasticmt', 'quantitytpa', 'quantity', 'purchasequantity', 'plasticquantitytpa', 'totalquantitytpa'],
-  portalQuantity: ['totalplasticquantity', 'totalplasticqtytons', 'totalplasticqtyton', 'totalplasticqty', 'plasticquantitytons', 'uploadedquantity', 'quantitytpa'],
-  gstPaid: ['totalinvoicevalue', 'gstpaid', 'gstamount'],
+  plasticCategory: ['categoryofplastic', 'plasticcategory', 'category', 'plasticcat'],
+  materialType: ['plasticmaterialtype', 'materialtype', 'typeofplasticmaterial', 'plasticmaterial'],
+  baseQuantity: ['qtyofplasticmt', 'quantitymt', 'qtymt', 'quantitytpa', 'quantity', 'purchasequantity', 'plasticquantitytpa', 'totalquantitytpa'],
+  portalQuantity: ['totalplasticquantity', 'totalplasticquantitymt', 'totalplasticqtytons', 'totalplasticqtyton', 'totalplasticqty', 'plasticquantitytons', 'uploadedquantity', 'quantitytpa', 'quantitymt', 'qtymt'],
+  gstPaid: ['totalinvoicevalue', 'invoicevalue', 'gstpaid', 'gstamount', 'totalgst'],
   state: ['state', 'stateut'],
   uploadStatus: ['uploadstatus', 'status'],
   uploadDate: ['uploaddate', 'portaluploaddate'],
@@ -109,7 +109,7 @@ function duplicateKey(row, source) {
   return common.join('|');
 }
 
-function normalizePurchaseRows(rawRows = [], source = 'base', selectedYear = '') {
+function normalizePurchaseRows(rawRows = [], source = 'base', selectedYear = '', headerRowNumber = 1) {
   const usableRows = (Array.isArray(rawRows) ? rawRows : []).filter((row) => row && typeof row === 'object' && Object.values(row).some((value) => text(value)));
   if (!usableRows.length) {
     const error = new Error('The selected file has no usable purchase rows.'); error.code = 'EMPTY_FILE'; throw error;
@@ -117,9 +117,11 @@ function normalizePurchaseRows(rawRows = [], source = 'base', selectedYear = '')
   const headerMap = buildHeaderMap(usableRows[0], source);
   const quantityField = source === 'base' ? 'baseQuantity' : 'portalQuantity';
   const required = ['financialYear', 'entityName', 'registrationType', 'plasticCategory', 'materialType', quantityField];
-  const missingHeaders = required.filter((field) => !headerMap[field]);
+const missingHeaders = required.filter((field) => !headerMap[field]);
   if (missingHeaders.length) {
-    const error = new Error(`Missing required headers: ${missingHeaders.join(', ')}`); error.code = 'MISSING_HEADERS'; error.missingHeaders = missingHeaders; throw error;
+    const labels = { financialYear: 'Financial Year', entityName: 'Name of Entity', registrationType: 'Registration Type', plasticCategory: 'Category of Plastic', materialType: 'Plastic Material Type', baseQuantity: 'Qty. of Plastic (MT)', portalQuantity: 'Total Plastic Quantity' };
+    const missingLabels = missingHeaders.map((field) => labels[field] || field);
+    const error = new Error(`Missing required headers/columns: ${missingLabels.join(', ')}`); error.code = 'MISSING_HEADERS'; error.missingHeaders = missingLabels; throw error;
   }
   const seen = new Set();
   const validationErrors = [];
@@ -137,7 +139,8 @@ function normalizePurchaseRows(rawRows = [], source = 'base', selectedYear = '')
     const rawDate = source === 'base' ? read('invoiceDate') : read('uploadDate');
     const parsedDate = parseDate(rawDate);
     const messages = [];
-    const add = (field, message, severity = 'error') => { messages.push({ field, message, severity }); validationErrors.push({ rowNumber: index + 2, field, value: read(field), message, severity }); };
+    const rowNumber = index + Math.max(1, Number(headerRowNumber) || 1) + 1;
+    const add = (field, message, severity = 'error') => { messages.push({ field, message, severity }); validationErrors.push({ rowNumber, field, value: read(field), message, severity }); };
     if (!validFinancialYear(financialYear)) add('financialYear', 'Financial Year must use YYYY-YY.');
     else if (selectedYear && financialYear !== selectedYear) add('financialYear', `Financial Year must match ${selectedYear}.`);
     if (!entityName) add('entityName', 'Name of Entity is required.');
@@ -154,7 +157,7 @@ function normalizePurchaseRows(rawRows = [], source = 'base', selectedYear = '')
     else if (gstPaid < 0) add('gstPaid', 'GST Paid cannot be negative.');
     if (rawDate !== '' && !parsedDate) add(source === 'base' ? 'invoiceDate' : 'uploadDate', 'Date is invalid.');
     const row = {
-      rowNumber: index + 2, financialYear, entityName, entityKey: normalizeEntityName(entityName), registrationType, gstin,
+      rowNumber, financialYear, entityName, entityKey: normalizeEntityName(entityName), registrationType, gstin,
       invoiceNumber: text(read('invoiceNumber')), invoiceDate: source === 'base' ? parsedDate : '',
       portalReferenceNumber: text(read('portalReferenceNumber')), plasticCategory, materialType, materialKey: normalizeMaterial(materialType),
       quantity: quantity ?? 0, gstPaid: gstPaid ?? 0, state: text(read('state')), uploadStatus: text(read('uploadStatus')),

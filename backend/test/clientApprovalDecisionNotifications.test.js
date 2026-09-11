@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildClientApprovalDecisionEmail } = require('../src/services/clientApprovalDecisionNotifications');
+const { buildClientApprovalDecisionEmail, clientDecisionMetadata } = require('../src/services/clientApprovalDecisionNotifications');
 
 test('client approval email clearly tells the requester the request was approved', () => {
   const email = buildClientApprovalDecisionEmail({ clientName: 'Acme Industries', status: 'APPROVED', remarks: 'Verified', reviewerName: 'CRM Admin', recipientName: 'Ravi' });
@@ -42,4 +42,18 @@ test('client decision email includes all applicant and application metadata', ()
   assert.match(email.html, /Applicant Type:<\/strong> PIBO, SIMP/);
   assert.match(email.html, /Sub Applicant Type:<\/strong> Brand Owner, Importer/);
   assert.match(email.html, /Application Type:<\/strong> New, Renewal/);
+});
+
+test('client decision metadata is limited to the rejected Client Master service', () => {
+  const metadata = clientDecisionMetadata({
+    assignedServiceId: 'service-producer',
+    data: { basic: { piboCategory: 'Producer' }, selectedLeadSnapshot: { applicantType: 'PIBO', assignedServiceId: 'service-producer' } },
+    selectedLead: { serviceSelections: [
+      { assignedServiceId: 'service-producer', applicantType: 'PIBO', subApplicantType: 'Producer' },
+      { assignedServiceId: 'service-importer', applicantType: 'PIBO', subApplicantType: 'Importer' }
+    ] }
+  });
+  assert.deepEqual(metadata.applicantTypes, ['PIBO']);
+  assert.deepEqual(metadata.subApplicantTypes, ['Producer']);
+  assert.doesNotMatch(metadata.subApplicantTypes.join(','), /Importer/i);
 });

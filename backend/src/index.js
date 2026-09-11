@@ -39,18 +39,33 @@ process.on('unhandledRejection', (err) => {
 });
 
 const app = express();
-app.use(express.json({ limit: '12mb' }));
+const configuredOrigins = [
+  process.env.CLIENT_ORIGIN,
+  process.env.CLIENT_URLS
+]
+  .filter(Boolean)
+  .join(',');
 
-const allowedOrigins = String(process.env.CLIENT_ORIGIN || '')
+const allowedOrigins = configuredOrigins
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const productionOrigins = [
+  'https://crmananttattva.vercel.app'
+];
+
+for (const origin of productionOrigins) {
+  if (!allowedOrigins.includes(origin)) allowedOrigins.push(origin);
+}
+
 app.use(cors({
-  origin: allowedOrigins.length
-    ? (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin))
-    : '*'
+  origin: (origin, callback) => callback(
+    null,
+    !origin || allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)
+  )
 }));
+app.use(express.json({ limit: '12mb' }));
 
 let schedulerStarted = false;
 let dbReady;

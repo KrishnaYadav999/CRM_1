@@ -56,7 +56,8 @@ test('Calendar supports temporary client selection, follow-up creation and clean
   assert.match(calendar, /Temp Follow-Up/);
   assert.match(calendar, /setBucketPopup\(null\)/);
   assert.match(calendar, /temporaryLeadId/);
-  assert.match(controller, /TemporaryLead\.findById/);
+  assert.match(controller, /TemporaryLead\.findOne\(combineFilters/);
+  assert.match(controller, /linkedTemporaryLeadScopeFilter\(user\)/);
   assert.match(controller, /temporaryLead\.followUpHistory/);
   assert.match(controller, /scheduleLinkedLeadFollowUp[\s\S]*ATPL-TEMP-/);
 });

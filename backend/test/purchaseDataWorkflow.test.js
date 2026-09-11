@@ -36,6 +36,35 @@ test('valid base import accepts rows and totals quantity', () => { const result 
 test('valid portal import accepts the portal quantity header', () => { const result = parsed([portalRow()], 'portal'); assert.equal(result.invalidRowCount, 0); assert.equal(result.totalQuantity, 10); });
 test('missing required headers reject the complete import', () => assert.throws(() => parsed([{ Name: 'ABC' }], 'base'), /Missing required headers/));
 
+test('headers with extra spaces and minor naming variations are mapped', () => {
+  const result = parsed([{
+    ' Financial Yr ': FY,
+    ' Company Name ': 'ABC Recyclers Private Limited',
+    ' Type of Registration ': 'Registered',
+    ' GST No. ': '27ABCDE1234F1Z5',
+    ' Invoice No. ': 'INV-SPACE-1',
+    ' Plastic Cat ': 'Cat I',
+    ' Plastic Material ': 'PET',
+    ' Qty (MT) ': '1,250.500',
+    ' Total GST ': '2,250'
+  }], 'base');
+  assert.equal(result.invalidRowCount, 0);
+  assert.equal(result.acceptedRows[0].quantity, 1250.5);
+  assert.equal(result.acceptedRows[0].gstPaid, 2250);
+});
+
+test('valid rows remain importable when another row is invalid or duplicated', () => {
+  const result = parsed([
+    baseRow(),
+    baseRow({ 'Invoice Number': 'INV-2', 'Quantity (TPA)': 'not-a-number' }),
+    baseRow()
+  ], 'base');
+  assert.equal(result.acceptedRows.length, 1);
+  assert.equal(result.invalidRowCount, 1);
+  assert.equal(result.duplicateRowCount, 1);
+  assert.ok(result.validationErrors.some((error) => error.rowNumber === 3));
+});
+
 test('new purchase template headers map to base and portal metrics', () => {
   const { 'Quantity (TPA)': ignoredBaseQty, 'GST Paid': ignoredBaseGst, ...baseInput } = baseRow();
   const { 'Total Plastic Qty (Tons)': ignoredPortalQty, 'GST Paid': ignoredPortalGst, ...portalInput } = portalRow();

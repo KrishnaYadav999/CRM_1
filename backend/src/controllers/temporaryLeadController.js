@@ -5,6 +5,16 @@ const TemporaryLead = require('../models/TemporaryLead');
 const CalendarItem = require('../models/CalendarItem');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { createLeadRecordInternal } = require('./leadController');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+
+const combineFilters = (...filters) => {
+  const active = filters.filter((filter) => filter && Object.keys(filter).length);
+  return active.length > 1 ? { $and: active } : active[0] || {};
+};
+
+async function temporaryLeadAccessFilter(user) {
+  return ownerFilter(await getVisibleUserScope(user), 'createdBy', '', ['createdByName', 'createdByEmail']);
+}
 
 async function nextTemporaryLeadCode() {
   const sequence = await Sequence.findOneAndUpdate(
@@ -26,11 +36,13 @@ exports.list = async (req, res) => {
     { clientName: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }
   ];
   if (['DRAFT', 'CONVERTED'].includes(status)) filter.status = status;
+  const accessFilter = await temporaryLeadAccessFilter(req.user);
+  const scopedFilter = combineFilters(filter, accessFilter);
   const [rows, total, draftCount, convertedCount] = await Promise.all([
-    TemporaryLead.find(filter).populate('createdBy', 'name email').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-    TemporaryLead.countDocuments(filter),
-    TemporaryLead.countDocuments({ status: 'DRAFT' }),
-    TemporaryLead.countDocuments({ status: 'CONVERTED' })
+    TemporaryLead.find(scopedFilter).populate('createdBy', 'name email').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    TemporaryLead.countDocuments(scopedFilter),
+    TemporaryLead.countDocuments(combineFilters({ status: 'DRAFT' }, accessFilter)),
+    TemporaryLead.countDocuments(combineFilters({ status: 'CONVERTED' }, accessFilter))
   ]);
   res.json({ ok: true, temporaryLeads: rows, pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) }, counts: { total: draftCount + convertedCount, draft: draftCount, converted: convertedCount } });
 };
@@ -51,7 +63,7 @@ exports.create = async (req, res) => {
 };
 
 exports.convert = async (req, res) => {
-  const row = await TemporaryLead.findById(req.params.id);
+  const row = await TemporaryLead.findOne(combineFilters({ _id: req.params.id }, await temporaryLeadAccessFilter(req.user)));
   if (!row) return res.status(404).json({ error: 'Temporary lead not found.' });
   if (row.status === 'CONVERTED') {
     const lead = row.convertedLead ? await Lead.findById(row.convertedLead).lean() : null;
@@ -67,7 +79,7 @@ exports.convert = async (req, res) => {
 };
 
 exports.saveFollowUp = async (req, res) => {
-  const row = await TemporaryLead.findById(req.params.id);
+  const row = await TemporaryLead.findOne(combineFilters({ _id: req.params.id }, await temporaryLeadAccessFilter(req.user)));
   if (!row) return res.status(404).json({ error: 'Temporary lead not found.' });
   if (row.status === 'CONVERTED') return res.status(409).json({ error: 'Converted temporary leads must be followed up from the permanent Lead.' });
   const scheduledDate = String(req.body.scheduledDate || '').trim();
@@ -88,7 +100,7 @@ exports.saveFollowUp = async (req, res) => {
 };
 
 exports.closeFollowUp = async (req, res) => {
-  const row = await TemporaryLead.findById(req.params.id);
+  const row = await TemporaryLead.findOne(combineFilters({ _id: req.params.id }, await temporaryLeadAccessFilter(req.user)));
   if (!row) return res.status(404).json({ error: 'Temporary lead not found.' });
   const remarks = String(req.body.remarks || '').trim();
   if (!remarks) return res.status(400).json({ error: 'Closing remarks are required.' });

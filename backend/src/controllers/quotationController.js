@@ -11,6 +11,7 @@ const Lead = require('../models/Lead');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendQuotationLifecycleEmail } = require('../services/quotationLifecycleEmails');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const {
   BUILT_IN_SERVICE_CATEGORIES,
   normalizeServiceCategoryName
@@ -65,42 +66,19 @@ function isQuotationAdmin(user) {
 }
 
 async function quotationAccessFilter(user) {
-  if (isQuotationAdmin(user)) return {};
-  const userId = user?._id;
-  if (!userId) return { _id: { $exists: false } };
-  const identityValues = [String(userId), cleanString(user.email), cleanString(user.name)].filter(Boolean);
-  const identityConditions = identityValues.flatMap((value) => {
-    const exact = new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-    return [
-      { createdByCrmUserId: exact },
-      { createdByEmail: exact },
-      { createdByName: exact },
-      { importedCreatedBy: exact },
-      { generatedForName: exact },
-      { generatedForEmail: exact },
-      { assignedToText: exact },
-      { assignedStaffText: exact },
-      { assignedStaffEmail: exact },
-      { 'assignments.assignedToText': exact },
-      { 'assignments.assignedToEmail': exact },
-      { 'assignments.assignedStaffText': exact },
-      { 'assignments.assignedStaffEmail': exact },
-      { 'serviceSelections.createdByCrmUserId': exact },
-      { 'serviceSelections.createdByEmail': exact },
-      { 'serviceSelections.createdByName': exact }
-    ];
-  });
-  const leads = await Lead.find({
-    $or: [
-      { createdBy: userId },
-      { generatedForUser: userId },
-      { assignedTo: userId },
-      { assignedStaff: userId },
-      { 'assignments.assignedTo': userId },
-      { 'assignments.assignedStaff': userId },
-      ...identityConditions
-    ]
-  }).select('_id leadCode sourceLeadId externalLeadId').lean();
+  const scope = await getVisibleUserScope(user);
+  if (scope === null) return {};
+  if (!scope.ids.length && !scope.identities.length) return { _id: { $exists: false } };
+  const leads = await Lead.find(ownerFilter(scope, 'createdBy', 'assignedTo', [
+    'createdByCrmUserId', 'createdByEmail', 'createdByName', 'importedCreatedBy',
+    'generatedForName', 'generatedForEmail', 'assignedToText', 'assignedStaffText',
+    'assignedStaffEmail', 'assignments.assignedToText', 'assignments.assignedToEmail',
+    'assignments.assignedStaffText', 'assignments.assignedStaffEmail',
+    'serviceSelections.createdByCrmUserId', 'serviceSelections.createdByEmail',
+    'serviceSelections.createdByName'
+  ], [
+    'generatedForUser', 'assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff'
+  ])).select('_id leadCode sourceLeadId externalLeadId').lean();
   const leadObjectIds = leads.map((lead) => lead._id);
   const leadIdentifiers = [...new Set(leads.flatMap((lead) => [
     String(lead._id), lead.leadCode, lead.sourceLeadId, lead.externalLeadId
@@ -108,7 +86,7 @@ async function quotationAccessFilter(user) {
 
   return {
     $or: [
-      { createdBy: userId },
+      { createdBy: { $in: scope.ids } },
       ...(leadObjectIds.length ? [{ leadRef: { $in: leadObjectIds } }] : []),
       ...(leadIdentifiers.length ? [
         { leadId: { $in: leadIdentifiers } },
@@ -177,7 +155,7 @@ function mergeCurrentLeadDetails(data, lead) {
   };
 }
 
-async function refreshQuotationLeadDetails(data, existingQuotation = null) {
+async function refreshQuotationLeadDetails(data, existingQuotation = null, user = null) {
   const filters = [];
   const identities = [
     existingQuotation?.leadRef,
@@ -192,7 +170,20 @@ async function refreshQuotationLeadDetails(data, existingQuotation = null) {
     filters.push({ leadCode: identity }, { sourceLeadId: identity }, { externalLeadId: identity });
   });
   if (!filters.length) return data;
-  const lead = await Lead.findOne({ $or: filters }).lean();
+  const lead = await Lead.findOne(combineFilters(
+    { $or: filters },
+    ownerFilter(await getVisibleUserScope(user), 'createdBy', 'assignedTo', [
+      'createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedToText',
+      'assignedStaffText', 'assignedStaffEmail', 'assignments.assignedToText',
+      'assignments.assignedToEmail', 'serviceSelections.createdByCrmUserId',
+      'serviceSelections.createdByEmail', 'serviceSelections.createdByName'
+    ], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff'])
+  )).lean();
+  if (!lead) {
+    const error = new Error('Lead not found or not accessible.');
+    error.statusCode = 404;
+    throw error;
+  }
   return mergeCurrentLeadDetails(data, lead);
 }
 
@@ -781,7 +772,7 @@ exports.createQuotation = async (req, res) => {
   let data;
   try {
     data = cleanBody(req.body, req.user);
-    data = await refreshQuotationLeadDetails(data);
+    data = await refreshQuotationLeadDetails(data, null, req.user);
     const termsError = validatePaymentTerms(data.terms, data.paymentTerm);
     if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);
@@ -814,7 +805,7 @@ exports.updateQuotation = async (req, res) => {
   let data;
   try {
     data = cleanBody(req.body, req.user, quotation.items || []);
-    data = await refreshQuotationLeadDetails(data, quotation);
+    data = await refreshQuotationLeadDetails(data, quotation, req.user);
     const termsError = validatePaymentTerms(data.terms, data.paymentTerm);
     if (termsError) throw new Error(termsError);
     validateQuotationItemDates(data.items);

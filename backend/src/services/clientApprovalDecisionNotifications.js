@@ -64,17 +64,34 @@ function buildClientApprovalDecisionEmail({ clientName = 'Client Master', status
   };
 }
 
+function clientDecisionMetadata(client = {}) {
+  const data = client.data || {};
+  const snapshot = data.selectedLeadSnapshot || {};
+  const lead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {};
+  const services = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
+  const assignedServiceId = String(client.assignedServiceId || data.assignedServiceId || snapshot.assignedServiceId || '').trim();
+  const currentSubApplicant = String(data.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || '').trim().toLowerCase();
+  const serviceMatchesId = (service) => [service?.assignedServiceId, service?.serviceAssignmentId, service?.id]
+    .some((value) => assignedServiceId && String(value || '').trim() === assignedServiceId);
+  const serviceMatchesType = (service) => [service?.subApplicantType, service?.piboCategory]
+    .some((value) => currentSubApplicant && String(value || '').trim().toLowerCase() === currentSubApplicant);
+  const relevantService = services.find(serviceMatchesId) || services.find(serviceMatchesType) || {};
+  const first = (...values) => values.flatMap((value) => Array.isArray(value) ? value : [value]).map((value) => String(value || '').trim()).find(Boolean) || '';
+  const single = (value) => value ? [value] : [];
+  return {
+    applicantTypes: single(first(snapshot.applicantType, snapshot.piboParent, snapshot.piboCategoryParent, relevantService.applicantType, relevantService.piboParent, relevantService.piboCategoryParent, lead.applicantType, lead.piboParent, lead.piboCategoryParent)),
+    subApplicantTypes: single(first(data.basic?.piboCategory, snapshot.subApplicantType, snapshot.piboCategory, relevantService.subApplicantType, relevantService.piboCategory, lead.subApplicantType, lead.piboCategory)),
+    applicationTypes: single(first(data.cpcb?.applicationType, data.annualReturn?.applicationRenewal, data.basic?.applicationType, snapshot.applicationType, relevantService.applicationType))
+  };
+}
+
 async function notifyClientApprovalDecision({ record = {}, client = {}, status, remarks = '', reviewer = {}, sections = [], approvalMode = '' } = {}) {
   const payload = record.payload || {};
   const manager = await resolveClientManager(client, payload);
   const email = String(manager?.email || payload.createdByEmail || payload.userEmail || '').trim().toLowerCase();
   if (!email) return { sent: false, reason: 'client_manager_email_missing' };
   const clientName = record.clientName || payload.clientName || payload.companyName || client.data?.basic?.clientLegalName || client.data?.basic?.tradeName || 'Client Master';
-  const data = client.data || {};
-  const snapshot = data.selectedLeadSnapshot || {};
-  const lead = client.selectedLead || {};
-  const services = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
-  const unique = (values) => [...new Set(values.flatMap((value) => Array.isArray(value) ? value : [value]).map((value) => String(value || '').trim()).filter(Boolean))];
+  const metadata = clientDecisionMetadata(client);
   const content = buildClientApprovalDecisionEmail({
     clientName,
     status,
@@ -83,12 +100,10 @@ async function notifyClientApprovalDecision({ record = {}, client = {}, status, 
     recipientName: manager?.name || record.createdByName || payload.createdBy || payload.userName || 'Manager',
     sections,
     approvalMode,
-    applicantTypes: unique([snapshot.applicantType, snapshot.piboParent, snapshot.piboCategoryParent, lead.applicantType, lead.piboParent, lead.piboCategoryParent, ...services.flatMap((service) => [service.applicantType, service.piboParent, service.piboCategoryParent])]),
-    subApplicantTypes: unique([data.basic?.piboCategory, snapshot.subApplicantType, snapshot.piboCategory, lead.subApplicantType, lead.piboCategory, ...services.flatMap((service) => [service.subApplicantType, service.piboCategory])]),
-    applicationTypes: unique([data.cpcb?.applicationType, data.annualReturn?.applicationRenewal, data.basic?.applicationType, snapshot.applicationType, ...services.map((service) => service.applicationType)])
+    ...metadata
   });
   await sendMail(email, content.subject, content.html, { branded: false });
   return { sent: true, email, recipientId: manager?._id, recipientName: manager?.name || '', recipientRole: manager?.role || '' };
 }
 
-module.exports = { buildClientApprovalDecisionEmail, notifyClientApprovalDecision, resolveClientManager };
+module.exports = { buildClientApprovalDecisionEmail, clientDecisionMetadata, notifyClientApprovalDecision, resolveClientManager };

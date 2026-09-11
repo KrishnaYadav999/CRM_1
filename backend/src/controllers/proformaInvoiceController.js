@@ -1,6 +1,7 @@
 const ProformaInvoice = require('../models/ProformaInvoice');
 const Quotation = require('../models/Quotation');
 const { resolveCrmRelationships } = require('../services/crmRelationships');
+const { getVisibleUserScope } = require('../utils/visibilityScope');
 
 const text = (value) => String(value || '').trim();
 const money = (value) => Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : 0;
@@ -77,7 +78,8 @@ function cleanPayload(body = {}) {
 }
 
 exports.list = async (req, res) => {
-  const rows = await ProformaInvoice.find().populate('createdBy', 'name email').sort({ createdAt: -1 }).lean();
+  const scope = await getVisibleUserScope(req.user);
+  const rows = await ProformaInvoice.find(scope === null ? {} : { createdBy: { $in: scope.ids } }).populate('createdBy', 'name email').sort({ createdAt: -1 }).lean();
   return res.json({ ok: true, proformaInvoices: rows });
 };
 
@@ -101,8 +103,9 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
-  const row = await ProformaInvoice.findById(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Proforma Invoice not found.' });
+  const scope = await getVisibleUserScope(req.user);
+  const row = await ProformaInvoice.findOne({ _id: req.params.id, ...(scope === null ? {} : { createdBy: { $in: scope.ids } }) });
+  if (!row) return res.status(404).json({ error: 'Proforma Invoice not found or not accessible.' });
   const payload = cleanPayload(req.body);
   if (!payload.companyName || !payload.poNumber || !payload.quotationNumber || !payload.items.length) {
     return res.status(400).json({ error: 'Company, PO Number, Quotation Number and at least one item are required.' });

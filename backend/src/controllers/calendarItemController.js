@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const CalendarItem = require('../models/CalendarItem');
 const Lead = require('../models/Lead');
 const TemporaryLead = require('../models/TemporaryLead');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
 function readItemId(value) {
   return String(value || '').trim();
@@ -39,6 +40,46 @@ function calendarVisibilityFilter(user = {}) {
     ...(name ? [{ assignedToName: name }, { createdBy: name }] : [])
   ];
   return clauses.length ? { $or: clauses } : { _id: null };
+}
+
+function calendarScopeFilter(scope) {
+  if (scope === null) return {};
+  const ids = (scope?.ids || []).map(String);
+  const identities = (scope?.identities || []).map((value) => String(value || '').trim()).filter(Boolean);
+  const emails = identities.filter((value) => value.includes('@')).map((value) => value.toLowerCase());
+  const clauses = [
+    ...(ids.length ? [{ createdByUser: { $in: ids } }, { assignedToId: { $in: ids } }] : []),
+    ...(identities.length ? [{ assignedTo: { $in: identities } }, { assignedToName: { $in: identities } }, { createdBy: { $in: identities } }] : []),
+    ...(emails.length ? [{ assignedToEmail: { $in: emails } }] : [])
+  ];
+  return clauses.length ? { $or: clauses } : { _id: null };
+}
+
+function combineFilters(...filters) {
+  const active = filters.filter((filter) => filter && Object.keys(filter).length);
+  return active.length > 1 ? { $and: active } : active[0] || {};
+}
+
+async function linkedLeadScopeFilter(user) {
+  return ownerFilter(await getVisibleUserScope(user), 'createdBy', 'assignedTo', [
+    'createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedToText',
+    'assignedStaffText', 'assignedStaffEmail', 'assignments.assignedToText',
+    'assignments.assignedToEmail', 'serviceSelections.createdByCrmUserId',
+    'serviceSelections.createdByEmail', 'serviceSelections.createdByName'
+  ], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+}
+
+async function linkedTemporaryLeadScopeFilter(user) {
+  return ownerFilter(await getVisibleUserScope(user), 'createdBy', '', ['createdByName', 'createdByEmail']);
+}
+
+function canAccessCalendarScope(item = {}, scope) {
+  if (scope === null) return true;
+  const allowed = [...(scope?.ids || []), ...(scope?.identities || [])]
+    .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+  const itemTokens = [item.createdByUser, item.createdBy, item.assignedToId, item.assignedToEmail, item.assignedToName, item.assignedTo]
+    .map((value) => String(value?._id || value || '').trim().toLowerCase()).filter(Boolean);
+  return allowed.some((token) => itemTokens.includes(token));
 }
 
 function buildItemData(body = {}, user) {
@@ -175,7 +216,9 @@ async function closeLinkedLeadFollowUp(item, user) {
   const raw = typeof item.toObject === 'function' ? item.toObject() : item;
   if (String(raw.status || '').toLowerCase() !== 'completed' || !isFollowUpItem(raw)) return null;
   if (raw.temporaryLeadId && mongoose.Types.ObjectId.isValid(String(raw.temporaryLeadId))) {
-    const temporaryLead = await TemporaryLead.findById(raw.temporaryLeadId);
+    const temporaryLead = await TemporaryLead.findOne(combineFilters(
+      { _id: raw.temporaryLeadId }, await linkedTemporaryLeadScopeFilter(user)
+    ));
     if (!temporaryLead) return null;
     const closedAt = String(raw.completedAt || new Date().toISOString());
     if (!Array.isArray(temporaryLead.followUpHistory)) temporaryLead.followUpHistory = [];
@@ -193,7 +236,9 @@ async function closeLinkedLeadFollowUp(item, user) {
   if (raw.leadNumber) lookups.push({ leadCode: String(raw.leadNumber).trim() });
   const companyName = String(raw.leadCompanyName || raw.clientName || '').trim();
   if (companyName) lookups.push({ company: companyName });
-  const lead = lookups.length ? await Lead.findOne({ $or: lookups }) : null;
+  const lead = lookups.length ? await Lead.findOne(combineFilters(
+    { $or: lookups }, await linkedLeadScopeFilter(user)
+  )) : null;
   if (!lead || !Array.isArray(lead.serviceSelections)) return;
   if (!applyCalendarFollowUpClosure(lead, raw, user)) return lead;
   lead.markModified('serviceSelections');
@@ -208,7 +253,9 @@ async function scheduleLinkedLeadFollowUp(item, user) {
   if (raw.temporaryLeadId && mongoose.Types.ObjectId.isValid(String(raw.temporaryLeadId))) temporaryLookup.push({ _id: raw.temporaryLeadId });
   if (/^ATPL-TEMP-/i.test(String(raw.leadNumber || ''))) temporaryLookup.push({ tempLeadCode: String(raw.leadNumber).trim() });
   if (temporaryLookup.length) {
-    const temporaryLead = await TemporaryLead.findOne({ $or: temporaryLookup });
+    const temporaryLead = await TemporaryLead.findOne(combineFilters(
+      { $or: temporaryLookup }, await linkedTemporaryLeadScopeFilter(user)
+    ));
     if (!temporaryLead) return null;
     if (!Array.isArray(temporaryLead.followUpHistory)) temporaryLead.followUpHistory = [];
     const calendarItemId = String(raw._id || raw.externalId || '');
@@ -226,7 +273,9 @@ async function scheduleLinkedLeadFollowUp(item, user) {
   const leadId = String(raw.leadId || '').trim();
   if (leadId && mongoose.Types.ObjectId.isValid(leadId)) lookups.push({ _id: leadId });
   if (raw.leadNumber) lookups.push({ leadCode: String(raw.leadNumber).trim() }, { sourceLeadId: String(raw.leadNumber).trim() });
-  const lead = lookups.length ? await Lead.findOne({ $or: lookups }) : null;
+  const lead = lookups.length ? await Lead.findOne(combineFilters(
+    { $or: lookups }, await linkedLeadScopeFilter(user)
+  )) : null;
   if (!lead || !Array.isArray(lead.serviceSelections) || !lead.serviceSelections.length) return null;
   const serviceIndex = resolveServiceIndex(lead.serviceSelections, raw);
   const index = serviceIndex >= 0 ? serviceIndex : 0;
@@ -252,7 +301,7 @@ async function scheduleLinkedLeadFollowUp(item, user) {
 }
 
 exports.listCalendarItems = async (req, res) => {
-  const items = await CalendarItem.find(calendarVisibilityFilter(req.user))
+  const items = await CalendarItem.find(calendarScopeFilter(await getVisibleUserScope(req.user)))
     .sort({ scheduledDate: 1, scheduledTime: 1, createdAt: -1 })
     .lean();
   // Idempotently repair follow-ups completed before lead/calendar syncing was
@@ -270,7 +319,7 @@ exports.createCalendarItem = async (req, res) => {
 
   let item = data.externalId ? await CalendarItem.findOne({ externalId: data.externalId }) : null;
   if (item) {
-    if (!canAccessCalendarItem(item, req.user)) return res.status(403).json({ error: 'You do not have access to this calendar item' });
+    if (!canAccessCalendarScope(item, await getVisibleUserScope(req.user))) return res.status(403).json({ error: 'You do not have access to this calendar item' });
     Object.assign(item, data);
     await item.save();
     return res.json({ ok: true, item: mapItem(item) });
@@ -285,7 +334,7 @@ exports.createCalendarItem = async (req, res) => {
 exports.updateCalendarItem = async (req, res) => {
   const item = await findItem(req.params.id);
   if (!item) return res.status(404).json({ error: 'Calendar item not found' });
-  if (!canAccessCalendarItem(item, req.user)) return res.status(403).json({ error: 'You do not have access to this calendar item' });
+  if (!canAccessCalendarScope(item, await getVisibleUserScope(req.user))) return res.status(403).json({ error: 'You do not have access to this calendar item' });
 
   const data = buildItemData({ ...req.body, id: item.externalId || req.params.id }, req.user);
   if (!data.title) return res.status(400).json({ error: 'Title is required' });
@@ -300,9 +349,9 @@ exports.updateCalendarItem = async (req, res) => {
 exports.deleteCalendarItem = async (req, res) => {
   const item = await findItem(req.params.id);
   if (!item) return res.status(404).json({ error: 'Calendar item not found' });
-  if (!canAccessCalendarItem(item, req.user)) return res.status(403).json({ error: 'You do not have access to this calendar item' });
+  if (!canAccessCalendarScope(item, await getVisibleUserScope(req.user))) return res.status(403).json({ error: 'You do not have access to this calendar item' });
   await item.deleteOne();
   res.json({ ok: true });
 };
 
-module.exports.__test = { buildItemData, mapItem, isFollowUpItem, sameFollowUpSchedule, resolveServiceIndex, applyCalendarFollowUpClosure, closeLinkedLeadFollowUp, scheduleLinkedLeadFollowUp, canAccessCalendarItem, calendarVisibilityFilter };
+module.exports.__test = { buildItemData, mapItem, isFollowUpItem, sameFollowUpSchedule, resolveServiceIndex, applyCalendarFollowUpClosure, closeLinkedLeadFollowUp, scheduleLinkedLeadFollowUp, canAccessCalendarItem, calendarVisibilityFilter, calendarScopeFilter, canAccessCalendarScope };

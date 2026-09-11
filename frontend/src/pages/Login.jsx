@@ -72,6 +72,8 @@ export default function Login(){
             <Mail className="h-5 w-5 text-emerald-600 transition duration-300 group-focus-within:scale-110" />
             <input
               type="email"
+              name="email"
+              autoComplete="email"
               placeholder="name@company.com"
               required
               value={email}
@@ -88,6 +90,8 @@ export default function Login(){
             </span>
             <input
               type={showPassword ? 'text' : 'password'}
+              name="password"
+              autoComplete="current-password"
               placeholder="Enter your password"
               required
               value={password}

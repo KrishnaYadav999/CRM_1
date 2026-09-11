@@ -37,9 +37,11 @@ function controller() {
   return createPurchaseOrderController({ Lead: Model(data.leads), Client: Model(data.clients), Quotation: Model(data.quotations) });
 }
 
+const adminUser = { _id: '64b000000000000000000099', role: 'admin' };
+
 test('list maps nested assignments and PO rows, services, proof metadata and quotation fallback', async () => {
   const res = responseRecorder();
-  await controller().list({ query: {} }, res);
+  await controller().list({ query: {}, user: adminUser }, res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.payload.success, true);
   assert.equal(res.payload.pagination.total, 3);
@@ -60,7 +62,7 @@ test('list maps nested assignments and PO rows, services, proof metadata and quo
 test('list supports all filters and bounded pagination', async () => {
   const filters = { leadId, clientId, quotationId, poNumber: '2026', page: '1', limit: '1' };
   const res = responseRecorder();
-  await controller().list({ query: filters }, res);
+  await controller().list({ query: filters, user: adminUser }, res);
   assert.equal(res.payload.pagination.total, 1);
   assert.equal(res.payload.pagination.limit, 1);
   assert.equal(res.payload.data[0].poNumber, 'PO-2026-001');
@@ -68,15 +70,15 @@ test('list supports all filters and bounded pagination', async () => {
 
 test('single endpoint returns a stable record and returns 404 for unknown ids', async () => {
   const listResponse = responseRecorder();
-  await controller().list({ query: {} }, listResponse);
+  await controller().list({ query: {}, user: adminUser }, listResponse);
   const id = listResponse.payload.data[0].id;
   const found = responseRecorder();
-  await controller().getOne({ params: { id } }, found);
+  await controller().getOne({ params: { id }, user: adminUser }, found);
   assert.equal(found.statusCode, 200);
   assert.equal(found.payload.data.id, id);
 
   const missing = responseRecorder();
-  await controller().getOne({ params: { id: 'po_missing' } }, missing);
+  await controller().getOne({ params: { id: 'po_missing' }, user: adminUser }, missing);
   assert.equal(missing.statusCode, 404);
   assert.deepEqual(missing.payload, { success: false, message: 'Purchase order not found' });
 });

@@ -1,4 +1,5 @@
 const SupportTicket = require('../models/SupportTicket');
+const { getVisibleUserScope } = require('../utils/visibilityScope');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { notifyTicketRaised, notifyTicketResolved } = require('../services/supportTicketEmails');
@@ -30,7 +31,8 @@ async function nextTicketNumber() {
 }
 
 exports.listTickets = async (req, res) => {
-  const query = isAdmin(req.user) ? {} : { createdBy: req.user._id };
+  const scope = await getVisibleUserScope(req.user);
+  const query = scope === null ? {} : { createdBy: { $in: scope.ids } };
   if (req.query.status && STATUSES.includes(req.query.status)) query.status = req.query.status;
   if (req.query.category && CATEGORIES.includes(req.query.category)) query.category = req.query.category;
   const tickets = await SupportTicket.find(query).sort({ updatedAt: -1 }).lean();

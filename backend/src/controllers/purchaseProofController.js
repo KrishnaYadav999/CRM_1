@@ -6,11 +6,19 @@ const PurchaseProof = require('../models/PurchaseProof');
 const { PURCHASE_CHECKLIST_PARTICULARS, defaultChecklist, purchaseReadiness, calculatePurchaseStatus } = require('../services/purchaseDataService');
 const { safeName, sha256, validateFile, decodeEmail, uploadBuffer, deleteStored, publicEmailData } = require('../services/purchaseEmailProofService');
 const { logActivity } = require('../services/activityLogService');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
 function normalizedRole(user) { return String(user?.role || '').toLowerCase().replace(/[\s_-]+/g, ''); }
 function canEdit(user) { const role = normalizedRole(user); return ['admin', 'superadmin'].includes(role) || (role !== 'manager' && !role.includes('compliance')); }
 function validYear(value) { return /^20\d{2}-\d{2}$/.test(String(value || '').trim()); }
-async function findClient(value) { if (mongoose.Types.ObjectId.isValid(value)) { const found = await Client.findById(value); if (found) return found; } return null; }
+async function findClient(value, user) {
+  if (!mongoose.Types.ObjectId.isValid(value)) return null;
+  const visibility = ownerFilter(await getVisibleUserScope(user), 'createdBy', 'adminControls.assignedTo', [
+    'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
+    'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
+  ]);
+  return Client.findOne({ $and: [{ _id: value }, visibility] });
+}
 function proofReference(proof, full = true) {
   const emailData = full ? proof.emailData : { format: proof.emailData?.format, subject: proof.emailData?.subject, from: proof.emailData?.from, sentAt: proof.emailData?.sentAt, receivedAt: proof.emailData?.receivedAt, decodeStatus: proof.emailData?.decodeStatus, decodeWarnings: proof.emailData?.decodeWarnings || [] };
   return { proofId: proof._id, name: proof.name, originalName: proof.originalName, fileType: proof.fileType, type: proof.mimeType, mimeType: proof.mimeType, size: proof.size, url: `/api/purchase-proofs/${proof._id}/download`, uploadedAt: proof.createdAt, emailData };
@@ -32,7 +40,7 @@ exports.uploadEmailProof = async (req, res) => {
     if (!validYear(financialYear)) return res.status(400).json({ success: false, message: 'financialYear must use YYYY-YY.' });
     if (!['purchase', 'sales'].includes(section)) return res.status(400).json({ success: false, message: 'section must be purchase or sales.' });
     if (!PURCHASE_CHECKLIST_PARTICULARS.includes(particular)) return res.status(400).json({ success: false, message: `Unknown ${sectionLabel} Progress Tracker row.` });
-    const client = await findClient(req.params.clientId); if (!client) return res.status(404).json({ success: false, message: 'Client not found.' });
+    const client = await findClient(req.params.clientId, req.user); if (!client) return res.status(404).json({ success: false, message: 'Client not found or not accessible.' });
     let format; try { format = validateFile(req.file); } catch (error) { return res.status(422).json({ success: false, message: error.message, code: error.code }); }
     const checksum = section === 'sales' ? sha256(Buffer.concat([Buffer.from('sales:'), req.file.buffer])) : sha256(req.file.buffer);
     const duplicate = await PurchaseProof.findOne({ clientId: client._id, financialYear, section, progressParticular: particular, checksum });
@@ -66,7 +74,12 @@ exports.uploadEmailProof = async (req, res) => {
   }
 };
 
-async function loadProof(req, res) { if (!mongoose.Types.ObjectId.isValid(req.params.proofId)) { res.status(404).json({ error: 'Proof not found.' }); return null; } const proof = await PurchaseProof.findById(req.params.proofId); if (!proof) { res.status(404).json({ error: 'Proof not found.' }); return null; } return proof; }
+async function loadProof(req, res) {
+  if (!mongoose.Types.ObjectId.isValid(req.params.proofId)) { res.status(404).json({ error: 'Proof not found.' }); return null; }
+  const proof = await PurchaseProof.findById(req.params.proofId);
+  if (!proof || !await findClient(proof.clientId, req.user)) { res.status(404).json({ error: 'Proof not found or not accessible.' }); return null; }
+  return proof;
+}
 exports.getProof = async (req, res) => { const proof = await loadProof(req, res); if (!proof) return; await audit(req, 'PURCHASE_EMAIL_PROOF_PREVIEWED', proof); return res.json({ success: true, proof: proofReference(proof) }); };
 async function streamStored(req, res, proof, stored, name, action) { const response = await fetch(stored.storageUrl); if (!response.ok) return res.status(502).json({ error: 'Stored file is temporarily unavailable.' }); const buffer = Buffer.from(await response.arrayBuffer()); res.set({ 'Content-Type': response.headers.get('content-type') || 'application/octet-stream', 'Content-Length': String(buffer.length), 'Content-Disposition': `attachment; filename="${safeName(name).replace(/"/g, '')}"`, 'Cache-Control': 'private, no-store' }); await audit(req, action, proof); return res.send(buffer); }
 exports.downloadProof = async (req, res) => { const proof = await loadProof(req, res); if (!proof) return; return streamStored(req, res, proof, proof, proof.name, 'PURCHASE_EMAIL_PROOF_DOWNLOADED'); };

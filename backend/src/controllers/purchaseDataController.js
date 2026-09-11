@@ -7,6 +7,7 @@ const {
   purchaseReadiness, calculatePurchaseStatus, checksum
 } = require('../services/purchaseDataService');
 const { notifyPurchaseWorkflow } = require('../services/purchaseDataNotifications');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
 function role(user) { return String(user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, ''); }
 function isAdmin(user) { return ['admin', 'superadmin'].includes(role(user)); }
@@ -17,13 +18,17 @@ function actor(user) { return { userId: user?._id, name: user?.name || user?.ema
 function historyItem(stage, decision, user, message = '') { return { stage, decision, message: String(message || '').trim(), by: actor(user), at: new Date() }; }
 function validYear(value) { return /^20\d{2}-\d{2}$/.test(String(value || '').trim()); }
 
-async function findClient(value) {
+async function findClient(value, user) {
   const id = String(value || '').trim();
+  const visibility = ownerFilter(await getVisibleUserScope(user), 'createdBy', 'adminControls.assignedTo', [
+    'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
+    'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
+  ]);
   if (mongoose.Types.ObjectId.isValid(id)) {
-    const byId = await Client.findById(id);
+    const byId = await Client.findOne({ $and: [{ _id: id }, visibility] });
     if (byId) return byId;
   }
-  return Client.findOne({ $or: [{ 'data.importMeta.uniqueId': id }, { 'data.basic.clientLegalName': id }, { 'data.basic.tradeName': id }] });
+  return Client.findOne({ $and: [{ $or: [{ 'data.importMeta.uniqueId': id }, { 'data.basic.clientLegalName': id }, { 'data.basic.tradeName': id }] }, visibility] });
 }
 
 function cleanFile(file = {}) {
@@ -110,7 +115,7 @@ exports.getPurchaseData = async (req, res) => {
   try {
     const financialYear = String(req.query.financialYear || '').trim();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id);
+    const client = await findClient(req.params.id, req.user);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     purchase.calculatedStatus = calculatePurchaseStatus(purchase);
@@ -124,7 +129,7 @@ exports.updateChecklist = async (req, res) => {
     if (!canEdit(req.user)) return res.status(403).json({ error: 'Your role has read-only access to the Purchase Data checklist.' });
     const financialYear = String(req.body.financialYear || '').trim();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id);
+    const client = await findClient(req.params.id, req.user);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     const incoming = new Map((Array.isArray(req.body.checklist) ? req.body.checklist : []).map((row) => [String(row.particular || '').trim(), row]));
@@ -151,7 +156,7 @@ exports.updateScreenshots = async (req, res) => {
     if (!canEdit(req.user)) return res.status(403).json({ error: 'Your role cannot change Purchase Data screenshots.' });
     const financialYear = String(req.body.financialYear || '').trim();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id);
+    const client = await findClient(req.params.id, req.user);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     purchase.screenshots = cleanEvidenceFiles(req.body.screenshots);
@@ -163,6 +168,8 @@ exports.updateScreenshots = async (req, res) => {
 };
 
 exports.importPurchaseRows = async (req, res) => {
+  let insertedUploadId = null;
+  let importCommitted = false;
   try {
     if (!canEdit(req.user)) return res.status(403).json({ error: 'Your role cannot replace Purchase Excel files.' });
     const source = String(req.params.source || '').toLowerCase();
@@ -174,24 +181,23 @@ exports.importPurchaseRows = async (req, res) => {
     const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
     if (rows.length > 10000) return res.status(413).json({ error: 'A maximum of 10,000 rows is supported per import.' });
     let parsed;
-    try { parsed = normalizePurchaseRows(rows, source, financialYear); }
+    try { parsed = normalizePurchaseRows(rows, source, financialYear, req.body.headerRowNumber); }
     catch (error) { return res.status(422).json({ error: error.message, code: error.code, missingHeaders: error.missingHeaders || [] }); }
-    if (parsed.invalidRowCount || parsed.duplicateRowCount) {
-      return res.status(422).json({ error: 'Fix invalid or duplicate rows before confirming this import.', upload: parsed, previewRows: parsed.normalizedRows.slice(0, 100), validationErrors: parsed.validationErrors });
+    if (!parsed.acceptedRows.length) {
+      return res.status(422).json({ error: 'No valid rows could be imported. Correct the listed row errors and try again.', upload: parsed, previewRows: [], validationErrors: parsed.validationErrors });
     }
-    const client = await findClient(req.params.id);
+    const client = await findClient(req.params.id, req.user);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     const field = source === 'base' ? 'baseUpload' : 'portalUpload';
     const previous = purchase[field];
     const fileChecksum = checksum({ name: file.name, size: file.size, rows });
-    if (previous?.checksum === fileChecksum) return res.json({ ok: true, unchanged: true, purchaseData: payload(purchase, req.user) });
     const uploadId = new mongoose.Types.ObjectId();
-    const docs = parsed.normalizedRows.map((row) => ({ ...row, clientId: client._id, financialYear, uploadId, createdBy: req.user._id }));
-    if (docs.length) await PurchaseImportRow.insertMany(docs, { ordered: true });
+    const docs = parsed.acceptedRows.map((row) => ({ ...row, clientId: client._id, financialYear, uploadId, createdBy: req.user._id }));
+    if (docs.length) { await PurchaseImportRow.insertMany(docs, { ordered: true }); insertedUploadId = uploadId; }
     purchase[field] = {
       uploadId, source, ...file, checksum: fileChecksum, sheetName: String(req.body.sheetName || '').trim(), headerRowNumber: Number(req.body.headerRowNumber) || 1,
-      totalRows: parsed.totalRows, validRowCount: parsed.validRowCount, warningRowCount: parsed.warningRowCount, invalidRowCount: 0, duplicateRowCount: 0,
+      totalRows: parsed.totalRows, importedRowCount: docs.length, validRowCount: parsed.validRowCount, warningRowCount: parsed.warningRowCount, invalidRowCount: parsed.invalidRowCount, duplicateRowCount: parsed.duplicateRowCount,
       totalQuantity: parsed.totalQuantity, totalGst: parsed.totalGst, validationErrors: parsed.validationErrors, importStatus: 'Imported', uploadedAt: new Date(), uploadedBy: req.user._id, uploadedByName: req.user.name || req.user.email || 'CRM User'
     };
     purchase.dataVersion = (purchase.dataVersion || 0) + 1;
@@ -201,25 +207,39 @@ exports.importPurchaseRows = async (req, res) => {
     await refreshReconciliation(purchase);
     purchase.markModified(field); purchase.markModified('reviewHistory');
     await purchase.save();
+    importCommitted = true;
     if (previous?.uploadId) await PurchaseImportRow.deleteMany({ uploadId: previous.uploadId });
     let automaticSubmission = null;
     const readiness = purchaseReadiness(purchase);
     if (hasBothExcelImports(purchase) && readiness.ready) {
       const warningNote = readiness.warningIssueCount ? ` Reconciliation includes ${readiness.warningIssueCount} warning(s) for Manager review.` : '';
-      automaticSubmission = await submitForManagerApproval({ purchase, client, user: req.user, message: `Automatically submitted after both Purchase Excel files were imported.${warningNote}` });
+      try {
+        automaticSubmission = await submitForManagerApproval({ purchase, client, user: req.user, message: `Automatically submitted after both Purchase Excel files were imported.${warningNote}` });
+      } catch (notificationError) {
+        console.error('Purchase import succeeded but automatic submission notification failed', {
+          clientId: String(client._id), financialYear, message: notificationError.message, stack: notificationError.stack
+        });
+      }
     }
     res.json({
       ok: true,
       upload: purchase[field],
-      previewRows: parsed.normalizedRows.slice(0, 100),
+      previewRows: parsed.acceptedRows.slice(0, 100),
       validationErrors: parsed.validationErrors,
       summary: purchase.reconciliation,
       purchaseData: payload(purchase, req.user),
       autoSubmitted: Boolean(automaticSubmission && !automaticSubmission.duplicate),
       managerNotificationCreated: Boolean(automaticSubmission?.notification?.ok),
-      managerEmailSent: Number(automaticSubmission?.notification?.emailSent || 0) > 0
+      managerEmailSent: Number(automaticSubmission?.notification?.emailSent || 0) > 0,
+      partialImport: parsed.invalidRowCount > 0 || parsed.duplicateRowCount > 0,
+      importedRowCount: docs.length,
+      skippedRowCount: parsed.invalidRowCount + parsed.duplicateRowCount
     });
-  } catch (error) { console.error('Purchase import failed', error); res.status(500).json({ error: 'Unable to import Purchase Excel data.' }); }
+  } catch (error) {
+    if (insertedUploadId && !importCommitted) await PurchaseImportRow.deleteMany({ uploadId: insertedUploadId }).catch(() => {});
+    console.error('Purchase import failed', { clientId: req.params.id, source: req.params.source, financialYear: req.body?.financialYear, userId: String(req.user?._id || ''), code: error.code, message: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Unable to import Purchase Excel data.', code: error.code || 'PURCHASE_IMPORT_FAILED' });
+  }
 };
 
 exports.removePurchaseImport = async (req, res) => {
@@ -228,7 +248,7 @@ exports.removePurchaseImport = async (req, res) => {
     const source = String(req.params.source || '').toLowerCase();
     const financialYear = String(req.query.financialYear || '').trim();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id);
+    const client = await findClient(req.params.id, req.user);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     const field = source === 'base' ? 'baseUpload' : source === 'portal' ? 'portalUpload' : '';
@@ -248,7 +268,7 @@ exports.listPurchaseRows = async (req, res) => {
     const source = String(req.query.source || 'base').toLowerCase();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
     if (!['base', 'portal'].includes(source)) return res.status(400).json({ error: 'source must be base or portal.' });
-    const client = await findClient(req.params.id);
+    const client = await findClient(req.params.id, req.user);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     const purchase = await PurchaseData.findOne({ clientId: client._id, financialYear });
     if (!purchase) return res.json({ ok: true, rows: [], pagination: { page: 1, pages: 1, total: 0 } });
@@ -271,7 +291,7 @@ exports.listPurchaseRows = async (req, res) => {
 exports.getReconciliation = async (req, res) => {
   try {
     if (!validYear(req.query.financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
+    const client = await findClient(req.params.id, req.user); if (!client) return res.status(404).json({ error: 'Client not found or not accessible' });
     const purchase = await getOrCreate(client, String(req.query.financialYear || '').trim(), req.user);
     await refreshReconciliation(purchase); await purchase.save();
     res.json({ ok: true, reconciliation: purchase.reconciliation, readiness: purchaseReadiness(purchase), calculatedStatus: calculatePurchaseStatus(purchase) });
@@ -280,7 +300,7 @@ exports.getReconciliation = async (req, res) => {
 
 exports.getPurchaseErrors = async (req, res) => {
   if (!validYear(req.query.financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-  const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
+  const client = await findClient(req.params.id, req.user); if (!client) return res.status(404).json({ error: 'Client not found or not accessible' });
   const purchase = await PurchaseData.findOne({ clientId: client._id, financialYear: String(req.query.financialYear || '').trim() }).lean();
   res.json({ ok: true, issues: purchase?.reconciliation?.issues || [] });
 };
@@ -290,7 +310,7 @@ exports.submitPurchaseData = async (req, res) => {
     if (!canEdit(req.user)) return res.status(403).json({ error: 'Your role cannot submit Purchase Data.' });
     const financialYear = String(req.body.financialYear || '').trim();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
+    const client = await findClient(req.params.id, req.user); if (!client) return res.status(404).json({ error: 'Client not found or not accessible' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     const readiness = purchaseReadiness(purchase);
     if (!readiness.ready) return res.status(422).json({ error: 'Purchase Data is not ready for submission.', errors: readiness.errors });
@@ -310,7 +330,7 @@ exports.managerReview = async (req, res) => {
     if (decision === 'REJECTED' && !message) return res.status(400).json({ error: 'Rejection comments are required.' });
     const financialYear = String(req.body.financialYear || '').trim();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
+    const client = await findClient(req.params.id, req.user); if (!client) return res.status(404).json({ error: 'Client not found or not accessible' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     if (purchase.managerVerificationStatus !== 'Pending') return res.status(409).json({ error: 'Purchase Data is not pending Manager review.' });
     const readiness = purchaseReadiness(purchase); if (!readiness.ready) return res.status(422).json({ error: 'Purchase Data is no longer ready.', errors: readiness.errors });
@@ -331,7 +351,7 @@ exports.complianceReview = async (req, res) => {
     if (decision === 'REJECTED' && !message) return res.status(400).json({ error: 'Rejection comments are required.' });
     const financialYear = String(req.body.financialYear || '').trim();
     if (!validYear(financialYear)) return res.status(400).json({ error: 'financialYear must use YYYY-YY.' });
-    const client = await findClient(req.params.id); if (!client) return res.status(404).json({ error: 'Client not found' });
+    const client = await findClient(req.params.id, req.user); if (!client) return res.status(404).json({ error: 'Client not found or not accessible' });
     const purchase = await getOrCreate(client, financialYear, req.user);
     if (purchase.managerVerificationStatus !== 'Approved' || purchase.complianceVerificationStatus !== 'Pending') return res.status(409).json({ error: 'Manager approval is required before Compliance review.' });
     purchase.complianceVerificationStatus = decision === 'APPROVED' ? 'Approved' : 'Rejected'; purchase.complianceVerifiedAt = new Date(); purchase.complianceVerifiedBy = req.user._id; purchase.complianceVerifiedByName = req.user.name || req.user.email || 'Compliance Manager';

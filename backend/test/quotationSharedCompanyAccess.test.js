@@ -24,7 +24,7 @@ test('normal user access includes own quotations and quotations linked to owned 
     role: 'sales'
   });
 
-  assert.deepEqual(filter.$or[0], { createdBy: userId });
+  assert.deepEqual(filter.$or[0], { createdBy: { $in: [userId] } });
   assert.ok(filter.$or.some((row) => row.leadId?.$in?.includes('ATPL-LEAD-0327')));
   assert.ok(filter.$or.some((row) => row.leadCode?.$in?.includes('327')));
 });

@@ -29,6 +29,39 @@ const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope')
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
 const { ADMIN_ROLES } = require('../constants/roles');
 
+async function leadAccessFilter(user) {
+  const scope = await getVisibleUserScope(user);
+  return ownerFilter(scope, 'createdBy', 'assignedTo', [
+    'createdByCrmUserId',
+    'createdByName',
+    'createdByEmail',
+    'importedCreatedBy',
+    'generatedForName',
+    'generatedForEmail',
+    'assignedToText',
+    'assignedToEmail',
+    'assignedStaffText',
+    'assignedStaffEmail',
+    'assignments.assignedToText',
+    'assignments.assignedToEmail',
+    'assignments.assignedStaffText',
+    'assignments.assignedStaffEmail',
+    'serviceSelections.createdByCrmUserId',
+    'serviceSelections.createdByName',
+    'serviceSelections.createdByEmail'
+  ], [
+    'generatedForUser',
+    'assignedStaff',
+    'assignments.assignedTo',
+    'assignments.assignedStaff'
+  ]);
+}
+
+function combineAccessFilters(...filters) {
+  const active = filters.filter((filter) => filter && Object.keys(filter).length);
+  return active.length > 1 ? { $and: active } : active[0] || {};
+}
+
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
 const LEAD_CODE_PREFIX = 'ATPL-LEAD-';
 const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -887,10 +920,11 @@ exports.searchCompanies = async (req, res) => {
   }
 
   const escaped = identity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const leads = await Lead.find({ $or: [
+  const searchFilter = { $or: [
     { companyIdentity: { $regex: escaped, $options: 'i' } },
     { company: { $regex: escaped, $options: 'i' } }
-  ] })
+  ] };
+  const leads = await Lead.find(combineAccessFilters(searchFilter, await leadAccessFilter(req.user)))
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .populate('createdBy', 'name email')
@@ -904,24 +938,7 @@ exports.searchCompanies = async (req, res) => {
 
 exports.listLeads = async (req, res) => {
   await processExpiredProvisionalClosures();
-  const scope = await getVisibleUserScope(req.user);
-  // Leads and Client Master are shared read-only working catalogs for every
-  // authenticated CRM user; role checks still protect privileged mutations.
-  const leads = await Lead.find(ownerFilter(scope, 'createdBy', 'assignedTo', [
-    'assignedToText',
-    'assignedToEmail',
-    'assignedStaffText',
-    'assignedStaffEmail',
-    'assignments.assignedTo',
-    'assignments.assignedToText',
-    'assignments.assignedToEmail',
-    'assignments.assignedStaff',
-    'assignments.assignedStaffText',
-    'assignments.assignedStaffEmail',
-    'serviceSelections.createdByCrmUserId',
-    'serviceSelections.createdByName',
-    'serviceSelections.createdByEmail'
-  ]))
+  const leads = await Lead.find(await leadAccessFilter(req.user))
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .populate('createdBy', 'name email')
@@ -1072,8 +1089,8 @@ exports.updateLeadCreator = async (req, res) => {
 
 exports.updateLead = async (req, res) => {
   try {
-    const lead = await Lead.findById(req.params.id);
-    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    const lead = await Lead.findOne(combineAccessFilters({ _id: req.params.id }, await leadAccessFilter(req.user)));
+    if (!lead) return res.status(404).json({ error: 'Lead not found or not accessible' });
     const beforeLead = lead.toObject();
 
     if (req.body?.company) {
@@ -1287,8 +1304,9 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
 };
 
 exports.recordIntroductionEmail = async (req, res) => {
-  const lead = mongoose.isValidObjectId(req.params.id) ? await Lead.findById(req.params.id) : await Lead.findOne({ sourceLeadId: req.params.id });
-  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  const identityFilter = mongoose.isValidObjectId(req.params.id) ? { _id: req.params.id } : { sourceLeadId: req.params.id };
+  const lead = await Lead.findOne(combineAccessFilters(identityFilter, await leadAccessFilter(req.user)));
+  if (!lead) return res.status(404).json({ error: 'Lead not found or not accessible' });
   const recipient = String(req.body.recipient || lead.emails || '').trim();
   await LeadActivity.create({ lead: lead._id, type: 'email_sent', title: 'Introduction email opened', description: recipient ? `Introduction email prepared for ${recipient}` : 'Introduction email action opened', actor: req.user?._id, metadata: { recipient } });
   res.status(201).json({ ok: true });
@@ -1298,8 +1316,9 @@ exports.getLeadHistory = async (req, res) => {
   const lookup = [{ sourceLeadId: req.params.id }];
   if (req.query.leadCode) lookup.push({ leadCode: String(req.query.leadCode).trim() });
   if (mongoose.isValidObjectId(req.params.id)) lookup.push({ _id: req.params.id });
-  const storedLead = await Lead.findOne({ $or: lookup }).populate('createdBy', 'name email').lean();
-  const lead = storedLead || { leadCode: String(req.query.leadCode || '').trim(), company: String(req.query.company || '').trim(), sourceLeadId: req.params.id };
+  const storedLead = await Lead.findOne(combineAccessFilters({ $or: lookup }, await leadAccessFilter(req.user))).populate('createdBy', 'name email').lean();
+  if (!storedLead) return res.status(404).json({ error: 'Lead not found or not accessible' });
+  const lead = storedLead;
   const ids = [lead._id, lead.sourceLeadId, req.params.id].filter(Boolean).map(String);
   const company = String(lead.company || req.query.company || '').trim();
   const quotationMatches = [{ leadId: { $in: ids } }];
@@ -1406,7 +1425,10 @@ exports.bulkCreateLeads = async (req, res) => {
 exports.claimLeadRoyalty = async (req, res) => {
   const lookup = [{ sourceLeadId: req.params.id }];
   if (mongoose.isValidObjectId(req.params.id)) lookup.push({ _id: req.params.id });
-  const lead = await Lead.findOne({ $or: lookup }).populate('createdBy', 'name email').lean();
+  const lead = await Lead.findOne(combineAccessFilters(
+    { $or: lookup },
+    await leadAccessFilter(req.user)
+  )).populate('createdBy', 'name email').lean();
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
   const eligibility = royaltyContributorEligibility(lead, req.user);
   if (eligibility.reason === 'same-user') {

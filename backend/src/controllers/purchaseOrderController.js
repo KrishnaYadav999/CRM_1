@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Lead = require('../models/Lead');
 const Client = require('../models/Client');
 const Quotation = require('../models/Quotation');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 
 const MIME_BY_EXTENSION = {
   pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
@@ -54,9 +55,9 @@ function resolveQuotation(row, lead, quotations) {
     || null;
 }
 
-async function loadPurchaseOrders(models) {
+async function loadPurchaseOrders(models, leadFilter = {}) {
   const [leads, clients, quotations] = await Promise.all([
-    leanFind(models.Lead, {}), leanFind(models.Client, {}), leanFind(models.Quotation, {})
+    leanFind(models.Lead, leadFilter), leanFind(models.Client, {}), leanFind(models.Quotation, {})
   ]);
   const clientByLead = new Map();
   for (const client of clients || []) {
@@ -112,7 +113,14 @@ async function loadPurchaseOrders(models) {
 function createPurchaseOrderController(models = { Lead, Client, Quotation }) {
   return {
     async list(req, res) {
-      let records = await loadPurchaseOrders(models);
+      const scope = await getVisibleUserScope(req.user);
+      const leadFilter = ownerFilter(scope, 'createdBy', 'assignedTo', [
+        'createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedToText',
+        'assignedStaffText', 'assignedStaffEmail', 'assignments.assignedToText',
+        'assignments.assignedToEmail', 'serviceSelections.createdByCrmUserId',
+        'serviceSelections.createdByEmail', 'serviceSelections.createdByName'
+      ], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+      let records = await loadPurchaseOrders(models, leadFilter);
       const query = req.query || {};
       if (text(query.leadId)) records = records.filter((row) => row.leadId === text(query.leadId));
       if (text(query.clientId)) records = records.filter((row) => row.clientId === text(query.clientId));
@@ -134,7 +142,14 @@ function createPurchaseOrderController(models = { Lead, Client, Quotation }) {
     },
 
     async getOne(req, res) {
-      const record = (await loadPurchaseOrders(models)).find((row) => row.id === text(req.params?.id));
+      const scope = await getVisibleUserScope(req.user);
+      const leadFilter = ownerFilter(scope, 'createdBy', 'assignedTo', [
+        'createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedToText',
+        'assignedStaffText', 'assignedStaffEmail', 'assignments.assignedToText',
+        'assignments.assignedToEmail', 'serviceSelections.createdByCrmUserId',
+        'serviceSelections.createdByEmail', 'serviceSelections.createdByName'
+      ], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+      const record = (await loadPurchaseOrders(models, leadFilter)).find((row) => row.id === text(req.params?.id));
       if (!record) return res.status(404).json({ success: false, message: 'Purchase order not found' });
       return res.json({ success: true, message: 'Purchase order fetched successfully', data: record });
     }

@@ -12,6 +12,7 @@ const SupportTicket = require('../models/SupportTicket');
 const { clientIp } = require('../middleware/activityAudit');
 const { getUserProductivityReport, getUserWorkReport } = require('../services/userProductivityReport');
 const { getUserRoles } = require('../utils/userRoles');
+const { getVisibleUserScope } = require('../utils/visibilityScope');
  
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -766,7 +767,8 @@ exports.listAuditLogs = async (req, res) => {
 };
  
 exports.listActiveUsers = async (req, res) => {
-  const users = await User.find({ isActive: true })
+  const scope = await getVisibleUserScope(req.user);
+  const users = await User.find({ isActive: true, ...(scope === null ? {} : { _id: { $in: scope.ids } }) })
     .select('crmUserId source name email avatarUrl role roles team teamId managerId operationHeadId isActive lastLogin createdAt updatedAt')
     .sort({ name: 1, email: 1 });
   res.json({ ok: true, users });

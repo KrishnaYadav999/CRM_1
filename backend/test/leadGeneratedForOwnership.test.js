@@ -39,6 +39,6 @@ test('actual creator and generated-for owner can both quote lead services', () =
   assert.match(leadPage, /const participantCanSeeAllServices =/);
   assert.match(leadPage, /viewLead\.generatedForUser\?\._id/);
   assert.match(leadPage, /if \(participantCanSeeAllServices\) return true/);
-  assert.match(quotationController, /\{ generatedForUser: userId \}/);
-  assert.match(quotationController, /\{ generatedForEmail: exact \}/);
+  assert.match(quotationController, /'generatedForName', 'generatedForEmail'/);
+  assert.match(quotationController, /'generatedForUser', 'assignedStaff'/);
 });

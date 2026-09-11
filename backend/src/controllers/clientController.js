@@ -30,9 +30,34 @@ const {
 
 const CLIENT_MASTER_CLOSED_LEAD_ERROR = 'Close this lead service before creating its Client Master.';
 
-async function validateNewClientLeadEligibility(selectedLead, assignedServiceId) {
+function combineAccessFilters(...filters) {
+  const active = filters.filter((filter) => filter && Object.keys(filter).length);
+  return active.length > 1 ? { $and: active } : active[0] || {};
+}
+
+async function clientAccessFilter(user) {
+  const scope = await getVisibleUserScope(user);
+  return ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
+    'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
+    'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
+  ]);
+}
+
+async function leadAccessFilter(user) {
+  const scope = await getVisibleUserScope(user);
+  return ownerFilter(scope, 'createdBy', 'assignedTo', [
+    'createdByCrmUserId', 'createdByName', 'createdByEmail', 'importedCreatedBy',
+    'generatedForName', 'generatedForEmail', 'assignedToText', 'assignedToEmail',
+    'assignedStaffText', 'assignedStaffEmail', 'assignments.assignedToText',
+    'assignments.assignedToEmail', 'assignments.assignedStaffText',
+    'assignments.assignedStaffEmail', 'serviceSelections.createdByCrmUserId',
+    'serviceSelections.createdByName', 'serviceSelections.createdByEmail'
+  ], ['generatedForUser', 'assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+}
+
+async function validateNewClientLeadEligibility(selectedLead, assignedServiceId, user) {
   if (!selectedLead) return '';
-  const lead = await Lead.findById(selectedLead).lean();
+  const lead = await Lead.findOne(combineAccessFilters({ _id: selectedLead }, await leadAccessFilter(user))).lean();
   if (!lead) return 'Selected lead was not found.';
   return isLeadServiceEligibleForClientMaster(lead, assignedServiceId)
     ? ''
@@ -1054,11 +1079,11 @@ exports.searchClientMasterCompanies = async (req, res) => {
   ] };
 
   const [leads, clientRecords] = await Promise.all([
-    Lead.find(leadFilter)
+    Lead.find(combineAccessFilters(leadFilter, await leadAccessFilter(req.user)))
       .select('_id leadCode sourceLeadId company companyIdentity serviceSelections assignments closedBy closedByText closedAt')
       .limit(limit)
       .lean(),
-    Client.find(clientFilter)
+    Client.find(combineAccessFilters(clientFilter, await clientAccessFilter(req.user)))
       .select(clientDiscoveryProjection())
       .limit(limit * 2)
       .lean()
@@ -1121,12 +1146,14 @@ exports.listClientMasterServices = async (req, res) => {
   if (!identity) return res.status(400).json({ error: 'Client or Lead identity is required' });
 
   const explicitClientId = identity.startsWith('client:') ? identity.slice(7) : String(req.query.clientMasterId || '').trim();
+  const clientVisibility = await clientAccessFilter(req.user);
+  const leadVisibility = await leadAccessFilter(req.user);
   const baseClient = mongoose.Types.ObjectId.isValid(explicitClientId)
-    ? await Client.findById(explicitClientId).select(clientDiscoveryProjection()).lean()
+    ? await Client.findOne(combineAccessFilters({ _id: explicitClientId }, clientVisibility)).select(clientDiscoveryProjection()).lean()
     : null;
   const baseIdentity = baseClient ? normalizeClientMaster(baseClient) : null;
   const leadId = String(baseIdentity?.selectedLead || (mongoose.Types.ObjectId.isValid(identity) && !explicitClientId ? identity : '')).trim();
-  const lead = mongoose.Types.ObjectId.isValid(leadId) ? await Lead.findById(leadId).lean() : null;
+  const lead = mongoose.Types.ObjectId.isValid(leadId) ? await Lead.findOne(combineAccessFilters({ _id: leadId }, leadVisibility)).lean() : null;
   const leadCode = String(lead?.leadCode || lead?.sourceLeadId || baseIdentity?.leadCode || '').trim();
   const companyName = String(lead?.company || baseIdentity?.companyName || '').trim();
   const candidates = [];
@@ -1158,7 +1185,7 @@ exports.listClientMasterServices = async (req, res) => {
   }
 
   const records = relatedFilters.length
-    ? await Client.collection.find({ $or: relatedFilters }, { projection: {
+    ? await Client.collection.find(combineAccessFilters({ $or: relatedFilters }, clientVisibility), { projection: {
         _id: 1, selectedLead: 1, assignedServiceId: 1, workflowStatus: 1,
         'data.selectedLead': 1, 'data.assignedServiceId': 1, 'data.selectedLeadSnapshot': 1,
         'data.basic.clientLegalName': 1, 'data.basic.tradeName': 1, 'data.basic.piboCategory': 1,
@@ -1234,7 +1261,7 @@ exports.updateCpcbOnboarding = async (req, res) => {
   const creatingClient = !client;
   if (!client) {
     if (!selectedLead) return res.status(400).json({ error: 'Selected lead is required for first-time CPCB onboarding' });
-    const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId);
+    const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId, req.user);
     if (eligibilityError) return res.status(409).json({ error: eligibilityError, code: eligibilityError === CLIENT_MASTER_CLOSED_LEAD_ERROR ? 'LEAD_NOT_CLOSED' : 'LEAD_NOT_FOUND' });
     const bootstrapData = isPlainObject(req.body.bootstrapData) ? req.body.bootstrapData : {};
     client = new Client({
@@ -1370,7 +1397,7 @@ exports.createClient = async (req, res) => {
   if (completionError) return res.status(400).json({ error: completionError });
 
   const existingClient = requestedClientId
-    ? await Client.findById(requestedClientId)
+    ? await Client.findOne(combineAccessFilters({ _id: requestedClientId }, await clientAccessFilter(req.user)))
     : selectedLead && req.user?._id
       ? await Client.findOne({
         selectedLead,
@@ -1390,7 +1417,7 @@ exports.createClient = async (req, res) => {
     if (identityError) return res.status(409).json({ error: identityError });
   }
   if (!existingClient) {
-    const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId);
+    const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId, req.user);
     if (eligibilityError) return res.status(409).json({ error: eligibilityError, code: eligibilityError === CLIENT_MASTER_CLOSED_LEAD_ERROR ? 'LEAD_NOT_CLOSED' : 'LEAD_NOT_FOUND' });
   }
   const transition = getClientWorkflowTransition(existingClient?.workflowStatus || 'draft', workflowStatus);
@@ -1411,13 +1438,13 @@ exports.createClient = async (req, res) => {
   res.status(existingClient ? 200 : 201).json({ ok: true, client, alreadySubmitted: transition.alreadySubmitted });
 };
 
-async function createClientRecord(row, userId) {
+async function createClientRecord(row, user) {
   const workflowStatus = row.workflowStatus === 'submitted' ? 'submitted' : 'draft';
   const { data, adminControls } = normalizeClientRequestPayload(row);
   const selectedLead = readSelectedLeadId(row.selectedLead);
   const assignedServiceId = readClientAssignedServiceId(row, data);
 
-  const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId);
+  const eligibilityError = await validateNewClientLeadEligibility(selectedLead, assignedServiceId, user);
   if (eligibilityError) { const error = new Error(eligibilityError); error.statusCode = 409; throw error; }
 
   if (workflowStatus === 'submitted' && !data?.basic?.clientLegalName) {
@@ -1434,7 +1461,7 @@ async function createClientRecord(row, userId) {
     adminControls,
     data,
     workflowStatus,
-    createdBy: userId
+    createdBy: user?._id
   });
   if (workflowStatus === 'submitted') await queueCreatedClientApproval(client, row.createdByUser);
   return client;
@@ -1449,7 +1476,7 @@ exports.bulkCreateClients = async (req, res) => {
 
   for (let index = 0; index < rows.length; index += 1) {
     try {
-      const client = await createClientRecord({ ...rows[index], createdByUser: req.user }, req.user?._id);
+      const client = await createClientRecord({ ...rows[index], createdByUser: req.user }, req.user);
       clients.push(client);
     } catch (err) {
       failures.push({
@@ -1533,8 +1560,8 @@ exports.updateClient = async (req, res) => {
   const completionError = validateClientSubmissionCompletion(data, workflowStatus);
   if (completionError) return res.status(400).json({ error: completionError });
 
-  let client = await Client.findById(req.params.id);
-  if (!client) return res.status(404).json({ error: 'Client not found' });
+  let client = await Client.findOne(combineAccessFilters({ _id: req.params.id }, await clientAccessFilter(req.user)));
+  if (!client) return res.status(404).json({ error: 'Client not found or not accessible' });
   const effectiveAssignedServiceId = assignedServiceId || readClientAssignedServiceId(client, client.data || {});
   const existingData = isPlainObject(client.data) ? client.data : {};
   const resolvedExistingData = resolveClientMasterData(client, effectiveAssignedServiceId);
@@ -1619,15 +1646,16 @@ exports.updateAnnualReturn = async (req, res) => {
     if (workflowRemark.length > 250) return res.status(400).json({ error: 'Remark must be 250 characters or less' });
 
     const clientId = String(req.params.id || '').trim();
+    const visibility = await clientAccessFilter(req.user);
     let client = mongoose.Types.ObjectId.isValid(clientId)
-      ? await Client.findById(clientId)
-      : await Client.findOne({
+      ? await Client.findOne(combineAccessFilters({ _id: clientId }, visibility))
+      : await Client.findOne(combineAccessFilters({
           $or: [
             { 'data.importMeta.uniqueId': clientId },
             { 'data.basic.clientLegalName': clientId },
             { 'data.basic.tradeName': clientId }
           ]
-        });
+        }, visibility));
 
     if (!client) {
       const clientData = isPlainObject(req.body.clientData) ? req.body.clientData : {};

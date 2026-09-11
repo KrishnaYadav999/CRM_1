@@ -166,9 +166,11 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
       setPurchase(data.purchaseData);
       setRowsSource(selectedSource);
       setRows(importedRows.slice(0, 25));
-      setPagination({ page: 1, pages: Math.max(1, Math.ceil(Number(data.upload?.totalRows || importedRows.length) / 25)), total: Number(data.upload?.totalRows || importedRows.length) });
+      const importedCount = Number(data.importedRowCount ?? data.upload?.importedRowCount ?? importedRows.length);
+      setPagination({ page: 1, pages: Math.max(1, Math.ceil(importedCount / 25)), total: importedCount });
       setPendingImport(null);
-      setNotice({ type: data.autoSubmitted && !data.managerEmailSent ? 'warning' : 'success', text: data.autoSubmitted ? (data.managerEmailSent ? 'Both Excel files imported. Sent to Manager for approval and email notification delivered.' : 'Both Excel files imported and sent to Manager approval, but the Manager email could not be delivered. Please verify the user-manager mapping and mail configuration.') : `${selectedSource === 'base' ? 'Base' : 'Portal'} Excel uploaded successfully. ${Number(data.upload?.totalRows || importedRows.length)} rows are now visible below.` });
+      const skippedText = data.skippedRowCount ? ` ${data.skippedRowCount} invalid or duplicate row(s) were skipped; review the validation details.` : '';
+      setNotice({ type: data.partialImport || (data.autoSubmitted && !data.managerEmailSent) ? 'warning' : 'success', text: data.autoSubmitted ? (data.managerEmailSent ? `Both Excel files imported. Sent to Manager for approval and email notification delivered.${skippedText}` : `Both Excel files imported and sent to Manager approval, but the Manager email could not be delivered. Please verify the user-manager mapping and mail configuration.${skippedText}`) : `${selectedSource === 'base' ? 'Base' : 'Portal'} Excel uploaded successfully. ${importedCount} valid row(s) are now visible below.${skippedText}` });
     } catch (error) {
       const details = error?.response?.data?.validationErrors?.slice(0, 3).map((item) => `Row ${item.rowNumber}: ${item.message}`).join(' · ');
       setNotice({ type: 'error', text: `${errorText(error)}${details ? ` ${details}` : ''}` });
