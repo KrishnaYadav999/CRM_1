@@ -35,6 +35,17 @@ test('PET long name normalizes to the same material key', () => assert.equal(nor
 test('valid base import accepts rows and totals quantity', () => { const result = parsed([baseRow()], 'base'); assert.equal(result.invalidRowCount, 0); assert.equal(result.totalQuantity, 10); });
 test('valid portal import accepts the portal quantity header', () => { const result = parsed([portalRow()], 'portal'); assert.equal(result.invalidRowCount, 0); assert.equal(result.totalQuantity, 10); });
 test('missing required headers reject the complete import', () => assert.throws(() => parsed([{ Name: 'ABC' }], 'base'), /Missing required headers/));
+
+test('new purchase template headers map to base and portal metrics', () => {
+  const { 'Quantity (TPA)': ignoredBaseQty, 'GST Paid': ignoredBaseGst, ...baseInput } = baseRow();
+  const { 'Total Plastic Qty (Tons)': ignoredPortalQty, 'GST Paid': ignoredPortalGst, ...portalInput } = portalRow();
+  const base = parsed([{ ...baseInput, 'Qty. of Plastic (MT)': 8.25, 'Total Invoice Value': 1485 }], 'base');
+  const portal = parsed([{ ...portalInput, 'Total Plastic Quantity': 8.25, 'Total Invoice Value': 1485 }], 'portal');
+  assert.equal(base.acceptedRows[0].quantity, 8.25);
+  assert.equal(base.acceptedRows[0].gstPaid, 1485);
+  assert.equal(portal.acceptedRows[0].quantity, 8.25);
+  assert.equal(portal.acceptedRows[0].gstPaid, 1485);
+});
 test('wrong financial year is a row validation error', () => assert.equal(parsed([baseRow({ 'Financial Year': '2024-25' })], 'base').invalidRowCount, 1));
 test('malformed financial year is a row validation error', () => assert.equal(parsed([baseRow({ 'Financial Year': '25-26' })], 'base').invalidRowCount, 1));
 test('invalid plastic category is rejected', () => assert.equal(parsed([baseRow({ 'Category of Plastic': 'Cat-V' })], 'base').invalidRowCount, 1));

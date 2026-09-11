@@ -1,7 +1,9 @@
 import * as XLSX from 'xlsx';
 
-const BASE_HEADERS = ['Financial Year', 'Name of Entity', 'Registration Type', 'GSTIN', 'Invoice Number', 'Invoice Date', 'Category of Plastic', 'Plastic Material Type', 'Quantity (TPA)', 'GST Paid', 'State', 'Remarks'];
-const PORTAL_HEADERS = ['Financial Year', 'Name of Entity', 'Registration Type', 'GSTIN', 'Portal Reference Number', 'Category of Plastic', 'Plastic Material Type', 'Total Plastic Qty (Tons)', 'GST Paid', 'Upload Status', 'Upload Date', 'Remarks'];
+const LEGACY_BASE_HEADERS = ['Financial Year', 'Name of Entity', 'Registration Type', 'GSTIN', 'Invoice Number', 'Invoice Date', 'Category of Plastic', 'Plastic Material Type', 'Quantity (TPA)', 'GST Paid', 'State', 'Remarks'];
+const LEGACY_PORTAL_HEADERS = ['Financial Year', 'Name of Entity', 'Registration Type', 'GSTIN', 'Portal Reference Number', 'Category of Plastic', 'Plastic Material Type', 'Total Plastic Qty (Tons)', 'GST Paid', 'Upload Status', 'Upload Date', 'Remarks'];
+const PURCHASE_BASE_HEADERS = ['Financial Year', 'Name of Entity', 'Registration Type', 'GSTIN', 'Invoice Number', 'Invoice Date', 'Category of Plastic', 'Plastic Material Type', 'Qty. of Plastic (MT)', 'Total Invoice Value', 'State', 'Remarks'];
+const PURCHASE_PORTAL_HEADERS = ['Financial Year', 'Name of Entity', 'Registration Type', 'GSTIN', 'Portal Reference Number', 'Category of Plastic', 'Plastic Material Type', 'Total Plastic Quantity', 'Total Invoice Value', 'Upload Status', 'Upload Date', 'Remarks'];
 
 const normalizeHeader = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -11,8 +13,10 @@ export async function readPurchaseWorkbook(file, source) {
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
   for (const sheetName of workbook.SheetNames) {
     const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', raw: false });
-    const quantityHeader = source === 'base' ? 'quantitytpa' : 'totalplasticqtytons';
-    const headerIndex = matrix.findIndex((row) => Array.isArray(row) && row.some((cell) => normalizeHeader(cell) === quantityHeader));
+    const quantityHeaders = source === 'base'
+      ? ['qtyofplasticmt', 'quantitytpa']
+      : ['totalplasticquantity', 'totalplasticqtytons'];
+    const headerIndex = matrix.findIndex((row) => Array.isArray(row) && row.some((cell) => quantityHeaders.includes(normalizeHeader(cell))));
     if (headerIndex < 0) continue;
     const headers = matrix[headerIndex].map((cell, index) => String(cell || `Column ${index + 1}`).trim());
     const rows = matrix.slice(headerIndex + 1)
@@ -22,7 +26,7 @@ export async function readPurchaseWorkbook(file, source) {
     if (rows.length > 10000) throw new Error('A maximum of 10,000 rows is supported per import.');
     return { sheetName, headerRowNumber: headerIndex + 1, rows, preview: rows.slice(0, 8), headers };
   }
-  throw new Error(source === 'base' ? 'Could not find the required Quantity (TPA) header.' : 'Could not find the required Total Plastic Qty (Tons) header.');
+  throw new Error(source === 'base' ? 'Could not find the required Qty. of Plastic (MT) header.' : 'Could not find the required Total Plastic Quantity header.');
 }
 
 export function downloadPurchaseTemplate(source, financialYear) {
@@ -31,7 +35,10 @@ export function downloadPurchaseTemplate(source, financialYear) {
 
 export function downloadDataTemplate(source, financialYear, moduleName = 'purchase') {
   const moduleLabel = moduleName === 'sales' ? 'Sales' : 'Purchase';
-  const headers = source === 'base' ? BASE_HEADERS : PORTAL_HEADERS;
+  const isPurchase = moduleName === 'purchase';
+  const headers = source === 'base'
+    ? (isPurchase ? PURCHASE_BASE_HEADERS : LEGACY_BASE_HEADERS)
+    : (isPurchase ? PURCHASE_PORTAL_HEADERS : LEGACY_PORTAL_HEADERS);
   const example = source === 'base'
     ? [financialYear, 'ABC RECYCLERS PRIVATE LIMITED', 'Registered', '27ABCDE1234F1Z5', 'INV-1001', '01-04-2025', 'Cat-I', 'PET', 12.5, 2250, 'Maharashtra', 'Example only']
     : [financialYear, 'ABC RECYCLERS PRIVATE LIMITED', 'Registered', '27ABCDE1234F1Z5', 'PORTAL-1001', 'Cat-I', 'PET', 12.5, 2250, 'Uploaded', '05-04-2025', 'Example only'];
@@ -44,6 +51,7 @@ export function downloadDataTemplate(source, financialYear, moduleName = 'purcha
     ['Registration Type', 'Registered or Unregistered'],
     ['Category', 'Cat-I, Cat-II, Cat-III or Cat-IV'],
     ['Quantity', 'Non-negative numbers; commas are accepted'],
+    ...(isPurchase ? [['System Mapping', source === 'base' ? 'Qty. of Plastic (MT) = Base Qty; Total Invoice Value = Base GST' : 'Total Plastic Quantity = Portal Qty; Total Invoice Value = Portal GST Value']] : []),
     ['Dates', 'DD-MM-YYYY or YYYY-MM-DD'],
     ['Important', 'Do not rename required headers. Remove the example row before upload.']
   ]);

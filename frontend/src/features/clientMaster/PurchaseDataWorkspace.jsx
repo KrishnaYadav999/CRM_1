@@ -31,7 +31,7 @@ function Metric({ label, value, tone = 'slate' }) {
 
 function UploadCard({ source, upload, locked, disabled, busy, onSelect, onRemove, financialYear }) {
   const title = source === 'base' ? 'Purchase Base Data' : 'Purchase Portal Upload';
-  const quantity = source === 'base' ? 'Quantity (TPA)' : 'Total Plastic Qty (Tons)';
+  const quantity = source === 'base' ? 'Qty. of Plastic (MT) → Base Qty' : 'Total Plastic Quantity → Portal Qty';
   return <article className={`rounded-2xl border p-4 ${locked ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-white'}`}>
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h6 className="text-sm font-black text-slate-950">{title}</h6><p className="mt-1 text-xs font-bold text-slate-500">Required quantity header: {quantity}</p></div><button type="button" onClick={() => downloadPurchaseTemplate(source, financialYear)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"><Download className="h-3.5 w-3.5" /> Template</button></div>
     {upload?.importStatus === 'Imported' ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
