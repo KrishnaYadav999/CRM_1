@@ -23,9 +23,9 @@ const HEADER_ALIASES = {
   financialYear: ['financialyear', 'financialyr', 'fy', 'year'],
   entityName: ['nameofentity', 'entityname', 'nameoftheentity', 'entity', 'companyname', 'suppliername'],
   registrationType: ['registrationtype', 'registrationstatus', 'registeredunregistered', 'typeofregistration'],
-  gstin: ['gstin', 'gstnumber', 'gstno'],
-  invoiceNumber: ['invoicenumber', 'invoiceno'],
-  invoiceDate: ['invoicedate'],
+  gstin: ['gstin', 'sellergst', 'gstnumber', 'gstno'],
+  invoiceNumber: ['invoicenumber', 'invoicenumbergsteinvoicenumber', 'gsteinvoicenumber', 'invoiceno'],
+  invoiceDate: ['invoicedate', 'date'],
   portalReferenceNumber: ['portalreferencenumber', 'portalreferenceno', 'portalrefno'],
   plasticCategory: ['categoryofplastic', 'plasticcategory', 'category', 'plasticcat'],
   materialType: ['plasticmaterialtype', 'materialtype', 'typeofplasticmaterial', 'plasticmaterial'],
@@ -89,14 +89,14 @@ function validGstin(value) { return !value || /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z
 function buildHeaderMap(row = {}, source = 'base') {
   const keys = Object.keys(row);
   const map = {};
-  keys.forEach((header) => {
-    const normalized = normalizeHeader(header);
-    Object.entries(HEADER_ALIASES).forEach(([field, aliases]) => {
-      if (map[field] || !aliases.includes(normalized)) return;
-      if (field === 'baseQuantity' && source !== 'base') return;
-      if (field === 'portalQuantity' && source !== 'portal') return;
-      map[field] = header;
-    });
+  Object.entries(HEADER_ALIASES).forEach(([field, aliases]) => {
+    if (field === 'baseQuantity' && source !== 'base') return;
+    if (field === 'portalQuantity' && source !== 'portal') return;
+    // Alias order is intentional: the current purchase headers must win when
+    // a workbook also contains an older compatibility column.
+    const matchedAlias = aliases.find((alias) => keys.some((header) => normalizeHeader(header) === alias));
+    if (!matchedAlias) return;
+    map[field] = keys.find((header) => normalizeHeader(header) === matchedAlias);
   });
   return map;
 }
@@ -116,10 +116,10 @@ function normalizePurchaseRows(rawRows = [], source = 'base', selectedYear = '',
   }
   const headerMap = buildHeaderMap(usableRows[0], source);
   const quantityField = source === 'base' ? 'baseQuantity' : 'portalQuantity';
-  const required = ['financialYear', 'entityName', 'registrationType', 'plasticCategory', 'materialType', quantityField];
+  const required = ['financialYear', 'entityName', 'registrationType', 'plasticCategory', 'materialType', quantityField, 'gstPaid'];
 const missingHeaders = required.filter((field) => !headerMap[field]);
   if (missingHeaders.length) {
-    const labels = { financialYear: 'Financial Year', entityName: 'Name of Entity', registrationType: 'Registration Type', plasticCategory: 'Category of Plastic', materialType: 'Plastic Material Type', baseQuantity: 'Qty. of Plastic (MT)', portalQuantity: 'Total Plastic Quantity' };
+    const labels = { financialYear: 'Financial Year', entityName: 'Name of Entity', registrationType: 'Registration Type', plasticCategory: 'Category of Plastic', materialType: 'Plastic Material Type', baseQuantity: 'Qty. of Plastic (MT)', portalQuantity: 'Total Plastic Quantity', gstPaid: 'Total Invoice Value' };
     const missingLabels = missingHeaders.map((field) => labels[field] || field);
     const error = new Error(`Missing required headers/columns: ${missingLabels.join(', ')}`); error.code = 'MISSING_HEADERS'; error.missingHeaders = missingLabels; throw error;
   }
@@ -129,8 +129,10 @@ const missingHeaders = required.filter((field) => !headerMap[field]);
     const read = (field) => headerMap[field] ? original[headerMap[field]] : '';
     const financialYear = text(read('financialYear'));
     const entityName = text(read('entityName'));
-    const registrationType = normalizeRegistrationType(read('registrationType'));
     const gstin = text(read('gstin')).toUpperCase();
+    // Some procurement exports use "Registration Type" for Producer/Importer.
+    // In those files Seller GST is the reliable registered/unregistered signal.
+    const registrationType = normalizeRegistrationType(read('registrationType')) || (gstin ? 'Registered' : 'Unregistered');
     const plasticCategory = normalizeCategory(read('plasticCategory'));
     const materialType = text(read('materialType'));
     const quantity = parseNumber(read(quantityField));
@@ -153,8 +155,9 @@ const missingHeaders = required.filter((field) => !headerMap[field]);
     if (quantity === null) add(quantityField, 'Quantity must be numeric.');
     else if (quantity < 0) add(quantityField, 'Quantity cannot be negative.');
     else if (quantity === 0) add(quantityField, 'Zero quantity should be reviewed.', 'warning');
-    if (gstPaid === null) add('gstPaid', 'GST Paid must be numeric.');
-    else if (gstPaid < 0) add('gstPaid', 'GST Paid cannot be negative.');
+    const gstLabel = source === 'base' ? 'Base GST (Total Invoice Value)' : 'Portal GST Value (Total Invoice Value)';
+    if (gstPaid === null) add('gstPaid', `${gstLabel} must be numeric.`);
+    else if (gstPaid < 0) add('gstPaid', `${gstLabel} cannot be negative.`);
     if (rawDate !== '' && !parsedDate) add(source === 'base' ? 'invoiceDate' : 'uploadDate', 'Date is invalid.');
     const row = {
       rowNumber, financialYear, entityName, entityKey: normalizeEntityName(entityName), registrationType, gstin,

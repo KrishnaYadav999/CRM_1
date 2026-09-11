@@ -75,6 +75,32 @@ test('new purchase template headers map to base and portal metrics', () => {
   assert.equal(portal.acceptedRows[0].quantity, 8.25);
   assert.equal(portal.acceptedRows[0].gstPaid, 1485);
 });
+test('Total Invoice Value takes priority over a legacy GST column', () => {
+  const result = parsed([baseRow({ 'Total Invoice Value': 2250, 'GST Paid': 999 })], 'base');
+  assert.equal(result.acceptedRows[0].gstPaid, 2250);
+});
+test('a missing invoice value column is reported clearly', () => {
+  const { 'GST Paid': ignoredGst, ...row } = baseRow();
+  assert.throws(() => parsed([row], 'base'), /Total Invoice Value/);
+});
+test('producer procurement export maps Seller GST and its combined invoice header', () => {
+  const { GSTIN: ignoredGstin, 'Invoice Number': ignoredInvoice, 'Invoice Date': ignoredDate, 'Quantity (TPA)': ignoredQuantity, 'GST Paid': ignoredGst, ...row } = baseRow();
+  const result = parsed([{
+    ...row,
+    'Registration Type': 'Producer',
+    'Seller GST': '27ABCDE1234F1Z5',
+    'Invoice Number/GST E-Invoice Number': 'INV-2026-001',
+    Date: '01-09-2026',
+    'Qty. of Plastic (MT)': 12.5,
+    'Total Invoice Value': 425000
+  }], 'base');
+  assert.equal(result.acceptedRows.length, 1);
+  assert.equal(result.acceptedRows[0].registrationType, 'Registered');
+  assert.equal(result.acceptedRows[0].gstin, '27ABCDE1234F1Z5');
+  assert.equal(result.acceptedRows[0].invoiceNumber, 'INV-2026-001');
+  assert.equal(result.acceptedRows[0].quantity, 12.5);
+  assert.equal(result.acceptedRows[0].gstPaid, 425000);
+});
 test('wrong financial year is a row validation error', () => assert.equal(parsed([baseRow({ 'Financial Year': '2024-25' })], 'base').invalidRowCount, 1));
 test('malformed financial year is a row validation error', () => assert.equal(parsed([baseRow({ 'Financial Year': '25-26' })], 'base').invalidRowCount, 1));
 test('invalid plastic category is rejected', () => assert.equal(parsed([baseRow({ 'Category of Plastic': 'Cat-V' })], 'base').invalidRowCount, 1));
