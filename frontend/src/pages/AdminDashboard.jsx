@@ -3453,6 +3453,7 @@ function buildLeadPoRows(leads = [], users = []) {
           firstAnnualReturnYear: financialYear,
           annualYear: financialYear,
           poFinancialYear: financialYear,
+          createdAt: po.poDate || po.poReceivedDate || assignment.updatedAt || lead.updatedAt || lead.createdAt || '',
           annualReturns: [],
           hasPo,
           poDetails: { hasPo, poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', fileUrl, fileName: po.poFileName || 'Purchase Order' },
@@ -3616,6 +3617,81 @@ function UserWisePoStatus({ rows = [], leads = [], users = [], onRefresh, onOpen
       <DashboardFilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
     </div>
   )
+}
+
+function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh }) {
+  const leadPoRows = useMemo(() => buildLeadPoRows(leads, users), [leads, users])
+  const dashboardRows = leadPoRows.length ? leadPoRows : rows
+  const availableYears = useMemo(() => {
+    const years = new Set([currentFinancialYear()])
+    dashboardRows.forEach((row) => [row.poFinancialYear, row.annualYear, row.firstAnnualReturnYear].filter(Boolean).forEach((year) => {
+      const start = financialYearStart(year)
+      if (start) years.add(`${start}-${String(start + 1).slice(-2)}`)
+    }))
+    return [...years].sort((a, b) => financialYearStart(b) - financialYearStart(a))
+  }, [dashboardRows])
+  const [financialYear, setFinancialYear] = useState(currentFinancialYear())
+  const [search, setSearch] = useState('')
+  const [poStatus, setPoStatus] = useState('all')
+  const [eprCategory, setEprCategory] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const financialYearRows = useMemo(() => dashboardRows.filter((row) => rowAppliesToFinancialYear(row, financialYear)), [dashboardRows, financialYear])
+  useEffect(() => {
+    if (!dashboardRows.length || financialYearRows.length) return
+    const populatedYear = availableYears.find((year) => dashboardRows.some((row) => rowAppliesToFinancialYear(row, year)))
+    if (populatedYear) setFinancialYear(populatedYear)
+  }, [availableYears, dashboardRows, financialYearRows.length])
+  const selectedRows = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return financialYearRows.filter((row) => {
+      if (poStatus === 'received' && !row.hasPo) return false
+      if (poStatus === 'pending' && row.hasPo) return false
+      if (eprCategory !== 'all' && getPoWasteCategory(row) !== eprCategory) return false
+      const rowDate = String(row.poDetails?.poDate || row.createdAt || '').slice(0, 10)
+      if (dateFrom && (!rowDate || rowDate < dateFrom)) return false
+      if (dateTo && (!rowDate || rowDate > dateTo)) return false
+      return !needle || [row.companyName, row.atplCode, row.poDetails?.poNo, row.eprCategory, row.category, row.subApplicantType, row.userName].some((value) => String(value || '').toLowerCase().includes(needle))
+    })
+  }, [dateFrom, dateTo, eprCategory, financialYearRows, poStatus, search])
+  const analytics = useMemo(() => {
+    const categories = ['Plastic', 'E-Waste', 'Battery Waste', 'Other EPR'].map((name) => ({ name, total: 0, received: 0, applicants: new Map() }))
+    const categoryMap = new Map(categories.map((item) => [item.name, item]))
+    const applicantMap = new Map(PO_APPLICANT_BUCKETS.map((name) => [name, 0]))
+    selectedRows.forEach((row) => {
+      const category = categoryMap.get(getPoWasteCategory(row))
+      const applicant = getPoApplicantBucket(row)
+      category.total += 1
+      if (row.hasPo) category.received += 1
+      category.applicants.set(applicant, (category.applicants.get(applicant) || 0) + 1)
+      applicantMap.set(applicant, (applicantMap.get(applicant) || 0) + 1)
+    })
+    return { categories: categories.map((item) => ({ ...item, applicants: [...item.applicants.entries()].sort((a, b) => b[1] - a[1]) })), applicants: PO_APPLICANT_BUCKETS.map((name) => ({ name, count: applicantMap.get(name) || 0 })) }
+  }, [selectedRows])
+  const categoryColors = ['#10b981', '#1687e8', '#fb8500', '#7c3aed']
+  const categoryChartData = analytics.categories.filter((item) => item.total)
+  const chartData = categoryChartData.length ? categoryChartData : [{ name: 'No data', total: 1 }]
+  const resetFilters = () => { setSearch(''); setPoStatus('all'); setEprCategory('all'); setDateFrom(''); setDateTo('') }
+
+  return <div className="epr-intelligence-dashboard"><section className="epr-dashboard-shell">
+    <header className="epr-dashboard-heading"><div><p>ANANTTATTVA e-connect · {financialYear}</p><h1>EPR Applicant &amp; Sub-applicant Analysis</h1><span>Live client distribution with PO received and pending visibility.</span></div><button type="button" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh data</button></header>
+    <div className="epr-filter-bar" aria-label="Dashboard filters">
+      <label className="epr-search-filter"><Search aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search client, lead, user or PO..." /></label>
+      <select aria-label="Financial year" value={financialYear} onChange={(event) => setFinancialYear(event.target.value)}>{availableYears.map((year) => <option key={year}>{year}</option>)}</select>
+      <select aria-label="PO status" value={poStatus} onChange={(event) => setPoStatus(event.target.value)}><option value="all">All PO Status</option><option value="received">PO Received</option><option value="pending">PO Pending</option></select>
+      <select aria-label="EPR category" value={eprCategory} onChange={(event) => setEprCategory(event.target.value)}><option value="all">All Categories</option>{['Plastic', 'E-Waste', 'Battery Waste', 'Other EPR'].map((item) => <option key={item}>{item}</option>)}</select>
+      <label className="epr-date-filter"><span>From</span><input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} /></label>
+      <label className="epr-date-filter"><span>To</span><input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
+      <button type="button" className="epr-clear-filter" onClick={resetFilters}>Clear</button>
+    </div>
+    <div className="epr-category-grid">{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
+    <div className="epr-chart-grid">
+      <article className="epr-chart-card"><header><div><h2>Leads by EPR Category</h2><p>Filtered category distribution</p></div><b>{selectedRows.length} total</b></header><div className="epr-donut-body"><div className="epr-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={chartData} dataKey="total" nameKey="name" innerRadius={62} outerRadius={86} paddingAngle={3} stroke="none">{chartData.map((entry, index) => <Cell key={entry.name} fill={categoryChartData.length ? categoryColors[index] : '#e5e7eb'} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><span><strong>{selectedRows.length}</strong>Total</span></div><div className="epr-chart-legend">{analytics.categories.map((item, index) => <div key={item.name}><i style={{ background: categoryColors[index] }} /><span>{item.name}</span><strong>{item.total}</strong><small>{selectedRows.length ? `${((item.total / selectedRows.length) * 100).toFixed(1)}%` : '0%'}</small></div>)}</div></div></article>
+      <article className="epr-chart-card"><header><div><h2>Applicant / Sub-applicant Mix</h2><p>Live distribution by applicant type</p></div></header><div className="epr-bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={analytics.applicants} margin={{ top: 24, right: 10, left: -20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8edf3" /><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><Tooltip cursor={{ fill: '#f8fafc' }} /><Bar dataKey="count" radius={[7, 7, 0, 0]} maxBarSize={54}>{analytics.applicants.map((item, index) => <Cell key={item.name} fill={['#fb923c', '#34d399', '#8b5cf6', '#0ea5e9', '#f43f5e', '#94a3b8', '#fbbf24'][index]} />)}</Bar></BarChart></ResponsiveContainer></div></article>
+    </div>
+    <div className="epr-summary-strip"><div><h2>Overall applicant mix</h2><p>Producer, Importer, Brand Owner, Recycler and PIBO group distribution.</p></div><span>{selectedRows.length} total</span><section>{analytics.applicants.map((item) => <article key={item.name}><p>{item.name}</p><strong>{item.count}</strong><i><b style={{ width: `${selectedRows.length ? Math.max(3, (item.count / selectedRows.length) * 100) : 0}%` }} /></i></article>)}</section></div>
+    {!selectedRows.length && <div className="epr-empty-state"><BarChart3 aria-hidden="true" /><strong>No records match these filters</strong><span>Try clearing a filter or selecting another financial year.</span></div>}
+  </section></div>
 }
 
 function AnnualReturnYearModal({ row, onClose, onSelectYear }) {
@@ -5614,22 +5690,22 @@ export default function AdminDashboard() {
                   />
                 ) : (
                   <>
-              <section className="operations-welcome-bar">
-                <div>
-                  <p>Good morning, {String(currentUser?.name || 'Team').split(/\s+/)[0]}! <span aria-hidden="true">👋</span></p>
-                  <small>Here&apos;s what&apos;s happening with your operations today.</small>
+              <section className="operations-welcome-bar operations-welcome-premium">
+                <div className="operations-welcome-copy">
+                  <span className="operations-welcome-eyebrow">Operations intelligence</span>
+                  <p>Good morning, <strong>{String(currentUser?.name || 'Team').split(/\s+/)[0]}!</strong> <motion.span className="operations-wave-hand" aria-label="Waving hand" animate={{ rotate: [0, 18, -8, 18, 0] }} transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 1.5, ease: 'easeInOut' }}>👋</motion.span></p>
+                  <small>Your live EPR and purchase-order insights are ready.</small>
                 </div>
                 <div className="operations-welcome-actions">
                   <span><CalendarDays className="h-4 w-4" />{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                   <button type="button" onClick={() => loadDashboard({ force: true })}><RefreshCw className="h-4 w-4" />Refresh</button>
                 </div>
               </section>
-              <UserWisePoStatus
+              <EprAnalyticsDashboard
                 rows={scopedOperationsRows}
                 leads={leads}
                 users={users}
                 onRefresh={() => loadDashboard({ force: true })}
-                onOpenPo={openPoDetails}
               />
               <div className="operations-hero" style={{ display: 'none' }}>
                 <div className="flex min-w-0 items-center gap-4">
