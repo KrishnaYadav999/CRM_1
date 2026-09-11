@@ -1706,6 +1706,7 @@ function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []
     getAnnualReturnDraftValue(annualWithPo, 'financials.compliancePoNo')
   )
   const poDate = getPoValue(
+    leadPo.poDate,
     leadPo.poReceivedDate,
     data.financials?.compliancePoDate,
     data.financials?.poDate,
@@ -3404,6 +3405,27 @@ function rowAppliesToFinancialYear(row, financialYear) {
   return !row.annualYear || financialYearStart(row.annualYear) === selectedStart
 }
 
+const PO_APPLICANT_BUCKETS = ['Producer', 'Importer', 'Brand Owner', 'Recycler', 'SIMP', 'PWP', 'Other']
+
+function getPoWasteCategory(row = {}) {
+  const value = normalizeKey(row.eprCategory).replace(/[_-]+/g, ' ')
+  if (value.includes('plastic')) return 'Plastic'
+  if (value.includes('battery')) return 'Battery Waste'
+  if (value.includes('e waste') || value.includes('electronic')) return 'E-Waste'
+  return 'Other EPR'
+}
+
+function getPoApplicantBucket(row = {}) {
+  const value = normalizeKey(`${row.subApplicantType || ''} ${row.category || ''}`).replace(/[_-]+/g, ' ')
+  if (value.includes('brand owner')) return 'Brand Owner'
+  if (value.includes('recycler')) return 'Recycler'
+  if (value.includes('producer')) return 'Producer'
+  if (value.includes('importer')) return 'Importer'
+  if (value.includes('simp') || value.includes('seller')) return 'SIMP'
+  if (value.includes('pwp') || value.includes('refurbisher') || value.includes('retreader')) return 'PWP'
+  return 'Other'
+}
+
 function DashboardFilePreview({ file, onClose }) {
   if (!file?.url) return null
   const isPdf = /\.pdf(?:$|\?)/i.test(file.url) || /pdf/i.test(file.name || '')
@@ -3450,6 +3472,23 @@ function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
   }, [financialYear, search, selectedRows])
   const poReceived = selectedRows.filter((row) => row.hasPo).length
   const poPending = Math.max(0, selectedRows.length - poReceived)
+  const poAnalytics = useMemo(() => {
+    const categories = ['Plastic', 'E-Waste', 'Battery Waste', 'Other EPR'].map((name) => ({ name, total: 0, received: 0, applicants: new Map() }))
+    const categoryByName = new Map(categories.map((item) => [item.name, item]))
+    const applicantCounts = new Map(PO_APPLICANT_BUCKETS.map((name) => [name, 0]))
+    selectedRows.forEach((row) => {
+      const category = categoryByName.get(getPoWasteCategory(row))
+      const applicant = getPoApplicantBucket(row)
+      category.total += 1
+      if (row.hasPo) category.received += 1
+      category.applicants.set(applicant, (category.applicants.get(applicant) || 0) + 1)
+      applicantCounts.set(applicant, (applicantCounts.get(applicant) || 0) + 1)
+    })
+    return {
+      categories: categories.map((item) => ({ ...item, applicants: [...item.applicants.entries()].sort((left, right) => right[1] - left[1]) })),
+      applicants: PO_APPLICANT_BUCKETS.map((name) => ({ name, count: applicantCounts.get(name) || 0 }))
+    }
+  }, [selectedRows])
 
   return (
     <div className="operations-po-dashboard space-y-5">
@@ -3479,6 +3518,24 @@ function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
         </div>
       </section>
 
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+        <header className="border-b border-slate-200 bg-gradient-to-r from-emerald-50 via-white to-violet-50 p-5">
+          <p className="text-xs font-black uppercase tracking-[.2em] text-emerald-700">Category intelligence · {financialYear}</p>
+          <h2 className="mt-1 text-xl font-black text-slate-950">EPR Applicant &amp; Sub-applicant Analysis</h2>
+          <p className="mt-1 text-sm font-semibold text-slate-500">Live client distribution with PO received and pending visibility.</p>
+        </header>
+        <div className="grid gap-4 p-5 xl:grid-cols-4">
+          {poAnalytics.categories.map((category, index) => {
+            const tone = ['from-emerald-600 to-teal-700', 'from-sky-600 to-blue-700', 'from-amber-500 to-orange-600', 'from-violet-600 to-purple-700'][index]
+            return <article key={category.name} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className={`bg-gradient-to-br ${tone} p-4 text-white`}><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-white/75">EPR Category</p><h3 className="mt-1 text-lg font-black">{category.name}</h3></div><strong className="text-3xl">{category.total}</strong></div><div className="mt-4 flex gap-2 text-[11px] font-black"><span className="rounded-full bg-white/20 px-3 py-1">Received {category.received}</span><span className="rounded-full bg-black/15 px-3 py-1">Pending {category.total - category.received}</span></div></div>
+              <div className="min-h-28 p-4"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Applicant / Sub-applicant count</p><div className="mt-3 flex flex-wrap gap-2">{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-700">{name}<b className="rounded-full bg-white px-2 py-0.5 text-emerald-700 shadow-sm">{count}</b></span>) : <span className="text-sm font-bold text-slate-400">No clients in this category.</span>}</div></div>
+            </article>
+          })}
+        </div>
+        <div className="border-t border-slate-200 bg-slate-50/70 p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="font-black text-slate-950">Overall applicant mix</h3><p className="text-xs font-semibold text-slate-500">Producer, Importer, Brand Owner, Recycler and PIBO group distribution.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm">{selectedRows.length} total</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">{poAnalytics.applicants.map((item) => <article key={item.name} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{item.name}</p><strong className="mt-2 block text-2xl text-slate-950">{item.count}</strong><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="block h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500" style={{ width: `${selectedRows.length ? Math.max(4, (item.count / selectedRows.length) * 100) : 0}%` }} /></div></article>)}</div></div>
+      </section>
+
       <section className="operations-po-users overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
         <header className="flex flex-col gap-4 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div><h2 className="font-black text-slate-950">PO Status By User</h2><p className="text-xs font-semibold text-slate-500">Click a user row, then expand a financial year to see clients.</p></div>
@@ -3504,7 +3561,7 @@ function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
                     <thead className="bg-slate-100 text-xs uppercase tracking-wider text-slate-500"><tr>{['Financial Year', 'Total Clients', 'PO Received', 'PO Pending', 'Action'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
                     <tbody><tr className="border-t"><td className="px-4 py-4 font-black">{financialYear}</td><td className="px-4 py-4">{group.rows.length}</td><td className="px-4 py-4 font-black text-emerald-700">{received}</td><td className="px-4 py-4 font-black text-red-600">{group.rows.length - received}</td><td className="px-4 py-4"><button type="button" onClick={() => setExpandedYear(clientsOpen ? '' : yearKey)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-700">{clientsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}View Clients</button></td></tr></tbody>
                   </table>
-                  {clientsOpen && <div className="border-t border-slate-200 p-3"><div className="overflow-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1500px] text-left text-sm"><thead className="bg-[#0f5d46] text-[10px] uppercase tracking-wider text-white"><tr>{['Client Name', 'Lead Code', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number', 'Uploaded File'].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{group.rows.map((row) => <tr key={row.id} className="border-t"><td className="px-3 py-3 font-black">{row.companyName}</td><td className="px-3 py-3">{row.atplCode}</td><td className="px-3 py-3">{row.eprCategory}</td><td className="px-3 py-3 font-bold">{row.category}</td><td className="px-3 py-3">{row.subApplicantType}</td><td className="px-3 py-3">{financialYear}</td><td className="px-3 py-3"><button type="button" onClick={() => onOpenPo(row)} className={`rounded-full px-3 py-1 text-xs font-black ${row.hasPo ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{row.hasPo ? 'Received' : 'Pending'}</button></td><td className="px-3 py-3 font-bold">{row.poDetails?.poNo || '-'}</td><td className="px-3 py-3">{row.poDetails?.fileUrl ? <button type="button" className="font-black text-blue-600 hover:underline" onClick={() => setPreviewFile({ url: row.poDetails.fileUrl, name: row.poDetails.fileName || `${row.companyName} PO` })}>View File</button> : '-'}</td></tr>)}</tbody></table></div></div>}
+                  {clientsOpen && <div className="border-t border-slate-200 p-3"><div className="overflow-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1600px] text-left text-sm"><thead className="bg-[#0f5d46] text-[10px] uppercase tracking-wider text-white"><tr>{['Client Name', 'Lead Code', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'FY Year', 'PO Status', 'PO Number', 'PO Date', 'Uploaded File'].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{group.rows.map((row) => <tr key={row.id} className="border-t"><td className="px-3 py-3 font-black">{row.companyName}</td><td className="px-3 py-3">{row.atplCode}</td><td className="px-3 py-3">{row.eprCategory}</td><td className="px-3 py-3 font-bold">{row.category}</td><td className="px-3 py-3">{row.subApplicantType}</td><td className="px-3 py-3">{financialYear}</td><td className="px-3 py-3"><button type="button" onClick={() => onOpenPo(row)} className={`rounded-full px-3 py-1 text-xs font-black ${row.hasPo ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{row.hasPo ? 'Received' : 'Pending'}</button></td><td className="px-3 py-3 font-bold">{row.poDetails?.poNo || '-'}</td><td className="px-3 py-3">{row.poDetails?.poDate ? new Date(row.poDetails.poDate).toLocaleDateString('en-GB') : '-'}</td><td className="px-3 py-3">{row.poDetails?.fileUrl ? <button type="button" className="font-black text-blue-600 hover:underline" onClick={() => setPreviewFile({ url: row.poDetails.fileUrl, name: row.poDetails.fileName || `${row.companyName} PO` })}>View File</button> : '-'}</td></tr>)}</tbody></table></div></div>}
                 </div>
               </div>}
             </div>

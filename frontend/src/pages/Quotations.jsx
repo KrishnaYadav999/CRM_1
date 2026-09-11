@@ -607,7 +607,7 @@ function combinedPricingRows(quotation = {}, items = []) {
 function scopePresetKeyForAmount(amount) {
   const basicAmount = Number(amount) || 0;
   if (basicAmount <= 0) return '';
-  if (basicAmount <= 50000) return 'basic';
+  if (basicAmount <= 75000) return 'basic';
   if (basicAmount <= 100000) return 'premium';
   return 'superPremium';
 }
@@ -2366,7 +2366,7 @@ export default function Quotations() {
 
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">Scope of Work</h2>
-          <p className="mt-1 text-sm font-bold text-slate-500">The available package is selected from the Basic Amount: up to ₹50,000 Basic, up to ₹1,00,000 Premium, and above ₹1,00,000 Super Premium.</p>
+          <p className="mt-1 text-sm font-bold text-slate-500">The available package is selected from the Basic Amount: up to ₹75,000 Basic, above ₹75,000 and up to ₹1,00,000 Premium, and above ₹1,00,000 Super Premium.</p>
           <div className="mt-4 flex flex-wrap gap-3">
             {QUOTATION_SCOPE_PRESET_OPTIONS.filter((option) => option.key === eligibleScopePresetKey).map((option) => (
               <button

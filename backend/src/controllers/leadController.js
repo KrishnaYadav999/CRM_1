@@ -266,6 +266,7 @@ function cleanBody(body) {
           poStatus: ['received', 'provisional'].includes(String(row?.poStatus || '')) ? String(row.poStatus) : '',
           poYearRows: Array.isArray(row?.poYearRows) ? row.poYearRows.slice(0, 25).map((po) => ({
             fy: String(po?.fy || '').trim(), poNumber: String(po?.poNumber || '').trim(),
+            poDate: String(po?.poDate || '').trim(),
             poAmount: Math.max(0, Number(po?.poAmount) || 0),
             poFileUrl: resolvePoProof(po).url, poFileName: resolvePoProof(po).name,
             poFileMimeType: String(po?.poFileMimeType || '').trim(),
@@ -473,6 +474,7 @@ function buildPurchaseOrderEmail({ eyebrow, title, message, clientName, leadCode
   const rowHtml = safeRows.map((po) => `<tr>
     <td style="padding:12px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a">${escapeHtml(po.poNumber || '-')}</td>
     <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#475569">${escapeHtml(po.fy || '-')}</td>
+    <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#475569">${escapeHtml(po.poDate || '-')}</td>
     <td style="padding:12px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a">INR ${Number(po.poAmount || 0).toLocaleString('en-IN')}</td>
     <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#475569">${escapeHtml(po.quotationNumber || '-')}</td>
     <td style="padding:12px;border-bottom:1px solid #e2e8f0">${po.poFileUrl ? `<a href="${escapeHtml(po.poFileUrl)}" style="color:#2563eb;font-weight:700;text-decoration:none">View proof</a>` : '<span style="color:#94a3b8">Not attached</span>'}</td>
@@ -489,7 +491,7 @@ function buildPurchaseOrderEmail({ eyebrow, title, message, clientName, leadCode
         <div style="display:flex;margin-bottom:18px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;padding:15px">
           <div><div style="font-size:10px;font-weight:800;letter-spacing:1px;color:#94a3b8;text-transform:uppercase">Company / Lead</div><div style="margin-top:5px;color:#0f172a;font-size:16px;font-weight:800">${escapeHtml(clientName || '-')}</div><div style="margin-top:3px;color:#64748b;font-size:12px">${escapeHtml(leadCode || '')}</div></div>
         </div>
-        <div style="overflow:hidden;border:1px solid #e2e8f0;border-radius:12px"><table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc;color:#64748b;text-align:left"><th style="padding:11px 12px">PO Number</th><th style="padding:11px 12px">FY</th><th style="padding:11px 12px">PO Amount</th><th style="padding:11px 12px">Quotation</th><th style="padding:11px 12px">Proof</th></tr></thead><tbody>${rowHtml}</tbody></table></div>
+        <div style="overflow:hidden;border:1px solid #e2e8f0;border-radius:12px"><table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc;color:#64748b;text-align:left"><th style="padding:11px 12px">PO Number</th><th style="padding:11px 12px">FY</th><th style="padding:11px 12px">PO Date</th><th style="padding:11px 12px">PO Amount</th><th style="padding:11px 12px">Quotation</th><th style="padding:11px 12px">Proof</th></tr></thead><tbody>${rowHtml}</tbody></table></div>
         ${remarks ? `<div style="margin-top:18px;border-left:4px solid ${tone};border-radius:8px;background:#f8fafc;padding:14px 16px"><div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase">Decision remarks</div><div style="margin-top:6px;color:#1e293b;font-size:14px;line-height:1.6">${escapeHtml(remarks)}</div></div>` : ''}
         ${actionUrl ? `<div style="margin-top:22px;text-align:center"><a href="${escapeHtml(actionUrl)}" style="display:inline-block;border-radius:9px;background:${tone};padding:12px 20px;color:#fff;font-size:14px;font-weight:800;text-decoration:none">Open Pending Approval</a></div>` : ''}
       </div>
@@ -1134,6 +1136,14 @@ exports.updateLead = async (req, res) => {
     }
 
     if (Array.isArray(data.assignments)) {
+      const invalidPoDate = data.assignments.some((row, index) => {
+        const beforeAssignment = beforeLead.assignments?.[index] || {};
+        const poSubmissionChanged = beforeAssignment.poStatus !== row?.poStatus
+          || JSON.stringify(beforeAssignment.poYearRows || []) !== JSON.stringify(row?.poYearRows || []);
+        return poSubmissionChanged && row?.poStatus === 'received' && (row.closedBy || row.closureRequestedBy)
+          && (row.poYearRows || []).some((po) => !/^\d{4}-\d{2}-\d{2}$/.test(String(po?.poDate || '').trim()) || Number.isNaN(new Date(`${po.poDate}T00:00:00`).getTime()));
+      });
+      if (invalidPoDate) return res.status(400).json({ error: 'A valid PO Date is required for every Purchase Order row.' });
       data.assignments = data.assignments.map((row) => {
         const approved = String(row?.poApprovalStatus || '').toUpperCase() === 'APPROVED';
         if (!approved || !row?.assignedTo || !row?.closureRequestedBy || row?.closedBy) return row;
@@ -1264,8 +1274,16 @@ exports.decidePurchaseOrderApproval = async (req, res) => {
       console.error('Unable to attach PO correction screenshot', error.message);
     }
   }
-  await Promise.allSettled(recipients.map((email) => sendMail(email, `PO ${status.replace('_', ' ')} - ${lead.company || lead.leadCode}`, html, { branded: false, attachments: screenshotAttachment ? [screenshotAttachment] : [] })));
-  res.json({ ok: true, approval });
+  const mailResults = await Promise.allSettled(recipients.map((email) => sendMail(email, `PO ${status.replace('_', ' ')} - ${lead.company || lead.leadCode}`, html, { branded: false, attachments: screenshotAttachment ? [screenshotAttachment] : [] })));
+  const emailNotification = {
+    recipients: recipients.length,
+    sent: mailResults.filter((result) => result.status === 'fulfilled').length,
+    failed: mailResults.filter((result) => result.status === 'rejected').length
+  };
+  if (emailNotification.failed) {
+    console.error('Some PO decision emails could not be sent', { approvalId: String(approval._id), status, ...emailNotification });
+  }
+  res.json({ ok: true, approval, emailNotification });
 };
 
 exports.recordIntroductionEmail = async (req, res) => {

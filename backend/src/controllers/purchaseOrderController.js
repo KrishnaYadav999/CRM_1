@@ -86,6 +86,7 @@ async function loadPurchaseOrders(models) {
           quotationId: idText(quotation) || idText(row.quotationId) || null,
           quotationNumber: text(row.quotationNumber || row.quotationNo || quotation?.quotationNumber) || null,
           poNumber: text(row.poNumber) || null,
+          poDate: asIso(row.poDate),
           poAmount: Number.isFinite(poAmount) && poAmount > 0 ? poAmount : (Number.isFinite(fallbackAmount) ? fallbackAmount : null),
           currency: text(row.currency) || 'INR',
           financialYear: text(row.fy) || null,
