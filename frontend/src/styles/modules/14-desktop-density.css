@@ -198,7 +198,7 @@
 
   .operations-po-dashboard {
     display: grid;
-    grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px !important;
   }
 

@@ -69,7 +69,7 @@ import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v3'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v4'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
@@ -3398,6 +3398,7 @@ function currentFinancialYear() {
 
 function rowAppliesToFinancialYear(row, financialYear) {
   const selectedStart = financialYearStart(financialYear)
+  if (row.poFinancialYear) return financialYearStart(row.poFinancialYear) === selectedStart
   const firstStart = financialYearStart(row.firstAnnualReturnYear)
   const explicitYears = (row.annualReturns || []).flatMap((item) => [item.annualYear, item.financialYear, item.year]).filter(Boolean)
   if (explicitYears.some((year) => financialYearStart(year) === selectedStart)) return true
@@ -3426,33 +3427,77 @@ function getPoApplicantBucket(row = {}) {
   return 'Other'
 }
 
+function buildLeadPoRows(leads = [], users = []) {
+  const userByKey = new Map()
+  users.forEach((user) => getUserMatchKeys(user).forEach((key) => userByKey.set(key, user)))
+  return leads.flatMap((lead) => {
+    const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [{}]
+    const assignments = Array.isArray(lead.assignments) ? lead.assignments : []
+    return services.flatMap((service, serviceIndex) => {
+      const assignment = assignments[serviceIndex] || {}
+      const savedPoRows = Array.isArray(assignment.poYearRows) && assignment.poYearRows.length ? assignment.poYearRows : [{}]
+      const assigneeKeys = [assignment.assignedStaff, assignment.assignedStaffEmail, assignment.assignedStaffText, assignment.assignedTo, assignment.assignedToEmail, assignment.assignedToText]
+        .map(normalizeKey).filter(Boolean)
+      const user = assigneeKeys.map((key) => userByKey.get(key)).find(Boolean) || null
+      return savedPoRows.map((po, poIndex) => {
+        const financialYear = po.fy || service.servicesForYear || service.financialYear || lead.firstAnnualReturnYearApplicable || ''
+        const fileUrl = po.poFileUrl || ''
+        const hasPo = Boolean(String(po.poNumber || '').trim() || fileUrl)
+        return {
+          id: `lead-po-${lead._id || lead.id || lead.leadCode}-${service.assignedServiceId || serviceIndex}-${financialYear || poIndex}`,
+          atplCode: formatAtplCode(lead.leadCode || lead.sourceLeadId || '-') || '-',
+          companyName: lead.company || lead.companyName || 'Unnamed client',
+          eprCategory: service.eprCategory || service.serviceCategory || lead.eprCategory || 'Other EPR',
+          category: service.piboParent || service.applicantType || lead.piboParent || lead.applicantType || 'Unassigned',
+          subApplicantType: service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory || 'Unassigned',
+          firstAnnualReturnYear: financialYear,
+          annualYear: financialYear,
+          poFinancialYear: financialYear,
+          annualReturns: [],
+          hasPo,
+          poDetails: { hasPo, poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', fileUrl, fileName: po.poFileName || 'Purchase Order' },
+          user,
+          userName: user ? getUserName(user) : assignment.assignedStaffText || assignment.assignedToText || assignment.closedByText || lead.createdByName || 'Unassigned'
+        }
+      })
+    })
+  })
+}
+
 function DashboardFilePreview({ file, onClose }) {
   if (!file?.url) return null
   const isPdf = /\.pdf(?:$|\?)/i.test(file.url) || /pdf/i.test(file.name || '')
   return <div className="fixed inset-0 z-[150] grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Purchase order file preview" onClick={onClose}><section className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}><header className="flex items-center justify-between border-b bg-[#0f5d46] px-5 py-4 text-white"><div><p className="text-xs font-black uppercase tracking-wider text-emerald-100">Purchase Order Proof</p><h2 className="mt-1 font-black">{file.name || 'Uploaded file'}</h2></div><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 hover:bg-white/20" aria-label="Close file preview"><X className="h-5 w-5" /></button></header><div className="min-h-0 flex-1 bg-slate-100 p-3">{isPdf ? <iframe title="Purchase order PDF" src={file.url} className="h-full w-full rounded-xl bg-white" /> : <img src={file.url} alt={file.name || 'Purchase order proof'} className="h-full w-full rounded-xl object-contain" />}</div></section></div>
 }
 
-function UserWisePoStatus({ rows = [], onRefresh, onOpenPo }) {
+function UserWisePoStatus({ rows = [], leads = [], users = [], onRefresh, onOpenPo }) {
+  const leadPoRows = useMemo(() => buildLeadPoRows(leads, users), [leads, users])
+  const dashboardRows = leadPoRows.length ? leadPoRows : rows
   const availableYears = useMemo(() => {
     const years = new Set([currentFinancialYear()])
-    rows.forEach((row) => {
-      ;[row.annualYear, row.firstAnnualReturnYear, ...(row.annualReturns || []).flatMap((item) => [item.annualYear, item.financialYear, item.year])]
+    dashboardRows.forEach((row) => {
+      ;[row.poFinancialYear, row.annualYear, row.firstAnnualReturnYear, ...(row.annualReturns || []).flatMap((item) => [item.annualYear, item.financialYear, item.year])]
         .filter(Boolean).forEach((year) => {
           const start = financialYearStart(year)
           if (start) years.add(`${start}-${String(start + 1).slice(-2)}`)
         })
     })
     return [...years].sort((a, b) => financialYearStart(b) - financialYearStart(a))
-  }, [rows])
+  }, [dashboardRows])
   const [financialYear, setFinancialYear] = useState(currentFinancialYear())
   const [search, setSearch] = useState('')
   const [expandedUser, setExpandedUser] = useState('')
   const [expandedYear, setExpandedYear] = useState('')
   const [previewFile, setPreviewFile] = useState(null)
   const selectedRows = useMemo(
-    () => rows.filter((row) => rowAppliesToFinancialYear(row, financialYear)),
-    [financialYear, rows]
+    () => dashboardRows.filter((row) => rowAppliesToFinancialYear(row, financialYear)),
+    [dashboardRows, financialYear]
   )
+  useEffect(() => {
+    if (!dashboardRows.length || selectedRows.length) return
+    const populatedYear = availableYears.find((year) => dashboardRows.some((row) => rowAppliesToFinancialYear(row, year)))
+    if (populatedYear && populatedYear !== financialYear) setFinancialYear(populatedYear)
+  }, [availableYears, dashboardRows, financialYear, selectedRows.length])
   const groups = useMemo(() => {
     const byUser = new Map()
     selectedRows.forEach((row) => {
@@ -5581,6 +5626,8 @@ export default function AdminDashboard() {
               </section>
               <UserWisePoStatus
                 rows={scopedOperationsRows}
+                leads={leads}
+                users={users}
                 onRefresh={() => loadDashboard({ force: true })}
                 onOpenPo={openPoDetails}
               />
