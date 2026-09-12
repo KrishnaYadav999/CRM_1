@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import ScrollToTop from './components/ScrollToTop'
 import Login from './pages/Login'
+import LandingPage from './pages/LandingPage'
 import VerifyOtp from './pages/VerifyOtp'
 import ForgotPassword from './pages/ForgotPassword'
 import AdminDashboard from './pages/AdminDashboard'
@@ -100,7 +101,8 @@ function App(){
       <ActiveCrmTracker />
       <SupportTicketMilestoneCelebration />
       <Routes>
-        <Route path="/" element={<Login/>} />
+        <Route path="/" element={<LandingPage/>} />
+        <Route path="/login" element={<Login/>} />
         <Route path="/verify" element={<VerifyOtp/>} />
         <Route path="/forgot-password" element={<ForgotPassword/>} />
         <Route path="/forget-password" element={<Navigate to="/forgot-password" replace />} />

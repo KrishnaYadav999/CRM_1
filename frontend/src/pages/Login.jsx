@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, Eye, EyeOff, KeyRound, Mail, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Eye, EyeOff, KeyRound, Mail, ShieldCheck } from 'lucide-react'
 import AuthLayout from '../components/AuthLayout'
 import ToastMessage from '../components/ToastMessage'
 import api, { readApiError } from '../services/api'
@@ -43,6 +43,9 @@ export default function Login(){
         ? 'Use Admin Login for Admin and Super Admin accounts only. We will send a secure one-time code for this session.'
         : 'Use User Login for team accounts. We will send a secure one-time code for this session.'}
     >
+      <Link to="/" className="mb-1 inline-flex items-center gap-2 text-sm font-black text-emerald-700 hover:text-emerald-900">
+        <ArrowLeft className="h-4 w-4" /> Back to website
+      </Link>
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         <div>
           <span className="text-sm font-black text-slate-700">Login type</span>

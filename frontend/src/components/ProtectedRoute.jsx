@@ -54,5 +54,5 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (state.allowed) return children
-  return <Navigate to={state.authenticated ? '/dashboard' : '/'} replace />
+  return <Navigate to={state.authenticated ? '/dashboard' : '/login'} replace />
 }
