@@ -22,19 +22,19 @@ const CATEGORIES = ['Cat-I', 'Cat-II', 'Cat-III', 'Cat-IV'];
 const HEADER_ALIASES = {
   financialYear: ['financialyear', 'financialyr', 'fy', 'year'],
   entityName: ['nameofentity', 'entityname', 'nameoftheentity', 'entity', 'companyname', 'suppliername'],
-  registrationType: ['registrationtype', 'registrationstatus', 'registeredunregistered', 'typeofregistration'],
-  gstin: ['gstin', 'sellergst', 'gstnumber', 'gstno'],
+  registrationType: ['registrationtype', 'registertype', 'registrationstatus', 'registeredunregistered', 'typeofregistration'],
+  gstin: ['gstin', 'sellergst', 'sellergstno', 'gstnumber', 'gstno'],
   invoiceNumber: ['invoicenumber', 'invoicenumbergsteinvoicenumber', 'gsteinvoicenumber', 'invoiceno'],
   invoiceDate: ['invoicedate', 'date'],
-  portalReferenceNumber: ['portalreferencenumber', 'portalreferenceno', 'portalrefno'],
+  portalReferenceNumber: ['portalreferencenumber', 'portalreferenceno', 'portalrefno', 'gstinvoiceno'],
   plasticCategory: ['categoryofplastic', 'plasticcategory', 'category', 'plasticcat'],
-  materialType: ['plasticmaterialtype', 'materialtype', 'typeofplasticmaterial', 'plasticmaterial'],
+  materialType: ['plasticmaterialtype', 'plastictype', 'materialtype', 'typeofplasticmaterial', 'plasticmaterial'],
   baseQuantity: ['qtyofplasticmt', 'quantitymt', 'qtymt', 'quantitytpa', 'quantity', 'purchasequantity', 'plasticquantitytpa', 'totalquantitytpa'],
   portalQuantity: ['totalplasticquantity', 'totalplasticquantitymt', 'totalplasticqtytons', 'totalplasticqtyton', 'totalplasticqty', 'plasticquantitytons', 'uploadedquantity', 'quantitytpa', 'quantitymt', 'qtymt'],
   gstPaid: ['totalinvoicevalue', 'invoicevalue', 'gstpaid', 'gstamount', 'totalgst'],
   state: ['state', 'stateut'],
   uploadStatus: ['uploadstatus', 'status'],
-  uploadDate: ['uploaddate', 'portaluploaddate'],
+  uploadDate: ['uploaddate', 'portaluploaddate', 'date'],
   remarks: ['remarks', 'remark', 'notes']
 };
 
@@ -191,6 +191,20 @@ const missingHeaders = required.filter((field) => !headerMap[field]);
   };
 }
 
+function describePurchaseFinancialYearMismatch(parsed, selectedYear = '') {
+  const selected = text(selectedYear);
+  const rows = Array.isArray(parsed?.normalizedRows) ? parsed.normalizedRows : [];
+  const blockingErrors = (Array.isArray(parsed?.validationErrors) ? parsed.validationErrors : []).filter((error) => error?.severity !== 'warning');
+  if (!selected || !rows.length || parsed?.acceptedRows?.length || !blockingErrors.length || blockingErrors.some((error) => error?.field !== 'financialYear')) return null;
+  const workbookFinancialYears = [...new Set(rows.map((row) => text(row?.financialYear)).filter(Boolean))];
+  if (!workbookFinancialYears.length || workbookFinancialYears.every((year) => year === selected)) return null;
+  return {
+    selectedFinancialYear: selected,
+    workbookFinancialYears,
+    message: `This Annual Return workspace is FY ${selected}, but the Excel file contains FY ${workbookFinancialYears.join(', ')}. Open the matching Annual Return year or change the Excel Financial Year column to ${selected}.`
+  };
+}
+
 function metric() { return { baseQty: 0, portalQty: 0, qtyDiff: 0, baseGst: 0, portalGst: 0, gstDiff: 0, result: 'Matched' }; }
 function addRow(target, row) {
   if (row.source === 'base') { target.baseQty += row.quantity; target.baseGst += row.gstPaid; }
@@ -297,6 +311,6 @@ function checksum(value) { return crypto.createHash('sha256').update(JSON.string
 
 module.exports = {
   PURCHASE_CHECKLIST_PARTICULARS, REQUIRED_NORMAL_CHECKLIST_ROWS, CATEGORIES, normalizeHeader, normalizeEntityName, normalizeMaterial, normalizeRegistrationType,
-  normalizeCategory, parseNumber, parseDate, buildHeaderMap, normalizePurchaseRows, reconcilePurchaseRows, defaultChecklist,
+  normalizeCategory, parseNumber, parseDate, buildHeaderMap, normalizePurchaseRows, describePurchaseFinancialYearMismatch, reconcilePurchaseRows, defaultChecklist,
   checklistRow, purchaseReadiness, calculatePurchaseStatus, checksum
 };

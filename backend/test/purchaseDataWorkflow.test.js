@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  PURCHASE_CHECKLIST_PARTICULARS, normalizeEntityName, normalizeMaterial, normalizePurchaseRows,
+  PURCHASE_CHECKLIST_PARTICULARS, normalizeEntityName, normalizeMaterial, normalizePurchaseRows, describePurchaseFinancialYearMismatch,
   reconcilePurchaseRows, parseDate, parseNumber, defaultChecklist, purchaseReadiness, calculatePurchaseStatus
 } = require('../src/services/purchaseDataService');
 
@@ -101,7 +101,44 @@ test('producer procurement export maps Seller GST and its combined invoice heade
   assert.equal(result.acceptedRows[0].quantity, 12.5);
   assert.equal(result.acceptedRows[0].gstPaid, 425000);
 });
+test('purchase portal procurement-details export maps its shortened headers', () => {
+  const result = parsed([{
+    'Sr. No.': '1',
+    'Register Type': 'UnRegistered',
+    'Entity Type': 'Brand Owner',
+    'Entity Name': 'COLMAN POLYCHEM LLP',
+    ' State': 'Gujarat',
+    'Plastic Type': 'Others',
+    'Category Of Plastic': 'Cat-II',
+    'Financial Year': FY,
+    'Total Plastic Quantity': '3.125',
+    'Total Invoice Value': '23,035.50',
+    'GST Invoice No': 'CPL_25-26_1827',
+    'Seller GST No': '24AARFC6352J1Z5',
+    Date: '10/3/2026'
+  }], 'portal');
+  assert.equal(result.invalidRowCount, 0);
+  assert.equal(result.acceptedRows[0].registrationType, 'Unregistered');
+  assert.equal(result.acceptedRows[0].materialType, 'Others');
+  assert.equal(result.acceptedRows[0].portalReferenceNumber, 'CPL_25-26_1827');
+  assert.equal(result.acceptedRows[0].gstin, '24AARFC6352J1Z5');
+  assert.equal(result.acceptedRows[0].quantity, 3.125);
+  assert.equal(result.acceptedRows[0].gstPaid, 23035.5);
+  assert.equal(result.acceptedRows[0].uploadDate, '2026-03-10');
+});
 test('wrong financial year is a row validation error', () => assert.equal(parsed([baseRow({ 'Financial Year': '2024-25' })], 'base').invalidRowCount, 1));
+test('an all-row financial year mismatch returns actionable import guidance', () => {
+  const result = parsed([baseRow({ 'Financial Year': '2026-27' })], 'base');
+  assert.deepEqual(describePurchaseFinancialYearMismatch(result, FY), {
+    selectedFinancialYear: FY,
+    workbookFinancialYears: ['2026-27'],
+    message: 'This Annual Return workspace is FY 2025-26, but the Excel file contains FY 2026-27. Open the matching Annual Return year or change the Excel Financial Year column to 2025-26.'
+  });
+});
+test('mixed validation failures do not get mislabeled as only a financial year mismatch', () => {
+  const result = parsed([baseRow({ 'Financial Year': '2026-27', 'Qty. of Plastic (MT)': 'bad' })], 'base');
+  assert.equal(describePurchaseFinancialYearMismatch(result, FY), null);
+});
 test('malformed financial year is a row validation error', () => assert.equal(parsed([baseRow({ 'Financial Year': '25-26' })], 'base').invalidRowCount, 1));
 test('invalid plastic category is rejected', () => assert.equal(parsed([baseRow({ 'Category of Plastic': 'Cat-V' })], 'base').invalidRowCount, 1));
 test('negative quantity is rejected', () => assert.equal(parsed([baseRow({ 'Quantity (TPA)': -1 })], 'base').invalidRowCount, 1));

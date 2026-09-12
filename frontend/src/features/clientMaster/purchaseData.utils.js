@@ -6,6 +6,22 @@ const PURCHASE_BASE_HEADERS = ['Financial Year', 'Name of Entity', 'Registration
 const PURCHASE_PORTAL_HEADERS = ['Financial Year', 'Name of Entity', 'Registration Type', 'GSTIN', 'Portal Reference Number', 'Category of Plastic', 'Plastic Material Type', 'Total Plastic Quantity', 'Total Invoice Value', 'Upload Status', 'Upload Date', 'Remarks'];
 
 const normalizeHeader = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const FINANCIAL_YEAR_HEADERS = new Set(['financialyear', 'financialyr', 'fy', 'year']);
+
+export function getPurchaseFinancialYearMismatch(rows, selectedFinancialYear) {
+  const selected = String(selectedFinancialYear || '').trim();
+  if (!selected || !Array.isArray(rows) || !rows.length) return null;
+  const financialYearHeader = Object.keys(rows[0] || {}).find((header) => FINANCIAL_YEAR_HEADERS.has(normalizeHeader(header)));
+  if (!financialYearHeader) return null;
+  const workbookYears = [...new Set(rows.map((row) => String(row?.[financialYearHeader] ?? '').trim()).filter(Boolean))];
+  const mismatchedYears = workbookYears.filter((year) => year !== selected);
+  if (!mismatchedYears.length) return null;
+  return {
+    selectedFinancialYear: selected,
+    workbookFinancialYears: workbookYears,
+    message: `This Annual Return workspace is FY ${selected}, but the Excel file contains FY ${mismatchedYears.join(', ')}. Open the matching Annual Return year or change the Excel Financial Year column to ${selected}.`
+  };
+}
 
 export async function readPurchaseWorkbook(file, source) {
   if (!file) throw new Error('Select an Excel file first.');

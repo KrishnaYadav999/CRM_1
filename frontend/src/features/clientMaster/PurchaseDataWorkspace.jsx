@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, Exter
 import api from '../../services/api';
 import { API_ENDPOINTS } from '../../services/apiEndpoints';
 import { uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
-import { downloadCsv, downloadPurchaseTemplate, formatMetric, readPurchaseWorkbook } from './purchaseData.utils';
+import { downloadCsv, downloadPurchaseTemplate, formatMetric, getPurchaseFinancialYearMismatch, readPurchaseWorkbook } from './purchaseData.utils';
 import OutlookMsgViewer from './OutlookMsgViewer';
 import PurchaseProofDropzone from './PurchaseProofDropzone';
 import SalesDataPanel from './SalesDataPanel';
@@ -150,6 +150,8 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     setBusy(`parse-${source}`);
     try {
       const parsed = await readPurchaseWorkbook(file, source);
+      const financialYearMismatch = getPurchaseFinancialYearMismatch(parsed.rows, financialYear);
+      if (financialYearMismatch) throw new Error(financialYearMismatch.message);
       setPendingImport({ source, file, parsed });
       setNotice({ type: 'success', text: `${file.name} read successfully (${parsed.rows.length} rows). Confirm the preview to upload.` });
     }

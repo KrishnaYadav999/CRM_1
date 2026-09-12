@@ -3,7 +3,7 @@ const Client = require('../models/Client');
 const PurchaseData = require('../models/PurchaseData');
 const PurchaseImportRow = require('../models/PurchaseImportRow');
 const {
-  PURCHASE_CHECKLIST_PARTICULARS, defaultChecklist, normalizePurchaseRows, reconcilePurchaseRows,
+  PURCHASE_CHECKLIST_PARTICULARS, defaultChecklist, normalizePurchaseRows, describePurchaseFinancialYearMismatch, reconcilePurchaseRows,
   purchaseReadiness, calculatePurchaseStatus, checksum
 } = require('../services/purchaseDataService');
 const { notifyPurchaseWorkflow } = require('../services/purchaseDataNotifications');
@@ -184,7 +184,16 @@ exports.importPurchaseRows = async (req, res) => {
     try { parsed = normalizePurchaseRows(rows, source, financialYear, req.body.headerRowNumber); }
     catch (error) { return res.status(422).json({ error: error.message, code: error.code, missingHeaders: error.missingHeaders || [] }); }
     if (!parsed.acceptedRows.length) {
-      return res.status(422).json({ error: 'No valid rows could be imported. Correct the listed row errors and try again.', upload: parsed, previewRows: [], validationErrors: parsed.validationErrors });
+      const financialYearMismatch = describePurchaseFinancialYearMismatch(parsed, financialYear);
+      return res.status(422).json({
+        error: financialYearMismatch?.message || 'No valid rows could be imported. Correct the listed row errors and try again.',
+        code: financialYearMismatch ? 'FINANCIAL_YEAR_MISMATCH' : 'NO_VALID_ROWS',
+        selectedFinancialYear: financialYearMismatch?.selectedFinancialYear,
+        workbookFinancialYears: financialYearMismatch?.workbookFinancialYears,
+        upload: parsed,
+        previewRows: [],
+        validationErrors: parsed.validationErrors
+      });
     }
     const client = await findClient(req.params.id, req.user);
     if (!client) return res.status(404).json({ error: 'Client not found' });
