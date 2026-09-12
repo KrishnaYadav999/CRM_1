@@ -77,7 +77,6 @@ export default function LandingPage() {
       gsap.to('.lp-floating-task', { y: -10, duration: 2.8, repeat: -1, yoyo: true, ease: 'sine.inOut' })
       gsap.to('.lp-floating-growth', { y: 9, duration: 3.2, repeat: -1, yoyo: true, ease: 'sine.inOut' })
       gsap.utils.toArray('.lp-reveal').forEach((element) => gsap.from(element, { y: 46, opacity: 0, duration: .8, ease: 'power3.out', scrollTrigger: { trigger: element, start: 'top 84%', once: true } }))
-      gsap.to('.lp-logo-track', { xPercent: -50, duration: 44, repeat: -1, ease: 'none' })
     }, rootRef)
     return () => context.revert()
   }, [])
