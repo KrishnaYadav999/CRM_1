@@ -723,6 +723,50 @@ async function findDuplicateCompanyRecord(company, excludeId = '') {
   return rows.find((lead) => String(lead._id) !== String(excludeId || '') && normalizeCompanyIdentity(lead.company) === identity) || null;
 }
 
+function buildAppendOnlyServicePatch(beforeLead = {}, incoming = {}, actor = {}) {
+  const legacyService = {
+    assignedServiceId: beforeLead.assignedServiceId || beforeLead.serviceAssignmentId || `legacy_service_${beforeLead._id || beforeLead.leadCode || 'lead'}`,
+    industryType: beforeLead.industryType || '', eprCategory: beforeLead.eprCategory || '', businessCategory: beforeLead.businessCategory || '',
+    applicantType: beforeLead.applicantType || beforeLead.piboParent || '', piboCategory: beforeLead.subApplicantType || beforeLead.piboCategory || '',
+    servicesOffered: beforeLead.servicesOffered || '', applicableService: beforeLead.applicableService || '', plantUnit: beforeLead.plantUnit || '',
+    firstAnnualReturnYearApplicable: beforeLead.firstAnnualReturnYearApplicable || '', createdByCrmUserId: beforeLead.createdByCrmUserId || '',
+    createdByName: beforeLead.createdByName || beforeLead.importedCreatedBy || '', createdByEmail: beforeLead.createdByEmail || ''
+  };
+  const existingServices = Array.isArray(beforeLead.serviceSelections) && beforeLead.serviceSelections.length
+    ? beforeLead.serviceSelections
+    : [legacyService];
+  const incomingServices = Array.isArray(incoming.serviceSelections) ? incoming.serviceSelections : [];
+  if (incomingServices.length <= existingServices.length) {
+    const error = new Error('Add Services mode requires at least one new service row.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const actorId = String(actor?._id || actor?.id || '').trim();
+  const actorName = String(actor?.name || actor?.email || '').trim();
+  const actorEmail = String(actor?.email || '').trim().toLowerCase();
+  const addedServices = incomingServices.slice(existingServices.length).map((row = {}) => ({
+    ...row,
+    assignedServiceId: row.assignedServiceId || row.serviceAssignmentId || `service_assignment_${randomUUID()}`,
+    createdByCrmUserId: actorId,
+    createdByName: actorName,
+    createdByEmail: actorEmail
+  }));
+  const patch = { serviceSelections: [...existingServices, ...addedServices] };
+
+  const legacyRows = {
+    addresses: [{ assignedServiceId: legacyService.assignedServiceId, plantUnit: beforeLead.plantUnit || '', addressLine1: beforeLead.addressLine1 || '', addressLine2: beforeLead.addressLine2 || '', addressLine3: beforeLead.addressLine3 || '', landmark: beforeLead.landmark || '', state: beforeLead.state || '', city: beforeLead.city || '', pinCode: beforeLead.pinCode || '', existingClient: beforeLead.existingClient || 'No', website: beforeLead.website || '' }],
+    contacts: [{ assignedServiceId: legacyService.assignedServiceId, plantUnit: beforeLead.plantUnit || '', salutation: beforeLead.salutation || '', contactPerson: beforeLead.contactPerson || '', designation: beforeLead.designation || '', emails: beforeLead.emails || '', mobileNo1: beforeLead.mobileNo1 || '', mobileNo2: beforeLead.mobileNo2 || '', whatsappNo: beforeLead.whatsappNo || '', linkedinUrl: beforeLead.linkedinUrl || '', referredBy: beforeLead.referredBy || '', source: beforeLead.source || '', businessCardUrl: beforeLead.businessCardUrl || '' }],
+    assignments: [{ assignedServiceId: legacyService.assignedServiceId, assignedTo: beforeLead.assignedTo || '', assignedToText: beforeLead.assignedToText || '', assignedToEmail: beforeLead.assignedToEmail || '', assignedStaff: beforeLead.assignedStaff || '', assignedStaffText: beforeLead.assignedStaffText || '', assignedStaffEmail: beforeLead.assignedStaffEmail || '' }]
+  };
+  ['addresses', 'contacts', 'assignments'].forEach((field) => {
+    const existingRows = Array.isArray(beforeLead[field]) && beforeLead[field].length ? beforeLead[field] : legacyRows[field];
+    const incomingRows = Array.isArray(incoming[field]) ? incoming[field] : [];
+    patch[field] = [...existingRows, ...incomingRows.slice(existingRows.length)];
+  });
+  return patch;
+}
+
 function bulkServiceRow(source = {}, user = {}) {
   return {
     industryType: String(source.industryType || '').trim(),
@@ -924,7 +968,10 @@ exports.searchCompanies = async (req, res) => {
     { companyIdentity: { $regex: escaped, $options: 'i' } },
     { company: { $regex: escaped, $options: 'i' } }
   ] };
-  const leads = await Lead.find(combineAccessFilters(searchFilter, await leadAccessFilter(req.user)))
+  // Company discovery is global for authenticated CRM users. Otherwise a lead
+  // owned by another user is incorrectly shown as a brand-new company and the
+  // intended cross-user Add Services workflow can never be opened.
+  const leads = await Lead.find(searchFilter)
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .populate('createdBy', 'name email')
@@ -1089,7 +1136,10 @@ exports.updateLeadCreator = async (req, res) => {
 
 exports.updateLead = async (req, res) => {
   try {
-    const lead = await Lead.findOne(combineAccessFilters({ _id: req.params.id }, await leadAccessFilter(req.user)));
+    const addServicesMode = req.body?.addServicesMode === true;
+    const lead = addServicesMode
+      ? await Lead.findById(req.params.id)
+      : await Lead.findOne(combineAccessFilters({ _id: req.params.id }, await leadAccessFilter(req.user)));
     if (!lead) return res.status(404).json({ error: 'Lead not found or not accessible' });
     const beforeLead = lead.toObject();
 
@@ -1112,7 +1162,8 @@ exports.updateLead = async (req, res) => {
 
     const sendIntroductionEmail = req.body?.sendIntroductionEmail === true;
     const poDebugId = String(req.get('x-po-debug-id') || '').trim().slice(0, 100);
-    const data = preserveExistingClosureEvidence(beforeLead, cleanBody(req.body));
+    let data = preserveExistingClosureEvidence(beforeLead, cleanBody(req.body));
+    if (addServicesMode) data = buildAppendOnlyServicePatch(beforeLead, data, req.user);
     if (poDebugId) console.info('[POProof:lead:sanitized]', { poDebugId, leadId: String(lead._id), leadCode: lead.leadCode || '', collection: Lead.collection.collectionName, assignments: (data.assignments || []).map((row, assignmentIndex) => ({ assignmentIndex, poStatus: row.poStatus || '', rows: (row.poYearRows || []).map((po, rowIndex) => ({ rowIndex, poNumber: po.poNumber || '', poAmount: po.poAmount ?? null, hasPoFileUrl: Boolean(po.poFileUrl), poFileName: po.poFileName || '' })) })) });
     delete data.sendIntroductionEmail;
     const followUpChangedIndexes = changedFollowUpIndexes(beforeLead, data);
@@ -1209,9 +1260,15 @@ exports.updateLead = async (req, res) => {
       : { requested: sendIntroductionEmail, sent: false, status: sendIntroductionEmail ? 'skipped' : 'not-requested', reason: sendIntroductionEmail ? 'not-submitted' : undefined };
     if (req.body?.addServicesMode) {
       await notifyNewFinancialYear({ beforeLead, savedLead: lead.toObject(), submittedPayload: req.body, actor: req.user }).catch((error) => console.error('Financial year notification failed', error));
+      const notificationLead = {
+        ...lead.toObject(),
+        generatedForUser: req.body.generatedForUser || lead.generatedForUser,
+        generatedForName: req.body.generatedForName || lead.generatedForName,
+        generatedForEmail: req.body.generatedForEmail || lead.generatedForEmail
+      };
       await notifyAdditionalLeadServices({
         beforeLead,
-        afterLead: lead.toObject(),
+        afterLead: notificationLead,
         actor: req.user
       }).catch((error) => console.error('Additional lead service notification failed', error));
     }
@@ -1921,3 +1978,4 @@ exports.uploadPurchaseOrderProof = async (req, res) => {
 // Shared only with the temporary-lead conversion controller so conversion
 // follows the exact same lead-code and ownership rules as Add Lead.
 exports.createLeadRecordInternal = createLeadRecord;
+exports.buildAppendOnlyServicePatchInternal = buildAppendOnlyServicePatch;
