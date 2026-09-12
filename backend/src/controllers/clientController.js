@@ -1214,11 +1214,14 @@ exports.getClient = async (req, res) => {
     return res.status(400).json({ error: 'Invalid Client Master ID' });
   }
 
-  const scope = await getVisibleUserScope(req.user);
-  const client = await Client.findOne({
-    _id: clientId,
-    ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo'])
-  })
+  // Keep exact-record access identical to list/search discovery. Legacy imports
+  // may store the responsible CRM user in importMeta.user/createdBy fields
+  // instead of adminControls.assignedTo; using the narrower filter here made
+  // those records visible in the selector but returned 404 when opened.
+  const client = await Client.findOne(combineAccessFilters(
+    { _id: clientId },
+    await clientAccessFilter(req.user)
+  ))
     .populate('selectedLead', 'leadCode company status emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
     .populate('adminControls.assignedTo', 'name email role avatarUrl');
 

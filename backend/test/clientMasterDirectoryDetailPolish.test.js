@@ -38,3 +38,11 @@ test('service chooser includes secure CEPR credential controls', () => {
   assert.match(resolver, /ceprUserId:/);
   assert.match(resolver, /ceprPassword:/);
 });
+
+test('exact Client Master detail uses the same legacy-aware visibility filter as discovery', () => {
+  const controller = read('backend/src/controllers/clientController.js');
+  const getClientBlock = controller.slice(controller.indexOf('exports.getClient ='), controller.indexOf('exports.updateCpcbOnboarding ='));
+  assert.match(getClientBlock, /await clientAccessFilter\(req\.user\)/);
+  assert.match(getClientBlock, /combineAccessFilters/);
+  assert.doesNotMatch(getClientBlock, /ownerFilter\(scope/);
+});
