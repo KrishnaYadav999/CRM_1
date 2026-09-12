@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import { Bar, BarChart, Cell, Tooltip, XAxis } from 'recharts';
+import ResponsiveContainer from '../components/charts/SafeResponsiveContainer';
 import { ArrowLeft, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Edit3, Eye, History, ListChecks, Plus, Search, UserPlus, X } from 'lucide-react';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';

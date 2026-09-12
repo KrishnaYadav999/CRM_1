@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { AlertTriangle, Building2, CalendarClock, ChevronLeft, ChevronRight, Download, Flag, Loader2, Search, UserRound, Users, X } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts'
+import ResponsiveContainer from '../charts/SafeResponsiveContainer'
 import api from '../../services/api'
 import { API_ENDPOINTS } from '../../services/apiEndpoints'
 import { formatDateTime } from '../../utils/productivityReportExports'

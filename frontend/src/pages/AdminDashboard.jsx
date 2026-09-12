@@ -11,11 +11,11 @@ import {
   Cell,
   Pie,
   PieChart as RechartsPieChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis
 } from 'recharts'
+import ResponsiveContainer from '../components/charts/SafeResponsiveContainer'
 import {
   Activity,
   ArrowLeft,

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts'
+import ResponsiveContainer from '../components/charts/SafeResponsiveContainer'
 import {
   Activity, ArrowUpDown, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Download, Eye, FileSpreadsheet,
   Lightbulb, Loader2, Monitor, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck,

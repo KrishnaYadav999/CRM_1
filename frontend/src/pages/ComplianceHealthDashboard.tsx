@@ -6,8 +6,9 @@ import {
 } from 'lucide-react'
 import {
   Area, AreaChart, CartesianGrid, Cell, Legend, Line, Pie, PieChart, ReferenceLine,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Tooltip, XAxis, YAxis,
 } from 'recharts'
+import ResponsiveContainer from '../components/charts/SafeResponsiveContainer'
 import { Activity, ComplianceIssue, Framework, IssueStatus, Severity } from '../features/complianceHealth/types'
 import { frameworkScores, initialActivities, initialIssues, riskData, trendData } from '../features/complianceHealth/mockData'
 import {
