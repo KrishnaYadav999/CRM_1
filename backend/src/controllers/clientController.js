@@ -35,16 +35,7 @@ function combineAccessFilters(...filters) {
   return active.length > 1 ? { $and: active } : active[0] || {};
 }
 
-async function clientAccessFilter(user) {
-  const scope = await getVisibleUserScope(user);
-  return ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
-    'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
-    'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
-  ]);
-}
-
-async function leadAccessFilter(user) {
-  const scope = await getVisibleUserScope(user);
+function leadOwnerFilter(scope) {
   return ownerFilter(scope, 'createdBy', 'assignedTo', [
     'createdByCrmUserId', 'createdByName', 'createdByEmail', 'importedCreatedBy',
     'generatedForName', 'generatedForEmail', 'assignedToText', 'assignedToEmail',
@@ -53,6 +44,41 @@ async function leadAccessFilter(user) {
     'assignments.assignedStaffEmail', 'serviceSelections.createdByCrmUserId',
     'serviceSelections.createdByName', 'serviceSelections.createdByEmail'
   ], ['generatedForUser', 'assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+}
+
+async function clientAccessFilter(user) {
+  const scope = await getVisibleUserScope(user);
+  const directClientAccess = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
+    'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
+    'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
+  ]);
+  if (scope === null) return directClientAccess;
+
+  // Users assigned to a Lead must see that Lead's populated Client Master,
+  // even when the Client document itself was created by an administrator.
+  const visibleLeads = await Lead.find(leadOwnerFilter(scope)).select('_id leadCode sourceLeadId').lean();
+  if (!visibleLeads.length) return directClientAccess;
+  const leadIds = visibleLeads.map((lead) => lead._id).filter(Boolean);
+  const leadIdentityValues = visibleLeads.flatMap((lead) => [
+    String(lead._id || '').trim(),
+    String(lead.leadCode || '').trim(),
+    String(lead.sourceLeadId || '').trim()
+  ]).filter(Boolean);
+  return { $or: [
+    ...(directClientAccess.$or || [directClientAccess]),
+    { selectedLead: { $in: leadIds } },
+    { 'data.selectedLead': { $in: [...leadIds, ...leadIdentityValues] } },
+    { 'data.selectedLeadSnapshot.id': { $in: leadIdentityValues } },
+    { 'data.selectedLeadSnapshot.sourceLeadId': { $in: leadIdentityValues } },
+    { 'data.selectedLeadSnapshot.leadCode': { $in: leadIdentityValues } },
+    { 'data.importMeta.leadNumber': { $in: leadIdentityValues } },
+    { 'data.importMeta.uniqueId': { $in: leadIdentityValues } }
+  ] };
+}
+
+async function leadAccessFilter(user) {
+  const scope = await getVisibleUserScope(user);
+  return leadOwnerFilter(scope);
 }
 
 async function validateNewClientLeadEligibility(selectedLead, assignedServiceId, user) {
@@ -946,13 +972,10 @@ function backgroundSyncPendingApprovals(clientRows = [], quotationRows = []) {
 }
 
 exports.listClients = async (req, res) => {
-  const scope = await getVisibleUserScope(req.user);
-  const clients = await Client.find({
-    'data.importMeta.approvalOverride': { $ne: true },
-    ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
-      'data.importMeta.assignedTo'
-    ])
-  })
+  const clients = await Client.find(combineAccessFilters(
+    { 'data.importMeta.approvalOverride': { $ne: true } },
+    await clientAccessFilter(req.user)
+  ))
     .select([
       '-data.companyOverview.productImage',
       '-data.cpcbScreenshots', '-data.processDiagrams',
@@ -976,10 +999,7 @@ exports.listClients = async (req, res) => {
 
 exports.listClientMasterCatalog = async (req, res) => {
   const startedAt = Date.now();
-  const scope = await getVisibleUserScope(req.user);
-  const records = await Client.find({
-    ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo'])
-  })
+  const records = await Client.find(await clientAccessFilter(req.user))
     .select([
       '_id', 'selectedLead', 'assignedServiceId', 'workflowStatus',
       'data.selectedLead', 'data.assignedServiceId', 'data.selectedLeadSnapshot',

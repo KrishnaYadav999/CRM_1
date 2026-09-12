@@ -85,3 +85,13 @@
 @media(min-width:1700px){.lp-product-body{height:410px}.lp-product-main{padding:28px}.lp-chart-panel svg{height:140px}.lp-client-logo{width:185px;height:102px}.lp-section-heading p{font-size:17px}.lp-platform-copy>p{font-size:17px}}
 @media(max-width:1050px){.lp-container{width:min(calc(100% - 40px),1180px)}.lp-hero{min-height:auto;padding:70px 0 100px}.lp-hero-grid{grid-template-columns:1fr;padding-inline:0}.lp-product-wrap{justify-self:center}.lp-solution-grid,.lp-capability-grid,.lp-platform-grid,.lp-faq-grid{padding-inline:0}.lp-platform-grid{grid-template-columns:1fr 1fr}.lp-impact-card{width:min(calc(100% - 40px),1180px)}}
 @media(max-width:760px){.lp-container{width:calc(100% - 32px)}.lp-section{padding:68px 0}.lp-hero{padding:58px 0 90px}.lp-hero-grid{display:grid}.lp-solution-grid{margin-top:38px}.lp-platform-grid{grid-template-columns:1fr}.lp-platform-visual{height:350px}.lp-impact{padding-block:48px}.lp-impact-card{width:calc(100% - 32px)}.lp-final-cta{padding-block:60px}.lp-footer>.lp-container{width:calc(100% - 32px)}.lp-logo-track{animation-duration:32s}}
+
+/* Footer contact locations. */
+.lp-footer>.lp-container{grid-template-columns:auto minmax(170px,.5fr) minmax(420px,1.35fr) auto;align-items:start}
+.lp-footer-addresses{display:grid!important;gap:13px!important}
+.lp-footer-addresses address{display:grid;gap:5px;max-width:570px;font-style:normal}
+.lp-footer-addresses b{color:#fff;font-size:12px}
+.lp-footer-addresses span{color:#aebfd3;font-size:11px;line-height:1.65}
+.lp-footer-links{padding-top:4px}
+@media(max-width:1050px){.lp-footer>.lp-container{grid-template-columns:auto 1fr}.lp-footer-addresses{grid-column:1/-1;grid-template-columns:1fr 1fr!important}.lp-footer-links{grid-column:1/-1;justify-content:flex-end}}
+@media(max-width:760px){.lp-footer>.lp-container{grid-template-columns:1fr}.lp-footer-addresses{grid-column:auto;grid-template-columns:1fr!important;text-align:left}.lp-footer-addresses address{max-width:none}.lp-footer-links{grid-column:auto;justify-content:center}}
