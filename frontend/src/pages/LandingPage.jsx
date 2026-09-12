@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import Lenis from 'lenis'
+import 'lenis/dist/lenis.css'
 import {
   ArrowRight, BadgeCheck, BarChart3, ChevronDown, CircleCheckBig, Database,
   Factory, FileCheck2, Globe2, Headphones, Layers3, Leaf, LockKeyhole, Menu,
@@ -38,8 +40,8 @@ const faqs = [
   { question: 'How quickly can our team get started?', answer: 'The workspace can be configured around your roles and operating process, followed by guided onboarding so teams can begin with a familiar, structured workflow.' }
 ]
 
-function BrandMark({ compact = false }) {
-  return <span className={`lp-brand ${compact ? 'is-compact' : ''}`}><span className="lp-brand-logo"><img src={brand.logoUrl} alt="Anant Tattva" /></span><span className="lp-brand-copy"><b>ANANT TATTVA</b><small>Business CRM</small></span></span>
+function BrandMark({ compact = false, showCopy = true }) {
+  return <span className={`lp-brand ${compact ? 'is-compact' : ''}`}><span className="lp-brand-logo"><img src={brand.logoUrl} alt="Anant Tattva" /></span>{showCopy && <span className="lp-brand-copy"><b>ANANT TATTVA</b><small>Business CRM</small></span>}</span>
 }
 
 function ProductPreview() {
@@ -66,7 +68,23 @@ export default function LandingPage() {
   const [openFaq, setOpenFaq] = useState(0)
 
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
+    const previousScrollBehavior = document.documentElement.style.scrollBehavior
+    const previousScrollPadding = document.documentElement.style.scrollPaddingTop
+    document.documentElement.style.scrollBehavior = 'smooth'
+    document.documentElement.style.scrollPaddingTop = '126px'
+    const restoreScrollSettings = () => {
+      document.documentElement.style.scrollBehavior = previousScrollBehavior
+      document.documentElement.style.scrollPaddingTop = previousScrollPadding
+    }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return restoreScrollSettings
+    const lenis = new Lenis({
+      autoRaf: true,
+      smoothWheel: true,
+      lerp: 0.085,
+      wheelMultiplier: 0.9,
+      anchors: { offset: -126 }
+    })
+    lenis.on('scroll', ScrollTrigger.update)
     const context = gsap.context(() => {
       gsap.from('.lp-nav-inner', { y: -24, opacity: 0, duration: .65, ease: 'power3.out' })
       gsap.from('.lp-hero-copy > *', { y: 35, opacity: 0, duration: .85, stagger: .1, ease: 'power3.out', delay: .15 })
@@ -78,12 +96,16 @@ export default function LandingPage() {
       gsap.to('.lp-floating-growth', { y: 9, duration: 3.2, repeat: -1, yoyo: true, ease: 'sine.inOut' })
       gsap.utils.toArray('.lp-reveal').forEach((element) => gsap.from(element, { y: 46, opacity: 0, duration: .8, ease: 'power3.out', scrollTrigger: { trigger: element, start: 'top 84%', once: true } }))
     }, rootRef)
-    return () => context.revert()
+    return () => {
+      context.revert()
+      lenis.destroy()
+      restoreScrollSettings()
+    }
   }, [])
 
   return <div ref={rootRef} className="landing-page">
     <header className="lp-nav">
-      <div className="lp-nav-inner"><Link to="/" className="lp-brand-link" aria-label="Anant Tattva home"><BrandMark /></Link><nav className={menuOpen ? 'is-open' : ''} aria-label="Main navigation"><a href="#solutions" onClick={() => setMenuOpen(false)}>Solutions</a><a href="#platform" onClick={() => setMenuOpen(false)}>Platform</a><a href="#industries" onClick={() => setMenuOpen(false)}>Industries</a><a href="#customers" onClick={() => setMenuOpen(false)}>Customers</a><a href="#about" onClick={() => setMenuOpen(false)}>Company</a><Link className="lp-mobile-login" to="/login">Login <ArrowRight /></Link></nav><div className="lp-nav-actions"><a className="lp-contact" href="mailto:info@ananttattva.com"><small>Talk to us</small><b>info@ananttattva.com</b></a><Link className="lp-login-link" to="/login"><UsersRound /> Login</Link><a className="lp-primary-button small" href="#contact">Get started</a><button className="lp-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-label="Toggle menu">{menuOpen ? <X /> : <Menu />}</button></div></div>
+      <div className="lp-nav-inner"><Link to="/" className="lp-brand-link" aria-label="Anant Tattva home"><BrandMark showCopy={false} /></Link><nav className={menuOpen ? 'is-open' : ''} aria-label="Main navigation"><a href="#solutions" onClick={() => setMenuOpen(false)}>Solutions</a><a href="#platform" onClick={() => setMenuOpen(false)}>Platform</a><a href="#industries" onClick={() => setMenuOpen(false)}>Industries</a><a href="#customers" onClick={() => setMenuOpen(false)}>Customers</a><a href="#about" onClick={() => setMenuOpen(false)}>Company</a><Link className="lp-mobile-login" to="/login">Login <ArrowRight /></Link></nav><div className="lp-nav-actions"><a className="lp-contact" href="mailto:info@ananttattva.com"><small>Talk to us</small><b>info@ananttattva.com</b></a><Link className="lp-login-link" to="/login"><UsersRound /> Login</Link><a className="lp-primary-button small" href="#contact">Get started</a><button className="lp-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-label="Toggle menu">{menuOpen ? <X /> : <Menu />}</button></div></div>
       <div className="lp-announcement"><Sparkles /> Smarter EPR operations start with connected teams. <a href="#platform">Explore the platform <ArrowRight /></a></div>
     </header>
     <main>
