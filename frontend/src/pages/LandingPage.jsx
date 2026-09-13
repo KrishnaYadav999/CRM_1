@@ -89,7 +89,7 @@ export default function LandingPage() {
 
   return <div ref={rootRef} className="landing-page">
     <header className="lp-nav">
-      <div className="lp-nav-inner"><Link to="/" className="lp-brand-link" aria-label="Anant Tattva home"><BrandMark showCopy={false} /></Link><nav className={menuOpen ? 'is-open' : ''} aria-label="Mobile navigation"><Link className="lp-mobile-login" to="/login">Login <ArrowRight /></Link></nav><div className="lp-nav-actions"><a className="lp-contact" href="mailto:info@ananttattva.com"><small>Talk to us</small><b>info@ananttattva.com</b></a><Link className="lp-login-link" to="/login"><UsersRound /> Login</Link><a className="lp-primary-button small" href="mailto:info@ananttattva.com">Get started</a><button className="lp-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-label="Toggle menu">{menuOpen ? <X /> : <Menu />}</button></div></div>
+      <div className="lp-nav-inner"><Link to="/" className="lp-brand-link" aria-label="Anant Tattva home"><BrandMark showCopy={false} /></Link><nav className={menuOpen ? 'is-open' : ''} aria-label="Mobile navigation"><Link className="lp-mobile-login" to="/login">Login <ArrowRight /></Link></nav><div className="lp-nav-actions"><Link className="lp-login-link" to="/login"><UsersRound /> Login</Link><button className="lp-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-label="Toggle menu">{menuOpen ? <X /> : <Menu />}</button></div></div>
       <div className="lp-announcement"><Sparkles /> Smarter EPR operations start with connected teams. <a href="#platform">Explore the platform <ArrowRight /></a></div>
     </header>
     <main>
