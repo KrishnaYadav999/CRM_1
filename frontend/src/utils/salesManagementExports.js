@@ -18,6 +18,47 @@ function safeDate(value) {
   return String(value || '').replace(/[^0-9-]/g, '')
 }
 
+function drawCarryForwardInfographic(pdf, rows, startY) {
+  const activeRows = (rows || []).filter((row) => row.totalAvailable || row.closedThisMonth || row.closingPending)
+  const latest = activeRows[activeRows.length - 1]
+  if (!latest) return startY
+  pdf.setFont('helvetica', 'bold')
+  pdf.setTextColor(15, 23, 42)
+  pdf.setFontSize(10)
+  pdf.text(`${latest.month} Lead Movement Snapshot`, 17, startY)
+  const cards = [
+    { label: 'OPENING PENDING', value: latest.openingPending, color: [245, 158, 11], text: [69, 26, 3], operator: '' },
+    { label: 'NEW LEADS', value: latest.newLeads, color: [14, 165, 233], text: [255, 255, 255], operator: '+' },
+    { label: 'TOTAL AVAILABLE', value: latest.totalAvailable, color: [99, 102, 241], text: [255, 255, 255], operator: '=' },
+    { label: 'TOTAL CLOSED', value: latest.closedThisMonth, color: [16, 185, 129], text: [255, 255, 255], operator: '-' },
+    { label: 'CLOSING PENDING', value: latest.closingPending, color: [239, 68, 68], text: [255, 255, 255], operator: '=' }
+  ]
+  const cardWidth = 46
+  const cardHeight = 24
+  const gap = 8
+  const cardY = startY + 5
+  cards.forEach((card, index) => {
+    const x = 17 + (index * (cardWidth + gap))
+    if (card.operator) {
+      pdf.setTextColor(71, 85, 105)
+      pdf.setFontSize(14)
+      pdf.text(card.operator, x - (gap / 2), cardY + 14, { align: 'center' })
+    }
+    pdf.setFillColor(...card.color)
+    pdf.roundedRect(x, cardY, cardWidth, cardHeight, 3, 3, 'F')
+    pdf.setTextColor(...card.text)
+    pdf.setFontSize(7)
+    pdf.text(card.label, x + (cardWidth / 2), cardY + 7, { align: 'center' })
+    pdf.setFontSize(16)
+    pdf.text(String(card.value || 0), x + (cardWidth / 2), cardY + 18, { align: 'center' })
+  })
+  pdf.setFont('helvetica', 'normal')
+  pdf.setTextColor(71, 85, 105)
+  pdf.setFontSize(7.5)
+  pdf.text('Previous balance + new business - approved PO closures = balance carried to next month', 17, cardY + cardHeight + 5)
+  return cardY + cardHeight + 9
+}
+
 function drawCarryForwardChart(pdf, rows, startY) {
   const chartRows = (rows || []).filter((row) => row.totalAvailable || row.closedThisMonth || row.closingPending).slice(-12)
   if (!chartRows.length) {
@@ -192,7 +233,8 @@ export async function exportSalesManagementPdf(data) {
   pdf.setFontSize(15)
   pdf.setFont('helvetica', 'bold')
   pdf.text('Monthly Lead Carry-Forward', 10, 14)
-  const carryChartEnd = drawCarryForwardChart(pdf, data.monthlyCarryForward || [], 17)
+  const infographicEnd = drawCarryForwardInfographic(pdf, data.monthlyCarryForward || [], 20)
+  const carryChartEnd = drawCarryForwardChart(pdf, data.monthlyCarryForward || [], infographicEnd)
   autoTable(pdf, {
     startY: carryChartEnd + 4,
     head: [['Month', 'Opening Pending', 'New Leads', 'Total Available', 'Closed From Opening', 'Closed From New', 'Total Closed', 'Closing Pending']],
