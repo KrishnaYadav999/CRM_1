@@ -84,34 +84,32 @@ function drawCarryForwardChart(pdf, rows, startY) {
   const slot = width / chartRows.length
   const barWidth = Math.min(7, slot * 0.28)
   const closingPoints = []
+  const closedPoints = []
   chartRows.forEach((row, index) => {
     const center = left + (slot * index) + (slot / 2)
     const scale = (value) => (Number(value || 0) / maximum) * height
     const openingHeight = scale(row.openingPending)
     const newHeight = scale(row.newLeads)
     pdf.setFillColor(245, 158, 11)
-    pdf.rect(center - barWidth - 1, bottom - openingHeight, barWidth, openingHeight, 'F')
+    pdf.rect(center - (barWidth / 2), bottom - openingHeight, barWidth, openingHeight, 'F')
     pdf.setFillColor(14, 165, 233)
-    pdf.rect(center - barWidth - 1, bottom - openingHeight - newHeight, barWidth, newHeight, 'F')
-    const oldClosedHeight = scale(row.closedFromOpening)
-    const newClosedHeight = scale(row.closedFromNew)
-    pdf.setFillColor(4, 120, 87)
-    pdf.rect(center + 1, bottom - oldClosedHeight, barWidth, oldClosedHeight, 'F')
-    pdf.setFillColor(52, 211, 153)
-    pdf.rect(center + 1, bottom - oldClosedHeight - newClosedHeight, barWidth, newClosedHeight, 'F')
+    pdf.rect(center - (barWidth / 2), bottom - openingHeight - newHeight, barWidth, newHeight, 'F')
+    closedPoints.push([center, bottom - scale(row.closedThisMonth)])
     closingPoints.push([center, bottom - scale(row.closingPending)])
     pdf.setTextColor(71, 85, 105)
     pdf.text(String(row.month || '').slice(2), center, bottom + 5, { align: 'center' })
   })
-  pdf.setDrawColor(239, 68, 68)
+  pdf.setDrawColor(5, 150, 105)
   pdf.setLineWidth(0.8)
+  closedPoints.slice(1).forEach((point, index) => pdf.line(closedPoints[index][0], closedPoints[index][1], point[0], point[1]))
+  closedPoints.forEach(([x, y]) => { pdf.setFillColor(5, 150, 105); pdf.circle(x, y, 1.2, 'F') })
+  pdf.setDrawColor(239, 68, 68)
   closingPoints.slice(1).forEach((point, index) => pdf.line(closingPoints[index][0], closingPoints[index][1], point[0], point[1]))
   closingPoints.forEach(([x, y]) => { pdf.setFillColor(239, 68, 68); pdf.circle(x, y, 1.2, 'F') })
   const legendY = bottom + 12
   const legend = [
     ['Previous Pending', [245, 158, 11]], ['New Leads', [14, 165, 233]],
-    ['Closed From Previous', [4, 120, 87]], ['Closed From New', [52, 211, 153]],
-    ['Closing Pending', [239, 68, 68]]
+    ['Total Closed', [5, 150, 105]], ['Closing Pending', [239, 68, 68]]
   ]
   let legendX = left
   legend.forEach(([label, color]) => {
@@ -119,7 +117,7 @@ function drawCarryForwardChart(pdf, rows, startY) {
     pdf.rect(legendX, legendY - 2.5, 3, 3, 'F')
     pdf.setTextColor(51, 65, 85)
     pdf.text(label, legendX + 5, legendY)
-    legendX += 50
+    legendX += 58
   })
   return legendY + 5
 }
