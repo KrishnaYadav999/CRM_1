@@ -20,6 +20,7 @@ const complianceIntegrationRoutes = require('./routes/complianceIntegration');
 const purchaseOrderRoutes = require('./routes/purchaseOrders');
 const purchaseProofRoutes = require('./routes/purchaseProofs');
 const healthReportAssignmentRoutes = require('./routes/healthReportAssignments');
+const salesMisRoutes = require('./routes/salesMis');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
 const { startClientComplianceCorrectionReminderScheduler } = require('./services/clientComplianceCorrectionReminders');
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
@@ -143,6 +144,7 @@ app.use('/api/integrations/compliance', complianceIntegrationRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/purchase-proofs', purchaseProofRoutes);
 app.use('/api/health-report-assignments', healthReportAssignmentRoutes);
+app.use('/api/sales-mis', salesMisRoutes);
 
 app.get('/', (req, res) => res.send({
   ok: true,

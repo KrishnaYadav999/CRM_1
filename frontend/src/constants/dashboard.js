@@ -13,7 +13,8 @@ import {
   UserRound,
   UserPlus,
   Users,
-  BarChart3
+  BarChart3,
+  TrendingUp
 } from 'lucide-react'
 
 export const roles = ['operation', 'admin', 'superadmin', 'manager', 'compliance', 'sales', 'accounts']
@@ -67,6 +68,7 @@ export const navSections = [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard', roles: adminRoles },
           { label: 'Super Admin Dashboard', icon: Gauge, path: '/superadmin-dashboard', roles: adminRoles },
           { label: 'MIS', icon: BarChart3, path: '/mis', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
+          { label: 'Sales Management', icon: TrendingUp, path: '/mis/sales-management', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
           { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: [...adminRoles, 'compliance'], complianceFamily: true },
           {
             label: 'Pending Leads',

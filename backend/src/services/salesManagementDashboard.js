@@ -1,0 +1,482 @@
+const mongoose = require('mongoose');
+const Lead = require('../models/Lead');
+const User = require('../models/User');
+const Team = require('../models/Team');
+const { userHasAnyRole } = require('../utils/userRoles');
+const { ADMIN_ROLES } = require('../constants/roles');
+
+const ACTIVE_THRESHOLD = 25;
+const WARNING_THRESHOLD = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function text(value) {
+  return String(value ?? '').trim();
+}
+
+function objectId(value) {
+  return mongoose.isValidObjectId(value) ? new mongoose.Types.ObjectId(value) : null;
+}
+
+function toInputDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function parseDateRange(dateFrom, dateTo) {
+  const today = new Date();
+  const defaultFrom = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 5, 1));
+  const fromText = text(dateFrom) || toInputDate(defaultFrom);
+  const toText = text(dateTo) || toInputDate(today);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromText) || !/^\d{4}-\d{2}-\d{2}$/.test(toText)) {
+    throw Object.assign(new Error('dateFrom and dateTo must use YYYY-MM-DD.'), { statusCode: 400 });
+  }
+  const start = new Date(`${fromText}T00:00:00.000Z`);
+  const end = new Date(`${toText}T23:59:59.999Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    throw Object.assign(new Error('dateFrom must be on or before dateTo.'), { statusCode: 400 });
+  }
+  if ((end - start) / DAY_MS > 1098) {
+    throw Object.assign(new Error('The dashboard date range cannot exceed three years.'), { statusCode: 400 });
+  }
+  return { from: fromText, to: toText, start, end };
+}
+
+function dateMatch(start, end) {
+  return { createdAt: { $gte: start, $lte: end } };
+}
+
+function approvedAssignmentExpression() {
+  return {
+    $filter: {
+      input: { $ifNull: ['$assignments', []] },
+      as: 'assignment',
+      cond: { $eq: [{ $toUpper: { $ifNull: ['$$assignment.poApprovalStatus', ''] } }, 'APPROVED'] }
+    }
+  };
+}
+
+function poRevenueExpression() {
+  return {
+    $reduce: {
+      input: '$approvedAssignments',
+      initialValue: 0,
+      in: {
+        $add: [
+          '$$value',
+          {
+            $reduce: {
+              input: { $ifNull: ['$$this.poYearRows', []] },
+              initialValue: 0,
+              in: { $add: ['$$value', { $convert: { input: '$$this.poAmount', to: 'double', onError: 0, onNull: 0 } }] }
+            }
+          }
+        ]
+      }
+    }
+  };
+}
+
+/**
+ * MongoDB aggregation used by the management dashboard. Leads remain the
+ * cohort root; quotations and users are joined so all funnel metrics use one
+ * stable owner and cannot double-count quotation value as PO revenue.
+ */
+function buildSalesManagementAggregation({ start, end, department, managerId, ownerIds = [], now = new Date() }) {
+  const initialMatch = {
+    ...dateMatch(start, end),
+    recordStatus: { $ne: 'DELETED' }
+  };
+  if (ownerIds.length) {
+    initialMatch.$or = [
+      { generatedForUser: { $in: ownerIds } },
+      { generatedForUser: null, createdBy: { $in: ownerIds } },
+      { generatedForUser: { $exists: false }, createdBy: { $in: ownerIds } }
+    ];
+  }
+
+  const postOwnerMatch = {};
+  if (text(department)) {
+    const departmentId = objectId(department);
+    postOwnerMatch.$or = departmentId
+      ? [{ 'owner.teamId': departmentId }, { 'owner.team': { $regex: `^${text(department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } }]
+      : [{ 'owner.team': { $regex: `^${text(department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } }];
+  }
+
+  const requestedManagerId = objectId(managerId);
+  if (requestedManagerId) postOwnerMatch.reportingManagerId = requestedManagerId;
+  const stalledBefore = new Date(now.getTime() - (30 * DAY_MS));
+
+  const pipeline = [
+    { $match: initialMatch },
+    { $set: { dashboardOwnerId: { $ifNull: ['$generatedForUser', '$createdBy'] } } },
+    { $lookup: { from: 'users', localField: 'dashboardOwnerId', foreignField: '_id', as: 'owner' } },
+    { $unwind: { path: '$owner', preserveNullAndEmptyArrays: true } },
+    { $set: { reportingManagerId: { $ifNull: ['$owner.managerId', '$owner._id'] } } },
+    { $lookup: { from: 'users', localField: 'reportingManagerId', foreignField: '_id', as: 'reportingManager' } },
+    { $unwind: { path: '$reportingManager', preserveNullAndEmptyArrays: true } },
+    ...(Object.keys(postOwnerMatch).length ? [{ $match: postOwnerMatch }] : []),
+    {
+      $lookup: {
+        from: 'quotations',
+        let: { leadObjectId: '$_id', leadCode: '$leadCode', sourceLeadId: '$sourceLeadId' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  { $eq: ['$leadRef', '$$leadObjectId'] },
+                  { $eq: ['$leadId', { $toString: '$$leadObjectId' }] },
+                  { $and: [{ $ne: ['$$leadCode', null] }, { $eq: ['$leadCode', '$$leadCode'] }] },
+                  { $and: [{ $ne: ['$$leadCode', null] }, { $eq: ['$businessLeadCode', '$$leadCode'] }] },
+                  { $and: [{ $ne: ['$$sourceLeadId', null] }, { $eq: ['$leadId', '$$sourceLeadId'] }] }
+                ]
+              }
+            }
+          },
+          { $sort: { createdAt: -1 } },
+          { $project: { quotationNumber: 1, status: 1, serviceState: 1, grandTotal: 1, quotationDate: 1, createdAt: 1 } }
+        ],
+        as: 'quotations'
+      }
+    },
+    { $set: { approvedAssignments: approvedAssignmentExpression() } },
+    {
+      $set: {
+        convertedServiceCount: { $size: '$approvedAssignments' },
+        confirmedRevenue: poRevenueExpression(),
+        approvedQuotations: {
+          $filter: { input: '$quotations', as: 'quote', cond: { $eq: [{ $toLower: { $ifNull: ['$$quote.status', ''] } }, 'approved'] } }
+        },
+        rejectedQuotations: {
+          $filter: {
+            input: '$quotations', as: 'quote',
+            cond: { $or: [
+              { $eq: [{ $toLower: { $ifNull: ['$$quote.status', ''] } }, 'rejected'] },
+              { $eq: [{ $toLower: { $ifNull: ['$$quote.serviceState', ''] } }, 'closed'] }
+            ] }
+          }
+        },
+        activeQuotations: {
+          $filter: {
+            input: '$quotations', as: 'quote',
+            cond: { $in: [{ $toLower: { $ifNull: ['$$quote.status', ''] } }, ['draft', 'submitted', 'sent']] }
+          }
+        }
+      }
+    },
+    {
+      $set: {
+        approvedQuotationValue: {
+          $reduce: {
+            input: '$approvedQuotations', initialValue: 0,
+            in: { $add: ['$$value', { $convert: { input: '$$this.grandTotal', to: 'double', onError: 0, onNull: 0 } }] }
+          }
+        },
+        openQuotationCount: {
+          $cond: [
+            { $gt: ['$convertedServiceCount', 0] }, 0,
+            { $add: [{ $size: '$activeQuotations' }, { $size: '$approvedQuotations' }] }
+          ]
+        },
+        pipelineStage: {
+          $switch: {
+            branches: [
+              { case: { $gt: ['$convertedServiceCount', 0] }, then: 'converted' },
+              { case: { $gt: [{ $size: '$approvedQuotations' }, 0] }, then: 'quotationApproved' },
+              { case: { $gt: [{ $size: '$activeQuotations' }, 0] }, then: 'quotationOpen' },
+              { case: { $gt: [{ $size: '$rejectedQuotations' }, 0] }, then: 'quotationClosed' }
+            ],
+            default: 'open'
+          }
+        },
+        stalledQuotation: {
+          $and: [
+            { $eq: ['$convertedServiceCount', 0] },
+            { $anyElementTrue: { $map: {
+              input: '$quotations', as: 'quote',
+              in: { $and: [
+                { $in: [{ $toLower: { $ifNull: ['$$quote.status', ''] } }, ['draft', 'submitted', 'sent', 'approved']] },
+                { $lt: [{ $ifNull: ['$$quote.quotationDate', '$$quote.createdAt'] }, stalledBefore] }
+              ] }
+            } } }
+          ]
+        },
+        overdueFollowUp: {
+          $or: [
+            {
+              $let: {
+                vars: { followUpDate: { $convert: { input: '$nextFollowUpDate', to: 'date', onError: null, onNull: null } } },
+                in: { $and: [{ $ne: ['$$followUpDate', null] }, { $lt: ['$$followUpDate', now] }] }
+              }
+            },
+            {
+              $anyElementTrue: {
+                $map: {
+                  input: { $ifNull: ['$serviceSelections', []] },
+                  as: 'service',
+                  in: {
+                    $let: {
+                      vars: { followUpDate: { $convert: { input: '$$service.nextFollowUpDate', to: 'date', onError: null, onNull: null } } },
+                      in: {
+                        $and: [
+                          { $ne: ['$$followUpDate', null] }, { $lt: ['$$followUpDate', now] },
+                          { $eq: [{ $ifNull: ['$$service.followUpClosedAt', null] }, null] },
+                          { $eq: [{ $ifNull: ['$$service.closedAt', null] }, null] }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      $facet: {
+        summary: [{
+          $group: {
+            _id: null,
+            totalLeads: { $sum: 1 },
+            convertedLeads: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
+            closedDeals: { $sum: '$convertedServiceCount' },
+            confirmedRevenue: { $sum: '$confirmedRevenue' },
+            approvedQuotationValue: { $sum: '$approvedQuotationValue' },
+            approvedQuotations: { $sum: { $size: '$approvedQuotations' } },
+            stalledQuotations: { $sum: { $cond: ['$stalledQuotation', 1, 0] } },
+            overdueFollowUps: { $sum: { $cond: ['$overdueFollowUp', 1, 0] } }
+          }
+        }],
+        managerPerformance: [
+          {
+            $group: {
+              _id: '$reportingManagerId',
+              managerName: { $first: { $ifNull: ['$reportingManager.name', { $ifNull: ['$owner.name', '$owner.email'] }] } },
+              role: { $first: { $ifNull: ['$reportingManager.role', '$owner.role'] } },
+              department: { $first: { $ifNull: ['$owner.team', 'No team assigned'] } },
+              teamId: { $first: '$owner.teamId' },
+              totalLeads: { $sum: 1 },
+              openQuotations: { $sum: '$openQuotationCount' },
+              approvedQuotations: { $sum: { $size: '$approvedQuotations' } },
+              convertedToSale: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
+              closedDeals: { $sum: '$convertedServiceCount' },
+              approvedQuotationValue: { $sum: '$approvedQuotationValue' },
+              confirmedRevenue: { $sum: '$confirmedRevenue' },
+              stalledQuotations: { $sum: { $cond: ['$stalledQuotation', 1, 0] } },
+              overdueFollowUps: { $sum: { $cond: ['$overdueFollowUp', 1, 0] } }
+            }
+          },
+          { $set: { conversionRate: { $cond: [{ $gt: ['$totalLeads', 0] }, { $multiply: [{ $divide: ['$convertedToSale', '$totalLeads'] }, 100] }, 0] } } },
+          { $sort: { conversionRate: -1, totalLeads: -1 } }
+        ],
+        managerMonthlyTrend: [
+          {
+            $group: {
+              _id: {
+                managerId: '$reportingManagerId',
+                month: { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: 'Asia/Kolkata' } }
+              },
+              totalLeads: { $sum: 1 },
+              convertedLeads: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
+              revenue: { $sum: '$confirmedRevenue' }
+            }
+          },
+          { $set: { conversionRate: { $cond: [{ $gt: ['$totalLeads', 0] }, { $multiply: [{ $divide: ['$convertedLeads', '$totalLeads'] }, 100] }, 0] } } },
+          { $sort: { '_id.month': 1 } }
+        ],
+        monthlyTrend: [
+          {
+            $group: {
+              _id: { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: 'Asia/Kolkata' } },
+              totalLeads: { $sum: 1 },
+              open: { $sum: { $cond: [{ $eq: ['$pipelineStage', 'open'] }, 1, 0] } },
+              quotationOpen: { $sum: { $cond: [{ $eq: ['$pipelineStage', 'quotationOpen'] }, 1, 0] } },
+              quotationApproved: { $sum: { $cond: [{ $eq: ['$pipelineStage', 'quotationApproved'] }, 1, 0] } },
+              converted: { $sum: { $cond: [{ $eq: ['$pipelineStage', 'converted'] }, 1, 0] } },
+              quotationClosed: { $sum: { $cond: [{ $eq: ['$pipelineStage', 'quotationClosed'] }, 1, 0] } }
+            }
+          },
+          { $set: { conversionRate: { $cond: [{ $gt: ['$totalLeads', 0] }, { $multiply: [{ $divide: ['$converted', '$totalLeads'] }, 100] }, 0] } } },
+          { $sort: { _id: 1 } }
+        ],
+        departmentBreakdown: [
+          {
+            $group: {
+              _id: { $ifNull: ['$owner.team', 'No team assigned'] },
+              teamId: { $first: '$owner.teamId' },
+              leadCount: { $sum: 1 },
+              convertedLeads: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
+              closedDeals: { $sum: '$convertedServiceCount' },
+              actual: { $sum: '$confirmedRevenue' },
+              approvedQuotationValue: { $sum: '$approvedQuotationValue' }
+            }
+          },
+          { $set: {
+            conversionRate: { $cond: [{ $gt: ['$leadCount', 0] }, { $multiply: [{ $divide: ['$convertedLeads', '$leadCount'] }, 100] }, 0] },
+            avgDealValue: { $cond: [{ $gt: ['$closedDeals', 0] }, { $divide: ['$actual', '$closedDeals'] }, 0] }
+          } },
+          { $sort: { leadCount: -1 } }
+        ],
+        leadDetails: [
+          { $sort: { createdAt: -1 } },
+          { $project: {
+            _id: 0, leadId: { $toString: '$_id' }, leadCode: 1, company: 1, createdAt: 1,
+            ownerName: { $ifNull: ['$owner.name', '$owner.email'] }, department: { $ifNull: ['$owner.team', 'No team assigned'] },
+            pipelineStage: 1, convertedServiceCount: 1, confirmedRevenue: 1, approvedQuotationValue: 1,
+            quotationCount: { $size: '$quotations' }, approvedQuotationCount: { $size: '$approvedQuotations' }
+          } }
+        ]
+      }
+    }
+  ];
+  return pipeline;
+}
+
+function monthKeys(start, end) {
+  const keys = [];
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+  while (cursor <= last && keys.length < 37) {
+    keys.push(cursor.toISOString().slice(0, 7));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return keys;
+}
+
+function percentChange(current, previous) {
+  if (!previous) return current ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+function rounded(value, decimals = 1) {
+  const factor = 10 ** decimals;
+  return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function formatAggregation(result, period) {
+  const rawSummary = result?.summary?.[0] || {};
+  const totalLeads = Number(rawSummary.totalLeads) || 0;
+  const convertedLeads = Number(rawSummary.convertedLeads) || 0;
+  const summary = {
+    totalLeads,
+    conversionRate: totalLeads ? rounded((convertedLeads / totalLeads) * 100) : 0,
+    convertedLeads,
+    totalRevenue: rounded(rawSummary.confirmedRevenue, 2),
+    confirmedRevenue: rounded(rawSummary.confirmedRevenue, 2),
+    approvedQuotationValue: rounded(rawSummary.approvedQuotationValue, 2),
+    approvedQuotations: Number(rawSummary.approvedQuotations) || 0,
+    closedDeals: Number(rawSummary.closedDeals) || 0
+  };
+  const managerTrendMap = (result?.managerMonthlyTrend || []).reduce((map, row) => {
+    const key = text(row?._id?.managerId);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({ month: row?._id?.month, conversionRate: rounded(row.conversionRate), revenue: rounded(row.revenue, 2) });
+    return map;
+  }, new Map());
+  const managerPerformance = (result?.managerPerformance || []).map((row) => {
+    const conversionRate = rounded(row.conversionRate);
+    const status = row.totalLeads < 3 ? 'warning' : conversionRate >= ACTIVE_THRESHOLD ? 'active' : conversionRate >= WARNING_THRESHOLD ? 'warning' : 'at-risk';
+    return {
+      managerId: text(row._id), managerName: row.managerName || 'Unassigned owner', role: row.role || '-',
+      teamId: text(row.teamId), department: row.department || 'No team assigned', totalLeads: Number(row.totalLeads) || 0,
+      openQuotations: Number(row.openQuotations) || 0, approvedQuotations: Number(row.approvedQuotations) || 0,
+      convertedToSale: Number(row.convertedToSale) || 0, closedDeals: Number(row.closedDeals) || 0,
+      conversionRate, approvedQuotationValue: rounded(row.approvedQuotationValue, 2), confirmedRevenue: rounded(row.confirmedRevenue, 2),
+      stalledQuotations: Number(row.stalledQuotations) || 0, overdueFollowUps: Number(row.overdueFollowUps) || 0,
+      status, monthlyTrend: managerTrendMap.get(text(row._id)) || []
+    };
+  });
+  const trendMap = new Map((result?.monthlyTrend || []).map((row) => [row._id, row]));
+  const monthlyTrend = monthKeys(period.start, period.end).map((month) => {
+    const row = trendMap.get(month) || {};
+    return {
+      month, open: Number(row.open) || 0, quotationOpen: Number(row.quotationOpen) || 0,
+      quotationApproved: Number(row.quotationApproved) || 0, converted: Number(row.converted) || 0,
+      closed: Number(row.converted) || 0, quotationClosed: Number(row.quotationClosed) || 0,
+      conversionRate: rounded(row.conversionRate)
+    };
+  });
+  const departmentBreakdown = (result?.departmentBreakdown || []).map((row) => ({
+    teamId: text(row.teamId), department: row._id || 'No team assigned', leadCount: Number(row.leadCount) || 0,
+    conversionRate: rounded(row.conversionRate), avgDealValue: rounded(row.avgDealValue, 2),
+    approvedQuotationValue: rounded(row.approvedQuotationValue, 2), target: null, actual: rounded(row.actual, 2), attainmentRate: null
+  }));
+  return {
+    summary, managerPerformance, monthlyTrend, departmentBreakdown, leadDetails: result?.leadDetails || [],
+    stalledQuotations: Number(rawSummary.stalledQuotations) || 0,
+    overdueFollowUps: Number(rawSummary.overdueFollowUps) || 0
+  };
+}
+
+async function visibleOwnerIds(requester) {
+  if (userHasAnyRole(requester, ADMIN_ROLES)) return [];
+  const requesterId = objectId(requester?._id || requester?.id);
+  if (!requesterId) return [];
+  if (userHasAnyRole(requester, ['manager'])) {
+    const reports = await User.find({ managerId: requesterId }).distinct('_id');
+    return [requesterId, ...reports];
+  }
+  if (userHasAnyRole(requester, ['operation head', 'operations head'])) {
+    const teams = await Team.find({ operationHead: requesterId }).select('manager members').lean();
+    return [...new Map([requesterId, ...teams.flatMap((team) => [team.manager, ...(team.members || [])])].filter(Boolean).map((id) => [text(id), id])).values()];
+  }
+  return [requesterId];
+}
+
+async function getSalesManagementDashboard({ dateFrom, dateTo, department, managerId, requester, includeLeadDetails = false }) {
+  const period = parseDateRange(dateFrom, dateTo);
+  if (text(managerId) && !objectId(managerId)) throw Object.assign(new Error('managerId must be a valid identifier.'), { statusCode: 400 });
+  const ownerIds = await visibleOwnerIds(requester);
+  const duration = period.end.getTime() - period.start.getTime() + 1;
+  const previousEnd = new Date(period.start.getTime() - 1);
+  const previousStart = new Date(previousEnd.getTime() - duration + 1);
+  const [currentRows, previousRows, departments] = await Promise.all([
+    Lead.aggregate(buildSalesManagementAggregation({ ...period, department, managerId, ownerIds })).option({ maxTimeMS: 30000 }),
+    Lead.aggregate(buildSalesManagementAggregation({ start: previousStart, end: previousEnd, department, managerId, ownerIds })).option({ maxTimeMS: 30000 }),
+    User.distinct('team', ownerIds.length ? { _id: { $in: ownerIds } } : {})
+  ]);
+  const current = formatAggregation(currentRows[0] || {}, period);
+  const previous = formatAggregation(previousRows[0] || {}, { start: previousStart, end: previousEnd });
+  current.summary.previousPeriod = {
+    totalLeadsChangePct: rounded(percentChange(current.summary.totalLeads, previous.summary.totalLeads)),
+    conversionRateChange: rounded(current.summary.conversionRate - previous.summary.conversionRate),
+    revenueChangePct: rounded(percentChange(current.summary.confirmedRevenue, previous.summary.confirmedRevenue))
+  };
+  const lowConversionManagers = current.managerPerformance.filter((row) => row.status === 'at-risk').length;
+  const topManagers = [...current.managerPerformance].sort((a, b) => b.conversionRate - a.conversionRate || b.confirmedRevenue - a.confirmedRevenue).slice(0, 3);
+  const recommendations = [];
+  if (current.stalledQuotations) recommendations.push(`Prioritize ${current.stalledQuotations} quotation${current.stalledQuotations === 1 ? '' : 's'} awaiting action for more than 30 days.`);
+  if (current.overdueFollowUps) recommendations.push(`Resolve ${current.overdueFollowUps} overdue lead follow-up${current.overdueFollowUps === 1 ? '' : 's'} and record the next action.`);
+  if (lowConversionManagers) recommendations.push(`Review coaching and lead allocation for ${lowConversionManagers} at-risk manager${lowConversionManagers === 1 ? '' : 's'}.`);
+  if (!recommendations.length) recommendations.push('Maintain the current follow-up cadence and monitor approved quotations awaiting purchase orders.');
+  const response = {
+    summary: current.summary,
+    managerPerformance: current.managerPerformance,
+    monthlyTrend: current.monthlyTrend,
+    departmentBreakdown: current.departmentBreakdown,
+    riskIndicators: { stalledQuotations: current.stalledQuotations, lowConversionManagers, overdueFollowUps: current.overdueFollowUps },
+    insights: { topManagers, recommendations },
+    meta: {
+      dateFrom: period.from, dateTo: period.to, currency: 'INR', timezone: 'Asia/Kolkata', refreshAfterSeconds: 300,
+      departments: departments.filter(Boolean).sort(),
+      definitions: {
+        conversion: 'A distinct lead with at least one admin-approved PO service.',
+        closedDeal: 'A service assignment with an admin-approved PO.',
+        revenue: 'Sum of PO amounts on admin-approved service assignments.',
+        quotationValue: 'Sum of approved quotation grand totals; not added to revenue.'
+      },
+      statusThresholds: { activeAtOrAbove: ACTIVE_THRESHOLD, warningAtOrAbove: WARNING_THRESHOLD }
+    }
+  };
+  if (includeLeadDetails || text(managerId)) response.leadDetails = current.leadDetails;
+  return response;
+}
+
+module.exports = {
+  buildSalesManagementAggregation,
+  formatAggregation,
+  getSalesManagementDashboard,
+  parseDateRange
+};

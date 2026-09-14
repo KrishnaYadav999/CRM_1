@@ -115,6 +115,9 @@ const API_ENDPOINTS = {
   annualReturns: {
     list: '/annual-returns'
   },
+  salesMis: {
+    managementDashboard: '/sales-mis/management-dashboard'
+  },
   notifications: {
     list: '/notifications',
     create: '/notifications',
