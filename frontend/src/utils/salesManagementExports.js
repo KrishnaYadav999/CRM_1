@@ -18,6 +18,71 @@ function safeDate(value) {
   return String(value || '').replace(/[^0-9-]/g, '')
 }
 
+function drawCarryForwardChart(pdf, rows, startY) {
+  const chartRows = (rows || []).filter((row) => row.totalAvailable || row.closedThisMonth || row.closingPending).slice(-12)
+  if (!chartRows.length) {
+    pdf.setFontSize(9)
+    pdf.text('No lead movement recorded for the selected period.', 12, startY + 8)
+    return startY + 14
+  }
+  const left = 18
+  const top = startY + 8
+  const width = 264
+  const height = 62
+  const bottom = top + height
+  const maximum = Math.max(1, ...chartRows.flatMap((row) => [row.totalAvailable, row.closedThisMonth, row.closingPending]))
+  pdf.setFontSize(7)
+  pdf.setTextColor(100, 116, 139)
+  for (let step = 0; step <= 4; step += 1) {
+    const y = bottom - ((height / 4) * step)
+    const value = Math.round((maximum / 4) * step)
+    pdf.setDrawColor(226, 232, 240)
+    pdf.line(left, y, left + width, y)
+    pdf.text(String(value), left - 3, y + 1, { align: 'right' })
+  }
+  const slot = width / chartRows.length
+  const barWidth = Math.min(7, slot * 0.28)
+  const closingPoints = []
+  chartRows.forEach((row, index) => {
+    const center = left + (slot * index) + (slot / 2)
+    const scale = (value) => (Number(value || 0) / maximum) * height
+    const openingHeight = scale(row.openingPending)
+    const newHeight = scale(row.newLeads)
+    pdf.setFillColor(245, 158, 11)
+    pdf.rect(center - barWidth - 1, bottom - openingHeight, barWidth, openingHeight, 'F')
+    pdf.setFillColor(14, 165, 233)
+    pdf.rect(center - barWidth - 1, bottom - openingHeight - newHeight, barWidth, newHeight, 'F')
+    const oldClosedHeight = scale(row.closedFromOpening)
+    const newClosedHeight = scale(row.closedFromNew)
+    pdf.setFillColor(4, 120, 87)
+    pdf.rect(center + 1, bottom - oldClosedHeight, barWidth, oldClosedHeight, 'F')
+    pdf.setFillColor(52, 211, 153)
+    pdf.rect(center + 1, bottom - oldClosedHeight - newClosedHeight, barWidth, newClosedHeight, 'F')
+    closingPoints.push([center, bottom - scale(row.closingPending)])
+    pdf.setTextColor(71, 85, 105)
+    pdf.text(String(row.month || '').slice(2), center, bottom + 5, { align: 'center' })
+  })
+  pdf.setDrawColor(239, 68, 68)
+  pdf.setLineWidth(0.8)
+  closingPoints.slice(1).forEach((point, index) => pdf.line(closingPoints[index][0], closingPoints[index][1], point[0], point[1]))
+  closingPoints.forEach(([x, y]) => { pdf.setFillColor(239, 68, 68); pdf.circle(x, y, 1.2, 'F') })
+  const legendY = bottom + 12
+  const legend = [
+    ['Previous Pending', [245, 158, 11]], ['New Leads', [14, 165, 233]],
+    ['Closed From Previous', [4, 120, 87]], ['Closed From New', [52, 211, 153]],
+    ['Closing Pending', [239, 68, 68]]
+  ]
+  let legendX = left
+  legend.forEach(([label, color]) => {
+    pdf.setFillColor(...color)
+    pdf.rect(legendX, legendY - 2.5, 3, 3, 'F')
+    pdf.setTextColor(51, 65, 85)
+    pdf.text(label, legendX + 5, legendY)
+    legendX += 50
+  })
+  return legendY + 5
+}
+
 export async function exportSalesManagementExcel(data) {
   const module = await import('exceljs')
   const ExcelJS = module.default || module
@@ -127,8 +192,9 @@ export async function exportSalesManagementPdf(data) {
   pdf.setFontSize(15)
   pdf.setFont('helvetica', 'bold')
   pdf.text('Monthly Lead Carry-Forward', 10, 14)
+  const carryChartEnd = drawCarryForwardChart(pdf, data.monthlyCarryForward || [], 17)
   autoTable(pdf, {
-    startY: 20,
+    startY: carryChartEnd + 4,
     head: [['Month', 'Opening Pending', 'New Leads', 'Total Available', 'Closed From Opening', 'Closed From New', 'Total Closed', 'Closing Pending']],
     body: (data.monthlyCarryForward || []).map((row) => [row.month, row.openingPending, row.newLeads, row.totalAvailable, row.closedFromOpening, row.closedFromNew, row.closedThisMonth, row.closingPending]),
     headStyles: { fillColor: [245, 158, 11], textColor: [69, 26, 3] }
