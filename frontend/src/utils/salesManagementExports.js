@@ -54,14 +54,15 @@ export async function exportSalesManagementExcel(data) {
   ;(data.insights?.recommendations || []).forEach((item) => summary.addRow([item]))
   summary.getColumn(2).numFmt = '#,##0.00'
 
-  const managers = workbook.addWorksheet('Manager Performance')
+  const managers = workbook.addWorksheet('Lead Owner Performance')
   managers.columns = [
-    { header: 'Manager / Lead Owner', key: 'managerName', width: 28 }, { header: 'Role', key: 'role', width: 18 },
+    { header: 'Lead Owner', key: 'leadOwnerName', width: 28 }, { header: 'Reporting Manager', key: 'reportingManagerName', width: 28 },
+    { header: 'Role', key: 'role', width: 18 },
     { header: 'Department', key: 'department', width: 22 }, { header: 'Total Leads', key: 'totalLeads', width: 14 },
     { header: 'Open Quotations', key: 'openQuotations', width: 18 }, { header: 'Approved Quotations', key: 'approvedQuotations', width: 20 },
     { header: 'Converted Leads', key: 'convertedToSale', width: 17 }, { header: 'Closed Service Deals', key: 'closedDeals', width: 20 },
     { header: 'Conversion %', key: 'conversionRate', width: 15 }, { header: 'Approved Quote Value', key: 'approvedQuotationValue', width: 22 },
-    { header: 'Confirmed Revenue', key: 'confirmedRevenue', width: 20 }, { header: 'Status', key: 'status', width: 14 }
+    { header: 'Approved PO Value', key: 'confirmedRevenue', width: 20 }, { header: 'Status', key: 'status', width: 14 }
   ]
   managers.addRows(data.managerPerformance || [])
   managers.getColumn('approvedQuotationValue').numFmt = '#,##0.00'
@@ -128,8 +129,8 @@ export async function exportSalesManagementPdf(data) {
   })
   autoTable(pdf, {
     startY: pdf.lastAutoTable.finalY + 8,
-    head: [['Manager / Owner', 'Department', 'Leads', 'Open Quotes', 'Approved Quotes', 'Converted', 'Conv. %', 'Confirmed Revenue', 'Status']],
-    body: (data.managerPerformance || []).map((row) => [row.managerName, row.department, row.totalLeads, row.openQuotations, row.approvedQuotations, row.convertedToSale, `${row.conversionRate}%`, money(row.confirmedRevenue), row.status]),
+    head: [['Lead Owner', 'Reports To', 'Department', 'Leads', 'Open Quotes', 'Approved Quotes', 'Converted', 'Conv. %', 'Approved PO Value', 'Status']],
+    body: (data.managerPerformance || []).map((row) => [row.leadOwnerName || row.managerName, row.reportingManagerName || '-', row.department, row.totalLeads, row.openQuotations, row.approvedQuotations, row.convertedToSale, `${row.conversionRate}%`, money(row.confirmedRevenue), row.status]),
     headStyles: { fillColor: [8, 122, 112] }, styles: { fontSize: 8 }, alternateRowStyles: { fillColor: [240, 253, 250] }
   })
   pdf.addPage()
@@ -155,4 +156,45 @@ export async function exportSalesManagementPdf(data) {
   pdf.setFontSize(9)
   ;(data.insights?.recommendations || []).forEach((item, index) => pdf.text(`- ${item}`, 12, recommendationY + 7 + (index * 6)))
   pdf.save(`sales-management-${safeDate(data.meta?.dateFrom)}-${safeDate(data.meta?.dateTo)}.pdf`)
+}
+
+export async function exportQuotationMisPdf(quotations = [], period = {}) {
+  const [{ jsPDF }, tableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+  const autoTable = tableModule.default || tableModule.autoTable
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
+  const rows = [...quotations].sort((left, right) => new Date(right.quotationDate || right.createdAt || 0) - new Date(left.quotationDate || left.createdAt || 0))
+  const approved = rows.filter((row) => String(row.status || '').toLowerCase() === 'approved')
+  pdf.setFillColor(8, 122, 112)
+  pdf.rect(0, 0, 297, 29, 'F')
+  pdf.setTextColor(255, 255, 255)
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(18)
+  pdf.text('Quotation Management MIS', 10, 13)
+  pdf.setFontSize(9)
+  pdf.text(`${period.dateFrom || ''} to ${period.dateTo || ''} | Generated ${new Date().toLocaleString('en-IN')}`, 10, 21)
+  pdf.setTextColor(15, 23, 42)
+  autoTable(pdf, {
+    startY: 35,
+    head: [['Total Quotations', 'Approved', 'Open', 'Rejected', 'Approved Quote Value']],
+    body: [[
+      rows.length,
+      approved.length,
+      rows.filter((row) => ['draft', 'submitted', 'sent'].includes(String(row.status || '').toLowerCase())).length,
+      rows.filter((row) => String(row.status || '').toLowerCase() === 'rejected').length,
+      money(approved.reduce((sum, row) => sum + (Number(row.grandTotal) || 0), 0))
+    ]],
+    headStyles: { fillColor: [16, 185, 129] }
+  })
+  autoTable(pdf, {
+    startY: pdf.lastAutoTable.finalY + 8,
+    head: [['Quotation', 'Company', 'Prepared By', 'Status', 'Date', 'Quote Value']],
+    body: rows.map((row) => [
+      row.quotationNumber || '-', row.companyName || row.leadDetails?.companyName || '-',
+      row.preparedBy || row.createdByName || '-', row.status || 'draft',
+      row.quotationDate || row.createdAt ? new Date(row.quotationDate || row.createdAt).toLocaleDateString('en-IN') : '-',
+      money(row.grandTotal)
+    ]),
+    headStyles: { fillColor: [8, 122, 112] }, styles: { fontSize: 8 }, alternateRowStyles: { fillColor: [240, 253, 250] }
+  })
+  pdf.save(`quotation-mis-${safeDate(period.dateFrom)}-${safeDate(period.dateTo)}.pdf`)
 }
