@@ -118,19 +118,9 @@ export async function exportSalesManagementPdf(data) {
     headStyles: { fillColor: [16, 185, 129] }
   })
   autoTable(pdf, {
-    startY: pdf.lastAutoTable.finalY + 6,
-    head: [['At-Risk Indicators', 'Count', 'Top Performers']],
-    body: [
-      ['Stalled quotations (>30 days)', data.riskIndicators?.stalledQuotations || 0, data.insights?.topManagers?.[0]?.managerName || '-'],
-      ['Low-conversion managers', data.riskIndicators?.lowConversionManagers || 0, data.insights?.topManagers?.[1]?.managerName || '-'],
-      ['Overdue follow-ups', data.riskIndicators?.overdueFollowUps || 0, data.insights?.topManagers?.[2]?.managerName || '-']
-    ],
-    headStyles: { fillColor: [245, 158, 11], textColor: [69, 26, 3] }
-  })
-  autoTable(pdf, {
     startY: pdf.lastAutoTable.finalY + 8,
-    head: [['Lead Owner', 'Reports To', 'Department', 'Leads', 'Open Quotes', 'Approved Quotes', 'Converted', 'Conv. %', 'Approved PO Value', 'Status']],
-    body: (data.managerPerformance || []).map((row) => [row.leadOwnerName || row.managerName, row.reportingManagerName || '-', row.department, row.totalLeads, row.openQuotations, row.approvedQuotations, row.convertedToSale, `${row.conversionRate}%`, money(row.confirmedRevenue), row.status]),
+    head: [['Lead Owner', 'Reports To', 'Department', 'Leads', 'Open Quotes', 'Approved Quotes', 'Converted', 'Conv. %', 'Approved PO Value']],
+    body: (data.managerPerformance || []).map((row) => [row.leadOwnerName || row.managerName, row.reportingManagerName || '-', row.department, row.totalLeads, row.openQuotations, row.approvedQuotations, row.convertedToSale, `${row.conversionRate}%`, money(row.confirmedRevenue)]),
     headStyles: { fillColor: [8, 122, 112] }, styles: { fontSize: 8 }, alternateRowStyles: { fillColor: [240, 253, 250] }
   })
   pdf.addPage()
