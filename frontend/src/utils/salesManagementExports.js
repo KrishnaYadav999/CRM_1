@@ -126,9 +126,17 @@ export async function exportSalesManagementPdf(data) {
   pdf.addPage()
   pdf.setFontSize(15)
   pdf.setFont('helvetica', 'bold')
-  pdf.text('Trend and Department Analysis', 10, 14)
+  pdf.text('Monthly Lead Carry-Forward', 10, 14)
   autoTable(pdf, {
     startY: 20,
+    head: [['Month', 'Opening Pending', 'New Leads', 'Total Available', 'Closed From Opening', 'Closed From New', 'Total Closed', 'Closing Pending']],
+    body: (data.monthlyCarryForward || []).map((row) => [row.month, row.openingPending, row.newLeads, row.totalAvailable, row.closedFromOpening, row.closedFromNew, row.closedThisMonth, row.closingPending]),
+    headStyles: { fillColor: [245, 158, 11], textColor: [69, 26, 3] }
+  })
+  pdf.setFontSize(13)
+  pdf.text('Pipeline Trend', 10, pdf.lastAutoTable.finalY + 7)
+  autoTable(pdf, {
+    startY: pdf.lastAutoTable.finalY + 11,
     head: [['Month', 'Open', 'Quote Open', 'Quote Approved', 'Converted / Closed', 'Quote Closed', 'Conversion %']],
     body: (data.monthlyTrend || []).map((row) => [row.month, row.open, row.quotationOpen, row.quotationApproved, row.converted, row.quotationClosed, `${row.conversionRate}%`]),
     headStyles: { fillColor: [16, 185, 129] }

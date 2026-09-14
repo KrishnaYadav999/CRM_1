@@ -95,7 +95,9 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
     ];
   }
 
-  const postOwnerMatch = {};
+  // Inactive CRM users must not appear in the live MIS or any export sourced
+  // from it. `$ne: false` preserves legacy users that predate the flag.
+  const postOwnerMatch = { 'owner.isActive': { $ne: false } };
   if (text(department)) {
     const departmentId = objectId(department);
     postOwnerMatch.$or = departmentId
@@ -338,6 +340,71 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
   return pipeline;
 }
 
+function buildMonthlyCarryForwardAggregation({ end, department, ownerIds = [] }) {
+  const initialMatch = { createdAt: { $lte: end }, recordStatus: { $ne: 'DELETED' } };
+  if (ownerIds.length) {
+    initialMatch.$or = [
+      { generatedForUser: { $in: ownerIds } },
+      { generatedForUser: null, createdBy: { $in: ownerIds } },
+      { generatedForUser: { $exists: false }, createdBy: { $in: ownerIds } }
+    ];
+  }
+  const ownerMatch = { 'owner.isActive': { $ne: false } };
+  if (text(department)) {
+    const escaped = text(department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const departmentId = objectId(department);
+    ownerMatch.$or = departmentId
+      ? [{ 'owner.teamId': departmentId }, { 'owner.team': { $regex: `^${escaped}$`, $options: 'i' } }]
+      : [{ 'owner.team': { $regex: `^${escaped}$`, $options: 'i' } }];
+  }
+  return [
+    { $match: initialMatch },
+    { $set: { dashboardOwnerId: { $ifNull: ['$generatedForUser', '$createdBy'] } } },
+    { $lookup: { from: 'users', localField: 'dashboardOwnerId', foreignField: '_id', as: 'owner' } },
+    { $unwind: { path: '$owner', preserveNullAndEmptyArrays: true } },
+    { $match: ownerMatch },
+    { $set: { approvedAssignments: approvedAssignmentExpression() } },
+    {
+      $lookup: {
+        from: 'pendingapprovals',
+        let: { leadId: { $toString: '$_id' } },
+        pipeline: [
+          { $match: { type: 'purchase_order', approvalStatus: 'APPROVED', actionAt: { $ne: null } } },
+          { $match: { $expr: { $eq: [{ $toString: '$payload.leadId' }, '$$leadId'] } } },
+          { $project: { _id: 0, actionAt: 1 } }
+        ],
+        as: 'approvedPoDecisions'
+      }
+    },
+    {
+      $set: {
+        closeCandidates: {
+          $concatArrays: [
+            { $map: { input: '$approvedPoDecisions', as: 'decision', in: '$$decision.actionAt' } },
+            {
+              $filter: {
+                input: { $map: { input: '$approvedAssignments', as: 'assignment', in: { $convert: { input: '$$assignment.closedAt', to: 'date', onError: null, onNull: null } } } },
+                as: 'date', cond: { $ne: ['$$date', null] }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      $project: {
+        _id: 0, createdAt: 1,
+        closureDate: {
+          $cond: [
+            { $gt: [{ $size: '$closeCandidates' }, 0] }, { $min: '$closeCandidates' },
+            { $cond: [{ $gt: [{ $size: '$approvedAssignments' }, 0] }, '$updatedAt', null] }
+          ]
+        }
+      }
+    }
+  ];
+}
+
 function monthKeys(start, end) {
   const keys = [];
   const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
@@ -352,6 +419,25 @@ function monthKeys(start, end) {
 function percentChange(current, previous) {
   if (!previous) return current ? 100 : 0;
   return ((current - previous) / previous) * 100;
+}
+
+function formatMonthlyCarryForward(rows, period) {
+  return monthKeys(period.start, period.end).map((month) => {
+    const monthStart = new Date(`${month}-01T00:00:00.000Z`);
+    const nextMonth = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
+    const monthEnd = new Date(Math.min(nextMonth.getTime() - 1, period.end.getTime()));
+    const normalized = rows.map((row) => ({ createdAt: new Date(row.createdAt), closureDate: row.closureDate ? new Date(row.closureDate) : null }));
+    const openingPending = normalized.filter((row) => row.createdAt < monthStart && (!row.closureDate || row.closureDate >= monthStart)).length;
+    const newLeads = normalized.filter((row) => row.createdAt >= monthStart && row.createdAt <= monthEnd).length;
+    const closedFromOpening = normalized.filter((row) => row.createdAt < monthStart && row.closureDate && row.closureDate >= monthStart && row.closureDate <= monthEnd).length;
+    const closedFromNew = normalized.filter((row) => row.createdAt >= monthStart && row.createdAt <= monthEnd && row.closureDate && row.closureDate <= monthEnd).length;
+    const closedThisMonth = closedFromOpening + closedFromNew;
+    return {
+      month, openingPending, newLeads, totalAvailable: openingPending + newLeads,
+      closedFromOpening, closedFromNew, closedThisMonth,
+      closingPending: Math.max(0, openingPending + newLeads - closedThisMonth)
+    };
+  });
 }
 
 function rounded(value, decimals = 1) {
@@ -438,10 +524,11 @@ async function getSalesManagementDashboard({ dateFrom, dateTo, department, manag
   const duration = period.end.getTime() - period.start.getTime() + 1;
   const previousEnd = new Date(period.start.getTime() - 1);
   const previousStart = new Date(previousEnd.getTime() - duration + 1);
-  const [currentRows, previousRows, departments] = await Promise.all([
+  const [currentRows, previousRows, departments, carryForwardRows] = await Promise.all([
     Lead.aggregate(buildSalesManagementAggregation({ ...period, department, managerId, ownerIds })).option({ maxTimeMS: 30000 }),
     Lead.aggregate(buildSalesManagementAggregation({ start: previousStart, end: previousEnd, department, managerId, ownerIds })).option({ maxTimeMS: 30000 }),
-    User.distinct('team', ownerIds.length ? { _id: { $in: ownerIds } } : {})
+    User.distinct('team', { ...(ownerIds.length ? { _id: { $in: ownerIds } } : {}), isActive: { $ne: false } }),
+    Lead.aggregate(buildMonthlyCarryForwardAggregation({ ...period, department, ownerIds })).option({ maxTimeMS: 30000 })
   ]);
   const current = formatAggregation(currentRows[0] || {}, period);
   const previous = formatAggregation(previousRows[0] || {}, { start: previousStart, end: previousEnd });
@@ -461,6 +548,7 @@ async function getSalesManagementDashboard({ dateFrom, dateTo, department, manag
     summary: current.summary,
     managerPerformance: current.managerPerformance,
     monthlyTrend: current.monthlyTrend,
+    monthlyCarryForward: formatMonthlyCarryForward(carryForwardRows, period),
     departmentBreakdown: current.departmentBreakdown,
     riskIndicators: { stalledQuotations: current.stalledQuotations, lowConversionManagers, overdueFollowUps: current.overdueFollowUps },
     insights: { topManagers, recommendations },
@@ -481,8 +569,10 @@ async function getSalesManagementDashboard({ dateFrom, dateTo, department, manag
 }
 
 module.exports = {
+  buildMonthlyCarryForwardAggregation,
   buildSalesManagementAggregation,
   formatAggregation,
+  formatMonthlyCarryForward,
   getSalesManagementDashboard,
   parseDateRange
 };
