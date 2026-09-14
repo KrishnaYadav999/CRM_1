@@ -27,18 +27,22 @@ test('sales aggregation joins users and quotations and facets management metrics
   assert.match(serialized, /"departmentBreakdown"/);
   assert.match(serialized, /poAmount/);
   assert.match(serialized, /poApprovalStatus/);
+  assert.match(serialized, /"_id":"\$dashboardOwnerId"/);
+  assert.match(serialized, /"reportingManagerName"/);
 });
 
 test('dashboard formatting keeps approved quotation value separate from confirmed PO revenue', () => {
   const period = parseDateRange('2026-09-01', '2026-09-30');
   const result = formatAggregation({
     summary: [{ totalLeads: 10, convertedLeads: 2, closedDeals: 3, confirmedRevenue: 125000, approvedQuotationValue: 300000, approvedQuotations: 4 }],
-    managerPerformance: [{ _id: 'manager-1', managerName: 'Manager', totalLeads: 10, convertedToSale: 2, closedDeals: 3, confirmedRevenue: 125000, approvedQuotationValue: 300000, conversionRate: 20 }],
+    managerPerformance: [{ _id: 'owner-1', leadOwnerName: 'Lead Owner', reportingManagerId: 'manager-1', reportingManagerName: 'Manager', totalLeads: 10, convertedToSale: 2, closedDeals: 3, confirmedRevenue: 125000, approvedQuotationValue: 300000, conversionRate: 20 }],
     monthlyTrend: [{ _id: '2026-09', totalLeads: 10, converted: 2, conversionRate: 20 }],
     departmentBreakdown: []
   }, period);
   assert.equal(result.summary.confirmedRevenue, 125000);
   assert.equal(result.summary.approvedQuotationValue, 300000);
   assert.equal(result.summary.conversionRate, 20);
+  assert.equal(result.managerPerformance[0].leadOwnerName, 'Lead Owner');
+  assert.equal(result.managerPerformance[0].reportingManagerName, 'Manager');
   assert.equal(result.managerPerformance[0].status, 'warning');
 });

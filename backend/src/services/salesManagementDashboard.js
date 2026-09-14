@@ -104,7 +104,9 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
   }
 
   const requestedManagerId = objectId(managerId);
-  if (requestedManagerId) postOwnerMatch.reportingManagerId = requestedManagerId;
+  // `managerId` is kept for API compatibility, but represents the selected
+  // dashboard row (the permanent lead owner), not that owner's line manager.
+  if (requestedManagerId) postOwnerMatch.dashboardOwnerId = requestedManagerId;
   const stalledBefore = new Date(now.getTime() - (30 * DAY_MS));
 
   const pipeline = [
@@ -252,11 +254,13 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
         managerPerformance: [
           {
             $group: {
-              _id: '$reportingManagerId',
-              managerName: { $first: { $ifNull: ['$reportingManager.name', { $ifNull: ['$owner.name', '$owner.email'] }] } },
-              role: { $first: { $ifNull: ['$reportingManager.role', '$owner.role'] } },
+              _id: '$dashboardOwnerId',
+              leadOwnerName: { $first: { $ifNull: ['$owner.name', '$owner.email'] } },
+              role: { $first: '$owner.role' },
               department: { $first: { $ifNull: ['$owner.team', 'No team assigned'] } },
               teamId: { $first: '$owner.teamId' },
+              reportingManagerId: { $first: '$reportingManagerId' },
+              reportingManagerName: { $first: { $ifNull: ['$reportingManager.name', '$reportingManager.email'] } },
               totalLeads: { $sum: 1 },
               openQuotations: { $sum: '$openQuotationCount' },
               approvedQuotations: { $sum: { $size: '$approvedQuotations' } },
@@ -275,7 +279,7 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
           {
             $group: {
               _id: {
-                managerId: '$reportingManagerId',
+                managerId: '$dashboardOwnerId',
                 month: { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: 'Asia/Kolkata' } }
               },
               totalLeads: { $sum: 1 },
@@ -379,7 +383,9 @@ function formatAggregation(result, period) {
     const conversionRate = rounded(row.conversionRate);
     const status = row.totalLeads < 3 ? 'warning' : conversionRate >= ACTIVE_THRESHOLD ? 'active' : conversionRate >= WARNING_THRESHOLD ? 'warning' : 'at-risk';
     return {
-      managerId: text(row._id), managerName: row.managerName || 'Unassigned owner', role: row.role || '-',
+      managerId: text(row._id), leadOwnerId: text(row._id),
+      managerName: row.leadOwnerName || 'Unassigned owner', leadOwnerName: row.leadOwnerName || 'Unassigned owner',
+      reportingManagerId: text(row.reportingManagerId), reportingManagerName: row.reportingManagerName || '-', role: row.role || '-',
       teamId: text(row.teamId), department: row.department || 'No team assigned', totalLeads: Number(row.totalLeads) || 0,
       openQuotations: Number(row.openQuotations) || 0, approvedQuotations: Number(row.approvedQuotations) || 0,
       convertedToSale: Number(row.convertedToSale) || 0, closedDeals: Number(row.closedDeals) || 0,
