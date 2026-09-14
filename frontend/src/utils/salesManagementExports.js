@@ -18,7 +18,7 @@ function safeDate(value) {
   return String(value || '').replace(/[^0-9-]/g, '')
 }
 
-function drawCarryForwardInfographic(pdf, rows, startY) {
+function drawCarryForwardInfographic(pdf, rows, startY, meta = {}) {
   const activeRows = (rows || []).filter((row) => row.totalAvailable || row.closedThisMonth || row.closingPending)
   const latest = activeRows[activeRows.length - 1]
   if (!latest) return startY
@@ -56,7 +56,12 @@ function drawCarryForwardInfographic(pdf, rows, startY) {
   pdf.setTextColor(71, 85, 105)
   pdf.setFontSize(7.5)
   pdf.text('Previous balance + new business - approved PO closures = balance carried to next month', 17, cardY + cardHeight + 5)
-  return cardY + cardHeight + 9
+  if (meta.legacyBulkCutoff) {
+    pdf.setTextColor(180, 83, 9)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(`Historical bulk uploads through ${meta.legacyBulkCutoff} are classified as old leads in opening pending.`, 17, cardY + cardHeight + 9)
+  }
+  return cardY + cardHeight + (meta.legacyBulkCutoff ? 13 : 9)
 }
 
 function drawCarryForwardChart(pdf, rows, startY) {
@@ -347,7 +352,7 @@ export async function exportSalesManagementPdf(data) {
   pdf.setFontSize(15)
   pdf.setFont('helvetica', 'bold')
   pdf.text('Monthly Lead Carry-Forward', 10, 14)
-  const infographicEnd = drawCarryForwardInfographic(pdf, data.monthlyCarryForward || [], 20)
+  const infographicEnd = drawCarryForwardInfographic(pdf, data.monthlyCarryForward || [], 20, data.meta || {})
   drawCarryForwardChart(pdf, data.monthlyCarryForward || [], infographicEnd)
   pdf.addPage()
   const closureBreakdownEnd = drawClosureBreakdown(pdf, data.monthlyCarryForward || [], 16)

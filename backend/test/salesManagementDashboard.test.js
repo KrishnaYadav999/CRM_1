@@ -16,12 +16,13 @@ test('sales management range validates dates and includes the complete final day
   assert.throws(() => parseDateRange('2026-09-01', '2026-08-01'), /on or before/);
 });
 
-test('monthly carry-forward separates opening backlog from new leads', () => {
+test('monthly carry-forward treats the migration batch as opening backlog and later leads as new', () => {
   const period = parseDateRange('2026-08-01', '2026-09-30');
   const rows = [
     ...Array.from({ length: 120 }, (_, index) => ({
       createdAt: new Date(`2026-08-${String((index % 28) + 1).padStart(2, '0')}T08:00:00.000Z`),
-      closureDate: index < 20 ? new Date('2026-08-25T08:00:00.000Z') : null
+      closureDate: index < 20 ? new Date('2026-08-25T08:00:00.000Z') : null,
+      legacyBacklog: true
     })),
     ...Array.from({ length: 50 }, (_, index) => ({
       createdAt: new Date(`2026-09-${String((index % 28) + 1).padStart(2, '0')}T08:00:00.000Z`),
@@ -30,8 +31,8 @@ test('monthly carry-forward separates opening backlog from new leads', () => {
   ];
   const result = formatMonthlyCarryForward(rows, period);
   assert.deepEqual(result[0], {
-    month: '2026-08', openingPending: 0, newLeads: 120, totalAvailable: 120,
-    closedFromOpening: 0, closedFromNew: 20, closedThisMonth: 20, closingPending: 100
+    month: '2026-08', openingPending: 120, newLeads: 0, totalAvailable: 120,
+    closedFromOpening: 20, closedFromNew: 0, closedThisMonth: 20, closingPending: 100
   });
   assert.deepEqual(result[1], {
     month: '2026-09', openingPending: 100, newLeads: 50, totalAvailable: 150,

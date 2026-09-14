@@ -8,6 +8,8 @@ const { ADMIN_ROLES } = require('../constants/roles');
 const ACTIVE_THRESHOLD = 25;
 const WARNING_THRESHOLD = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LEGACY_BULK_CUTOFF = new Date(process.env.SALES_MIS_LEGACY_BULK_CUTOFF || '2026-08-06T23:59:59.999Z');
+const LEGACY_BACKLOG_START = new Date(process.env.SALES_MIS_LEGACY_BACKLOG_START || '2026-08-01T00:00:00.000Z');
 
 function text(value) {
   return String(value ?? '').trim();
@@ -394,6 +396,7 @@ function buildMonthlyCarryForwardAggregation({ end, department, ownerIds = [] })
     {
       $project: {
         _id: 0, createdAt: 1,
+        legacyBacklog: { $and: [{ $eq: ['$bulkImported', true] }, { $lte: ['$createdAt', LEGACY_BULK_CUTOFF] }] },
         closureDate: {
           $cond: [
             { $gt: [{ $size: '$closeCandidates' }, 0] }, { $min: '$closeCandidates' },
@@ -426,11 +429,13 @@ function formatMonthlyCarryForward(rows, period) {
     const monthStart = new Date(`${month}-01T00:00:00.000Z`);
     const nextMonth = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
     const monthEnd = new Date(Math.min(nextMonth.getTime() - 1, period.end.getTime()));
-    const normalized = rows.map((row) => ({ createdAt: new Date(row.createdAt), closureDate: row.closureDate ? new Date(row.closureDate) : null }));
-    const openingPending = normalized.filter((row) => row.createdAt < monthStart && (!row.closureDate || row.closureDate >= monthStart)).length;
-    const newLeads = normalized.filter((row) => row.createdAt >= monthStart && row.createdAt <= monthEnd).length;
-    const closedFromOpening = normalized.filter((row) => row.createdAt < monthStart && row.closureDate && row.closureDate >= monthStart && row.closureDate <= monthEnd).length;
-    const closedFromNew = normalized.filter((row) => row.createdAt >= monthStart && row.createdAt <= monthEnd && row.closureDate && row.closureDate <= monthEnd).length;
+    const normalized = rows.map((row) => ({ createdAt: new Date(row.createdAt), closureDate: row.closureDate ? new Date(row.closureDate) : null, legacyBacklog: row.legacyBacklog === true }));
+    const oldAtMonthStart = (row) => row.legacyBacklog ? monthStart >= LEGACY_BACKLOG_START : row.createdAt < monthStart;
+    const availableInMonth = (row) => !row.legacyBacklog || monthStart >= LEGACY_BACKLOG_START;
+    const openingPending = normalized.filter((row) => availableInMonth(row) && oldAtMonthStart(row) && (!row.closureDate || row.closureDate >= monthStart)).length;
+    const newLeads = normalized.filter((row) => !row.legacyBacklog && row.createdAt >= monthStart && row.createdAt <= monthEnd).length;
+    const closedFromOpening = normalized.filter((row) => availableInMonth(row) && oldAtMonthStart(row) && row.closureDate && row.closureDate >= monthStart && row.closureDate <= monthEnd).length;
+    const closedFromNew = normalized.filter((row) => !row.legacyBacklog && row.createdAt >= monthStart && row.createdAt <= monthEnd && row.closureDate && row.closureDate <= monthEnd).length;
     const closedThisMonth = closedFromOpening + closedFromNew;
     return {
       month, openingPending, newLeads, totalAvailable: openingPending + newLeads,
@@ -559,8 +564,11 @@ async function getSalesManagementDashboard({ dateFrom, dateTo, department, manag
         conversion: 'A distinct lead with at least one admin-approved PO service.',
         closedDeal: 'A service assignment with an admin-approved PO.',
         revenue: 'Sum of PO amounts on admin-approved service assignments.',
-        quotationValue: 'Sum of approved quotation grand totals; not added to revenue.'
+        quotationValue: 'Sum of approved quotation grand totals; not added to revenue.',
+        legacyLead: `Bulk-imported leads saved through ${LEGACY_BULK_CUTOFF.toISOString().slice(0, 10)} are opening backlog from ${LEGACY_BACKLOG_START.toISOString().slice(0, 10)}.`
       },
+      legacyBulkCutoff: LEGACY_BULK_CUTOFF.toISOString().slice(0, 10),
+      legacyBacklogStart: LEGACY_BACKLOG_START.toISOString().slice(0, 10),
       statusThresholds: { activeAtOrAbove: ACTIVE_THRESHOLD, warningAtOrAbove: WARNING_THRESHOLD }
     }
   };
