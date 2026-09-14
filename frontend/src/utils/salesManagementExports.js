@@ -94,6 +94,18 @@ function drawCarryForwardChart(pdf, rows, startY) {
     pdf.rect(center - (barWidth / 2), bottom - openingHeight, barWidth, openingHeight, 'F')
     pdf.setFillColor(14, 165, 233)
     pdf.rect(center - (barWidth / 2), bottom - openingHeight - newHeight, barWidth, newHeight, 'F')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(6.5)
+    if (openingHeight > 7) {
+      pdf.setTextColor(255, 255, 255)
+      pdf.text(String(row.openingPending || 0), center, bottom - (openingHeight / 2) + 1, { align: 'center' })
+    }
+    if (newHeight > 7) {
+      pdf.setTextColor(255, 255, 255)
+      pdf.text(String(row.newLeads || 0), center, bottom - openingHeight - (newHeight / 2) + 1, { align: 'center' })
+    }
+    pdf.setTextColor(15, 23, 42)
+    pdf.text(String(row.totalAvailable || 0), center, bottom - openingHeight - newHeight - 2, { align: 'center' })
     closedPoints.push([center, bottom - scale(row.closedThisMonth)])
     closingPoints.push([center, bottom - scale(row.closingPending)])
     pdf.setTextColor(71, 85, 105)
@@ -102,11 +114,30 @@ function drawCarryForwardChart(pdf, rows, startY) {
   pdf.setDrawColor(5, 150, 105)
   pdf.setLineWidth(0.8)
   closedPoints.slice(1).forEach((point, index) => pdf.line(closedPoints[index][0], closedPoints[index][1], point[0], point[1]))
-  closedPoints.forEach(([x, y]) => { pdf.setFillColor(5, 150, 105); pdf.circle(x, y, 1.2, 'F') })
+  closedPoints.forEach(([x, y], index) => {
+    pdf.setFillColor(5, 150, 105)
+    pdf.circle(x, y, 1.2, 'F')
+    pdf.setTextColor(4, 120, 87)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(6.5)
+    pdf.text(String(chartRows[index].closedThisMonth || 0), x, y - 2, { align: 'center' })
+  })
   pdf.setDrawColor(239, 68, 68)
   closingPoints.slice(1).forEach((point, index) => pdf.line(closingPoints[index][0], closingPoints[index][1], point[0], point[1]))
-  closingPoints.forEach(([x, y]) => { pdf.setFillColor(239, 68, 68); pdf.circle(x, y, 1.2, 'F') })
-  const legendY = bottom + 12
+  closingPoints.forEach(([x, y], index) => {
+    pdf.setFillColor(239, 68, 68)
+    pdf.circle(x, y, 1.2, 'F')
+    pdf.setTextColor(220, 38, 38)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(6.5)
+    pdf.text(String(chartRows[index].closingPending || 0), x, y + 4, { align: 'center' })
+  })
+  pdf.setFont('helvetica', 'normal')
+  pdf.setTextColor(71, 85, 105)
+  pdf.setFontSize(7)
+  pdf.text('Number of Leads', 7, top + (height / 2), { align: 'center', angle: 90 })
+  pdf.text('Month', left + (width / 2), bottom + 9, { align: 'center' })
+  const legendY = bottom + 15
   const legend = [
     ['Previous Pending', [245, 158, 11]], ['New Leads', [14, 165, 233]],
     ['Total Closed', [5, 150, 105]], ['Closing Pending', [239, 68, 68]]
@@ -119,7 +150,22 @@ function drawCarryForwardChart(pdf, rows, startY) {
     pdf.text(label, legendX + 5, legendY)
     legendX += 58
   })
-  return legendY + 5
+  const latest = chartRows[chartRows.length - 1]
+  const previous = chartRows[chartRows.length - 2]
+  const available = Number(latest.totalAvailable) || 0
+  const closureRate = available ? ((Number(latest.closedThisMonth) || 0) / available) * 100 : 0
+  const insight = previous
+    ? `Key insight: Total available leads ${available >= Number(previous.totalAvailable || 0) ? 'increased' : 'decreased'} from ${previous.totalAvailable || 0} in ${previous.month} to ${available} in ${latest.month}. Closure rate: ${closureRate.toFixed(1)}%; ${latest.closingPending || 0} carried forward.`
+    : `Key insight: ${available} leads were available in ${latest.month}. Closure rate: ${closureRate.toFixed(1)}%; ${latest.closingPending || 0} carried forward.`
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(7.5)
+  const insightLines = pdf.splitTextToSize(insight, width - 8)
+  const insightHeight = Math.max(10, (insightLines.length * 4) + 4)
+  pdf.setFillColor(240, 249, 255)
+  pdf.roundedRect(left, legendY + 5, width, insightHeight, 2, 2, 'F')
+  pdf.setTextColor(12, 74, 110)
+  pdf.text(insightLines, left + 4, legendY + 11)
+  return legendY + insightHeight + 9
 }
 
 function drawClosureBreakdown(pdf, rows, startY) {
