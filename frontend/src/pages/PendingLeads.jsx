@@ -3,6 +3,7 @@ import { Activity, CheckCircle2, ChevronLeft, ChevronRight, Clock3, FilePlus2, R
 import DashboardShell from '../components/dashboard/DashboardShell';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
+import { formatDisplayDate } from '../utils/dateFormat';
 
 function idFor(row = {}) { return row._id || row.id || row.sourceLeadId || row.leadCode || ''; }
 function dateFor(row = {}) { return row.createdAt || row.importedCreatedAt || row.leadDate || ''; }
@@ -85,7 +86,12 @@ function monthKey(input) {
   const date = new Date(input || 0);
   return date.getTime() ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` : '';
 }
-function value(input) { return input === null || input === undefined || input === '' ? '-' : typeof input === 'object' ? (input.name || input.email || '-') : String(input); }
+function value(input) {
+  if (input === null || input === undefined || input === '') return '-';
+  if (typeof input === 'object') return input.name || input.email || '-';
+  const result = String(input);
+  return /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(result) ? formatDisplayDate(result) : result;
+}
 function normalizeIdentity(input) { return String(input || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' '); }
 function quotationMatchesLead(quotation = {}, lead = {}) {
   const quotationIds = [quotation.leadId, quotation.leadRef?._id, quotation.leadRef, quotation.leadCode, quotation.businessLeadCode].map(normalizeIdentity).filter(Boolean);
@@ -116,7 +122,7 @@ function formatHistoryDate(input) {
   const date = new Date(input || 0);
   if (!date.getTime()) return { date: 'Date unavailable', time: '' };
   return {
-    date: date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+    date: formatDisplayDate(date),
     time: date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
   };
 }

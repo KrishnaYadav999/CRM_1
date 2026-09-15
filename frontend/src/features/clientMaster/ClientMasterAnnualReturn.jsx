@@ -11,6 +11,7 @@ import { quotationServiceCategoryOptions, selectOptions } from './clientMaster.c
 import { UploadButton } from './ClientMasterFormSections';
 import PurchaseDataWorkspace from './PurchaseDataWorkspace';
 import { uploadMedia, uploadMediaBatch } from '../../services/mediaUpload';
+import { formatDisplayDate as formatProjectDate } from '../../utils/dateFormat';
 import {
   annualDraftLegacyKeys,
   buildAnnualReturnYears,
@@ -34,10 +35,7 @@ export function formatInrValue(value) {
 }
 
 export function formatDisplayDate(value) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString('en-GB');
+  return formatProjectDate(value);
 }
 
 export function getDocumentLinkName(url, index) {

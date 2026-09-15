@@ -6,6 +6,7 @@ import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
+import { formatDisplayDate } from '../utils/dateFormat';
 
 function display(value, fallback = '-') {
   if (value === undefined || value === null || value === '') return fallback;
@@ -54,7 +55,7 @@ export default function AnnualReturns() {
       visible: filteredRows.length,
       completed,
       draft,
-      latestSaved: latestSaved ? new Date(latestSaved).toLocaleDateString('en-IN') : '-'
+      latestSaved: formatDisplayDate(latestSaved)
     };
   }, [filteredRows.length, rows]);
 

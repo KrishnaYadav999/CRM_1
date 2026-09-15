@@ -16,14 +16,22 @@ function appUrl() {
   return String(process.env.APP_URL || process.env.FRONTEND_URL || process.env.CLIENT_ORIGIN || 'https://crmananttattva.vercel.app').replace(/\/$/, '');
 }
 
+function displayDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  const day = date.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+  const time = date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+  return `${day}, ${time}`;
+}
+
 function correctionEmail(record, stage) {
   const redRecovery = stage === 'RED_RECOVERY';
   const permanent = stage === 'PERMANENT';
   const clientName = escapeHtml(record.clientName || 'Client Master');
   const recipient = escapeHtml(record.correctionRecipientName || 'Manager');
   const decision = record.correctionDecision === 'REJECTED' ? 'Rejected' : 'Partially Approved';
-  const dueAt = record.correctionDueAt ? new Date(record.correctionDueAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
-  const recoveryDeadline = record.greenFlagDeadline ? new Date(record.greenFlagDeadline).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
+  const dueAt = record.correctionDueAt ? displayDateTime(record.correctionDueAt) : '-';
+  const recoveryDeadline = record.greenFlagDeadline ? displayDateTime(record.greenFlagDeadline) : '-';
   const color = permanent ? '#7f1d1d' : redRecovery ? '#b91c1c' : '#d97706';
   const title = permanent ? 'Permanent Red Flag Applied' : redRecovery ? 'Red Flag - Final 24-Hour Recovery' : '24-Hour Correction Reminder';
   const message = permanent

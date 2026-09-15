@@ -10,6 +10,7 @@ import { adminRoles, getUserRoles, hasAnyRole } from '../constants/dashboard';
 import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { uploadMedia } from '../services/mediaUpload';
+import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 
 const rowsPerPage = 5;
 const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v6';
@@ -50,6 +51,7 @@ function statusBadge(value) {
 
 function formatApprovalValue(value) {
   if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(value)) return formatDisplayDate(value);
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) return value.map(formatApprovalValue).filter((item) => item && item !== '-').join(', ') || '-';
   if (typeof value === 'object') {
@@ -1515,7 +1517,7 @@ export default function PendingApproval() {
                   const partiallyApproved = approvalState === 'PARTIALLY_APPROVED';
                   return <tr key={client.id} className="transition-colors hover:bg-slate-50">
                     <Cell strong><span className="flex items-center gap-2">{complianceApproved ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Compliance approved" /> : partiallyApproved ? <AlertTriangle className="h-4 w-4 shrink-0 fill-amber-100 text-amber-500" aria-label="Compliance partially approved" /> : <AlertTriangle className="h-4 w-4 shrink-0 fill-rose-100 text-rose-600" aria-label="Compliance approval pending" />}<button type="button" onClick={() => openClientMaster(client)} className="font-black text-emerald-700 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-900">{client.clientName}</button></span></Cell>
-                    <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{['RED', 'PERMANENT_RED'].includes(client.reminderFlag) && <><span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">{client.reminderFlag === 'PERMANENT_RED' ? 'PERMANENT RED FLAG' : 'RED FLAG - 24H RECOVERY'}</span>{client.reminderFlag === 'RED' && client.greenFlagDeadline && <small className="font-bold text-red-600">Recover by {new Date(client.greenFlagDeadline).toLocaleString('en-IN')}</small>}</>}</div></Cell>
+                    <Cell><div className="flex flex-col items-start gap-1">{statusBadge(client.approvalStatus)}{['RED', 'PERMANENT_RED'].includes(client.reminderFlag) && <><span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black text-red-700">{client.reminderFlag === 'PERMANENT_RED' ? 'PERMANENT RED FLAG' : 'RED FLAG - 24H RECOVERY'}</span>{client.reminderFlag === 'RED' && client.greenFlagDeadline && <small className="font-bold text-red-600">Recover by {formatDisplayDateTime(client.greenFlagDeadline)}</small>}</>}</div></Cell>
                     <Cell>{approvalState === 'PENDING' ? '-' : <span className="font-black text-slate-700">{formatApprovalValue(client.decisionBy)}{client.decisionAt && <small className="mt-1 block font-semibold text-slate-400">{new Date(client.decisionAt).toLocaleString('en-IN')}</small>}</span>}</Cell>
                     <Cell>{client.piboCategory}</Cell>
                     <Cell>{client.eprCategory}</Cell>
@@ -1597,7 +1599,7 @@ export default function PendingApproval() {
                   const id = row._id || row.id;
                   const values = approvalInputs[id] || {};
                   return <tr key={id}>
-                    <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.financialYear}</Cell><Cell>{(row.payload?.servicesOffered || []).join(', ') || '-'}</Cell><Cell>{(row.payload?.eprCategories || []).join(', ') || '-'}</Cell><Cell><span className={`rounded-full px-3 py-1 text-xs font-black ${row.payload?.dataFlag === 'GREEN' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`} title={row.payload?.correctionDeadline ? `Correction allowed until ${String(row.payload.correctionDeadline).slice(0, 10)}` : 'Complete'}>{row.payload?.dataFlag || 'RED'}</span></Cell><Cell>{row.payload?.originalCreator}</Cell><Cell>{row.payload?.claimantName}</Cell>
+                    <Cell strong>{row.clientName}</Cell><Cell>{row.payload?.financialYear}</Cell><Cell>{(row.payload?.servicesOffered || []).join(', ') || '-'}</Cell><Cell>{(row.payload?.eprCategories || []).join(', ') || '-'}</Cell><Cell><span className={`rounded-full px-3 py-1 text-xs font-black ${row.payload?.dataFlag === 'GREEN' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`} title={row.payload?.correctionDeadline ? `Correction allowed until ${formatDisplayDate(row.payload.correctionDeadline)}` : 'Complete'}>{row.payload?.dataFlag || 'RED'}</span></Cell><Cell>{row.payload?.originalCreator}</Cell><Cell>{row.payload?.claimantName}</Cell>
                     <Cell><input className="form-input min-w-24" type="number" min="0" max="100" disabled={getApprovalStatus(row) !== 'PENDING'} value={values.originalCreatorRatio ?? row.payload?.originalCreatorRatio ?? ''} onChange={(event) => setApprovalInputs((current) => ({ ...current, [id]: { ...(current[id] || {}), originalCreatorRatio: event.target.value } }))} /></Cell>
                     <Cell><input className="form-input min-w-24" type="number" min="0" max="100" disabled={getApprovalStatus(row) !== 'PENDING'} value={values.claimantRatio ?? row.payload?.claimantRatio ?? ''} onChange={(event) => setApprovalInputs((current) => ({ ...current, [id]: { ...(current[id] || {}), claimantRatio: event.target.value } }))} /></Cell>
                     <Cell>{statusBadge(row.approvalStatus)}</Cell><ActionCell row={{ ...row, id }} savingId={savingId} onUpdate={updateDuplicateLeadApproval} canApprove={canApprove} />

@@ -1,3 +1,5 @@
+import { formatDisplayDate, formatDisplayDateTime } from './dateFormat'
+
 function money(value) {
   return `INR ${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 }
@@ -256,7 +258,7 @@ export async function exportSalesManagementExcel(data) {
   summary.mergeCells('A1:C1')
   summary.getCell('A1').font = { bold: true, size: 18, color: { argb: 'FFFFFFFF' } }
   summary.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF087A70' } }
-  summary.addRow(['Period', `${data.meta?.dateFrom || ''} to ${data.meta?.dateTo || ''}`])
+  summary.addRow(['Period', `${formatDisplayDate(data.meta?.dateFrom)} to ${formatDisplayDate(data.meta?.dateTo)}`])
   summary.addRow([])
   summary.addRow(['Metric', 'Value', 'Definition'])
   summary.addRows([
@@ -348,7 +350,7 @@ export async function exportSalesManagementPdf(data) {
   pdf.setFontSize(18)
   pdf.text('Sales Team Management Details Report', 10, 13)
   pdf.setFontSize(9)
-  pdf.text(`${data.meta?.dateFrom || ''} to ${data.meta?.dateTo || ''} | Generated ${new Date().toLocaleString('en-IN')}`, 10, 21)
+  pdf.text(`${formatDisplayDate(data.meta?.dateFrom)} to ${formatDisplayDate(data.meta?.dateTo)} | Generated ${formatDisplayDateTime(new Date())}`, 10, 21)
   pdf.setTextColor(15, 23, 42)
   autoTable(pdf, {
     startY: 35,
@@ -428,7 +430,7 @@ export async function exportQuotationMisPdf(quotations = [], period = {}) {
   pdf.setFontSize(18)
   pdf.text('Quotation Management MIS', 10, 13)
   pdf.setFontSize(9)
-  pdf.text(`${period.dateFrom || ''} to ${period.dateTo || ''} | Generated ${new Date().toLocaleString('en-IN')}`, 10, 21)
+  pdf.text(`${formatDisplayDate(period.dateFrom)} to ${formatDisplayDate(period.dateTo)} | Generated ${formatDisplayDateTime(new Date())}`, 10, 21)
   pdf.setTextColor(15, 23, 42)
   autoTable(pdf, {
     startY: 35,
@@ -448,7 +450,7 @@ export async function exportQuotationMisPdf(quotations = [], period = {}) {
     body: rows.map((row) => [
       row.quotationNumber || '-', row.companyName || row.leadDetails?.companyName || '-',
       row.preparedBy || row.createdByName || '-', row.status || 'draft',
-      row.quotationDate || row.createdAt ? new Date(row.quotationDate || row.createdAt).toLocaleDateString('en-IN') : '-',
+      formatDisplayDate(row.quotationDate || row.createdAt),
       money(row.grandTotal)
     ]),
     headStyles: { fillColor: [8, 122, 112] }, styles: { fontSize: 8 }, alternateRowStyles: { fillColor: [240, 253, 250] }

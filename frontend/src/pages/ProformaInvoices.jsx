@@ -7,6 +7,7 @@ import api, { readApiError, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { uploadMedia } from '../services/mediaUpload'
 import { periodDisplay } from '../utils/servicePeriod'
+import { formatDisplayDate } from '../utils/dateFormat'
 
 const blankLead = { referredBy: '', salutation: '', contactPerson: '', designation: '', mobileNo1: '', mobileNo2: '', companyName: '', addressLine1: '', addressLine2: '', addressLine3: '', state: '', city: '', pinCode: '', gstNumber: '' }
 const blankItem = { serviceCategory: '', servicesForYear: '', eprCategory: '', piboParent: '', piboCategory: '', unit: '1', basicAmount: '', financialYear: '', validityPeriod: '', annualReturnYears: [], servicesOffered: '', applicableService: '', serviceStartDate: '', serviceEndDate: '', periodUnit: 'annual', transitionPeriod: 'No' }
@@ -19,7 +20,7 @@ function invoiceTotal(row = {}) { return row.pricingMode === 'combined' ? (Numbe
 function gstAmount(row = {}) { const subtotal = invoiceTotal(row); return Number.isFinite(Number(row.gstAmount)) && Number(row.gstAmount) > 0 ? Number(row.gstAmount) : Math.round(subtotal * 18) / 100 }
 function totalWithGst(row = {}) { return invoiceTotal(row) + gstAmount(row) }
 function money(value) { return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` }
-function displayDate(value) { if (!value) return '-'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB') }
+function displayDate(value) { return formatDisplayDate(value) }
 const EPR_DATA_YEAR_CATEGORIES = new Set(['EPR - Plastic Waste', 'EPR - E-Waste', 'EPR - Battery Waste', 'EPR - Paper Waste', 'EPR - Water Waste', 'EPR - C&D Waste', 'EPR - Tyre Waste', 'EPR - Used Oil Waste', 'EPR - End of Life Vehicles', 'EPR - Non Ferrous'].map((value) => value.toLowerCase()))
 function needsEprData(item = {}) { return EPR_DATA_YEAR_CATEGORIES.has(String(item.eprCategory || item.serviceCategory || '').trim().toLowerCase()) }
 function eprOrServicePeriod(item = {}) { return periodDisplay(item.servicePeriod, item.periodUnit) }
@@ -172,7 +173,7 @@ function downloadProformaLegacy(row) {
   pdf.text('PROFORMA INVOICE', 360, y); y += 12; pdf.setDrawColor(15, 23, 42); pdf.setLineWidth(1.2); pdf.line(left, y, 548, y)
   y += 28; pdf.setTextColor(15, 23, 42); pdf.setFontSize(10)
   y += 28; pdf.setFontSize(10); pdf.setFont('helvetica', 'normal')
-  ;[[`Proforma No.: ${row.proformaNumber || '-'}`, `Date: ${String(row.invoiceDate || '').slice(0, 10) || '-'}`], [`Quotation No.: ${row.quotationNumber || '-'}`, `PO No.: ${row.poNumber || '-'}`]].forEach(([a, b]) => { pdf.text(a, left, y); pdf.text(b, 340, y); y += 18 })
+  ;[[`Proforma No.: ${row.proformaNumber || '-'}`, `Date: ${displayDate(row.invoiceDate)}`], [`Quotation No.: ${row.quotationNumber || '-'}`, `PO No.: ${row.poNumber || '-'}`]].forEach(([a, b]) => { pdf.text(a, left, y); pdf.text(b, 340, y); y += 18 })
   y += 10; pdf.setFont('helvetica', 'bold'); pdf.text(`Bill To: ${row.companyName || row.leadDetails?.companyName || '-'}`, left, y); y += 17
   pdf.setFont('helvetica', 'normal'); const address = [row.leadDetails?.addressLine1, row.leadDetails?.addressLine2, row.leadDetails?.addressLine3, row.leadDetails?.city, row.leadDetails?.state, row.leadDetails?.pinCode].filter(Boolean).join(', ')
   pdf.text(pdf.splitTextToSize(address || 'Address not provided', 490), left, y); y += 34

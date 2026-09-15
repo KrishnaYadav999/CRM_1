@@ -1,3 +1,5 @@
+import { formatDisplayDate, formatDisplayDateTime } from './dateFormat'
+
 const REPORT_TITLE = 'User Activity & Productivity Report'
 
 export function formatDuration(seconds = 0) {
@@ -6,13 +8,11 @@ export function formatDuration(seconds = 0) {
 }
 
 export function formatReportDate(value) {
-  if (!value) return '-'
-  return new Date(`${value}T00:00:00+05:30`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+  return formatDisplayDate(value)
 }
 
 export function formatDateTime(value) {
-  if (!value) return '-'
-  return new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+  return formatDisplayDateTime(value)
 }
 
 async function logoDataUrl() {

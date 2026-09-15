@@ -5,6 +5,7 @@ import DashboardShell from '../components/dashboard/DashboardShell'
 import { getMsmeRows } from '../features/clientMaster/clientMaster.utils'
 import api from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
+import { formatDisplayDate } from '../utils/dateFormat'
 
 const sectionSources = {
   companyOverview: ['companyOverview'], basic: ['basic'], addressDetails: ['registeredAddress', 'communicationAddress'],
@@ -36,6 +37,7 @@ function populated(value) {
 }
 function displayValue(key, value) {
   if (/password|secret|token/i.test(key) && present(value)) return '••••••••'
+  if (/date/i.test(key) && present(value)) return formatDisplayDate(value)
   if (Array.isArray(value)) return value.length ? value.map((item) => typeof item === 'object' ? (item.name || item.personName || item.productName || item.fileName || '') : String(item)).filter(Boolean).join(' · ') || `${value.length} records` : 'Data not filled'
   if (value && typeof value === 'object') return value.name || value.fileName || value.url || `${Object.keys(value).length} values`
   return present(value) ? String(value) : 'Data not filled'
@@ -166,7 +168,7 @@ function CteReviewTables({ data = {} }) {
   const cte = data.cte || data.cteCtoCca || {}
   const plants = Array.isArray(cte.plantWiseDetails) ? cte.plantWiseDetails : []
   if (!plants.length) return null
-  const Cell = ({ children }) => <td className="border-b border-slate-100 px-3 py-3 text-xs font-bold text-slate-800">{children || '-'}</td>
+  const Cell = ({ children }) => <td className="border-b border-slate-100 px-3 py-3 text-xs font-bold text-slate-800">{formatDisplayDate(children, children || '-')}</td>
   return <div className="space-y-5">{plants.map((plant, plantIndex) => <section key={`plant-${plantIndex}`} className="overflow-hidden rounded-2xl border border-slate-200"><header className="bg-emerald-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Plant {plantIndex + 1}</p><h3 className="font-black text-slate-950">{plant.plantName || `Plant ${plantIndex + 1}`} · CTE & CTO/CCA Details</h3></header><div className="overflow-x-auto"><table className="min-w-[900px] w-full"><thead className="bg-[#eaf8f5] text-left text-[10px] uppercase tracking-wide text-slate-600"><tr><th className="px-3 py-3">Consent Type</th><th className="px-3 py-3">Consent / Order No.</th><th className="px-3 py-3">Category / Location</th><th className="px-3 py-3">Issue Date</th><th className="px-3 py-3">Valid Upto</th></tr></thead><tbody><tr><Cell>CTE</Cell><Cell>{plant.cteConsentNo}</Cell><Cell>{[plant.cteCategory, plant.plantLocation].filter(Boolean).join(' · ')}</Cell><Cell>{plant.cteIssuedDate}</Cell><Cell>{plant.cteValidDate}</Cell></tr><tr><Cell>CTO/CCA</Cell><Cell>{plant.ctoOrderNo}</Cell><Cell>{plant.plantLocation}</Cell><Cell>{plant.ctoIssueDate}</Cell><Cell>{plant.ctoValidDate}</Cell></tr></tbody></table></div>{[['CTE Production Quantity', plant.cteProductionRows, 'capacity'], ['CTO/CCA Product Quantity', plant.ctoProductRows, 'quantity']].map(([title, rows, quantityKey]) => Array.isArray(rows) && rows.length ? <div key={title} className="border-t border-slate-200"><h4 className="px-4 py-3 text-sm font-black text-slate-900">{title}</h4><div className="overflow-x-auto"><table className="w-full min-w-[620px]"><thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-600"><tr><th className="w-16 px-3 py-3">Sr.No</th><th className="px-3 py-3">Name Of Product</th><th className="px-3 py-3">Plant Name</th><th className="px-3 py-3">{quantityKey === 'capacity' ? 'Capacity' : 'Quantity'}</th></tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={`${title}-${rowIndex}`}><Cell>{rowIndex + 1}</Cell><Cell>{row.productName}</Cell><Cell>{plant.plantName}</Cell><Cell>{row[quantityKey]}</Cell></tr>)}</tbody></table></div></div> : null)}</section>)}</div>
 }
 function MsmeReviewTable({ data = {} }) {

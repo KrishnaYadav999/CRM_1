@@ -7,6 +7,7 @@ import ToastMessage from '../components/ToastMessage';
 import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { uploadMedia } from '../services/mediaUpload';
+import { formatDisplayDateTime } from '../utils/dateFormat';
 
 const STORAGE_KEY = 'crm.notifications.v1';
 const tags = ['Training Material', 'Compliance SOPs', 'Company Profile', 'Policy Update', 'Internal Memo'];
@@ -108,15 +109,7 @@ function emptyDraft() {
 }
 
 function formatDate(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return new Intl.DateTimeFormat('en', {
-    month: 'short',
-    day: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date);
+  return formatDisplayDateTime(value);
 }
 
 function tagClass(tag) {

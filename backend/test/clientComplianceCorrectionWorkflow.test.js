@@ -49,6 +49,7 @@ test('scheduled correction emails distinguish reminder, recoverable red and perm
   assert.match(reminder.html, /24 hours remain/i);
   assert.match(recoverable.subject, /Final 24-Hour Recovery/i);
   assert.match(recoverable.html, /return the flag to green/i);
+  assert.match(recoverable.html, /07-09-2026/);
   assert.match(permanent.subject, /Permanent Red Flag Applied/);
   assert.match(permanent.html, /recovery window has expired/i);
 });

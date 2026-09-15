@@ -185,7 +185,7 @@ function quotationFyOptions() {
 function formatServiceDate(value) {
   const parts = parseDateInputValue(value);
   if (!parts) return '-';
-  return new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString('en-GB');
+  return new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString('en-GB').replace(/\//g, '-');
 }
 
 function quotationServiceDateRange(item = {}) {
@@ -2893,7 +2893,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
   const approvalStatus = String(quotation.approvalStatus || quotation.adminApproval || quotation.status || '').trim().toLowerCase();
   const isQuotationApproved = approvalStatus === 'approved';
   const canDownloadPdf = isAdminUser || isQuotationApproved;
-  const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+  const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB').replace(/\//g, '-') : new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
   const scopeItems = (quotation.scopeOfWork || []).filter(Boolean);
   const scopeItemsPerPage = 22;
   const scopePages = scopeItems.length
@@ -3211,7 +3211,7 @@ function formatDisplayDate(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB');
+  return date.toLocaleDateString('en-GB').replace(/\//g, '-');
 }
 
 function escapeHtml(value) {
@@ -3230,7 +3230,7 @@ function buildQuotationPrintHtml(quotation) {
   const combinedTotal = combinedQuotationTotal(quotation, items);
   const hasReturnYearItems = items.some(isEprConsultancyItem);
   const yearMappingHeader = quotationYearMappingHeader(items);
-  const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+  const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB').replace(/\//g, '-') : new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
   const displayRows = combined ? combinedPricingRows(quotation, items) : items.map((item, index) => ({ item, index }));
   const rows = displayRows.map(({ item, index, group, groupSize, firstInGroup }) => `
     <tr>

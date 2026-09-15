@@ -4787,7 +4787,7 @@ function LeadHistoryDrawer({ data, loading, filter, onFilter, onRefresh, onClose
         <div className="lead-history-body">
           {loading ? <div className="lead-history-loading"><RefreshCw className="h-6 w-6 animate-spin" /><strong>Building activity timeline...</strong></div> : data.error ? <div className="lead-history-empty"><strong>History unavailable</strong><p>{data.error}</p></div> : visible.length ? <div className="lead-history-timeline">{visible.map((event) => {
             const group = groupFor(event.type); const date = event.at ? new Date(event.at) : null;
-            return <article key={event.id} className={`is-${tones[group]}`}><i>{group === 'quotation' ? <FileText /> : group === 'email' ? <Mail /> : group === 'followup' ? <Phone /> : group === 'todo' ? <CheckCircle2 /> : <Edit3 />}</i><div><header><span>{String(event.type || 'activity').replace(/_/g, ' ')}</span><time>{date && !Number.isNaN(date.getTime()) ? `${date.toLocaleDateString('en-GB')} • ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Date unavailable'}</time></header><h3>{event.title}</h3><p>{event.description}</p><footer><UserCheck className="h-3.5 w-3.5" />By {event.actor || 'CRM User'}</footer></div></article>;
+            return <article key={event.id} className={`is-${tones[group]}`}><i>{group === 'quotation' ? <FileText /> : group === 'email' ? <Mail /> : group === 'followup' ? <Phone /> : group === 'todo' ? <CheckCircle2 /> : <Edit3 />}</i><div><header><span>{String(event.type || 'activity').replace(/_/g, ' ')}</span><time>{date && !Number.isNaN(date.getTime()) ? `${date.toLocaleDateString('en-GB').replace(/\//g, '-')} • ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Date unavailable'}</time></header><h3>{event.title}</h3><p>{event.description}</p><footer><UserCheck className="h-3.5 w-3.5" />By {event.actor || 'CRM User'}</footer></div></article>;
           })}</div> : <div className="lead-history-empty"><Clock3 className="h-8 w-8" /><strong>No activity found</strong><p>No events match this filter yet.</p></div>}
         </div>
         <footer className="lead-history-footer"><span>Audit timeline • newest activity first</span><button type="button" onClick={onClose}>Close History</button></footer>
@@ -4918,7 +4918,7 @@ function EmptyDetailState({ title, actionLabel, onAction }) {
 
 function QuotationPreviewCard({ quotation, onOpen }) {
   const items = Array.isArray(quotation.items) ? quotation.items : [];
-  const created = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB') : '-';
+  const created = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB').replace(/\//g, '-') : '-';
   const quotationNumber = quotation.quotationNumber || 'Quotation';
   const quotationId = quotation._id || quotation.id;
 

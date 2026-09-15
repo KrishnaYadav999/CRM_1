@@ -67,6 +67,7 @@ import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
+import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
 const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v4'
@@ -215,8 +216,7 @@ function auditDateKey(value) {
 }
 
 function formatAuditDate(value) {
-  if (!value) return '-'
-  return new Date(`${value}T00:00:00+05:30`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return formatDisplayDate(value)
 }
 
 function formatAuditTime(value) {
@@ -345,8 +345,8 @@ function UserLogsModal({ onClose }) {
   function exportLogs() {
     const dailyExportRows = visible.map((row) => ({
       Date: formatAuditDate(row.logDate), Name: row.name, Email: row.email, Role: row.role, Team: row.team,
-      'First Login': row.firstLoginAt ? new Date(row.firstLoginAt).toLocaleString('en-IN') : '',
-      'Offline / Last Seen': row.offlineAt ? new Date(row.offlineAt).toLocaleString('en-IN') : 'Still online',
+      'First Login': row.firstLoginAt ? formatDisplayDateTime(row.firstLoginAt) : '',
+      'Offline / Last Seen': row.offlineAt ? formatDisplayDateTime(row.offlineAt) : 'Still online',
       'Online Window': `${formatAuditTime(row.firstLoginAt)} - ${row.offlineAt ? formatAuditTime(row.offlineAt) : 'Online'}`,
       'Online / Active Duration': formatDuration(row.activeSeconds),
       'Away / Other Tab Duration': formatDuration(row.awaySeconds),
@@ -356,26 +356,26 @@ function UserLogsModal({ onClose }) {
     }))
     const rawSessionRows = rows.filter(matchesSearch).map((row) => ({
       Name: row.name, Email: row.email, Role: row.role, Team: row.team, 'User Status': row.userStatus,
-      Login: row.loginAt ? new Date(row.loginAt).toLocaleString('en-IN') : '',
-      'Last Activity': row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleString('en-IN') : '',
-      Logout: row.logoutAt ? new Date(row.logoutAt).toLocaleString('en-IN') : '',
+      Login: row.loginAt ? formatDisplayDateTime(row.loginAt) : '',
+      'Last Activity': row.lastActivityAt ? formatDisplayDateTime(row.lastActivityAt) : '',
+      Logout: row.logoutAt ? formatDisplayDateTime(row.logoutAt) : '',
       'Session Status': row.sessionStatus,
       'Online / Active For': formatDuration(row.activeSeconds),
       'Offline / Away For': formatDuration(row.sessionStatus === 'Online' ? Math.max(0, row.durationSeconds - row.activeSeconds) : Math.max(0, Math.round((statusClock - new Date(row.offlineSince || row.lastActivityAt).getTime()) / 1000))),
-      'Offline Since / Last Seen': row.offlineSince ? new Date(row.offlineSince).toLocaleString('en-IN') : '',
+      'Offline Since / Last Seen': row.offlineSince ? formatDisplayDateTime(row.offlineSince) : '',
       'Open Duration': formatDuration(row.durationSeconds), 'Active CRM Time': formatDuration(row.activeSeconds), 'Away / Other Tab Time': formatDuration(Math.max(0, row.durationSeconds - row.activeSeconds)), Activities: row.activityCount,
       'IP Address': row.ipAddress, Device: row.device
     }))
     const activityRows = visible.flatMap((row) => (row.activities || []).map((item) => ({
       Name: row.name, Email: row.email, Role: row.role, Module: item.module, Action: item.action,
-      Description: item.description, Date: item.occurredAt ? new Date(item.occurredAt).toLocaleString('en-IN') : '',
+      Description: item.description, Date: item.occurredAt ? formatDisplayDateTime(item.occurredAt) : '',
       'HTTP Status': item.statusCode
     })))
     const leadRows = visible.flatMap((row) => (row.completedLeads || []).map((lead) => ({
       User: row.name, Email: row.email, Company: lead.company, 'Lead ID': lead.leadCode,
-      'Form Started': lead.formStartedAt ? new Date(lead.formStartedAt).toLocaleString('en-IN') : '',
-      'Assign Reached': lead.assignReachedAt ? new Date(lead.assignReachedAt).toLocaleString('en-IN') : '',
-      'Submitted / Closed': lead.submittedAt ? new Date(lead.submittedAt).toLocaleString('en-IN') : '',
+      'Form Started': lead.formStartedAt ? formatDisplayDateTime(lead.formStartedAt) : '',
+      'Assign Reached': lead.assignReachedAt ? formatDisplayDateTime(lead.assignReachedAt) : '',
+      'Submitted / Closed': lead.submittedAt ? formatDisplayDateTime(lead.submittedAt) : '',
       'Time To Fill': formatDuration(lead.fillDurationSeconds)
     })))
     const workbook = XLSX.utils.book_new()
@@ -449,7 +449,7 @@ function formatAuditDateTime(value) {
   if (!value) return 'Not recorded'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return `${date.toLocaleDateString('en-GB')} · ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+  return `${date.toLocaleDateString('en-GB').replace(/\//g, '-')} · ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
 }
 
 function buildRedFlagHistory(item = {}, stage = {}) {
@@ -591,16 +591,7 @@ function getCalendarFollowUpOwner(item = {}) {
 }
 
 function formatDateTime(value) {
-  if (!value) return 'No login yet'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'No login yet'
-  return new Intl.DateTimeFormat('en', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
+  return formatDisplayDateTime(value, 'No login yet')
 }
 
 function formatShortDate(value) {
