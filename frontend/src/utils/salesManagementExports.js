@@ -260,7 +260,9 @@ export async function exportSalesManagementExcel(data) {
   summary.addRow([])
   summary.addRow(['Metric', 'Value', 'Definition'])
   summary.addRows([
-    ['Total Leads', data.summary?.totalLeads || 0, 'Leads created in the selected period'],
+    ['Total Leads', data.summary?.totalLeads || 0, 'Old Leads + New Leads in the selected period'],
+    ['Old Leads', data.summary?.oldLeads || 0, data.meta?.definitions?.oldLead || ''],
+    ['New Leads', data.summary?.newLeads || 0, data.meta?.definitions?.newLead || ''],
     ['Conversion Rate', `${data.summary?.conversionRate || 0}%`, data.meta?.definitions?.conversion || ''],
     ['Confirmed PO Revenue', Number(data.summary?.confirmedRevenue || 0), data.meta?.definitions?.revenue || ''],
     ['Old Business Leads', data.summary?.oldBusinessLeads || 0, data.meta?.definitions?.oldBusiness || ''],
@@ -289,6 +291,7 @@ export async function exportSalesManagementExcel(data) {
     { header: 'Lead Owner', key: 'leadOwnerName', width: 28 }, { header: 'Reporting Manager', key: 'reportingManagerName', width: 28 },
     { header: 'Role', key: 'role', width: 18 },
     { header: 'Department', key: 'department', width: 22 }, { header: 'Total Leads', key: 'totalLeads', width: 14 },
+    { header: 'Old Leads', key: 'oldLeads', width: 14 }, { header: 'New Leads', key: 'newLeads', width: 14 },
     { header: 'Open Quotations', key: 'openQuotations', width: 18 }, { header: 'Approved Quotations', key: 'approvedQuotations', width: 20 },
     { header: 'Converted Leads', key: 'convertedToSale', width: 17 }, { header: 'Closed Service Deals', key: 'closedDeals', width: 20 },
     { header: 'Conversion %', key: 'conversionRate', width: 15 }, { header: 'Approved Quote Value', key: 'approvedQuotationValue', width: 22 },
@@ -350,7 +353,7 @@ export async function exportSalesManagementPdf(data) {
   autoTable(pdf, {
     startY: 35,
     head: [['Total Leads', 'Conversion', 'Old Leads', 'Old PO Value', 'New Leads', 'New Quote Value', 'New PO Value', 'Total PO Value']],
-    body: [[data.summary?.totalLeads || 0, `${data.summary?.conversionRate || 0}%`, data.summary?.oldBusinessLeads || 0, money(data.summary?.oldBusinessPoValue), data.summary?.newBusinessLeads || 0, money(data.summary?.newBusinessQuotationValue), money(data.summary?.newBusinessPoValue), money(data.summary?.confirmedRevenue)]],
+    body: [[data.summary?.totalLeads || 0, `${data.summary?.conversionRate || 0}%`, data.summary?.oldLeads || 0, money(data.summary?.oldBusinessPoValue), data.summary?.newLeads || 0, money(data.summary?.newBusinessQuotationValue), money(data.summary?.newBusinessPoValue), money(data.summary?.confirmedRevenue)]],
     headStyles: { fillColor: [16, 185, 129] }
   })
   autoTable(pdf, {
@@ -367,7 +370,7 @@ export async function exportSalesManagementPdf(data) {
     ],
     body: (data.managerPerformance || []).map((row) => [
       row.leadOwnerName || row.managerName, row.reportingManagerName || '-',
-      row.totalLeads, row.convertedToSale, row.oldBusinessLeads, row.newBusinessLeads,
+      row.totalLeads, row.convertedToSale, row.oldLeads, row.newLeads,
       money(row.newBusinessQuotationValue), money(row.oldBusinessPoValue),
       money(row.newBusinessPoValue), money(row.confirmedRevenue)
     ]),

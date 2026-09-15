@@ -147,6 +147,12 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
     { $unwind: { path: '$reportingManager', preserveNullAndEmptyArrays: true } },
     ...(Object.keys(postOwnerMatch).length ? [{ $match: postOwnerMatch }] : []),
     {
+      $set: {
+        oldLead: { $cond: [{ $and: [{ $eq: ['$bulkImported', true] }, { $lte: ['$createdAt', LEGACY_BULK_CUTOFF] }] }, 1, 0] },
+        newLead: { $cond: [{ $and: [{ $eq: ['$bulkImported', true] }, { $lte: ['$createdAt', LEGACY_BULK_CUTOFF] }] }, 0, 1] }
+      }
+    },
+    {
       $lookup: {
         from: 'quotations',
         let: { leadObjectId: '$_id', leadCode: '$leadCode', sourceLeadId: '$sourceLeadId' },
@@ -292,6 +298,8 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
           $group: {
             _id: null,
             totalLeads: { $sum: 1 },
+            oldLeads: { $sum: '$oldLead' },
+            newLeads: { $sum: '$newLead' },
             convertedLeads: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
             closedDeals: { $sum: '$convertedServiceCount' },
             confirmedRevenue: { $sum: '$confirmedRevenue' },
@@ -317,6 +325,8 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
               reportingManagerId: { $first: '$reportingManagerId' },
               reportingManagerName: { $first: { $ifNull: ['$reportingManager.name', '$reportingManager.email'] } },
               totalLeads: { $sum: 1 },
+              oldLeads: { $sum: '$oldLead' },
+              newLeads: { $sum: '$newLead' },
               openQuotations: { $sum: '$openQuotationCount' },
               approvedQuotations: { $sum: { $size: '$approvedQuotations' } },
               convertedToSale: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
@@ -514,6 +524,8 @@ function formatAggregation(result, period) {
   const convertedLeads = Number(rawSummary.convertedLeads) || 0;
   const summary = {
     totalLeads,
+    oldLeads: Number(rawSummary.oldLeads) || 0,
+    newLeads: Number(rawSummary.newLeads) || 0,
     conversionRate: totalLeads ? rounded((convertedLeads / totalLeads) * 100) : 0,
     convertedLeads,
     totalRevenue: rounded(rawSummary.confirmedRevenue, 2),
@@ -541,6 +553,7 @@ function formatAggregation(result, period) {
       managerName: row.leadOwnerName || 'Unassigned owner', leadOwnerName: row.leadOwnerName || 'Unassigned owner',
       reportingManagerId: text(row.reportingManagerId), reportingManagerName: row.reportingManagerName || '-', role: row.role || '-',
       teamId: text(row.teamId), department: row.department || 'No team assigned', totalLeads: Number(row.totalLeads) || 0,
+      oldLeads: Number(row.oldLeads) || 0, newLeads: Number(row.newLeads) || 0,
       openQuotations: Number(row.openQuotations) || 0, approvedQuotations: Number(row.approvedQuotations) || 0,
       convertedToSale: Number(row.convertedToSale) || 0, closedDeals: Number(row.closedDeals) || 0,
       conversionRate, approvedQuotationValue: rounded(row.approvedQuotationValue, 2), confirmedRevenue: rounded(row.confirmedRevenue, 2),
@@ -633,6 +646,8 @@ async function getSalesManagementDashboard({ dateFrom, dateTo, department, manag
         quotationValue: 'Sum of approved quotation grand totals; not added to revenue.',
         oldBusiness: 'Approved PO rows with PO value above zero and CRM quotation value equal to zero.',
         newBusiness: 'Approved PO rows with both CRM quotation value and PO value above zero.',
+        oldLead: `Historical bulk-imported leads saved through ${LEGACY_BULK_CUTOFF.toISOString().slice(0, 10)}.`,
+        newLead: `Leads created normally after the historical import cutoff of ${LEGACY_BULK_CUTOFF.toISOString().slice(0, 10)}.`,
         legacyLead: `Bulk-imported leads saved through ${LEGACY_BULK_CUTOFF.toISOString().slice(0, 10)} are opening backlog from ${LEGACY_BACKLOG_START.toISOString().slice(0, 10)}.`
       },
       legacyBulkCutoff: LEGACY_BULK_CUTOFF.toISOString().slice(0, 10),
