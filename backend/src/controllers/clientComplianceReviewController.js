@@ -110,7 +110,7 @@ exports.completeReview = async (req, res) => {
   await client.populate('selectedLead', 'applicantType piboParent piboCategoryParent subApplicantType piboCategory serviceSelections');
   const decidedAt = new Date();
   const existingPendingRecord = await PendingApproval.findOne({ sourceClientId: String(client._id), type: 'client' }).lean();
-  const legacyRedNeedsGrace = existingPendingRecord?.reminderFlag === 'RED'
+  const legacyRedNeedsGrace = ['RED', 'PERMANENT_RED'].includes(existingPendingRecord?.reminderFlag)
     && !existingPendingRecord?.redRecoveryStartedAt
     && ['PARTIALLY_APPROVED', 'REJECTED'].includes(existingPendingRecord?.correctionDecision);
   const existingRecoveryDeadline = existingPendingRecord?.greenFlagDeadline ? new Date(existingPendingRecord.greenFlagDeadline) : null;
@@ -142,6 +142,8 @@ exports.completeReview = async (req, res) => {
     correctionDueAt: new Date(decidedAt.getTime() + 48 * 60 * 60 * 1000),
     correctionBreachedAt: null,
     redRecoveryStartedAt: null,
+    redRecoveryEmailSentAt: null,
+    redRecoveryEmailNextAttemptAt: null,
     correctionResolvedAt: null,
     correctionEmailError: '',
     reminderFlag: 'GREEN',

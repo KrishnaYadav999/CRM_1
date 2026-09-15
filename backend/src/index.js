@@ -22,7 +22,7 @@ const purchaseProofRoutes = require('./routes/purchaseProofs');
 const healthReportAssignmentRoutes = require('./routes/healthReportAssignments');
 const salesMisRoutes = require('./routes/salesMis');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
-const { startClientComplianceCorrectionReminderScheduler } = require('./services/clientComplianceCorrectionReminders');
+const { runClientComplianceCorrectionReminders, startClientComplianceCorrectionReminderScheduler } = require('./services/clientComplianceCorrectionReminders');
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
 const { startStaffOnboardingWorkflowScheduler } = require('./services/staffOnboardingWorkflow');
@@ -75,6 +75,9 @@ const isServerlessRuntime = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA
 function connectAndStartServices() {
   dbReady = connectDB().then(async () => {
     await applyKnownDataCorrections().catch((error) => console.error('Known CRM data correction failed', error));
+    // Run once on every deployment/startup so legacy RED records immediately
+    // receive their fresh 24-hour recovery window and email notification.
+    await runClientComplianceCorrectionReminders().catch((error) => console.error('Compliance correction startup scan failed', error));
     // Persistent interval schedulers must never run inside short-lived serverless
     // function instances. Their work is handled by explicit cron endpoints.
     if (!schedulerStarted && !isServerlessRuntime) {
@@ -126,6 +129,14 @@ app.get('/api/internal/lead-service-approval-reminders', async (req, res) => {
   if (authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized cron request' });
   try { return res.json({ ok: true, ...(await runLeadServiceApprovalReminders()) }); }
   catch (error) { return res.status(500).json({ ok: false, error: error.message || 'Service approval reminder run failed' }); }
+});
+app.get('/api/internal/client-compliance-correction-reminders', async (req, res) => {
+  const cronSecret = String(process.env.CRON_SECRET || '').trim();
+  const authorization = String(req.get('authorization') || '').trim();
+  if (!cronSecret) return res.status(503).json({ ok: false, error: 'CRON_SECRET is not configured' });
+  if (authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized cron request' });
+  try { return res.json({ ok: true, ...(await runClientComplianceCorrectionReminders()) }); }
+  catch (error) { return res.status(500).json({ ok: false, error: error.message || 'Compliance correction reminder run failed' }); }
 });
   app.use('/api/auth', authRoutes);
   app.use('/api/assets', assetRoutes);

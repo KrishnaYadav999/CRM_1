@@ -14,6 +14,8 @@ test('pending approval persists the 24-hour, 48-hour and permanent-red correctio
   assert.ok(PendingApproval.schema.path('correctionDueAt'));
   assert.ok(PendingApproval.schema.path('correctionBreachedAt'));
   assert.ok(PendingApproval.schema.path('redRecoveryStartedAt'));
+  assert.ok(PendingApproval.schema.path('redRecoveryEmailSentAt'));
+  assert.ok(PendingApproval.schema.path('redRecoveryEmailNextAttemptAt'));
   assert.ok(PendingApproval.schema.path('correctionRecipientEmail'));
 });
 
@@ -60,6 +62,15 @@ test('compliance correction workflow uses a 72-hour permanent-red deadline and p
   assert.match(scheduler, /reminderFlag: 'RED'/);
   assert.match(scheduler, /legacyRecoveryGrants/);
   assert.match(scheduler, /redRecoveryStartedAt: null/);
+  assert.match(scheduler, /reminderFlag: \{ \$in: \['RED', 'PERMANENT_RED'\] \}/);
+  assert.match(scheduler, /redRecoveryEmailSentAt: null/);
+  assert.match(scheduler, /redRecoveryEmailNextAttemptAt: nextAttemptAt/);
   assert.match(scheduler, /greenFlagDeadline: \{ \$lte: now \}/);
   assert.match(scheduler, /reminderFlag: 'PERMANENT_RED'/);
+});
+
+test('server startup runs the legacy red recovery scan so deployed records receive email', () => {
+  const server = fs.readFileSync(path.resolve(__dirname, '../src/index.js'), 'utf8');
+  assert.match(server, /await runClientComplianceCorrectionReminders\(\)/);
+  assert.match(server, /client-compliance-correction-reminders/);
 });

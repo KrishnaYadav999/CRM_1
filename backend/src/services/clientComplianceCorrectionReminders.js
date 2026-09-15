@@ -63,26 +63,26 @@ async function runClientComplianceCorrectionReminders(now = new Date()) {
   const result = { reminders: 0, breached: 0, legacyRecoveryGrants: 0, redFlags: 0, permanentRedFlags: 0, errors: 0 };
   try {
     const legacyRedFlags = await PendingApproval.find({
-      type: 'client', reminderFlag: 'RED', correctionDecision: { $in: ['PARTIALLY_APPROVED', 'REJECTED'] },
+      type: 'client', reminderFlag: { $in: ['RED', 'PERMANENT_RED'] }, correctionDecision: { $in: ['PARTIALLY_APPROVED', 'REJECTED'] },
+      approvalStatus: { $in: ['PARTIALLY_APPROVED', 'REJECTED'] },
       redRecoveryStartedAt: null,
       $or: [{ greenFlagDeadline: { $lte: now } }, { greenFlagDeadline: null }]
     }).limit(100);
     for (const record of legacyRedFlags) {
       const recoveryDeadline = new Date(now.getTime() + 24 * HOUR_MS);
       const claimed = await PendingApproval.findOneAndUpdate(
-        { _id: record._id, reminderFlag: 'RED', redRecoveryStartedAt: null },
-        { $set: { correctionStatus: 'BREACHED', redRecoveryStartedAt: now, greenFlagDeadline: recoveryDeadline } },
+        { _id: record._id, reminderFlag: { $in: ['RED', 'PERMANENT_RED'] }, redRecoveryStartedAt: null },
+        { $set: {
+          correctionStatus: 'BREACHED',
+          reminderFlag: 'RED',
+          redRecoveryStartedAt: now,
+          greenFlagDeadline: recoveryDeadline,
+          redRecoveryEmailSentAt: null,
+          redRecoveryEmailNextAttemptAt: now
+        } },
         { new: true }
       );
       if (!claimed) continue;
-      try {
-        await sendCorrectionEmail(claimed, 'RED_RECOVERY');
-        claimed.correctionEmailError = '';
-      } catch (error) {
-        claimed.correctionEmailError = error.message || 'Unable to send existing red-flag recovery email';
-        result.errors += 1;
-      }
-      await claimed.save();
       result.legacyRecoveryGrants += 1;
     }
 
@@ -117,19 +117,51 @@ async function runClientComplianceCorrectionReminders(now = new Date()) {
     for (const record of breaches) {
       const claimed = await PendingApproval.findOneAndUpdate(
         { _id: record._id, correctionStatus: 'OPEN', correctionDueAt: { $lte: now }, greenFlagDeadline: { $gt: now } },
-        { $set: { correctionStatus: 'BREACHED', correctionBreachedAt: now, redRecoveryStartedAt: now, reminderFlag: 'RED', redFlagAt: now } },
+        { $set: {
+          correctionStatus: 'BREACHED',
+          correctionBreachedAt: now,
+          redRecoveryStartedAt: now,
+          redRecoveryEmailSentAt: null,
+          redRecoveryEmailNextAttemptAt: now,
+          reminderFlag: 'RED',
+          redFlagAt: now
+        } },
+        { new: true }
+      );
+      if (!claimed) continue;
+      result.redFlags += 1;
+    }
+
+    // Delivery is tracked separately from granting the recovery window. If the
+    // mail provider is temporarily unavailable, retry every hour while the
+    // client can still recover instead of silently losing the notification.
+    const recoveryNotices = await PendingApproval.find({
+      type: 'client', reminderFlag: 'RED', redRecoveryStartedAt: { $ne: null },
+      redRecoveryEmailSentAt: null, greenFlagDeadline: { $gt: now },
+      $or: [{ redRecoveryEmailNextAttemptAt: { $lte: now } }, { redRecoveryEmailNextAttemptAt: null }]
+    }).limit(100);
+    for (const record of recoveryNotices) {
+      const nextAttemptAt = new Date(now.getTime() + HOUR_MS);
+      const claimed = await PendingApproval.findOneAndUpdate(
+        {
+          _id: record._id, reminderFlag: 'RED', redRecoveryEmailSentAt: null,
+          greenFlagDeadline: { $gt: now },
+          $or: [{ redRecoveryEmailNextAttemptAt: { $lte: now } }, { redRecoveryEmailNextAttemptAt: null }]
+        },
+        { $set: { redRecoveryEmailNextAttemptAt: nextAttemptAt } },
         { new: true }
       );
       if (!claimed) continue;
       try {
         await sendCorrectionEmail(claimed, 'RED_RECOVERY');
         claimed.correctionEmailError = '';
+        claimed.redRecoveryEmailSentAt = now;
+        claimed.redRecoveryEmailNextAttemptAt = null;
       } catch (error) {
         claimed.correctionEmailError = error.message || 'Unable to send red-flag recovery email';
         result.errors += 1;
       }
       await claimed.save();
-      result.redFlags += 1;
     }
 
     const permanentBreaches = await PendingApproval.find({

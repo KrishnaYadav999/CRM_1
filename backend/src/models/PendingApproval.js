@@ -28,6 +28,8 @@ const PendingApprovalSchema = new mongoose.Schema({
   correctionDueAt: { type: Date, index: true },
   correctionBreachedAt: { type: Date },
   redRecoveryStartedAt: { type: Date },
+  redRecoveryEmailSentAt: { type: Date },
+  redRecoveryEmailNextAttemptAt: { type: Date, index: true },
   correctionResolvedAt: { type: Date },
   correctionRecipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   correctionRecipientEmail: { type: String, lowercase: true, trim: true },
