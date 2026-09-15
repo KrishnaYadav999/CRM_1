@@ -355,9 +355,25 @@ export async function exportSalesManagementPdf(data) {
   })
   autoTable(pdf, {
     startY: pdf.lastAutoTable.finalY + 8,
-    head: [['Lead Owner', 'Reports To', 'Leads', 'Converted', 'Old Leads', 'Old PO', 'New Leads', 'New Quote', 'New PO', 'Total PO']],
-    body: (data.managerPerformance || []).map((row) => [row.leadOwnerName || row.managerName, row.reportingManagerName || '-', row.totalLeads, row.convertedToSale, row.oldBusinessLeads, money(row.oldBusinessPoValue), row.newBusinessLeads, money(row.newBusinessQuotationValue), money(row.newBusinessPoValue), money(row.confirmedRevenue)]),
-    headStyles: { fillColor: [8, 122, 112] }, styles: { fontSize: 8 }, alternateRowStyles: { fillColor: [240, 253, 250] }
+    head: [
+      [
+        { content: 'Lead Owner', rowSpan: 2, styles: { valign: 'middle' } },
+        { content: 'Reports To', rowSpan: 2, styles: { valign: 'middle' } },
+        { content: 'Leads', colSpan: 4, styles: { halign: 'center' } },
+        { content: 'Quotation Value', colSpan: 1, styles: { halign: 'center' } },
+        { content: 'PO Value', colSpan: 3, styles: { halign: 'center' } }
+      ],
+      ['Total', 'Converted', 'Old', 'New', 'New', 'Old', 'New', 'Total']
+    ],
+    body: (data.managerPerformance || []).map((row) => [
+      row.leadOwnerName || row.managerName, row.reportingManagerName || '-',
+      row.totalLeads, row.convertedToSale, row.oldBusinessLeads, row.newBusinessLeads,
+      money(row.newBusinessQuotationValue), money(row.oldBusinessPoValue),
+      money(row.newBusinessPoValue), money(row.confirmedRevenue)
+    ]),
+    headStyles: { fillColor: [8, 122, 112], halign: 'center' },
+    columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' } },
+    styles: { fontSize: 8 }, alternateRowStyles: { fillColor: [240, 253, 250] }
   })
   pdf.addPage()
   pdf.setFontSize(15)
