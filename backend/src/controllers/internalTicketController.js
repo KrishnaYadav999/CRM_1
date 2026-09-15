@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const InternalTicket = require('../models/InternalTicket');
 const User = require('../models/User');
 const { notifyFirstMessage } = require('../services/internalTicketEmails');
@@ -19,6 +21,10 @@ function canAccess(ticket, user) {
   return ['admin', 'superadmin'].includes(String(user?.role || '').toLowerCase())
     || String(ticket.createdBy?._id || ticket.createdBy) === id
     || (ticket.participants || []).some((participant) => String(participant?._id || participant) === id);
+}
+
+function safeDownloadName(value = 'attachment') {
+  return String(value || 'attachment').replace(/[\x00-\x1f\x7f"\\/:*?<>|]+/g, '_').trim().slice(0, 180) || 'attachment';
 }
 
 async function nextNumber() {
@@ -54,6 +60,49 @@ exports.detail = async (req, res) => {
   if (!ticket) return res.status(404).json({ error: 'Internal ticket not found.' });
   if (!canAccess(ticket, req.user)) return res.status(403).json({ error: 'You cannot access this internal ticket.' });
   res.json({ ok: true, ticket });
+};
+
+exports.downloadAttachment = async (req, res) => {
+  const requestedUrl = String(req.query.url || '').trim();
+  if (!requestedUrl) return res.status(400).json({ error: 'Attachment URL is required.' });
+  const admin = ['admin', 'superadmin'].includes(String(req.user?.role || '').toLowerCase());
+  const access = admin ? {} : { $or: [{ createdBy: req.user._id }, { participants: req.user._id }] };
+  const ticket = await InternalTicket.findOne({ 'messages.attachments.url': requestedUrl, ...access });
+  const attachment = ticket?.messages?.flatMap((message) => message.attachments || []).find((item) => String(item.url || '') === requestedUrl);
+  if (!attachment) return res.status(404).json({ error: 'Attachment not found or not accessible.' });
+
+  let sourceUrl;
+  try {
+    sourceUrl = new URL(requestedUrl);
+  } catch {
+    return res.status(400).json({ error: 'Attachment URL is invalid.' });
+  }
+  if (sourceUrl.protocol !== 'https:' || sourceUrl.hostname.toLowerCase() !== 'res.cloudinary.com') {
+    return res.status(400).json({ error: 'Only CRM-managed attachments can be downloaded.' });
+  }
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 30000);
+  try {
+    const response = await fetch(sourceUrl, { signal: abortController.signal });
+    if (!response.ok || !response.body) return res.status(502).json({ error: 'Attachment is temporarily unavailable.' });
+    const name = safeDownloadName(attachment.name);
+    const headers = {
+      'Content-Type': response.headers.get('content-type') || attachment.type || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'Cache-Control': 'private, no-store'
+    };
+    const length = response.headers.get('content-length');
+    if (length) headers['Content-Length'] = length;
+    res.set(headers);
+    await pipeline(Readable.fromWeb(response.body), res);
+    return undefined;
+  } catch (error) {
+    if (res.headersSent) return res.destroy();
+    return res.status(502).json({ error: error?.name === 'AbortError' ? 'Attachment download timed out.' : 'Unable to download attachment.' });
+  } finally {
+    clearTimeout(timeout);
+  }
 };
 
 exports.call = async (req, res) => {
@@ -122,4 +171,4 @@ exports.update = async (req, res) => {
   res.json({ ok: true, ticket: saved });
 };
 
-module.exports.__test = { cleanAttachments, canAccess };
+module.exports.__test = { cleanAttachments, canAccess, safeDownloadName };

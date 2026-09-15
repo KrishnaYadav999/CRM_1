@@ -26,6 +26,9 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(controller, /canAccess/);
   assert.match(controller, /req\.query\.scope/);
   assert.match(controller, /exports\.listParticipants/);
+  assert.match(controller, /exports\.downloadAttachment/);
+  assert.match(controller, /Content-Disposition/);
+  assert.match(controller, /res\.cloudinary\.com/);
   assert.match(controller, /isActive: \{ \$ne: false \}/);
   assert.match(controller, /activeParticipants/);
   assert.match(controller, /Select at least one participant/);
@@ -53,13 +56,18 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(frontend, /createOscillator/);
   assert.match(frontend, /document\.title/);
   assert.match(frontend, /previewFile/);
+  assert.match(frontend, /downloadInternalTicketFile/);
+  assert.match(frontend, /responseType: 'blob'/);
+  assert.match(frontend, /URL\.createObjectURL/);
   assert.match(model, /enum: \['Open', 'In Progress', 'Resolved', 'Closed'\]/);
   assert.match(model, /CallSessionSchema/);
   assert.match(controller, /exports\.call/);
   assert.match(controller, /action === 'answer'/);
   const routes = read('backend/src/routes/internalTickets.js');
   assert.match(routes, /get\('\/participants', requireAuth, controller\.listParticipants\)/);
+  assert.match(routes, /get\('\/attachments\/download', requireAuth, controller\.downloadAttachment\)/);
   assert.ok(routes.indexOf("get('/participants'") < routes.indexOf("get('/:id'"), 'participants route must be declared before the dynamic id route');
+  assert.ok(routes.indexOf("get('/attachments/download'") < routes.indexOf("get('/:id'"), 'attachment download route must be declared before the dynamic id route');
   assert.match(routes, /patch\('\/:id\/call'/);
 });
 

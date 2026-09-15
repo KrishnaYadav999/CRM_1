@@ -145,6 +145,7 @@ const API_ENDPOINTS = {
     participants: '/internal-tickets/participants',
     create: '/internal-tickets',
     detail: (id) => `/internal-tickets/${encodePathValue(id)}`,
+    downloadAttachment: '/internal-tickets/attachments/download',
     call: (id) => `/internal-tickets/${encodePathValue(id)}/call`
   },
   healthReports: {
