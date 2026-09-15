@@ -17,16 +17,23 @@ function appUrl() {
 }
 
 function correctionEmail(record, stage) {
-  const breached = stage === 'BREACHED';
+  const redRecovery = stage === 'RED_RECOVERY';
+  const permanent = stage === 'PERMANENT';
   const clientName = escapeHtml(record.clientName || 'Client Master');
   const recipient = escapeHtml(record.correctionRecipientName || 'Manager');
   const decision = record.correctionDecision === 'REJECTED' ? 'Rejected' : 'Partially Approved';
   const dueAt = record.correctionDueAt ? new Date(record.correctionDueAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
-  const color = breached ? '#b91c1c' : '#d97706';
-  const title = breached ? 'Permanent Red Flag Applied' : '24-Hour Correction Reminder';
+  const recoveryDeadline = record.greenFlagDeadline ? new Date(record.greenFlagDeadline).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
+  const color = permanent ? '#7f1d1d' : redRecovery ? '#b91c1c' : '#d97706';
+  const title = permanent ? 'Permanent Red Flag Applied' : redRecovery ? 'Red Flag - Final 24-Hour Recovery' : '24-Hour Correction Reminder';
+  const message = permanent
+    ? '<div style="padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b"><strong>The final 24-hour recovery window has expired.</strong> The Client Master now has a permanent red flag in CRM.</div>'
+    : redRecovery
+      ? `<div style="padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b"><strong>The initial 48-hour correction deadline has expired and a red flag has been applied.</strong> You have a final 24 hours, until <strong>${escapeHtml(recoveryDeadline)}</strong>, to correct the data and obtain compliance approval. Approval within this recovery window will return the flag to green.</div>`
+      : `<div style="padding:15px;border:1px solid #fde68a;border-radius:12px;background:#fffbeb;color:#92400e"><strong>24 hours remain in the initial correction period.</strong> Complete the requested data and obtain compliance approval before <strong>${escapeHtml(dueAt)}</strong> to avoid a red flag. If missed, a final 24-hour red-to-green recovery window will begin.</div>`;
   return {
     subject: `${title} - ${record.clientName || 'Client Master'}`,
-    html: `<div style="background:#f1f5f9;padding:28px 12px;font-family:Arial,Helvetica,sans-serif;color:#334155"><div style="max-width:680px;margin:auto;overflow:hidden;border:1px solid #e2e8f0;border-radius:18px;background:#fff"><div style="background:${color};padding:25px 28px;color:#fff"><div style="font-size:12px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase">AnantTattva CRM</div><h1 style="margin:8px 0 0;font-size:24px">${title}</h1></div><div style="padding:26px 28px"><p>Hello <strong>${recipient}</strong>,</p><p>The compliance decision for <strong>${clientName}</strong> is <strong>${decision}</strong>.</p>${breached ? '<div style="padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b"><strong>The 48-hour correction deadline has expired.</strong> This Client Master now has a permanent red flag in CRM.</div>' : `<div style="padding:15px;border:1px solid #fde68a;border-radius:12px;background:#fffbeb;color:#92400e"><strong>24 hours remaining.</strong> Complete the requested data and obtain compliance approval before <strong>${escapeHtml(dueAt)}</strong> to avoid a permanent red flag.</div>`}<p style="margin-top:22px"><a href="${escapeHtml(appUrl())}/client-master" style="display:inline-block;border-radius:10px;background:#075848;padding:13px 20px;color:#fff;text-decoration:none;font-weight:800">Open Client Master</a></p><p style="margin-top:22px;color:#64748b;font-size:12px">Automated compliance correction notification. No reply required.</p></div></div></div>`
+    html: `<div style="background:#f1f5f9;padding:28px 12px;font-family:Arial,Helvetica,sans-serif;color:#334155"><div style="max-width:680px;margin:auto;overflow:hidden;border:1px solid #e2e8f0;border-radius:18px;background:#fff"><div style="background:${color};padding:25px 28px;color:#fff"><div style="font-size:12px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase">AnantTattva CRM</div><h1 style="margin:8px 0 0;font-size:24px">${title}</h1></div><div style="padding:26px 28px"><p>Hello <strong>${recipient}</strong>,</p><p>The compliance decision for <strong>${clientName}</strong> is <strong>${decision}</strong>.</p>${message}<p style="margin-top:22px"><a href="${escapeHtml(appUrl())}/client-master" style="display:inline-block;border-radius:10px;background:#075848;padding:13px 20px;color:#fff;text-decoration:none;font-weight:800">Open Client Master</a></p><p style="margin-top:22px;color:#64748b;font-size:12px">Automated compliance correction notification. No reply required.</p></div></div></div>`
   };
 }
 
@@ -53,8 +60,32 @@ async function sendCorrectionEmail(record, stage) {
 async function runClientComplianceCorrectionReminders(now = new Date()) {
   if (running) return { skipped: 'already_running' };
   running = true;
-  const result = { reminders: 0, breached: 0, errors: 0 };
+  const result = { reminders: 0, breached: 0, legacyRecoveryGrants: 0, redFlags: 0, permanentRedFlags: 0, errors: 0 };
   try {
+    const legacyRedFlags = await PendingApproval.find({
+      type: 'client', reminderFlag: 'RED', correctionDecision: { $in: ['PARTIALLY_APPROVED', 'REJECTED'] },
+      redRecoveryStartedAt: null,
+      $or: [{ greenFlagDeadline: { $lte: now } }, { greenFlagDeadline: null }]
+    }).limit(100);
+    for (const record of legacyRedFlags) {
+      const recoveryDeadline = new Date(now.getTime() + 24 * HOUR_MS);
+      const claimed = await PendingApproval.findOneAndUpdate(
+        { _id: record._id, reminderFlag: 'RED', redRecoveryStartedAt: null },
+        { $set: { correctionStatus: 'BREACHED', redRecoveryStartedAt: now, greenFlagDeadline: recoveryDeadline } },
+        { new: true }
+      );
+      if (!claimed) continue;
+      try {
+        await sendCorrectionEmail(claimed, 'RED_RECOVERY');
+        claimed.correctionEmailError = '';
+      } catch (error) {
+        claimed.correctionEmailError = error.message || 'Unable to send existing red-flag recovery email';
+        result.errors += 1;
+      }
+      await claimed.save();
+      result.legacyRecoveryGrants += 1;
+    }
+
     const dueReminders = await PendingApproval.find({
       type: 'client', correctionStatus: 'OPEN', correctionReminderSentAt: null,
       correctionReminderAt: { $lte: now }, correctionDueAt: { $gt: now }
@@ -80,22 +111,47 @@ async function runClientComplianceCorrectionReminders(now = new Date()) {
       }
     }
 
-    const breaches = await PendingApproval.find({ type: 'client', correctionStatus: 'OPEN', correctionDueAt: { $lte: now } }).limit(100);
+    const breaches = await PendingApproval.find({
+      type: 'client', correctionStatus: 'OPEN', correctionDueAt: { $lte: now }, greenFlagDeadline: { $gt: now }
+    }).limit(100);
     for (const record of breaches) {
       const claimed = await PendingApproval.findOneAndUpdate(
-        { _id: record._id, correctionStatus: 'OPEN', correctionDueAt: { $lte: now } },
-        { $set: { correctionStatus: 'BREACHED', correctionBreachedAt: now, reminderFlag: 'PERMANENT_RED', redFlagAt: now } },
+        { _id: record._id, correctionStatus: 'OPEN', correctionDueAt: { $lte: now }, greenFlagDeadline: { $gt: now } },
+        { $set: { correctionStatus: 'BREACHED', correctionBreachedAt: now, redRecoveryStartedAt: now, reminderFlag: 'RED', redFlagAt: now } },
         { new: true }
       );
       if (!claimed) continue;
       try {
-        await sendCorrectionEmail(claimed, 'BREACHED');
+        await sendCorrectionEmail(claimed, 'RED_RECOVERY');
+        claimed.correctionEmailError = '';
+      } catch (error) {
+        claimed.correctionEmailError = error.message || 'Unable to send red-flag recovery email';
+        result.errors += 1;
+      }
+      await claimed.save();
+      result.redFlags += 1;
+    }
+
+    const permanentBreaches = await PendingApproval.find({
+      type: 'client', correctionStatus: { $in: ['OPEN', 'BREACHED'] },
+      reminderFlag: { $ne: 'PERMANENT_RED' }, correctionDueAt: { $lte: now }, greenFlagDeadline: { $lte: now }
+    }).limit(100);
+    for (const record of permanentBreaches) {
+      const claimed = await PendingApproval.findOneAndUpdate(
+        { _id: record._id, correctionStatus: { $in: ['OPEN', 'BREACHED'] }, reminderFlag: { $ne: 'PERMANENT_RED' }, greenFlagDeadline: { $lte: now } },
+        { $set: { correctionStatus: 'BREACHED', correctionBreachedAt: record.correctionBreachedAt || now, reminderFlag: 'PERMANENT_RED', redFlagAt: record.redFlagAt || now } },
+        { new: true }
+      );
+      if (!claimed) continue;
+      try {
+        await sendCorrectionEmail(claimed, 'PERMANENT');
         claimed.correctionEmailError = '';
       } catch (error) {
         claimed.correctionEmailError = error.message || 'Unable to send permanent red-flag email';
         result.errors += 1;
       }
       await claimed.save();
+      result.permanentRedFlags += 1;
       result.breached += 1;
     }
     return result;

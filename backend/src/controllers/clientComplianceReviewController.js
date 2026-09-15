@@ -110,8 +110,30 @@ exports.completeReview = async (req, res) => {
   await client.populate('selectedLead', 'applicantType piboParent piboCategoryParent subApplicantType piboCategory serviceSelections');
   const decidedAt = new Date();
   const existingPendingRecord = await PendingApproval.findOne({ sourceClientId: String(client._id), type: 'client' }).lean();
+  const legacyRedNeedsGrace = existingPendingRecord?.reminderFlag === 'RED'
+    && !existingPendingRecord?.redRecoveryStartedAt
+    && ['PARTIALLY_APPROVED', 'REJECTED'].includes(existingPendingRecord?.correctionDecision);
+  const existingRecoveryDeadline = existingPendingRecord?.greenFlagDeadline ? new Date(existingPendingRecord.greenFlagDeadline) : null;
+  const recoveryWindowExpired = !legacyRedNeedsGrace && ['OPEN', 'BREACHED'].includes(existingPendingRecord?.correctionStatus)
+    && existingRecoveryDeadline && !Number.isNaN(existingRecoveryDeadline.getTime()) && existingRecoveryDeadline <= decidedAt;
+  const permanentRed = existingPendingRecord?.reminderFlag === 'PERMANENT_RED' || recoveryWindowExpired;
+  const recoverableRed = existingPendingRecord?.reminderFlag === 'RED' && !recoveryWindowExpired;
   const correctionRequired = decision === 'PARTIALLY_APPROVED' || decision === 'CHANGES_REQUIRED' || decision === 'REJECTED';
-  const correctionFields = correctionRequired ? {
+  const correctionFields = correctionRequired && (recoverableRed || permanentRed) ? {
+    correctionStatus: 'BREACHED',
+    correctionDecision: decision === 'REJECTED' ? 'REJECTED' : 'PARTIALLY_APPROVED',
+    correctionStartedAt: existingPendingRecord?.correctionStartedAt || decidedAt,
+    correctionReminderAt: existingPendingRecord?.correctionReminderAt || null,
+    correctionReminderSentAt: existingPendingRecord?.correctionReminderSentAt || null,
+    correctionDueAt: existingPendingRecord?.correctionDueAt || decidedAt,
+    correctionBreachedAt: existingPendingRecord?.correctionBreachedAt || decidedAt,
+    redRecoveryStartedAt: existingPendingRecord?.redRecoveryStartedAt || decidedAt,
+    correctionResolvedAt: null,
+    correctionEmailError: '',
+    reminderFlag: permanentRed ? 'PERMANENT_RED' : 'RED',
+    redFlagAt: existingPendingRecord?.redFlagAt || decidedAt,
+    greenFlagDeadline: legacyRedNeedsGrace ? new Date(decidedAt.getTime() + 24 * 60 * 60 * 1000) : existingPendingRecord?.greenFlagDeadline || decidedAt
+  } : correctionRequired ? {
     correctionStatus: 'OPEN',
     correctionDecision: decision === 'REJECTED' ? 'REJECTED' : 'PARTIALLY_APPROVED',
     correctionStartedAt: decidedAt,
@@ -119,20 +141,21 @@ exports.completeReview = async (req, res) => {
     correctionReminderSentAt: null,
     correctionDueAt: new Date(decidedAt.getTime() + 48 * 60 * 60 * 1000),
     correctionBreachedAt: null,
+    redRecoveryStartedAt: null,
     correctionResolvedAt: null,
     correctionEmailError: '',
     reminderFlag: 'GREEN',
     redFlagAt: null,
-    greenFlagDeadline: new Date(decidedAt.getTime() + 48 * 60 * 60 * 1000)
+    greenFlagDeadline: new Date(decidedAt.getTime() + 72 * 60 * 60 * 1000)
   } : {
     correctionStatus: 'RESOLVED',
     correctionResolvedAt: decidedAt,
     correctionReminderAt: null,
     correctionDueAt: null,
     correctionEmailError: '',
-    reminderFlag: existingPendingRecord?.reminderFlag === 'PERMANENT_RED' ? 'PERMANENT_RED' : 'GREEN',
-    greenFlagAt: decidedAt,
-    redFlagAt: existingPendingRecord?.reminderFlag === 'PERMANENT_RED' ? existingPendingRecord.redFlagAt : null,
+    reminderFlag: permanentRed ? 'PERMANENT_RED' : 'GREEN',
+    greenFlagAt: permanentRed ? existingPendingRecord?.greenFlagAt || null : decidedAt,
+    redFlagAt: permanentRed ? existingPendingRecord?.redFlagAt || decidedAt : null,
     greenFlagDeadline: null
   };
   const pendingRecord = await PendingApproval.findOneAndUpdate(
