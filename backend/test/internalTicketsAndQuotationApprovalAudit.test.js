@@ -25,6 +25,9 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(controller, /cleanAttachments/);
   assert.match(controller, /canAccess/);
   assert.match(controller, /req\.query\.scope/);
+  assert.match(controller, /exports\.listParticipants/);
+  assert.match(controller, /isActive: \{ \$ne: false \}/);
+  assert.match(controller, /activeParticipants/);
   assert.match(controller, /Select at least one participant/);
   assert.match(app, /\/api\/internal-tickets/);
   assert.match(frontend, /Internal Tickets & Team Chat/);
@@ -35,6 +38,7 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(frontend, /teams-app-rail/);
   assert.match(frontend, /teams-status-list/);
   assert.match(frontend, /searchUsers/);
+  assert.match(frontend, /API_ENDPOINTS\.internalTickets\.participants/);
   assert.match(frontend, /teams-emoji-picker/);
   assert.match(frontend, /chatTab === 'shared'/);
   assert.match(frontend, /appView === 'files'/);
@@ -53,7 +57,10 @@ test('internal tickets have isolated database API, participants, chat, and attac
   assert.match(model, /CallSessionSchema/);
   assert.match(controller, /exports\.call/);
   assert.match(controller, /action === 'answer'/);
-  assert.match(read('backend/src/routes/internalTickets.js'), /patch\('\/:id\/call'/);
+  const routes = read('backend/src/routes/internalTickets.js');
+  assert.match(routes, /get\('\/participants', requireAuth, controller\.listParticipants\)/);
+  assert.ok(routes.indexOf("get('/participants'") < routes.indexOf("get('/:id'"), 'participants route must be declared before the dynamic id route');
+  assert.match(routes, /patch\('\/:id\/call'/);
 });
 
 test('desktop CRM uses a compact 100-percent browser density without changing print or mobile', () => {

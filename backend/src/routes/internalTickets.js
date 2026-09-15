@@ -2,6 +2,7 @@ const router = require('express').Router();
 const controller = require('../controllers/internalTicketController');
 const { requireAuth } = require('../middleware/auth');
 router.get('/', requireAuth, controller.list);
+router.get('/participants', requireAuth, controller.listParticipants);
 router.post('/', requireAuth, controller.create);
 router.get('/:id', requireAuth, controller.detail);
 router.patch('/:id/call', requireAuth, controller.call);

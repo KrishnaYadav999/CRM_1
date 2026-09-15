@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const InternalTicket = require('../models/InternalTicket');
+const User = require('../models/User');
 const { notifyFirstMessage } = require('../services/internalTicketEmails');
 
 const STATUSES = ['Open', 'In Progress', 'Resolved', 'Closed'];
@@ -37,6 +38,17 @@ exports.list = async (req, res) => {
   res.json({ ok: true, tickets, scope: oversight ? 'all' : 'mine' });
 };
 
+exports.listParticipants = async (req, res) => {
+  const users = await User.find({
+    isActive: { $ne: false },
+    _id: { $ne: req.user._id }
+  })
+    .select('name email role avatarUrl team')
+    .sort({ name: 1, email: 1 })
+    .lean();
+  res.json({ ok: true, users });
+};
+
 exports.detail = async (req, res) => {
   const ticket = await InternalTicket.findById(req.params.id).populate('createdBy participants', 'name email role avatarUrl').lean();
   if (!ticket) return res.status(404).json({ error: 'Internal ticket not found.' });
@@ -71,7 +83,12 @@ exports.create = async (req, res) => {
   const attachments = cleanAttachments(req.body.attachments);
   if (!subject) return res.status(400).json({ error: 'Ticket subject is required.' });
   if (!message && !attachments.length) return res.status(400).json({ error: 'Add a message or attachment.' });
-  const participantIds = [...new Set((Array.isArray(req.body.participants) ? req.body.participants : []).filter(mongoose.Types.ObjectId.isValid).map(String))];
+  const requestedParticipantIds = [...new Set((Array.isArray(req.body.participants) ? req.body.participants : [])
+    .filter(mongoose.Types.ObjectId.isValid)
+    .map(String)
+    .filter((id) => id !== String(req.user._id)))];
+  const activeParticipants = await User.find({ _id: { $in: requestedParticipantIds }, isActive: { $ne: false } }).select('_id').lean();
+  const participantIds = activeParticipants.map((user) => String(user._id));
   if (!participantIds.length) return res.status(400).json({ error: 'Select at least one participant for this private conversation.' });
   const ticket = await InternalTicket.create({ ticketNumber: await nextNumber(), subject,
     priority: PRIORITIES.includes(req.body.priority) ? req.body.priority : 'Medium', createdBy: req.user._id,

@@ -82,7 +82,7 @@ export default function InternalTickets() {
   async function load(nextScope = scope) {
     setLoading(true)
     try {
-      const [ticketRes, userRes] = await Promise.all([api.get(API_ENDPOINTS.internalTickets.list, { params: nextScope === 'all' ? { scope: 'all' } : {} }), api.get(API_ENDPOINTS.auth.users)])
+      const [ticketRes, userRes] = await Promise.all([api.get(API_ENDPOINTS.internalTickets.list, { params: nextScope === 'all' ? { scope: 'all' } : {} }), api.get(API_ENDPOINTS.internalTickets.participants)])
       const nextTickets = ticketRes.data.tickets || []
       setTickets(nextTickets)
       setUsers((userRes.data.users || []).filter((user) => String(user._id || user.id) !== String(currentUser?._id || currentUser?.id)))

@@ -141,6 +141,7 @@ const API_ENDPOINTS = {
   },
   internalTickets: {
     list: '/internal-tickets',
+    participants: '/internal-tickets/participants',
     create: '/internal-tickets',
     detail: (id) => `/internal-tickets/${encodePathValue(id)}`,
     call: (id) => `/internal-tickets/${encodePathValue(id)}/call`
