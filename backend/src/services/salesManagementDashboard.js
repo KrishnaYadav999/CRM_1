@@ -79,6 +79,30 @@ function poRevenueExpression() {
   };
 }
 
+function approvedPoRowsExpression() {
+  return {
+    $reduce: {
+      input: '$approvedAssignments',
+      initialValue: [],
+      in: { $concatArrays: ['$$value', { $ifNull: ['$$this.poYearRows', []] }] }
+    }
+  };
+}
+
+function positiveAmount(field) {
+  return { $gt: [{ $convert: { input: field, to: 'double', onError: 0, onNull: 0 } }, 0] };
+}
+
+function rowAmountTotal(rowsField, amountField) {
+  return {
+    $reduce: {
+      input: rowsField,
+      initialValue: 0,
+      in: { $add: ['$$value', { $convert: { input: amountField, to: 'double', onError: 0, onNull: 0 } }] }
+    }
+  };
+}
+
 /**
  * MongoDB aggregation used by the management dashboard. Leads remain the
  * cohort root; quotations and users are joined so all funnel metrics use one
@@ -147,10 +171,32 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
       }
     },
     { $set: { approvedAssignments: approvedAssignmentExpression() } },
+    { $set: { approvedPoRows: approvedPoRowsExpression() } },
+    {
+      $set: {
+        oldBusinessPoRows: {
+          $filter: {
+            input: '$approvedPoRows', as: 'po',
+            cond: { $and: [positiveAmount('$$po.poAmount'), { $not: [positiveAmount('$$po.quotationBasicAmount')] }] }
+          }
+        },
+        newBusinessPoRows: {
+          $filter: {
+            input: '$approvedPoRows', as: 'po',
+            cond: { $and: [positiveAmount('$$po.poAmount'), positiveAmount('$$po.quotationBasicAmount')] }
+          }
+        }
+      }
+    },
     {
       $set: {
         convertedServiceCount: { $size: '$approvedAssignments' },
         confirmedRevenue: poRevenueExpression(),
+        oldBusinessPoValue: rowAmountTotal('$oldBusinessPoRows', '$$this.poAmount'),
+        newBusinessPoValue: rowAmountTotal('$newBusinessPoRows', '$$this.poAmount'),
+        newBusinessQuotationValue: rowAmountTotal('$newBusinessPoRows', '$$this.quotationBasicAmount'),
+        oldBusinessLead: { $cond: [{ $gt: [{ $size: '$oldBusinessPoRows' }, 0] }, 1, 0] },
+        newBusinessLead: { $cond: [{ $gt: [{ $size: '$newBusinessPoRows' }, 0] }, 1, 0] },
         approvedQuotations: {
           $filter: { input: '$quotations', as: 'quote', cond: { $eq: [{ $toLower: { $ifNull: ['$$quote.status', ''] } }, 'approved'] } }
         },
@@ -249,6 +295,11 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
             convertedLeads: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
             closedDeals: { $sum: '$convertedServiceCount' },
             confirmedRevenue: { $sum: '$confirmedRevenue' },
+            oldBusinessLeads: { $sum: '$oldBusinessLead' },
+            oldBusinessPoValue: { $sum: '$oldBusinessPoValue' },
+            newBusinessLeads: { $sum: '$newBusinessLead' },
+            newBusinessQuotationValue: { $sum: '$newBusinessQuotationValue' },
+            newBusinessPoValue: { $sum: '$newBusinessPoValue' },
             approvedQuotationValue: { $sum: '$approvedQuotationValue' },
             approvedQuotations: { $sum: { $size: '$approvedQuotations' } },
             stalledQuotations: { $sum: { $cond: ['$stalledQuotation', 1, 0] } },
@@ -272,6 +323,11 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
               closedDeals: { $sum: '$convertedServiceCount' },
               approvedQuotationValue: { $sum: '$approvedQuotationValue' },
               confirmedRevenue: { $sum: '$confirmedRevenue' },
+              oldBusinessLeads: { $sum: '$oldBusinessLead' },
+              oldBusinessPoValue: { $sum: '$oldBusinessPoValue' },
+              newBusinessLeads: { $sum: '$newBusinessLead' },
+              newBusinessQuotationValue: { $sum: '$newBusinessQuotationValue' },
+              newBusinessPoValue: { $sum: '$newBusinessPoValue' },
               stalledQuotations: { $sum: { $cond: ['$stalledQuotation', 1, 0] } },
               overdueFollowUps: { $sum: { $cond: ['$overdueFollowUp', 1, 0] } }
             }
@@ -333,6 +389,8 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
             _id: 0, leadId: { $toString: '$_id' }, leadCode: 1, company: 1, createdAt: 1,
             ownerName: { $ifNull: ['$owner.name', '$owner.email'] }, department: { $ifNull: ['$owner.team', 'No team assigned'] },
             pipelineStage: 1, convertedServiceCount: 1, confirmedRevenue: 1, approvedQuotationValue: 1,
+            oldBusinessLead: 1, oldBusinessPoValue: 1, newBusinessLead: 1,
+            newBusinessQuotationValue: 1, newBusinessPoValue: 1,
             quotationCount: { $size: '$quotations' }, approvedQuotationCount: { $size: '$approvedQuotations' }
           } }
         ]
@@ -460,6 +518,11 @@ function formatAggregation(result, period) {
     convertedLeads,
     totalRevenue: rounded(rawSummary.confirmedRevenue, 2),
     confirmedRevenue: rounded(rawSummary.confirmedRevenue, 2),
+    oldBusinessLeads: Number(rawSummary.oldBusinessLeads) || 0,
+    oldBusinessPoValue: rounded(rawSummary.oldBusinessPoValue, 2),
+    newBusinessLeads: Number(rawSummary.newBusinessLeads) || 0,
+    newBusinessQuotationValue: rounded(rawSummary.newBusinessQuotationValue, 2),
+    newBusinessPoValue: rounded(rawSummary.newBusinessPoValue, 2),
     approvedQuotationValue: rounded(rawSummary.approvedQuotationValue, 2),
     approvedQuotations: Number(rawSummary.approvedQuotations) || 0,
     closedDeals: Number(rawSummary.closedDeals) || 0
@@ -481,6 +544,9 @@ function formatAggregation(result, period) {
       openQuotations: Number(row.openQuotations) || 0, approvedQuotations: Number(row.approvedQuotations) || 0,
       convertedToSale: Number(row.convertedToSale) || 0, closedDeals: Number(row.closedDeals) || 0,
       conversionRate, approvedQuotationValue: rounded(row.approvedQuotationValue, 2), confirmedRevenue: rounded(row.confirmedRevenue, 2),
+      oldBusinessLeads: Number(row.oldBusinessLeads) || 0, oldBusinessPoValue: rounded(row.oldBusinessPoValue, 2),
+      newBusinessLeads: Number(row.newBusinessLeads) || 0, newBusinessQuotationValue: rounded(row.newBusinessQuotationValue, 2),
+      newBusinessPoValue: rounded(row.newBusinessPoValue, 2),
       stalledQuotations: Number(row.stalledQuotations) || 0, overdueFollowUps: Number(row.overdueFollowUps) || 0,
       status, monthlyTrend: managerTrendMap.get(text(row._id)) || []
     };
@@ -565,6 +631,8 @@ async function getSalesManagementDashboard({ dateFrom, dateTo, department, manag
         closedDeal: 'A service assignment with an admin-approved PO.',
         revenue: 'Sum of PO amounts on admin-approved service assignments.',
         quotationValue: 'Sum of approved quotation grand totals; not added to revenue.',
+        oldBusiness: 'Approved PO rows with PO value above zero and CRM quotation value equal to zero.',
+        newBusiness: 'Approved PO rows with both CRM quotation value and PO value above zero.',
         legacyLead: `Bulk-imported leads saved through ${LEGACY_BULK_CUTOFF.toISOString().slice(0, 10)} are opening backlog from ${LEGACY_BACKLOG_START.toISOString().slice(0, 10)}.`
       },
       legacyBulkCutoff: LEGACY_BULK_CUTOFF.toISOString().slice(0, 10),
