@@ -26,6 +26,13 @@ test('PO received closure asks whether quotation was sent and supports earlier q
   assert.match(leadPage, /Yes — Quotation Sent/);
   assert.match(leadPage, /No — Use Earlier Quotation Proof/);
   assert.match(leadPage, /earlierQuotationProofUrl/);
+  assert.match(leadPage, /function EarlierQuotationPoDetails/);
+  assert.match(leadPage, /CRM quotation not used/);
+  assert.match(leadPage, /selectClosureQuotationMode\('no'\)/);
+  assert.match(leadPage, /No CRM quotation was found for this lead/);
+  assert.match(leadPage, /closureDialog\.quotationSent === 'yes' && String\(closureDialog\.quotation\?\.approvalDecision/);
+  assert.doesNotMatch(leadPage, /quotation=\{\{ quotationNumber: 'Earlier quotation proof attached' \}\}/);
+  assert.match(leadController, /quotationBasicAmount: String\(row\?\.quotationSent \|\| ''\)\.toLowerCase\(\) === 'yes' \?/);
   assert.match(leadController, /closureRequestedBy/);
   assert.match(leadController, /closureRequestedBy: String\(row\?\.closureRequestedBy/);
   assert.match(leadController, /const poProofManifest = poRowsSnapshot\.map/);
