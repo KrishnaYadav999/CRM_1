@@ -36,7 +36,17 @@ test('Combined group validation rejects empty, duplicate, and unassigned service
 
 test('Quotation preview, PDF view, and download merge amount cells per pricing group', () => {
   assert.match(page, /function combinedPricingRows/);
+  assert.match(page, /const rows = items\.map/);
+  assert.match(page, /groupByItemKey\.get\(quotationItemKey\(item, index\)\)/);
+  assert.match(page, /while \(runEnd < rows\.length && rows\[runEnd\]\.group\.id === row\.group\.id\)/);
   assert.match(page, /rowSpan=\{combined \? groupSize : undefined\}/);
   assert.match(page, /rowspan="\$\{groupSize\}"/);
   assert.match(page, /combined \? group\.basicAmount : item\.basicAmount/);
+});
+
+test('Quotation PDF tables share selection order and generate continuous serial numbers', () => {
+  assert.match(page, /displayRows\.map\(\(\{ item, index, group, groupSize, firstInGroup \}, rowIndex\)/);
+  assert.match(page, /\{rowIndex \+ 1\}/);
+  assert.match(page, /<tbody>\{displayRows\.map\(\(\{ item \}, index\)/);
+  assert.match(page, /\$\{displayRows\.map\(\(\{ item \}, index\)/);
 });

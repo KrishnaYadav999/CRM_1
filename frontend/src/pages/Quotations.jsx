@@ -595,11 +595,25 @@ function normalizeCombinedPricingGroups(quotation = {}, items = []) {
 
 function combinedPricingRows(quotation = {}, items = []) {
   const groups = normalizeCombinedPricingGroups(quotation, items);
-  const itemByKey = new Map(items.map((item, index) => [quotationItemKey(item, index), { item, index }]));
-  const rows = [];
+  const groupByItemKey = new Map();
   groups.forEach((group) => {
-    const members = group.itemKeys.map((key) => itemByKey.get(String(key))).filter(Boolean);
-    members.forEach((member, memberIndex) => rows.push({ ...member, group, groupSize: members.length, firstInGroup: memberIndex === 0 }));
+    (group.itemKeys || []).forEach((key) => groupByItemKey.set(String(key), group));
+  });
+  const rows = items.map((item, index) => ({
+    item,
+    index,
+    group: groupByItemKey.get(quotationItemKey(item, index)) || {
+      id: `unassigned-${index}`,
+      basicAmount: item.basicAmount ?? 0
+    }
+  }));
+  rows.forEach((row, rowIndex) => {
+    const previousGroupId = rows[rowIndex - 1]?.group?.id;
+    row.firstInGroup = rowIndex === 0 || previousGroupId !== row.group.id;
+    if (!row.firstInGroup) return;
+    let runEnd = rowIndex + 1;
+    while (runEnd < rows.length && rows[runEnd].group.id === row.group.id) runEnd += 1;
+    row.groupSize = runEnd - rowIndex;
   });
   return rows;
 }
@@ -3123,9 +3137,9 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                     </tr>
                   </thead>
                   <tbody>
-                    {displayRows.map(({ item, index, group, groupSize, firstInGroup }) => (
+                    {displayRows.map(({ item, index, group, groupSize, firstInGroup }, rowIndex) => (
                       <tr key={`${group?.id || 'item'}-${index}`} className="font-black uppercase">
-                        <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{index + 1}</td>
+                        <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center">{rowIndex + 1}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.businessCategory || '-'}</td>
                         <td className="break-words border-r border-t border-slate-950 px-1.5 py-2 [overflow-wrap:anywhere]">{item.eprCategory || item.serviceCategory || '-'}</td>
                         <td className="border-r border-t border-slate-950 px-1.5 py-2 text-center"><QuotationServiceDateRangeCell item={item} /></td>
@@ -3144,7 +3158,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                 <table className="w-full table-fixed text-[10px] font-bold leading-4 text-slate-950">
                   {hasReturnYearItems ? <colgroup><col className="w-[8%]" /><col className="w-[24%]" /><col className="w-[20%]" /><col className="w-[24%]" /><col className="w-[24%]" /></colgroup> : <colgroup><col className="w-[10%]" /><col className="w-[32%]" /><col className="w-[26%]" /><col className="w-[32%]" /></colgroup>}
                   <thead><tr className="bg-orange-50 text-left text-[9px] font-black uppercase text-slate-950"><th className="border-r border-t border-slate-950 px-2 py-3">Sr.No</th><th className="border-r border-t border-slate-950 px-2 py-3">Service Category</th><th className="border-r border-t border-slate-950 px-2 py-3">Applicant Type</th>{hasReturnYearItems && <th className="border-r border-t border-slate-950 px-2 py-3">{quotationYearMappingHeader(items)}</th>}<th className="border-t border-slate-950 px-2 py-3">Services Offered</th></tr></thead>
-                  <tbody>{items.map((item, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{getQuotationApplicantType(item)}</td>{hasReturnYearItems && <td className="border-r border-t border-slate-950 px-2 py-3">{quotationAnnualReturnRegistrationYear(item)}</td>}<td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
+                  <tbody>{displayRows.map(({ item }, index) => <tr key={index} className={index % 2 ? 'bg-orange-50/40' : 'bg-white'}><td className="border-r border-t border-slate-950 px-2 py-3 text-center font-black">{index + 1}</td><td className="border-r border-t border-slate-950 px-2 py-3 font-black">{item.eprCategory || item.serviceCategory || '-'}</td><td className="border-r border-t border-slate-950 px-2 py-3">{getQuotationApplicantType(item)}</td>{hasReturnYearItems && <td className="border-r border-t border-slate-950 px-2 py-3">{quotationAnnualReturnRegistrationYear(item)}</td>}<td className="break-words border-t border-slate-950 px-2 py-3">{item.servicesOffered || '-'}</td></tr>)}</tbody>
                 </table>
               </div>
               <div className="mt-5 text-[10px] font-bold leading-5 text-slate-950">
@@ -3232,9 +3246,9 @@ function buildQuotationPrintHtml(quotation) {
   const yearMappingHeader = quotationYearMappingHeader(items);
   const createdDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB').replace(/\//g, '-') : new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
   const displayRows = combined ? combinedPricingRows(quotation, items) : items.map((item, index) => ({ item, index }));
-  const rows = displayRows.map(({ item, index, group, groupSize, firstInGroup }) => `
+  const rows = displayRows.map(({ item, index, group, groupSize, firstInGroup }, rowIndex) => `
     <tr>
-      <td class="center">${index + 1}</td>
+      <td class="center">${rowIndex + 1}</td>
       <td>${escapeHtml(item.businessCategory || '-')}</td>
       <td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td>
       <td class="center" style="white-space:nowrap">${quotationServiceDateRangeHtml(item)}</td>
@@ -3349,7 +3363,7 @@ function buildQuotationPrintHtml(quotation) {
       <div class="package-header">EPR / Service Period Mapping</div>
       <table>
         <thead><tr><th>Sr.No</th><th>Service Category</th><th>Applicant Type</th>${hasReturnYearItems ? `<th>${escapeHtml(yearMappingHeader)}</th>` : ''}<th>Services Offered</th></tr></thead>
-        <tbody>${items.map((item, index) => `<tr><td class="center">${index + 1}</td><td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td><td>${escapeHtml(getQuotationApplicantType(item))}</td>${hasReturnYearItems ? `<td>${escapeHtml(quotationAnnualReturnRegistrationYear(item))}</td>` : ''}<td>${escapeHtml(item.servicesOffered || '-')}</td></tr>`).join('') || `<tr><td colspan="${hasReturnYearItems ? 5 : 4}" class="center">No quotation items added.</td></tr>`}</tbody>
+        <tbody>${displayRows.map(({ item }, index) => `<tr><td class="center">${index + 1}</td><td>${escapeHtml(item.eprCategory || item.serviceCategory || '-')}</td><td>${escapeHtml(getQuotationApplicantType(item))}</td>${hasReturnYearItems ? `<td>${escapeHtml(quotationAnnualReturnRegistrationYear(item))}</td>` : ''}<td>${escapeHtml(item.servicesOffered || '-')}</td></tr>`).join('') || `<tr><td colspan="${hasReturnYearItems ? 5 : 4}" class="center">No quotation items added.</td></tr>`}</tbody>
       </table>
       <section class="terms">
         <p class="label">Terms & Conditions:</p>
