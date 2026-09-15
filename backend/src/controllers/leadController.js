@@ -103,6 +103,14 @@ exports.listLeadDropdownOptions = async (_req, res) => {
   res.json({ ok: true, options });
 };
 
+exports.listAssignmentUsers = async (_req, res) => {
+  const users = await User.find({ isActive: { $ne: false } })
+    .select('crmUserId name email avatarUrl role roles team teamId managerId operationHeadId isActive')
+    .sort({ name: 1, email: 1 })
+    .lean();
+  res.json({ ok: true, users });
+};
+
 exports.createLeadDropdownOption = async (req, res) => {
   const field = String(req.body.field || '').trim();
   const name = String(req.body.name || '').trim().replace(/\s+/g, ' ');

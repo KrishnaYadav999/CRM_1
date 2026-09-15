@@ -26,6 +26,7 @@ const API_ENDPOINTS = {
   },
   leads: {
     list: '/leads',
+    assignmentUsers: '/leads/assignment-users',
     companySearch: '/leads/search/company',
     create: '/leads',
     bulk: '/leads/bulk',

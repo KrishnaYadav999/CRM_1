@@ -8,6 +8,7 @@ const temporaryAssignmentCtrl = require('../controllers/temporaryLeadAssignmentC
 const temporaryLeadCtrl = require('../controllers/temporaryLeadController');
 
 router.get('/', requireAuth, leadCtrl.listLeads);
+router.get('/assignment-users', requireAuth, leadCtrl.listAssignmentUsers);
 router.get('/service-catalog', requireAuth, leadCtrl.listServiceCatalog);
 router.get('/dropdown-options', requireAuth, leadCtrl.listLeadDropdownOptions);
 router.post('/dropdown-options', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.createLeadDropdownOption);

@@ -308,6 +308,11 @@ function primaryLeadOwner(item = {}, users = [], currentUser = null) {
   };
 }
 
+function userHasManagerRole(user = {}) {
+  return [user.role, ...(Array.isArray(user.roles) ? user.roles : []), user.designation]
+    .some((role) => /(^|[\s_-])manager($|[\s_-])/i.test(String(role || '')));
+}
+
 function personLabel(value, fallback = '-') {
   if (value === null || value === undefined || value === '') return fallback;
   if (typeof value === 'object') {
@@ -687,7 +692,7 @@ export default function LeadGeneration() {
     });
   }, [staff]);
   const managerOptions = useMemo(() => {
-    const managers = staff.filter((user) => /\bmanager\b/i.test(String(user.role || user.designation || '')));
+    const managers = staff.filter(userHasManagerRole);
     const seen = new Set();
     return managers.flatMap((user) => {
       const label = `${user.name || user.email} (${user.role || user.designation || 'Manager'})`;
@@ -1555,7 +1560,7 @@ export default function LeadGeneration() {
 
       let staffList = [];
       try {
-        const usersResponse = await api.get(API_ENDPOINTS.auth.users);
+        const usersResponse = await api.get(API_ENDPOINTS.leads.assignmentUsers);
         staffList = usersResponse.data.users || [];
         setStaff(staffList);
       } catch {
