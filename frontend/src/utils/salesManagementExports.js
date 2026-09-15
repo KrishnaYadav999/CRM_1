@@ -4,6 +4,32 @@ function money(value) {
   return `INR ${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 }
 
+function pdfDepartmentBreakdown(rows = []) {
+  const grouped = new Map()
+  for (const row of rows) {
+    const sourceName = String(row.department || 'No team assigned').trim()
+    const department = /^team\s*[ab]$/i.test(sourceName) ? 'Operation' : sourceName
+    const current = grouped.get(department) || {
+      department, leadCount: 0, convertedLeads: 0, closedDeals: 0,
+      approvedQuotationValue: 0, actual: 0, target: null
+    }
+    current.leadCount += Number(row.leadCount) || 0
+    current.convertedLeads += Number(row.convertedLeads) || 0
+    current.closedDeals += Number(row.closedDeals) || 0
+    current.approvedQuotationValue += Number(row.approvedQuotationValue) || 0
+    current.actual += Number(row.actual) || 0
+    if (row.target !== null && row.target !== undefined && Number.isFinite(Number(row.target))) {
+      current.target = (current.target || 0) + Number(row.target)
+    }
+    grouped.set(department, current)
+  }
+  return [...grouped.values()].map((row) => ({
+    ...row,
+    conversionRate: row.leadCount ? Math.round((row.convertedLeads / row.leadCount) * 1000) / 10 : 0,
+    avgDealValue: row.closedDeals ? Math.round((row.actual / row.closedDeals) * 100) / 100 : 0
+  }))
+}
+
 function downloadBlob(buffer, type, fileName) {
   const blob = new Blob([buffer], { type })
   const url = URL.createObjectURL(blob)
@@ -405,7 +431,7 @@ export async function exportSalesManagementPdf(data) {
   autoTable(pdf, {
     startY: pdf.lastAutoTable.finalY + 8,
     head: [['Department', 'Leads', 'Conversion %', 'Average Deal', 'Approved Quote Value', 'Actual Revenue', 'Target']],
-    body: (data.departmentBreakdown || []).map((row) => [row.department, row.leadCount, `${row.conversionRate}%`, money(row.avgDealValue), money(row.approvedQuotationValue), money(row.actual), row.target ?? 'Not configured']),
+    body: pdfDepartmentBreakdown(data.departmentBreakdown).map((row) => [row.department, row.leadCount, `${row.conversionRate}%`, money(row.avgDealValue), money(row.approvedQuotationValue), money(row.actual), row.target ?? 'Not configured']),
     headStyles: { fillColor: [8, 122, 112] }
   })
   const recommendationY = Math.min(190, pdf.lastAutoTable.finalY + 10)

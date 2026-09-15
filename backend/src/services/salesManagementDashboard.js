@@ -576,6 +576,7 @@ function formatAggregation(result, period) {
   });
   const departmentBreakdown = (result?.departmentBreakdown || []).map((row) => ({
     teamId: text(row.teamId), department: row._id || 'No team assigned', leadCount: Number(row.leadCount) || 0,
+    convertedLeads: Number(row.convertedLeads) || 0, closedDeals: Number(row.closedDeals) || 0,
     conversionRate: rounded(row.conversionRate), avgDealValue: rounded(row.avgDealValue, 2),
     approvedQuotationValue: rounded(row.approvedQuotationValue, 2), target: null, actual: rounded(row.actual, 2), attainmentRate: null
   }));

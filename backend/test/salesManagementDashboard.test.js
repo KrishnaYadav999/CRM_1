@@ -68,7 +68,7 @@ test('dashboard formatting keeps approved quotation value separate from confirme
     summary: [{ totalLeads: 10, oldLeads: 6, newLeads: 4, convertedLeads: 2, closedDeals: 3, confirmedRevenue: 125000, approvedQuotationValue: 300000, approvedQuotations: 4, oldBusinessLeads: 1, oldBusinessPoValue: 25000, newBusinessLeads: 1, newBusinessQuotationValue: 110000, newBusinessPoValue: 100000 }],
     managerPerformance: [{ _id: 'owner-1', leadOwnerName: 'Lead Owner', reportingManagerId: 'manager-1', reportingManagerName: 'Manager', totalLeads: 10, oldLeads: 6, newLeads: 4, convertedToSale: 2, closedDeals: 3, confirmedRevenue: 125000, approvedQuotationValue: 300000, conversionRate: 20, oldBusinessLeads: 1, oldBusinessPoValue: 25000, newBusinessLeads: 1, newBusinessQuotationValue: 110000, newBusinessPoValue: 100000 }],
     monthlyTrend: [{ _id: '2026-09', totalLeads: 10, converted: 2, conversionRate: 20 }],
-    departmentBreakdown: []
+    departmentBreakdown: [{ _id: 'Team A', leadCount: 5, convertedLeads: 2, closedDeals: 2, actual: 125000, conversionRate: 40, avgDealValue: 62500 }]
   }, period);
   assert.equal(result.summary.confirmedRevenue, 125000);
   assert.equal(result.summary.oldLeads, 6);
@@ -84,4 +84,6 @@ test('dashboard formatting keeps approved quotation value separate from confirme
   assert.equal(result.managerPerformance[0].reportingManagerName, 'Manager');
   assert.equal(result.managerPerformance[0].oldLeads + result.managerPerformance[0].newLeads, result.managerPerformance[0].totalLeads);
   assert.equal(result.managerPerformance[0].status, 'warning');
+  assert.equal(result.departmentBreakdown[0].convertedLeads, 2);
+  assert.equal(result.departmentBreakdown[0].closedDeals, 2);
 });
