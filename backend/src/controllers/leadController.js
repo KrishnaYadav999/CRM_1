@@ -424,6 +424,52 @@ function findExistingAssignment(previousAssignments = [], row = {}, index = -1) 
   return isLegacyClosedRow ? indexedPrevious : null;
 }
 
+function primaryLeadOwnerIdentity(lead = {}) {
+  const ownerRef = lead.generatedForUser || lead.createdOnBehalfOfUser || lead.createdBy || '';
+  return {
+    id: String(ownerRef?._id || ownerRef || '').trim(),
+    name: String(ownerRef?.name || lead.generatedForName || lead.createdOnBehalfOfName || lead.createdByName || lead.createdBy?.name || lead.importedCreatedBy || '').trim(),
+    email: String(ownerRef?.email || lead.generatedForEmail || lead.createdOnBehalfOfEmail || lead.createdByEmail || lead.createdBy?.email || '').trim().toLowerCase()
+  };
+}
+
+function enforcePrimaryOwnerClosureCredit(previousLead = {}, data = {}, actor = {}) {
+  if (!Array.isArray(data.assignments)) return data;
+  const previousAssignments = Array.isArray(previousLead.assignments) ? previousLead.assignments : [];
+  const owner = primaryLeadOwnerIdentity(previousLead);
+  const actorId = String(actor?._id || actor?.id || '').trim();
+  const actorName = String(actor?.name || actor?.email || '').trim();
+  let closureStarted = false;
+  let directlyClosed = false;
+  data.assignments = data.assignments.map((row, index) => {
+    const previous = findExistingAssignment(previousAssignments, row, index) || previousAssignments[index] || {};
+    const newlyClosing = Boolean((row?.closureRequestedBy && !previous?.closureRequestedBy) || (row?.closedBy && !previous?.closedBy));
+    if (!newlyClosing) return row;
+    closureStarted = true;
+    directlyClosed = directlyClosed || Boolean(row?.closedBy);
+    return {
+      ...row,
+      ...(row?.closureRequestedBy && actorId ? { closureRequestedBy: actorId, closureRequestedByText: actorName } : {}),
+      ...(row?.closedBy && actorId ? { closedBy: actorId, closedByText: actorName, closedByEmail: String(actor?.email || '').trim().toLowerCase() } : {}),
+      ...(owner.id ? { closedOnBehalfOfUser: owner.id } : { closedOnBehalfOfUser: '' }),
+      closedOnBehalfOfName: owner.name,
+      closedOnBehalfOfEmail: owner.email
+    };
+  });
+  if (closureStarted) {
+    if (owner.id) data.closedOnBehalfOfUser = owner.id;
+    else delete data.closedOnBehalfOfUser;
+    data.closedOnBehalfOfName = owner.name;
+    data.closedOnBehalfOfEmail = owner.email;
+    if (directlyClosed && actorId) {
+      data.closedBy = actorId;
+      data.closedByText = actorName;
+      data.closedByEmail = String(actor?.email || '').trim().toLowerCase();
+    }
+  }
+  return data;
+}
+
 function validateClosureAssignments(data = {}, previousData = null) {
   const rows = Array.isArray(data.assignments) ? data.assignments : [];
   const previousAssignments = Array.isArray(previousData?.assignments) ? previousData.assignments : [];
@@ -1164,6 +1210,7 @@ exports.updateLead = async (req, res) => {
     const sendIntroductionEmail = req.body?.sendIntroductionEmail === true;
     const poDebugId = String(req.get('x-po-debug-id') || '').trim().slice(0, 100);
     let data = preserveExistingClosureEvidence(beforeLead, cleanBody(req.body));
+    data = enforcePrimaryOwnerClosureCredit(beforeLead, data, req.user);
     if (addServicesMode) data = buildAppendOnlyServicePatch(beforeLead, data, req.user);
     if (poDebugId) console.info('[POProof:lead:sanitized]', { poDebugId, leadId: String(lead._id), leadCode: lead.leadCode || '', collection: Lead.collection.collectionName, assignments: (data.assignments || []).map((row, assignmentIndex) => ({ assignmentIndex, poStatus: row.poStatus || '', rows: (row.poYearRows || []).map((po, rowIndex) => ({ rowIndex, poNumber: po.poNumber || '', poAmount: po.poAmount ?? null, hasPoFileUrl: Boolean(po.poFileUrl), poFileName: po.poFileName || '' })) })) });
     delete data.sendIntroductionEmail;

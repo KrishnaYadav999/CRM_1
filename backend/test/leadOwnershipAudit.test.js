@@ -11,11 +11,17 @@ test('lead allocation preserves creator and updates only stable lead owner', () 
 });
 
 test('create and close behalf identities are persisted and displayed separately', () => {
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
   const model = fs.readFileSync(path.resolve(__dirname, '../src/models/Lead.js'), 'utf8');
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
   assert.match(model, /createdOnBehalfOfUser/);
   assert.match(model, /closedOnBehalfOfUser/);
   assert.match(page, /Created For \/ Behalf Of/);
   assert.match(page, /Closed On Behalf Of/);
-  assert.match(page, /behalfMode: 'other'/);
+  assert.match(page, /function primaryLeadOwner/);
+  assert.match(page, /Primary Lead Owner/);
+  assert.match(page, /behalfMode: 'lead-owner'/);
+  assert.match(controller, /function enforcePrimaryOwnerClosureCredit/);
+  assert.match(controller, /data = enforcePrimaryOwnerClosureCredit\(beforeLead, data, req\.user\)/);
+  assert.match(controller, /closureRequestedBy: actorId/);
 });

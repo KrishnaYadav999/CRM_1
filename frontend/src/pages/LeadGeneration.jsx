@@ -296,6 +296,18 @@ function leadOwnerLabel(item = {}) {
   return String(item.importedCreatedBy || item.createdByName || item.createdBy?.name || item.createdBy?.email || item.assignedToText || item.assignedTo?.name || 'another user').trim();
 }
 
+function primaryLeadOwner(item = {}, users = [], currentUser = null) {
+  const ownerRef = item.generatedForUser || item.createdOnBehalfOfUser || item.createdBy || null;
+  const ownerId = String(ownerRef?._id || ownerRef?.id || ownerRef || '').trim();
+  const matchedUser = [...users, ...(currentUser ? [currentUser] : [])].find((user) => [user?._id, user?.id, user?.crmUserId, user?.userId]
+    .some((id) => ownerId && String(id || '') === ownerId));
+  return {
+    id: String(matchedUser?._id || matchedUser?.id || ownerId || currentUser?._id || currentUser?.id || '').trim(),
+    name: matchedUser?.name || ownerRef?.name || item.generatedForName || item.createdOnBehalfOfName || item.createdByName || item.createdBy?.name || currentUser?.name || currentUser?.email || 'Lead Owner',
+    email: matchedUser?.email || ownerRef?.email || item.generatedForEmail || item.createdOnBehalfOfEmail || item.createdByEmail || item.createdBy?.email || ''
+  };
+}
+
 function personLabel(value, fallback = '-') {
   if (value === null || value === undefined || value === '') return fallback;
   if (typeof value === 'object') {
@@ -1126,7 +1138,8 @@ export default function LeadGeneration() {
     const hydratedPoRows = fetchedPoRows.map((row, rowIndex) => ({ ...row, ...(savedPoRows[rowIndex] || {}) }));
     const poYearRows = [...hydratedPoRows, ...savedPoRows.slice(fetchedPoRows.length)];
     const actorId = String(currentUser?._id || currentUser?.id || '');
-    setClosureDialog({ index, value: actorId || value, behalfMode: String(value) === actorId ? 'self' : 'other', behalfUserId: String(value) === actorId ? actorId : value, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
+    const leadOwner = primaryLeadOwner(lead, staff, currentUser);
+    setClosureDialog({ index, value: actorId || value, behalfMode: 'lead-owner', behalfUserId: leadOwner.id, leadOwnerName: leadOwner.name, leadOwnerEmail: leadOwner.email, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
   }
 
   async function uploadClosureFile(event, type, rowIndex = 0) {
@@ -1195,9 +1208,9 @@ export default function LeadGeneration() {
 
   async function confirmLeadClosure() {
     if (!closureDialog?.choice) return showToast('Please select Yes or No.', 'warning');
-    if (!closureDialog?.behalfMode || (closureDialog.behalfMode === 'other' && !closureDialog.behalfUserId)) return showToast('Select who this lead is being closed on behalf of.', 'warning');
+    if (!closureDialog?.leadOwnerName) return showToast('The primary lead owner could not be identified. Refresh the lead and try again.', 'warning');
     const behalfUser = [...staff, ...(currentUser ? [currentUser] : [])].find((user) => [user?._id, user?.id, user?.crmUserId, user?.userId].some((id) => String(id || '') === String(closureDialog.behalfUserId || '')));
-    const behalfFields = { closedOnBehalfOfUser: behalfUser?._id || behalfUser?.id || closureDialog.behalfUserId, closedOnBehalfOfName: behalfUser?.name || behalfUser?.email || '', closedOnBehalfOfEmail: behalfUser?.email || '' };
+    const behalfFields = { closedOnBehalfOfUser: behalfUser?._id || behalfUser?.id || closureDialog.behalfUserId, closedOnBehalfOfName: behalfUser?.name || behalfUser?.email || closureDialog.leadOwnerName, closedOnBehalfOfEmail: behalfUser?.email || closureDialog.leadOwnerEmail || '' };
     let closurePatch;
     if (closureDialog.choice === 'yes') {
       if (!closureDialog.quotationSent) return showToast('Please select whether a quotation was sent.', 'warning');
@@ -2761,13 +2774,9 @@ export default function LeadGeneration() {
             <header className="flex flex-col gap-4 border-b bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Closure Verification</p><h2 className="mt-1 text-2xl font-black">Have you received the Purchase Order?</h2><p className="mt-1 text-sm font-bold text-slate-500">PO or Super Admin approval proof is required before closing this service.</p></div><div className="flex items-start gap-3">{closureDialog.quotationSent === 'yes' && String(closureDialog.quotation?.approvalDecision?.status || closureDialog.quotation?.status || '').toLowerCase() === 'approved' && (() => { const decision = closureDialog.quotation.approvalDecision || {}; const reviewer = decision.actionBy || {}; const role = String(reviewer.role || decision.reviewerRole || 'Admin').replace(/[_-]+/g, ' '); return <div className="min-w-[310px] rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-800">Quotation Approved</span><span className="text-xs font-black text-slate-500">{closureDialog.quotation.leadCode || closureDialog.quotation.businessLeadCode || lead.leadCode || '-'}</span></div><p className="mt-3 text-sm font-black text-slate-900">Approved by {reviewer.name || reviewer.email || role}</p><p className="mt-1 text-xs font-bold capitalize text-slate-500">{role}{decision.actionAt ? ` • ${new Date(decision.actionAt).toLocaleString('en-IN')}` : ''}</p>{decision.proofUrl ? <a href={decision.proofUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800"><Eye className="h-4 w-4" />View approval proof{decision.proofName ? ` • ${decision.proofName}` : ''}</a> : <p className="mt-3 text-xs font-bold text-slate-400">Direct approval — no proof uploaded.</p>}</div> })()}<button type="button" onClick={() => setClosureDialog(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border bg-white"><X className="h-5 w-5" /></button></div></header>
             <div className="flex-1 overflow-y-auto p-6 lg:px-10">
               <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
-                <h3 className="font-black text-indigo-950">Closed On Behalf Of</h3>
-                <p className="mt-1 text-sm font-bold text-indigo-700">You remain the actual Closed By user. Select whose lead credit this closure belongs to.</p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <button type="button" onClick={() => setClosureDialog((current) => ({ ...current, behalfMode: 'self', behalfUserId: String(currentUser?._id || currentUser?.id || '') }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.behalfMode === 'self' ? 'border-indigo-500 bg-white text-indigo-800' : 'border-white bg-white/70 text-slate-700'}`}>Yourself<span className="mt-1 block text-xs font-bold text-slate-500">Close under your own lead credit</span></button>
-                  <button type="button" onClick={() => setClosureDialog((current) => ({ ...current, behalfMode: 'other', behalfUserId: '' }))} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.behalfMode === 'other' ? 'border-indigo-500 bg-white text-indigo-800' : 'border-white bg-white/70 text-slate-700'}`}>Other User<span className="mt-1 block text-xs font-bold text-slate-500">Close on behalf of another CRM user</span></button>
-                </div>
-                {closureDialog.behalfMode === 'other' && <div className="mt-4"><SearchableSelect value={closureDialog.behalfUserId} options={generatedForOptions} onChange={(behalfUserId) => setClosureDialog((current) => ({ ...current, behalfUserId }))} placeholder="Search and select user" /></div>}
+                <h3 className="font-black text-indigo-950">Primary Lead Owner</h3>
+                <p className="mt-1 text-sm font-bold text-indigo-700">The closure credit remains with the main lead owner. You remain recorded separately as the actual Closed By user.</p>
+                <div className="mt-4 flex items-center gap-3 rounded-xl border-2 border-indigo-400 bg-white p-4 text-indigo-900"><span className="grid h-11 w-11 place-items-center rounded-full bg-indigo-100 font-black">{String(closureDialog.leadOwnerName || 'LO').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><span><strong className="block text-base font-black">{closureDialog.leadOwnerName}</strong>{closureDialog.leadOwnerEmail && <small className="mt-1 block font-bold text-slate-500">{closureDialog.leadOwnerEmail}</small>}</span></div>
               </section>
               {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes', poModeConfirmed: true, poMode: 'quotation' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter PO details against every quotation service.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
               {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 10-minute deadline to keep it closed.</p></div>}
