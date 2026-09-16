@@ -32,3 +32,27 @@ test('quotation decision emails clearly identify approved and rejected status', 
   assert.match(rejected.subject, /Rejected/);
   assert.match(rejected.html, /has been rejected/);
 });
+
+test('quotation rejection email has premium action UI and includes escaped admin notes', () => {
+  const rejected = quotationLifecycleEmailContent({
+    quotation: {
+      ...quotation,
+      grandTotal: 125000,
+      approvalDecision: {
+        remarks: 'Pricing is too high.\nPlease revise <service scope>.',
+        reviewerRole: 'Super Admin',
+        actionAt: '2026-09-16T09:30:00.000Z'
+      }
+    },
+    event: 'rejected',
+    actor
+  });
+  assert.match(rejected.subject, /AT\/26-27\/001 - Rejected/);
+  assert.match(rejected.html, /ACTION REQUIRED/);
+  assert.match(rejected.html, /Admin rejection notes/);
+  assert.match(rejected.html, /Pricing is too high\.<br>Please revise &lt;service scope&gt;\./);
+  assert.match(rejected.html, /₹1,25,000/);
+  assert.match(rejected.html, /KRISHNA Yadav · Super Admin/);
+  assert.match(rejected.html, /Open Quotation in CRM/);
+  assert.doesNotMatch(rejected.html, /<service scope>/);
+});
