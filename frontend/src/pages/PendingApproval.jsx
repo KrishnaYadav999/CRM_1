@@ -648,6 +648,7 @@ export default function PendingApproval() {
   const [activeTab, setActiveTab] = useState('clients');
   const [clientPage, setClientPage] = useState(1);
   const [quotePage, setQuotePage] = useState(1);
+  const [poPage, setPoPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -708,6 +709,7 @@ export default function PendingApproval() {
 
   const clientTotalPages = Math.max(1, Math.ceil(filteredClients.length / rowsPerPage));
   const quoteTotalPages = Math.max(1, Math.ceil(filteredQuotations.length / rowsPerPage));
+  const poTotalPages = Math.max(1, Math.ceil(filteredPoApprovals.length / rowsPerPage));
 
   const visibleClients = useMemo(() => (
     filteredClients.slice((clientPage - 1) * rowsPerPage, clientPage * rowsPerPage)
@@ -716,6 +718,10 @@ export default function PendingApproval() {
   const visibleQuotations = useMemo(() => (
     filteredQuotations.slice((quotePage - 1) * rowsPerPage, quotePage * rowsPerPage)
   ), [filteredQuotations, quotePage]);
+
+  const visiblePoApprovals = useMemo(() => (
+    filteredPoApprovals.slice((poPage - 1) * rowsPerPage, poPage * rowsPerPage)
+  ), [filteredPoApprovals, poPage]);
 
   const approvalTabs = useMemo(() => {
     const list = [];
@@ -762,7 +768,12 @@ export default function PendingApproval() {
   useEffect(() => {
     setClientPage(1);
     setQuotePage(1);
+    setPoPage(1);
   }, [searchTerm, typeFilter, statusFilter, piboFilter, userFilter]);
+
+  useEffect(() => {
+    if (poPage > poTotalPages) setPoPage(poTotalPages);
+  }, [poPage, poTotalPages]);
 
   function resetFilters() {
     setSearchTerm('');
@@ -894,6 +905,7 @@ export default function PendingApproval() {
       writePendingApprovalCache(snapshot);
       setClientPage(1);
       setQuotePage(1);
+      setPoPage(1);
     } catch (err) {
       if (isSoftApprovalLoadError(err)) {
         const fallback = cached || cachedApprovalData || {};
@@ -1392,8 +1404,8 @@ export default function PendingApproval() {
 
             {activeTab === 'po' ? (
               <>
-                <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={1} totalPages={1} showing={filteredPoApprovals.length} total={filteredPoApprovals.length} onPrev={() => {}} onNext={() => {}}>
-                {filteredPoApprovals.map((row) => {
+                <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={poPage} totalPages={poTotalPages} showing={visiblePoApprovals.length} total={filteredPoApprovals.length} onPrev={() => setPoPage((value) => Math.max(1, value - 1))} onNext={() => setPoPage((value) => Math.min(poTotalPages, value + 1))}>
+                {visiblePoApprovals.map((row) => {
                   const id = row._id || row.id;
                   // 🔴 FINAL FIX: NEVER trust row.normalizedPoRows attached by earlier hydrate runs.
                   // Those could be stale (buggy hydrate version saved broken hasPoFileUrl=false).
