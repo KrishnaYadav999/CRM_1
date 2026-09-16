@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Lead = require('../models/Lead');
 const TemporaryLead = require('../models/TemporaryLead');
 const Notification = require('../models/Notification');
+const ReminderDelivery = require('../models/ReminderDelivery');
 const PendingApproval = require('../models/PendingApproval');
 const Quotation = require('../models/Quotation');
 const User = require('../models/User');
@@ -15,6 +16,25 @@ const TEN_MINUTES = 10 * 60 * 1000;
 const ONE_WEEK = 7 * DAY;
 let started = false;
 let running = false;
+
+async function claimReminderDelivery(key, now = Date.now()) {
+  const leaseUntil = new Date(Number(now) + (15 * 60 * 1000));
+  try {
+    return await ReminderDelivery.create({ key, status: 'sending', leaseUntil });
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    return ReminderDelivery.findOneAndUpdate(
+      { key, status: 'sending', leaseUntil: { $lte: new Date(now) } },
+      { $set: { leaseUntil }, $inc: { attempts: 1 } },
+      { new: true }
+    );
+  }
+}
+
+async function completeReminderDelivery(key, sent) {
+  if (sent) return ReminderDelivery.updateOne({ key }, { $set: { status: 'sent', sentAt: new Date(), leaseUntil: new Date() } });
+  return ReminderDelivery.deleteOne({ key, status: 'sending' });
+}
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
@@ -199,8 +219,13 @@ async function remindFollowUps(leads, now) {
     if (!stage) continue;
     const key = `${leadId(lead)}:service-${serviceIndex}:${followUpDate}:${followUpTime || ''}:${stage}`;
     if (await Notification.exists({ kind: 'lead_followup_escalation', 'metadata.key': key })) continue;
+    const delivery = await claimReminderDelivery(`lead-followup:${key}`, now);
+    if (!delivery) continue;
     const recipients = await followUpRecipients(lead, [service]);
-    if (!recipients.length) continue;
+    if (!recipients.length) {
+      await completeReminderDelivery(`lead-followup:${key}`, false);
+      continue;
+    }
     const labels = {
       DUE_IN_30M: 'is due within 30 minutes', OVERDUE_30M: 'is overdue by at least 30 minutes',
       OVERDUE_60M: 'is overdue by at least 60 minutes', RED_FLAG_24H: 'is overdue by 24 hours and has been red-flagged',
@@ -226,15 +251,23 @@ async function remindFollowUps(leads, now) {
         priority,
         isRedFlag,
       });
-      await sendMail(primary.email, `${isPermanentRed ? 'PERMANENT RED FLAG' : isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false }).catch(() => null);
+      try {
+        await sendMail(primary.email, `${isPermanentRed ? 'PERMANENT RED FLAG' : isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${company}`, html, { branded: false });
+      } catch (error) {
+        await Notification.deleteOne({ _id: item._id }).catch(() => null);
+        await completeReminderDelivery(`lead-followup:${key}`, false);
+        console.error(`Lead follow-up email failed for ${company}; it will be retried.`, error.message);
+        continue;
+      }
     }
+    await completeReminderDelivery(`lead-followup:${key}`, true);
     if (isRedFlag) await updateCcpLead(leadId(lead), { followUpFlag: isPermanentRed ? 'PERMANENT_RED' : 'RED' }).catch(() => false);
     }
   }
 }
 
 function followUpEscalationStage(dueAt, now) {
-  const delta = Number(now) - Number(dueAt);
+  const delta = elapsedWithoutSundays(dueAt, now);
   if (delta >= 48 * HOUR) return 'PERMANENT_RED_48H';
   if (delta >= 24 * HOUR) return 'RED_FLAG_24H';
   if (delta >= HOUR) return 'OVERDUE_60M';
@@ -427,6 +460,23 @@ async function remindOldDraftsLegacy(leads, now) {
   await Promise.allSettled(recipients.filter((user) => user.email).map((user) => sendMail(user.email, `30-day Unclosed Leads (${rows.length})`, html, { branded: false })));
 }
 
+function elapsedWithoutSundays(startAt, endAt) {
+  const start = Number(startAt);
+  const end = Number(endAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return end - start;
+  const indiaOffset = 5.5 * HOUR;
+  let cursor = start;
+  let elapsed = 0;
+  while (cursor < end) {
+    const indiaTime = new Date(cursor + indiaOffset);
+    const nextIndiaMidnight = Date.UTC(indiaTime.getUTCFullYear(), indiaTime.getUTCMonth(), indiaTime.getUTCDate() + 1) - indiaOffset;
+    const segmentEnd = Math.min(end, nextIndiaMidnight);
+    if (indiaTime.getUTCDay() !== 0) elapsed += segmentEnd - cursor;
+    cursor = segmentEnd;
+  }
+  return elapsed;
+}
+
 async function temporaryLeadOwner(row) {
   const options = [];
   const id = String(row.createdBy || '').trim();
@@ -450,8 +500,13 @@ async function remindTemporaryLeadFollowUps(now) {
     if (!stage) continue;
     const key = `${row.tempLeadCode}:${row.nextFollowUpDate}:${row.nextFollowUpTime || ''}:${stage}`;
     if (await Notification.exists({ kind: 'temporary_lead_followup_escalation', 'metadata.key': key })) continue;
+    const delivery = await claimReminderDelivery(`temporary-followup:${key}`, now);
+    if (!delivery) continue;
     const owner = await temporaryLeadOwner(row);
-    if (!owner) continue;
+    if (!owner) {
+      await completeReminderDelivery(`temporary-followup:${key}`, false);
+      continue;
+    }
     const labels = {
       DUE_IN_30M: 'is due within 30 minutes', OVERDUE_30M: 'is overdue by at least 30 minutes',
       OVERDUE_60M: 'is overdue by at least 60 minutes', RED_FLAG_24H: 'is overdue by 24 hours and has been red-flagged',
@@ -476,10 +531,12 @@ async function remindTemporaryLeadFollowUps(now) {
         await sendMail(owner.email, `${isPermanentRed ? 'PERMANENT RED FLAG' : isRedFlag ? 'RED FLAG' : 'Follow-Up Reminder'} - ${row.clientName} (${row.tempLeadCode})`, html, { branded: false });
       } catch (error) {
         await Notification.deleteOne({ _id: item._id }).catch(() => null);
+        await completeReminderDelivery(`temporary-followup:${key}`, false);
         console.error(`Temporary lead follow-up email failed for ${row.tempLeadCode}; it will be retried.`, error.message);
         continue;
       }
     }
+    await completeReminderDelivery(`temporary-followup:${key}`, true);
     if (isRedFlag) await TemporaryLead.updateOne({ _id: row._id }, { $set: { followUpFlag: isPermanentRed ? 'PERMANENT_RED' : 'RED' } });
   }
   return rows.length;
@@ -557,5 +614,5 @@ function startLeadWorkflowReminderScheduler() {
 module.exports = {
   runLeadWorkflowReminders,
   startLeadWorkflowReminderScheduler,
-  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr, followUpEscalationStage, indiaMonthKeyOnFirst, indiaMonthEndKey, buildMonthEndSummaryEmail, remindTemporaryLeadFollowUps }
+  __test: { getCcpLeads, parseServiceDate, formatServiceDate, formatInr, followUpEscalationStage, elapsedWithoutSundays, indiaMonthKeyOnFirst, indiaMonthEndKey, buildMonthEndSummaryEmail, remindTemporaryLeadFollowUps }
 };

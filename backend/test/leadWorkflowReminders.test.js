@@ -32,6 +32,26 @@ test('month-end lead email contains separate open and closed counts', () => {
   assert.doesNotMatch(source, /return \[\];\s*\n\s*}\s*\n}\s*\n\s*async function admins/);
 });
 
+test('follow-up escalation pauses its SLA clock for every Sunday in India', () => {
+  const due = Date.parse('2026-09-12T04:30:00.000Z'); // Saturday 10:00 IST
+  const mondayMorning = Date.parse('2026-09-14T04:29:59.000Z');
+  const mondayTen = Date.parse('2026-09-14T04:30:00.000Z');
+  assert.equal(__test.elapsedWithoutSundays(due, mondayTen), 24 * 60 * 60 * 1000);
+  assert.equal(__test.followUpEscalationStage(due, mondayMorning), 'OVERDUE_60M');
+  assert.equal(__test.followUpEscalationStage(due, mondayTen), 'RED_FLAG_24H');
+});
+
+test('follow-up email delivery uses an atomic unique claim before sending', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/services/leadWorkflowReminders.js'), 'utf8');
+  const model = fs.readFileSync(path.resolve(__dirname, '../src/models/ReminderDelivery.js'), 'utf8');
+  assert.match(model, /unique:\s*true/);
+  assert.match(source, /claimReminderDelivery\(`lead-followup:\$\{key\}`/);
+  assert.match(source, /claimReminderDelivery\(`temporary-followup:\$\{key\}`/);
+  assert.match(source, /error\?\.code !== 11000/);
+});
+
 test('month-end closed count matches the page when any service is closed', () => {
   const fs = require('node:fs');
   const path = require('node:path');

@@ -40,6 +40,20 @@ test('monthly carry-forward treats the migration batch as opening backlog and la
   });
 });
 
+test('weekly carry-forward uses Monday buckets and carries pending leads into the next week', () => {
+  const period = parseDateRange('2026-09-07', '2026-09-20');
+  const rows = [
+    { createdAt: new Date('2026-09-05T08:00:00.000Z'), closureDate: new Date('2026-09-09T08:00:00.000Z') },
+    { createdAt: new Date('2026-09-08T08:00:00.000Z'), closureDate: null },
+    { createdAt: new Date('2026-09-15T08:00:00.000Z'), closureDate: null }
+  ];
+  const result = formatMonthlyCarryForward(rows, period, 'weekly');
+  assert.deepEqual(result, [
+    { month: '2026-09-07', openingPending: 1, newLeads: 1, totalAvailable: 2, closedFromOpening: 1, closedFromNew: 0, closedThisMonth: 1, closingPending: 1 },
+    { month: '2026-09-14', openingPending: 1, newLeads: 1, totalAvailable: 2, closedFromOpening: 0, closedFromNew: 0, closedThisMonth: 0, closingPending: 2 }
+  ]);
+});
+
 test('sales aggregation joins users and quotations and facets management metrics', () => {
   const period = parseDateRange('2026-04-01', '2026-09-30');
   const pipeline = buildSalesManagementAggregation(period);

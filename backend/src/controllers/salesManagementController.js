@@ -7,6 +7,7 @@ exports.managementDashboard = async (req, res) => {
       dateTo: req.query.dateTo,
       department: req.query.department,
       managerId: req.query.managerId,
+      interval: req.query.interval || 'monthly',
       includeLeadDetails: String(req.query.includeLeadDetails || '').toLowerCase() === 'true',
       requester: req.user
     });

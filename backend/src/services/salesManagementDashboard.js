@@ -108,7 +108,7 @@ function rowAmountTotal(rowsField, amountField) {
  * cohort root; quotations and users are joined so all funnel metrics use one
  * stable owner and cannot double-count quotation value as PO revenue.
  */
-function buildSalesManagementAggregation({ start, end, department, managerId, ownerIds = [], now = new Date() }) {
+function buildSalesManagementAggregation({ start, end, department, managerId, ownerIds = [], interval = 'monthly', now = new Date() }) {
   const initialMatch = {
     ...dateMatch(start, end),
     recordStatus: { $ne: 'DELETED' }
@@ -137,6 +137,9 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
   if (requestedManagerId) postOwnerMatch.dashboardOwnerId = requestedManagerId;
   const stalledBefore = new Date(now.getTime() - (30 * DAY_MS));
 
+  const periodExpression = interval === 'weekly'
+    ? { $dateToString: { format: '%Y-%m-%d', date: { $dateTrunc: { date: '$createdAt', unit: 'week', startOfWeek: 'Monday', timezone: 'Asia/Kolkata' } }, timezone: 'Asia/Kolkata' } }
+    : { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: 'Asia/Kolkata' } };
   const pipeline = [
     { $match: initialMatch },
     { $set: { dashboardOwnerId: { $ifNull: ['$generatedForUser', '$createdBy'] } } },
@@ -350,7 +353,7 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
             $group: {
               _id: {
                 managerId: '$dashboardOwnerId',
-                month: { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: 'Asia/Kolkata' } }
+                month: periodExpression
               },
               totalLeads: { $sum: 1 },
               convertedLeads: { $sum: { $cond: [{ $gt: ['$convertedServiceCount', 0] }, 1, 0] } },
@@ -363,7 +366,7 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
         monthlyTrend: [
           {
             $group: {
-              _id: { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: 'Asia/Kolkata' } },
+              _id: periodExpression,
               totalLeads: { $sum: 1 },
               open: { $sum: { $cond: [{ $eq: ['$pipelineStage', 'open'] }, 1, 0] } },
               quotationOpen: { $sum: { $cond: [{ $eq: ['$pipelineStage', 'quotationOpen'] }, 1, 0] } },
@@ -487,23 +490,42 @@ function monthKeys(start, end) {
   return keys;
 }
 
+function weekKeys(start, end) {
+  const keys = [];
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+  const day = cursor.getUTCDay();
+  cursor.setUTCDate(cursor.getUTCDate() - (day === 0 ? 6 : day - 1));
+  while (cursor <= end && keys.length < 160) {
+    keys.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+  }
+  return keys;
+}
+
+function periodKeys(start, end, interval = 'monthly') {
+  return interval === 'weekly' ? weekKeys(start, end) : monthKeys(start, end);
+}
+
 function percentChange(current, previous) {
   if (!previous) return current ? 100 : 0;
   return ((current - previous) / previous) * 100;
 }
 
-function formatMonthlyCarryForward(rows, period) {
-  return monthKeys(period.start, period.end).map((month) => {
-    const monthStart = new Date(`${month}-01T00:00:00.000Z`);
-    const nextMonth = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
-    const monthEnd = new Date(Math.min(nextMonth.getTime() - 1, period.end.getTime()));
+function formatMonthlyCarryForward(rows, period, interval = 'monthly') {
+  return periodKeys(period.start, period.end, interval).map((month) => {
+    const bucketStart = new Date(`${month}${interval === 'monthly' ? '-01' : ''}T00:00:00.000Z`);
+    const nextBucket = interval === 'weekly'
+      ? new Date(bucketStart.getTime() + (7 * DAY_MS))
+      : new Date(Date.UTC(bucketStart.getUTCFullYear(), bucketStart.getUTCMonth() + 1, 1));
+    const rangeStart = new Date(Math.max(bucketStart.getTime(), period.start.getTime()));
+    const bucketEnd = new Date(Math.min(nextBucket.getTime() - 1, period.end.getTime()));
     const normalized = rows.map((row) => ({ createdAt: new Date(row.createdAt), closureDate: row.closureDate ? new Date(row.closureDate) : null, legacyBacklog: row.legacyBacklog === true }));
-    const oldAtMonthStart = (row) => row.legacyBacklog ? monthStart >= LEGACY_BACKLOG_START : row.createdAt < monthStart;
-    const availableInMonth = (row) => !row.legacyBacklog || monthStart >= LEGACY_BACKLOG_START;
-    const openingPending = normalized.filter((row) => availableInMonth(row) && oldAtMonthStart(row) && (!row.closureDate || row.closureDate >= monthStart)).length;
-    const newLeads = normalized.filter((row) => !row.legacyBacklog && row.createdAt >= monthStart && row.createdAt <= monthEnd).length;
-    const closedFromOpening = normalized.filter((row) => availableInMonth(row) && oldAtMonthStart(row) && row.closureDate && row.closureDate >= monthStart && row.closureDate <= monthEnd).length;
-    const closedFromNew = normalized.filter((row) => !row.legacyBacklog && row.createdAt >= monthStart && row.createdAt <= monthEnd && row.closureDate && row.closureDate <= monthEnd).length;
+    const oldAtBucketStart = (row) => row.legacyBacklog ? rangeStart >= LEGACY_BACKLOG_START : row.createdAt < rangeStart;
+    const availableInBucket = (row) => !row.legacyBacklog || rangeStart >= LEGACY_BACKLOG_START;
+    const openingPending = normalized.filter((row) => availableInBucket(row) && oldAtBucketStart(row) && (!row.closureDate || row.closureDate >= rangeStart)).length;
+    const newLeads = normalized.filter((row) => !row.legacyBacklog && row.createdAt >= rangeStart && row.createdAt <= bucketEnd).length;
+    const closedFromOpening = normalized.filter((row) => availableInBucket(row) && oldAtBucketStart(row) && row.closureDate && row.closureDate >= rangeStart && row.closureDate <= bucketEnd).length;
+    const closedFromNew = normalized.filter((row) => !row.legacyBacklog && row.createdAt >= rangeStart && row.createdAt <= bucketEnd && row.closureDate && row.closureDate <= bucketEnd).length;
     const closedThisMonth = closedFromOpening + closedFromNew;
     return {
       month, openingPending, newLeads, totalAvailable: openingPending + newLeads,
@@ -518,7 +540,7 @@ function rounded(value, decimals = 1) {
   return Math.round((Number(value) || 0) * factor) / factor;
 }
 
-function formatAggregation(result, period) {
+function formatAggregation(result, period, interval = 'monthly') {
   const rawSummary = result?.summary?.[0] || {};
   const totalLeads = Number(rawSummary.totalLeads) || 0;
   const convertedLeads = Number(rawSummary.convertedLeads) || 0;
@@ -565,7 +587,7 @@ function formatAggregation(result, period) {
     };
   });
   const trendMap = new Map((result?.monthlyTrend || []).map((row) => [row._id, row]));
-  const monthlyTrend = monthKeys(period.start, period.end).map((month) => {
+  const monthlyTrend = periodKeys(period.start, period.end, interval).map((month) => {
     const row = trendMap.get(month) || {};
     return {
       month, open: Number(row.open) || 0, quotationOpen: Number(row.quotationOpen) || 0,
@@ -602,21 +624,22 @@ async function visibleOwnerIds(requester) {
   return [requesterId];
 }
 
-async function getSalesManagementDashboard({ dateFrom, dateTo, department, managerId, requester, includeLeadDetails = false }) {
+async function getSalesManagementDashboard({ dateFrom, dateTo, department, managerId, interval = 'monthly', requester, includeLeadDetails = false }) {
   const period = parseDateRange(dateFrom, dateTo);
+  if (!['weekly', 'monthly'].includes(interval)) throw Object.assign(new Error('interval must be weekly or monthly.'), { statusCode: 400 });
   if (text(managerId) && !objectId(managerId)) throw Object.assign(new Error('managerId must be a valid identifier.'), { statusCode: 400 });
   const ownerIds = await visibleOwnerIds(requester);
   const duration = period.end.getTime() - period.start.getTime() + 1;
   const previousEnd = new Date(period.start.getTime() - 1);
   const previousStart = new Date(previousEnd.getTime() - duration + 1);
   const [currentRows, previousRows, departments, carryForwardRows] = await Promise.all([
-    Lead.aggregate(buildSalesManagementAggregation({ ...period, department, managerId, ownerIds })).option({ maxTimeMS: 30000 }),
-    Lead.aggregate(buildSalesManagementAggregation({ start: previousStart, end: previousEnd, department, managerId, ownerIds })).option({ maxTimeMS: 30000 }),
+    Lead.aggregate(buildSalesManagementAggregation({ ...period, department, managerId, ownerIds, interval })).option({ maxTimeMS: 30000 }),
+    Lead.aggregate(buildSalesManagementAggregation({ start: previousStart, end: previousEnd, department, managerId, ownerIds, interval })).option({ maxTimeMS: 30000 }),
     User.distinct('team', { ...(ownerIds.length ? { _id: { $in: ownerIds } } : {}), isActive: { $ne: false } }),
     Lead.aggregate(buildMonthlyCarryForwardAggregation({ ...period, department, ownerIds })).option({ maxTimeMS: 30000 })
   ]);
-  const current = formatAggregation(currentRows[0] || {}, period);
-  const previous = formatAggregation(previousRows[0] || {}, { start: previousStart, end: previousEnd });
+  const current = formatAggregation(currentRows[0] || {}, period, interval);
+  const previous = formatAggregation(previousRows[0] || {}, { start: previousStart, end: previousEnd }, interval);
   current.summary.previousPeriod = {
     totalLeadsChangePct: rounded(percentChange(current.summary.totalLeads, previous.summary.totalLeads)),
     conversionRateChange: rounded(current.summary.conversionRate - previous.summary.conversionRate),
@@ -633,12 +656,12 @@ async function getSalesManagementDashboard({ dateFrom, dateTo, department, manag
     summary: current.summary,
     managerPerformance: current.managerPerformance,
     monthlyTrend: current.monthlyTrend,
-    monthlyCarryForward: formatMonthlyCarryForward(carryForwardRows, period),
+    monthlyCarryForward: formatMonthlyCarryForward(carryForwardRows, period, interval),
     departmentBreakdown: current.departmentBreakdown,
     riskIndicators: { stalledQuotations: current.stalledQuotations, lowConversionManagers, overdueFollowUps: current.overdueFollowUps },
     insights: { topManagers, recommendations },
     meta: {
-      dateFrom: period.from, dateTo: period.to, currency: 'INR', timezone: 'Asia/Kolkata', refreshAfterSeconds: 300,
+      dateFrom: period.from, dateTo: period.to, interval, currency: 'INR', timezone: 'Asia/Kolkata', refreshAfterSeconds: 300,
       departments: departments.filter(Boolean).sort(),
       definitions: {
         conversion: 'A distinct lead with at least one admin-approved PO service.',

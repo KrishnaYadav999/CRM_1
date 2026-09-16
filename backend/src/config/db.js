@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Quotation = require('../models/Quotation');
 const QuotationPiboCategory = require('../models/QuotationPiboCategory');
+const ReminderDelivery = require('../models/ReminderDelivery');
 
 mongoose.set('bufferCommands', false);
 
@@ -70,6 +71,7 @@ const connectDB = async () => {
     });
     await ensureQuotationIndexes();
     await ensurePiboCategoryIndexes();
+    await ReminderDelivery.createIndexes();
     console.log('MongoDB connected');
   } catch (err) {
     console.error('MongoDB connection error', err);
