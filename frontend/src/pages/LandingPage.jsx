@@ -155,6 +155,8 @@ function ClientScroller() {
 
 function DashboardPreview() {
   const stage = useRef(null)
+  const video = useRef(null)
+  const [showVideo, setShowVideo] = useState(false)
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
       const scale = Math.min(1, entry.contentRect.width / 690)
@@ -163,6 +165,30 @@ function DashboardPreview() {
     })
     observer.observe(stage.current)
     return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    let hideTimer
+    let resetTimer
+    const showTimer = window.setTimeout(() => {
+      if (!video.current) return
+      video.current.currentTime = 0
+      setShowVideo(true)
+      video.current.play().catch(() => setShowVideo(false))
+      hideTimer = window.setTimeout(() => {
+        setShowVideo(false)
+        resetTimer = window.setTimeout(() => {
+          if (!video.current) return
+          video.current.pause()
+          video.current.currentTime = 0
+        }, 700)
+      }, 14000)
+    }, 5000)
+    return () => {
+      window.clearTimeout(showTimer)
+      window.clearTimeout(hideTimer)
+      window.clearTimeout(resetTimer)
+      video.current?.pause()
+    }
   }, [])
   return <div ref={stage} className="lp-preview-stage" aria-label="Anant Tattva Business CRM dashboard preview">
     <div className="lp-preview-blob blob-one" /><div className="lp-preview-blob blob-two" />
@@ -188,6 +214,16 @@ function DashboardPreview() {
           </div>
         </section>
       </div>
+      <video
+        ref={video}
+        className={`lp-dashboard-video ${showVideo ? 'is-visible' : ''}`}
+        src="/video/MicrosoftTeams-video.mp4"
+        aria-label="Anant Tattva CRM product demonstration"
+        preload="auto"
+        muted
+        playsInline
+        loop
+      />
     </div>
   </div>
 }

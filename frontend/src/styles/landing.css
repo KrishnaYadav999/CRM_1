@@ -12,6 +12,7 @@
 @media(prefers-reduced-motion:no-preference){.lp-hero-copy>*{animation:lp-rise .65s both}.lp-hero-copy h1{animation-delay:.08s}.lp-hero-copy p{animation-delay:.16s}.lp-hero-actions{animation-delay:.24s}.lp-proof{animation-delay:.3s}.lp-dashboard{animation:lp-dashboard-in .75s .15s cubic-bezier(.2,.8,.2,1) both}.lp-chart-line{stroke-dasharray:1;stroke-dashoffset:1;animation:lp-draw 5s ease-in-out infinite}.lp-chart-fill{animation:lp-chart-area 5s ease-in-out infinite}.lp-service-card{transition:transform .25s,box-shadow .25s}.lp-service-card:hover{transform:translateY(-4px);box-shadow:0 16px 30px rgba(19,61,86,.1)}}
 @keyframes lp-rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}@keyframes lp-dashboard-in{from{opacity:0;transform:translate(30px,15px)}to{opacity:1;transform:none}}@keyframes lp-draw{0%,10%{stroke-dashoffset:1}65%,100%{stroke-dashoffset:0}}@keyframes lp-chart-area{0%,10%{opacity:0}65%,100%{opacity:1}}
 .lp-client{overflow:hidden}.lp-client img{display:block;width:100%;height:100%;object-fit:contain}.lp-footer{position:relative;z-index:2}
+.lp-dashboard-video{position:absolute;z-index:5;inset:0;width:100%;height:100%;border-radius:inherit;background:#fff;object-fit:cover;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .7s ease,visibility 0s linear .7s}.lp-dashboard-video.is-visible{opacity:1;visibility:visible;transition:opacity .7s ease,visibility 0s}
 
 /* Company artwork and full-width client scroller. */
 .lp-wordmark{width:150px;height:46px;flex-shrink:0;line-height:1}
