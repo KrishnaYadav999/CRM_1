@@ -2568,8 +2568,11 @@ exports.upsertClientServiceAllocations = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ ok: false, error: 'Invalid client id' });
-    const client = await Client.findById(id).populate('selectedLead').lean(false);
-    if (!client) return res.status(404).json({ ok: false, error: 'Client not found' });
+    const client = await Client.findOne(combineAccessFilters(
+      { _id: id },
+      await clientAccessFilter(req.user)
+    )).populate('selectedLead').lean(false);
+    if (!client) return res.status(404).json({ ok: false, error: 'Client not found or not accessible' });
     const clientServices = extractServicesFromClientServer(client);
     const rawAllocations = req.body?.allocations || req.body?.serviceAllocations || req.body;
     if (!rawAllocations || typeof rawAllocations !== 'object') {
@@ -2735,15 +2738,6 @@ exports.upsertClientServiceAllocations = async (req, res) => {
         updatedBy: String(req.user?.name || '')
       }
     };
-    const allocationOwnerIds = [...new Set(Object.values(normalized).map(userIdFromAllocEntry).filter(Boolean))];
-    if (allocationOwnerIds.length === 1 && mongoose.Types.ObjectId.isValid(allocationOwnerIds[0])) {
-      const allocationOwner = foundMap.get(allocationOwnerIds[0]);
-      updatePayload.$set['adminControls.assignedTo'] = new mongoose.Types.ObjectId(allocationOwnerIds[0]);
-      if (allocationOwner?.name) {
-        updatePayload.$set['data.importMeta.assignedTo'] = allocationOwner.name;
-        updatePayload.$set['data.importMeta.assignedToName'] = allocationOwner.name;
-      }
-    }
     const atomicResult = await Client.findByIdAndUpdate(client._id, updatePayload, { new: true, runValidators: false, lean: true }).exec();
     console.debug('[alloc:upsert:atomic] findByIdAndUpdate OK, stored serviceAllocations keys:', Object.keys(atomicResult?.serviceAllocations || {}));
 

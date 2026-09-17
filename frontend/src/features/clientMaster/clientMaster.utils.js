@@ -524,19 +524,6 @@ function resolvePersonName(value, people = []) {
 }
 
 function getAssignedName(item, people = []) {
-  const serviceAllocations = item?.serviceAllocations && typeof item.serviceAllocations === 'object'
-    ? Object.values(item.serviceAllocations)
-    : [];
-  const serviceAssigneeNames = [...new Set(serviceAllocations.map((entry) => {
-    if (!entry) return '';
-    const assignee = typeof entry === 'object'
-      ? (entry.userId || entry.userIdString || entry.user || entry.assignedTo || entry.assigneeId || entry.assignedUserId || entry._id || entry.id)
-      : entry;
-    return resolvePersonName(assignee, people)
-      || (typeof entry === 'object' ? String(entry.userName || entry.assignedUserName || entry.assigneeName || entry.assignedByName || '').trim() : '');
-  }).filter(Boolean))];
-  if (serviceAssigneeNames.length) return serviceAssigneeNames.join(', ');
-
   const assigned = item?.adminControls?.assignedTo;
   const data = readClientData(item);
   const selectedLeadAssigned = item?.selectedLead?.assignedTo;
@@ -559,6 +546,9 @@ function getAssignedName(item, people = []) {
 }
 
 function getAssignedStaffNames(item, people = []) {
+  const serviceAllocations = item?.serviceAllocations && typeof item.serviceAllocations === 'object'
+    ? Object.values(item.serviceAllocations)
+    : [];
   const assignments = [
     ...(Array.isArray(item?.assignments) ? item.assignments : []),
     ...(Array.isArray(item?.selectedLead?.assignments) ? item.selectedLead.assignments : [])
@@ -570,7 +560,15 @@ function getAssignedStaffNames(item, people = []) {
     item?.selectedLead?.assignedStaff,
     item?.selectedLead?.assignedStaffText,
     item?.selectedLead?.assignedStaffEmail,
-    ...assignments.flatMap((row) => [row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail])
+    ...assignments.flatMap((row) => [row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail]),
+    ...serviceAllocations.map((entry) => {
+      if (!entry) return '';
+      const assignee = typeof entry === 'object'
+        ? (entry.userId || entry.userIdString || entry.user || entry.assignedTo || entry.assigneeId || entry.assignedUserId || entry._id || entry.id)
+        : entry;
+      return resolvePersonName(assignee, people)
+        || (typeof entry === 'object' ? String(entry.userName || entry.assignedUserName || entry.assigneeName || entry.assignedByName || '').trim() : '');
+    })
   ];
   return [...new Set(candidates.map((value) => resolvePersonName(value, people)).filter(Boolean))];
 }

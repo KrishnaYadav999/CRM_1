@@ -1305,7 +1305,13 @@ function rememberClientDraft(savedClient = {}, fallbackClient = {}) {
 }
 
 export default function ClientMaster() {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || 'null');
+    } catch {
+      return null;
+    }
+  });
   const [profileOpen, setProfileOpen] = useState(false);
   const [leads, setLeads] = useState([]);
   const [clients, setClients] = useState([]);
@@ -2875,6 +2881,7 @@ export default function ClientMaster() {
             onEdit={openClientEdit}
             canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
             onCreate={openClientForm}
+            onOpenAllocation={() => navigate('/sales/client-master-allocate')}
             selectOptions={selectOptions}
           />
         )}
@@ -3321,6 +3328,80 @@ function BasicTab({ client, setValue }) {
   );
 }
 
+const clientDocumentKeyPattern = /(file|document|image|screenshot|proof|diagram|attachment|certificate)/i;
+
+function clientDocumentUrl(value) {
+  if (!value || typeof value !== 'object') return '';
+  return String(value.secureUrl || value.url || value.dataUrl || value.fileUrl || value.path || '').trim();
+}
+
+function looksLikeClientDocument(value) {
+  const text = String(value || '').trim();
+  return /^(https?:|data:|blob:)/i.test(text)
+    || /\.(pdf|png|jpe?g|webp|gif|docx?|xlsx?|csv|msg|eml)(?:[?#].*)?$/i.test(text)
+    || (/[/\\]/.test(text) && !/\s/.test(text));
+}
+
+function clientDocumentLabel(path = [], preferredName = '') {
+  if (String(preferredName || '').trim()) return String(preferredName).trim();
+  const ignored = new Set(['file', 'files', 'url', 'secureUrl', 'dataUrl', 'fileUrl', 'path']);
+  const key = [...path].reverse().find((part) => !/^\d+$/.test(String(part)) && !ignored.has(String(part))) || 'Document';
+  return String(key)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function clientDocumentCategory(path = []) {
+  const root = String(path[0] || '').toLowerCase();
+  if (root === 'companyoverview') return 'Company Overview';
+  if (root === 'compliance') return 'Compliance';
+  if (root === 'msmerows') return 'MSME';
+  if (root === 'cte') return 'CTE / CTO / CCA';
+  if (root === 'cpcb' || root === 'cpcbscreenshots') return 'CPCB';
+  if (root === 'processdiagrams') return 'Process Diagrams';
+  if (root.includes('authoris') || root.includes('coordinat') || root.includes('contact')) return 'Contact Documents';
+  if (root === 'annualreturn' || root === 'financials') return 'Annual Return';
+  if (root === 'validation') return 'Imported Documents';
+  return 'Other Documents';
+}
+
+function collectClientDocuments(data = {}) {
+  const documents = [];
+  const seenUrls = new Set();
+  const add = (url, path, name = '') => {
+    const normalizedUrl = String(url || '').trim();
+    if (!normalizedUrl || seenUrls.has(normalizedUrl)) return;
+    seenUrls.add(normalizedUrl);
+    documents.push({ url: normalizedUrl, name: clientDocumentLabel(path, name), category: clientDocumentCategory(path), path: path.join('.') });
+  };
+  const visit = (value, path = [], documentContext = false, preferredName = '') => {
+    if (value === null || value === undefined) return;
+    if (typeof value === 'string') {
+      if (documentContext && looksLikeClientDocument(value)) add(value, path, preferredName);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, [...path, index], documentContext, item?.name || preferredName));
+      return;
+    }
+    if (typeof value !== 'object') return;
+    const directUrl = clientDocumentUrl(value);
+    if (directUrl && (documentContext || value.publicId || value.resourceType || value.format)) add(directUrl, path, value.name || value.fileName || preferredName);
+    Object.entries(value).forEach(([key, child]) => {
+      if (directUrl && ['secureUrl', 'url', 'dataUrl', 'fileUrl', 'path'].includes(key)) return;
+      visit(child, [...path, key], documentContext || clientDocumentKeyPattern.test(key), value.name || preferredName);
+    });
+  };
+  visit(data);
+  return documents;
+}
+
+function openableClientDocumentUrl(url) {
+  const value = String(url || '').trim();
+  return /^(https?:|data:|blob:)/i.test(value) ? value : normalizeDocumentUrl(value);
+}
+
 function ClientViewModal({ client, serviceClients = [], onServiceChange, quotations = [], proformaInvoices = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
@@ -3337,6 +3418,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ? rawDocumentUrls.map((item) => (typeof item === 'string' ? item : item?.url || item?.fileUrl || item?.path || '')).map((item) => item.trim()).filter(Boolean)
     : String(rawDocumentUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
   const docLinks = mapClientDocuments(documentUrls);
+  const clientDocuments = useMemo(() => collectClientDocuments(data), [client]);
   const companyWideProfileRows = [
     ['ATPL Lead ID', data.importMeta?.leadNumber || data.importMeta?.uniqueId || getClientUniqueId(client), FileText],
     ['Company Overview Name', data.companyOverview?.companyName, Building2],
@@ -3538,6 +3620,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
   ];
   const detailTabs = [
     { id: 'basic', label: 'Basic Info', icon: Building2 },
+    { id: 'documents', label: `Documents (${clientDocuments.length})`, icon: FileCheck2, title: 'Uploaded Documents' },
     { id: 'company', label: 'Company History', icon: Building2, title: 'Company History', message: 'No company history entries yet.' },
     { id: 'quotation', label: 'Quotation History', icon: FileText, title: 'Quotation History', message: 'No quotations mapped yet.' },
     { id: 'annual', label: 'Annual Return History', icon: RefreshCw, title: 'Annual Return History', message: 'No annual return timeline yet.' },
@@ -3734,7 +3817,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
 
           <div className={isAnnualStandaloneView ? 'space-y-0' : 'mt-5 space-y-5'}>
             {!isAnnualStandaloneView && <section className="client-detail-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
-              <div className="client-detail-tab-strip grid sm:grid-cols-5">
+              <div className="client-detail-tab-strip grid sm:grid-cols-6">
                 {detailTabs.map((tab) => {
                   const Icon = tab.icon;
                   const active = activeClientTab === tab.id;
@@ -3908,6 +3991,8 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                     </DetailAccordion>
                   )}
 
+                  {activeClientTab === 'documents' && <ClientDocumentLibrary documents={clientDocuments} />}
+
                   {activeClientTab === 'annual' && (
                     <AnnualReturnHistory
                       client={client}
@@ -3930,7 +4015,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                     />
                   )}
 
-                  {activeClientTab !== 'basic' && activeClientTab !== 'company' && activeClientTab !== 'annual' && activeClientTab !== 'quotation' && (
+                  {activeClientTab !== 'basic' && activeClientTab !== 'documents' && activeClientTab !== 'company' && activeClientTab !== 'annual' && activeClientTab !== 'quotation' && (
                     <EmptyTab title={activeTabMeta.title} message={activeTabMeta.message} />
                   )}
                 </div>
@@ -4174,6 +4259,51 @@ function InlineClientMeta({ label, value, icon: Icon, status = false }) {
       ) : (
         <p className="mt-1 truncate text-sm font-black text-slate-950">{value || '-'}</p>
       )}
+    </div>
+  );
+}
+
+function ClientDocumentLibrary({ documents = [] }) {
+  const groups = documents.reduce((result, document) => {
+    const category = document.category || 'Other Documents';
+    if (!result[category]) result[category] = [];
+    result[category].push(document);
+    return result;
+  }, {});
+
+  if (!documents.length) {
+    return (
+      <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-[#30737B] shadow-sm"><FileCheck2 className="h-6 w-6" /></span>
+        <h4 className="mt-4 text-lg font-black text-slate-800">No uploaded documents found</h4>
+        <p className="mt-1 text-sm font-semibold text-slate-500">Documents uploaded in Client Master will automatically appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5 space-y-5">
+      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-orange-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">Document Repository</p><h4 className="mt-1 text-lg font-black text-slate-900">Every uploaded client file in one place</h4></div>
+        <span className="w-fit rounded-xl bg-[#30737B] px-4 py-2 text-sm font-black text-white">{documents.length} file{documents.length === 1 ? '' : 's'}</span>
+      </div>
+      {Object.entries(groups).map(([category, items]) => (
+        <section key={category} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <header className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3">
+            <h5 className="flex items-center gap-2 text-sm font-black text-slate-800"><FolderCheck className="h-4 w-4 text-[#30737B]" />{category}</h5>
+            <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-slate-500 ring-1 ring-slate-200">{items.length}</span>
+          </header>
+          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+            {items.map((document, index) => (
+              <article key={`${document.url.slice(0, 120)}-${index}`} className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-emerald-300 hover:shadow-md">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-[#30737B]"><FileText className="h-5 w-5" /></span>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-900" title={document.name}>{document.name}</p><p className="mt-1 truncate text-[10px] font-bold uppercase tracking-wide text-slate-400">Uploaded document</p></div>
+                <a href={openableClientDocumentUrl(document.url)} target="_blank" rel="noreferrer" className="btn-lift inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-[#30737B] px-3 text-xs font-black text-white" title={`View ${document.name}`}><Eye className="h-3.5 w-3.5" />View</a>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

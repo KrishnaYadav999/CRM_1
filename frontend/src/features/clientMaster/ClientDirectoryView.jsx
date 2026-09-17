@@ -130,7 +130,7 @@ function dedupeDirectoryClients(clients = []) {
   return [...grouped.values()].map(({ item }) => item);
 }
 
-function ClientDirectoryView({ clients, staff, currentUser, loading, error, notice, onRefresh, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
+function ClientDirectoryView({ clients, staff, currentUser, loading, error, notice, onRefresh, onView, onEdit, onCreate, onOpenAllocation, canEdit = false, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -187,6 +187,9 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
     ];
   }, [directoryClients]);
   const selectedMetric = metricStats.find((stat) => stat.filter === metricFilter);
+  const normalizedRole = String(currentUser?.role || '').trim().toLowerCase();
+  const canManageStaffAllocations = ['manager', 'admin', 'superadmin'].includes(normalizedRole);
+  const assignedClientCount = useMemo(() => directoryClients.filter((item) => getAssignedStaffNames(item, staff).length > 0).length, [directoryClients, staff]);
 
   function exportExcel() {
     const rows = filteredClients.map((item) => {
@@ -275,6 +278,14 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
           activeFilter={metricFilter}
           onFilterChange={(filter) => setMetricFilter((current) => (current === filter ? '' : filter))}
         />
+        {canManageStaffAllocations && (
+          <ManagerStaffAssignmentHeader
+            managerName={currentUser?.name || currentUser?.email || 'Manager'}
+            totalClients={directoryClients.length}
+            assignedClients={assignedClientCount}
+            onOpen={onOpenAllocation}
+          />
+        )}
         {selectedMetric && <ClientMetricOutputCard stat={selectedMetric} clients={filteredClients} onClose={() => setMetricFilter('')} onExport={exportExcel} />}
         {error && <ToastMessage type="error">{error}</ToastMessage>}
         {notice && <ToastMessage type="success">{notice}</ToastMessage>}
@@ -342,6 +353,43 @@ function ClientDirectoryView({ clients, staff, currentUser, loading, error, noti
         </div>
       </div>
     </div>
+  );
+}
+
+function ManagerStaffAssignmentHeader({ managerName, totalClients, assignedClients, onOpen }) {
+  const pendingClients = Math.max(0, totalClients - assignedClients);
+  return (
+    <section className="overflow-hidden rounded-2xl border border-teal-200 bg-[linear-gradient(120deg,#083f43_0%,#0f766e_58%,#0f8b79_100%)] text-white shadow-xl shadow-teal-950/10">
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(420px,1fr)_auto] lg:items-center lg:p-6">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15 ring-1 ring-white/20"><UserCheck className="h-5 w-5" /></span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-100">Manager Allocation Desk</p>
+              <h3 className="mt-1 truncate text-xl font-black">Assign Client Master work to staff</h3>
+            </div>
+          </div>
+          <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-emerald-50/85">{managerName}, Sales se manager handover complete hone ke baad yahin se service-wise staff select karke assignment save karein.</p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl bg-white/10 px-3 py-3 ring-1 ring-white/15"><span className="block text-[9px] font-black uppercase tracking-wider text-emerald-100">1. Sales</span><strong className="mt-1 block text-sm">Manager handover</strong></div>
+          <div className="rounded-xl bg-orange-400/20 px-3 py-3 ring-1 ring-orange-200/30"><span className="block text-[9px] font-black uppercase tracking-wider text-orange-100">2. Manager</span><strong className="mt-1 block text-sm">Assign staff</strong></div>
+          <div className="rounded-xl bg-white/10 px-3 py-3 ring-1 ring-white/15"><span className="block text-[9px] font-black uppercase tracking-wider text-emerald-100">3. Staff</span><strong className="mt-1 block text-sm">Process client</strong></div>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+          <div className="flex items-center justify-center gap-3 rounded-xl bg-white/10 px-4 py-2.5 ring-1 ring-white/15">
+            <span><small className="block text-[9px] font-black uppercase tracking-wider text-emerald-100">Assigned</small><b className="text-lg">{assignedClients}</b></span>
+            <span className="h-8 w-px bg-white/20" />
+            <span><small className="block text-[9px] font-black uppercase tracking-wider text-orange-100">Pending</small><b className="text-lg">{pendingClients}</b></span>
+          </div>
+          <button type="button" onClick={onOpen} className="btn-lift inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-orange-500 px-5 text-sm font-black text-white shadow-lg shadow-orange-950/20 hover:bg-orange-400">
+            <UserCheck className="h-4 w-4" /> Assign Staff Now
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
