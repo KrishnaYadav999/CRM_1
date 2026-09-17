@@ -16,6 +16,7 @@ const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
 const { resolvePoProof, resolveApprovalPoProof } = require('../services/poProofResolver');
+const { normalizeProvisionalClosure } = require('../utils/provisionalClosureDeadline');
 const LeadDropdownOption = require('../models/LeadDropdownOption');
 const { sendLeadIntroductionEmail } = require('../services/leadIntroductionEmail');
 
@@ -478,6 +479,16 @@ function enforcePrimaryOwnerClosureCredit(previousLead = {}, data = {}, actor = 
   return data;
 }
 
+function setProvisionalClosureDeadlines(data, beforeLead = {}) {
+  if (Array.isArray(data.assignments)) {
+    const now = new Date();
+    data.assignments = data.assignments.map((row, index) => normalizeProvisionalClosure(
+      row, findExistingAssignment(beforeLead.assignments || [], row, index) || {}, now
+    ));
+  }
+  return data;
+}
+
 function validateClosureAssignments(data = {}, previousData = null) {
   const rows = Array.isArray(data.assignments) ? data.assignments : [];
   const previousAssignments = Array.isArray(previousData?.assignments) ? previousData.assignments : [];
@@ -671,7 +682,7 @@ async function getNextLeadCode() {
 }
 
 async function createLeadRecord(rawBody, user) {
-  const data = cleanBody(rawBody);
+  const data = setProvisionalClosureDeadlines(cleanBody(rawBody));
   const duplicateServiceError = validateDuplicateServiceSelections(data);
   if (duplicateServiceError) {
     const validationError = new Error(duplicateServiceError);
@@ -1220,6 +1231,7 @@ exports.updateLead = async (req, res) => {
     let data = preserveExistingClosureEvidence(beforeLead, cleanBody(req.body));
     data = enforcePrimaryOwnerClosureCredit(beforeLead, data, req.user);
     if (addServicesMode) data = buildAppendOnlyServicePatch(beforeLead, data, req.user);
+    data = setProvisionalClosureDeadlines(data, beforeLead);
     if (poDebugId) console.info('[POProof:lead:sanitized]', { poDebugId, leadId: String(lead._id), leadCode: lead.leadCode || '', collection: Lead.collection.collectionName, assignments: (data.assignments || []).map((row, assignmentIndex) => ({ assignmentIndex, poStatus: row.poStatus || '', rows: (row.poYearRows || []).map((po, rowIndex) => ({ rowIndex, poNumber: po.poNumber || '', poAmount: po.poAmount ?? null, hasPoFileUrl: Boolean(po.poFileUrl), poFileName: po.poFileName || '' })) })) });
     delete data.sendIntroductionEmail;
     const followUpChangedIndexes = changedFollowUpIndexes(beforeLead, data);

@@ -2,6 +2,7 @@ const Lead = require('../models/Lead');
 const LeadActivity = require('../models/LeadActivity');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
+const { BUSINESS_DAYS, normalizeProvisionalClosure } = require('../utils/provisionalClosureDeadline');
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
@@ -37,7 +38,7 @@ async function sendProvisionalClosureEmail({ lead, assignment, index, actorEmail
       <tr><td style="padding:9px;border:1px solid #e2e8f0;font-weight:700">Service</td><td style="padding:9px;border:1px solid #e2e8f0">${escapeHtml(service)}</td></tr>
       <tr><td style="padding:9px;border:1px solid #e2e8f0;font-weight:700">PO deadline</td><td style="padding:9px;border:1px solid #e2e8f0">${escapeHtml(deadline)} IST</td></tr>
     </table>
-    <p>Please upload the Purchase Order from the review action before the 10-minute deadline. If it is not uploaded, only this provisional service will reopen automatically. Services whose POs have already been received will remain closed.</p>
+    <p>Please upload the Purchase Order from the review action before the 7-business-day deadline. If it is not uploaded, only this provisional service will reopen automatically. Services whose POs have already been received will remain closed.</p>
   </div>`;
   await Promise.allSettled(recipients.map((email) => sendMail(email, `Special Approval Closure - ${company}`, html, { branded: false })));
 }
@@ -56,17 +57,32 @@ async function notifyNewProvisionalClosures({ beforeLead = {}, afterLead = {}, a
 
 async function processExpiredProvisionalClosures() {
   const now = new Date();
-  const leads = await Lead.find({ assignments: { $elemMatch: { poStatus: 'provisional', provisionalCloseExpiresAt: { $lte: now.toISOString() } } } });
+  const leads = await Lead.find({ assignments: { $elemMatch: {
+    poStatus: 'provisional',
+    $or: [
+      { provisionalCloseExpiresAt: { $lte: now.toISOString() } },
+      { provisionalCloseDeadlineBusinessDays: { $ne: BUSINESS_DAYS } }
+    ]
+  } } });
   let reopenedServices = 0;
 
   for (const lead of leads) {
     const expired = [];
+    let deadlineUpdated = false;
     lead.assignments = (lead.assignments || []).map((assignment, index) => {
-      if (assignment?.poStatus !== 'provisional' || !assignment.provisionalCloseExpiresAt || new Date(assignment.provisionalCloseExpiresAt) > now) return assignment;
+      if (assignment?.poStatus !== 'provisional') return assignment;
+      const normalized = normalizeProvisionalClosure(assignment, assignment, now);
+      if (assignment.provisionalCloseExpiresAt !== normalized.provisionalCloseExpiresAt
+        || assignment.provisionalCloseDeadlineBusinessDays !== normalized.provisionalCloseDeadlineBusinessDays) deadlineUpdated = true;
+      assignment = normalized;
+      if (new Date(assignment.provisionalCloseExpiresAt) > now) return assignment;
       expired.push({ assignment: { ...assignment }, index, service: serviceName(lead, assignment, index) });
-      return { ...assignment, closedBy: '', closedByText: '', closedByEmail: '', assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '', poStatus: '', provisionalCloseExpiresAt: '' };
+      return { ...assignment, closedBy: '', closedByText: '', closedByEmail: '', assignedTo: '', assignedToText: '', assignedToEmail: '', assignedStaff: '', assignedStaffText: '', assignedStaffEmail: '', poStatus: '', provisionalCloseExpiresAt: '', provisionalCloseDeadlineBusinessDays: 0 };
     });
-    if (!expired.length) continue;
+    if (!expired.length) {
+      if (deadlineUpdated) await lead.save();
+      continue;
+    }
 
     const primary = lead.assignments[0] || {};
     lead.closedBy = primary.closedBy || undefined;
@@ -81,7 +97,7 @@ async function processExpiredProvisionalClosures() {
       lead: lead._id,
       type: 'lead_reopened_po_expired',
       title: 'Lead service reopened',
-      description: `${expired.length} provisional service closure(s) reopened after 10 minutes because no Purchase Order was uploaded. Services with received POs remain closed.`
+      description: `${expired.length} provisional service closure(s) reopened after 7 business days because no Purchase Order was uploaded. Services with received POs remain closed.`
     });
 
     const recipients = uniqueEmails([...expired.map(({ assignment }) => assignment.closedByEmail), ...(await superAdminEmails())]);
@@ -89,7 +105,7 @@ async function processExpiredProvisionalClosures() {
     const serviceList = expired.map(({ service }) => `<li>${escapeHtml(service)}</li>`).join('');
     const html = `<div style="max-width:680px;font-family:Arial,sans-serif;color:#334155;line-height:1.6">
       <h2 style="color:#b91c1c">Lead reopened because the PO was not uploaded</h2>
-      <p>The following service closure for <strong>${escapeHtml(company)}</strong> was provisional under special approval. The 10-minute deadline has expired and the Purchase Order is still missing.</p>
+      <p>The following service closure for <strong>${escapeHtml(company)}</strong> was provisional under special approval. The 7-business-day deadline has expired and the Purchase Order is still missing.</p>
       <ul>${serviceList}</ul>
       <p>Therefore, only the affected service has been reopened for user onboarding follow-up. Other services with uploaded POs remain closed.</p>
     </div>`;
