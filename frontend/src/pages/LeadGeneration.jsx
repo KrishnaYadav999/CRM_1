@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, BadgeIndianRupee, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BadgeIndianRupee, BellRing, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
@@ -2333,12 +2333,11 @@ export default function LeadGeneration() {
         <LeadDirectoryView
           leads={leads}
           staff={staff}
+          currentUser={currentUser}
           loading={loading}
           error={error}
           onRefresh={loadPage}
-          temporaryMode={location.pathname.endsWith('/temporary')}
-          onTemporaryOpen={() => navigate('/sales/lead-generation/temporary')}
-          onTemporaryClose={() => navigate('/sales/lead-generation')}
+          initialWorkspace={['temporary', 'notified'].includes(new URLSearchParams(location.search).get('tab')) ? new URLSearchParams(location.search).get('tab') : 'leads'}
           onView={setViewLead}
           onEdit={(item) => {
             const normalizedServices = normalizeLegacyServiceSelections(item).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? item.firstAnnualReturnYearApplicable : '') }));
@@ -3466,7 +3465,38 @@ function StaffFilterSelect({ value, options, onChange }) {
   );
 }
 
-function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, temporaryMode = false, onTemporaryOpen, onTemporaryClose, canEdit = false }) {
+function pendingManagerAssignmentRows(leads = [], currentUser = {}) {
+  const currentRole = String(currentUser?.role || '').trim().toLowerCase();
+  const restrictToCurrentManager = currentRole === 'manager';
+  const currentUserTokens = personIdentityTokens(currentUser);
+  return leads.flatMap((lead) => {
+    const services = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
+    const savedAssignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+    const assignmentsHaveManager = savedAssignments.some((assignment, index) => personIdentityTokens(
+      assignment?.assignedTo, assignment?.assignedToText, assignment?.assignedToEmail, services[index]?.assignedManagerName, services[index]?.assignedManagerEmail
+    ).length > 0);
+    const assignments = savedAssignments.length && assignmentsHaveManager ? savedAssignments : [lead];
+    return assignments.flatMap((assignment, index) => {
+      const service = services.find((row) => assignment?.assignedServiceId && row?.assignedServiceId === assignment.assignedServiceId) || services[index] || {};
+      const managerTokens = personIdentityTokens(assignment?.assignedTo, assignment?.assignedToText, assignment?.assignedToEmail, service.assignedManagerName, service.assignedManagerEmail);
+      const hasManager = managerTokens.length > 0;
+      const hasStaff = personIdentityTokens(assignment?.assignedStaff, assignment?.assignedStaffText, assignment?.assignedStaffEmail, service.managerAssignedStaffName, service.managerAssignedStaffEmail).length > 0;
+      if (!hasManager || hasStaff) return [];
+      if (restrictToCurrentManager && !managerTokens.some((token) => currentUserTokens.includes(token))) return [];
+      return [{
+        lead,
+        assignment,
+        service,
+        rowIndex: index,
+        managerName: assignment?.assignedTo?.name || assignment?.assignedToText || service.assignedManagerName || lead.assignedTo?.name || lead.assignedToText || '-',
+        assignedBy: assignment?.assignedBy || lead.assignedBy || lead.createdBy?.name || lead.createdByName || lead.importedCreatedBy || '-',
+        assignedAt: assignment?.assignedAt || lead.updatedAt || lead.createdAt || ''
+      }];
+    });
+  });
+}
+
+function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, initialWorkspace = 'leads', canEdit = false }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -3475,12 +3505,17 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
   const [page, setPage] = useState(1);
   const [actionMenuId, setActionMenuId] = useState('');
   const [temporaryLeadCount, setTemporaryLeadCount] = useState(0);
+  const [workspaceTab, setWorkspaceTab] = useState(initialWorkspace);
 
   useEffect(() => {
     api.get(API_ENDPOINTS.leads.temporaryLeads, { params: { page: 1, limit: 1 } })
       .then((response) => setTemporaryLeadCount(Number(response.data?.counts?.total || 0)))
       .catch(() => setTemporaryLeadCount(0));
-  }, [temporaryMode, leads.length]);
+  }, [leads.length]);
+
+  useEffect(() => {
+    setWorkspaceTab(initialWorkspace);
+  }, [initialWorkspace]);
 
   const filteredLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -3520,12 +3555,17 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
     });
   }, [leads, metricFilter, query, staff, staffFilter, statusFilter]);
 
+  const allNotifiedRows = useMemo(() => pendingManagerAssignmentRows(leads, currentUser), [currentUser, leads]);
+  const notifiedRows = useMemo(() => pendingManagerAssignmentRows(filteredLeads, currentUser), [currentUser, filteredLeads]);
+
   useEffect(() => {
     setPage(1);
-  }, [metricFilter, query, rowsPerPage, staffFilter, statusFilter]);
+  }, [metricFilter, query, rowsPerPage, staffFilter, statusFilter, workspaceTab]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredLeads.length / rowsPerPage));
+  const activeTotal = workspaceTab === 'notified' ? notifiedRows.length : filteredLeads.length;
+  const totalPages = Math.max(1, Math.ceil(activeTotal / rowsPerPage));
   const visibleLeads = filteredLeads.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const visibleNotifiedRows = notifiedRows.slice((page - 1) * rowsPerPage, page * rowsPerPage);
   const staffFilterOptions = useMemo(() => {
     const optionsMap = new Map();
     staff.forEach((user) => {
@@ -3549,8 +3589,6 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
     { label: 'New Leads', value: newLeads, note: 'Fresh non-client records', icon: UserPlus, tone: 'violet', filter: 'new' }
   ];
   const selectedMetric = metricStats.find((stat) => stat.filter === metricFilter);
-
-  if (temporaryMode) return <TemporaryLeadsWorkspace onClose={onTemporaryClose} onConverted={onRefresh} />;
 
   function leadClosureDetails(item = {}) {
     const assignments = Array.isArray(item.assignments) ? item.assignments : [];
@@ -3632,6 +3670,16 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
 
         {error && <ToastMessage type="error">{error}</ToastMessage>}
 
+        <LeadWorkspaceTabs
+          activeTab={workspaceTab}
+          temporaryLeadCount={temporaryLeadCount}
+          notifiedLeadCount={allNotifiedRows.length}
+          onChange={setWorkspaceTab}
+        />
+
+        {workspaceTab === 'temporary' ? (
+          <div className="animate-[fadeIn_.25s_ease-out]"><TemporaryLeadsWorkspace onClose={() => setWorkspaceTab('leads')} onConverted={onRefresh} embedded /></div>
+        ) : <>
         <div className="lead-directory-toolbar grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-950/5 xl:grid-cols-[minmax(320px,1.15fr)_minmax(210px,0.72fr)_minmax(280px,1fr)_auto] xl:items-center">
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
@@ -3644,15 +3692,17 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
           <StaffFilterSelect value={staffFilter} options={staffFilterOptions} onChange={setStaffFilter} />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 xl:flex xl:justify-end">
             <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Lead</button>
-            <button type="button" onClick={onTemporaryOpen} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-black text-violet-700 hover:bg-violet-100"><Clock3 className="h-4 w-4" />Temp Lead</button>
+            <button type="button" onClick={() => setWorkspaceTab('temporary')} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-black text-violet-700 hover:bg-violet-100"><Clock3 className="h-4 w-4" />Temp Lead</button>
             <button type="button" onClick={() => { setQuery(''); setStatusFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
             <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
           </div>
         </div>
 
-        <DirectoryTableHeader showing={visibleLeads.length} total={filteredLeads.length} label="leads" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} temporaryLeadCount={temporaryLeadCount} onTemporaryOpen={onTemporaryOpen} />
-        <div className="lead-directory-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
+        <DirectoryTableHeader showing={workspaceTab === 'notified' ? visibleNotifiedRows.length : visibleLeads.length} total={activeTotal} label={workspaceTab === 'notified' ? 'notified leads' : 'leads'} rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
+        {workspaceTab === 'notified' ? (
+          <NotifiedLeadsTable rows={visibleNotifiedRows} loading={loading} onView={onView} onEdit={onEdit} canEdit={canEdit} />
+        ) : <div className="lead-directory-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
           <div className="lead-directory-scroll max-h-[680px] overflow-auto">
             <table className="crm-data-table lead-directory-table w-full min-w-[2050px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
@@ -3701,14 +3751,58 @@ function LeadDirectoryView({ leads, staff, loading, error, onRefresh, onView, on
               </tbody>
             </table>
           </div>
-        </div>
+        </div>}
         <LeadDirectoryPagination page={page} totalPages={totalPages} setPage={setPage} />
+        </>}
       </div>
     </div>
   );
 }
 
-function TemporaryLeadsWorkspace({ onClose, onConverted }) {
+function LeadWorkspaceTabs({ activeTab, temporaryLeadCount, notifiedLeadCount, onChange }) {
+  const tabs = [
+    { id: 'leads', label: 'All Leads', note: 'Complete lead table', icon: FileText, tone: 'emerald' },
+    { id: 'temporary', label: 'Temporary Leads', note: `${temporaryLeadCount.toLocaleString('en-IN')} captured`, icon: Clock3, tone: 'violet' },
+    { id: 'notified', label: 'Notified Leads', note: `${notifiedLeadCount.toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }
+  ];
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" role="tablist" aria-label="Lead workspaces">
+      <div className="grid gap-2 md:grid-cols-3">
+        {tabs.map(({ id, label, note, icon: Icon, tone }) => {
+          const active = activeTab === id;
+          const activeClass = tone === 'violet' ? 'border-violet-300 bg-violet-50 text-violet-800 shadow-violet-100' : tone === 'orange' ? 'border-orange-300 bg-orange-50 text-orange-800 shadow-orange-100' : 'border-emerald-300 bg-emerald-50 text-emerald-800 shadow-emerald-100';
+          return <button key={id} type="button" role="tab" aria-selected={active} onClick={() => onChange(id)} className={`flex min-h-16 items-center gap-3 rounded-xl border px-4 py-3 text-left transition duration-200 ${active ? `${activeClass} shadow-sm` : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50'}`}>
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${active ? 'bg-white/80' : 'bg-slate-100'}`}><Icon className="h-5 w-5" /></span>
+            <span className="min-w-0"><strong className="block text-sm font-black">{label}</strong><small className="block truncate text-xs font-bold opacity-75">{note}</small></span>
+            {active && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0" />}
+          </button>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function NotifiedLeadsTable({ rows, loading, onView, onEdit, canEdit }) {
+  return (
+    <div className="animate-[fadeIn_.25s_ease-out] overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm shadow-orange-950/5">
+      <div className="border-b border-orange-100 bg-gradient-to-r from-orange-50 via-amber-50 to-white px-5 py-4">
+        <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-700"><BellRing className="h-5 w-5" /></span><div><h3 className="font-black text-slate-900">Manager action pending</h3><p className="mt-0.5 text-xs font-semibold text-slate-500">Sales has assigned these leads to a Manager. They remain here until Manager Assigned to Staff is completed.</p></div></div>
+      </div>
+      <div className="max-h-[680px] overflow-auto">
+        <table className="w-full min-w-[1250px] table-fixed text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="w-[145px] px-4 py-4">Lead ID</th><th className="w-[220px] px-4 py-4">Company</th><th className="w-[190px] px-4 py-4">Service Category</th><th className="w-[170px] px-4 py-4">Assigned Manager</th><th className="w-[160px] px-4 py-4">Assigned By</th><th className="w-[170px] px-4 py-4">Manager Assigned to Staff</th><th className="w-[155px] px-4 py-4">Notified On</th><th className="w-[115px] px-4 py-4">Actions</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => <tr key={`${leadRecordId(row.lead)}-${row.rowIndex}`} className="transition hover:bg-orange-50/50"><td className="px-4 py-4 font-black text-blue-700">{displayLeadId(row.lead)}</td><td className="px-4 py-4 font-black uppercase text-slate-800"><span className="cell-clamp">{row.lead.company || '-'}</span></td><td className="px-4 py-4"><span className="lead-service-tag">{row.service.eprCategory || row.lead.eprCategory || '-'}</span></td><td className="px-4 py-4 font-black uppercase text-teal-700">{row.managerName}</td><td className="px-4 py-4 font-bold uppercase text-slate-600">{personLabel(row.assignedBy)}</td><td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-[10px] font-black uppercase text-orange-700"><Clock3 className="h-3.5 w-3.5" />Pending</span></td><td className="px-4 py-4 text-xs font-bold text-slate-500">{row.assignedAt ? new Date(row.assignedAt).toLocaleString('en-IN') : '-'}</td><td className="px-4 py-4"><div className="flex gap-2"><button type="button" onClick={() => onView(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View lead"><Eye className="h-4 w-4" /></button>{canEdit && <button type="button" onClick={() => onEdit(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Assign staff"><Edit3 className="h-4 w-4" /></button>}</div></td></tr>)}
+            {!loading && rows.length === 0 && <tr><td colSpan="8" className="px-5 py-16 text-center"><BellRing className="mx-auto h-10 w-10 text-emerald-300"/><p className="mt-3 font-black text-slate-500">No notified leads are pending.</p><p className="mt-1 text-xs font-semibold text-slate-400">Every manager-assigned lead in your accessible list already has staff assigned.</p></td></tr>}
+            {loading && <tr><td colSpan="8" className="px-5 py-16 text-center font-black text-slate-400">Loading notified leads...</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TemporaryLeadsWorkspace({ onClose, onConverted, embedded = false }) {
   const [clientName, setClientName] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -3783,9 +3877,9 @@ function TemporaryLeadsWorkspace({ onClose, onConverted }) {
   }
 
   const counts = data.counts || {};
-  return <div className="lead-directory-page min-h-[calc(100vh-72px)] bg-[#f6faf9] p-3 sm:p-4">
-    <section className="min-h-[calc(100vh-104px)] w-full overflow-hidden rounded-2xl border border-slate-200 bg-[#f6faf9] shadow-sm">
-      <header className="relative overflow-hidden border-b border-emerald-100 bg-white px-5 py-5 sm:px-7"><div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-emerald-500 to-teal-700"/><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.2em] text-emerald-700"><Clock3 className="h-4 w-4"/>Quick capture workspace</div><h1 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Temporary Leads</h1><p className="mt-1 text-sm font-semibold text-slate-500">Capture a client name now and complete the full lead whenever you are ready.</p></div><button type="button" onClick={onClose} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4"/>Back to Leads</button></div></header>
+  return <div className={embedded ? '' : 'lead-directory-page min-h-[calc(100vh-72px)] bg-[#f6faf9] p-3 sm:p-4'}>
+    <section className={`${embedded ? 'w-full' : 'min-h-[calc(100vh-104px)]'} overflow-hidden rounded-2xl border border-slate-200 bg-[#f6faf9] shadow-sm`}>
+      {!embedded && <header className="relative overflow-hidden border-b border-emerald-100 bg-white px-5 py-5 sm:px-7"><div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-emerald-500 to-teal-700"/><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.2em] text-emerald-700"><Clock3 className="h-4 w-4"/>Quick capture workspace</div><h1 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Temporary Leads</h1><p className="mt-1 text-sm font-semibold text-slate-500">Capture a client name now and complete the full lead whenever you are ready.</p></div><button type="button" onClick={onClose} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4"/>Back to Leads</button></div></header>}
       <div className="space-y-4 p-4 sm:p-6">
         <div className="grid gap-3 sm:grid-cols-3">{[[counts.total,'Total Captured','border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 text-sky-800'],[counts.draft,'Ready to Convert','border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-amber-800'],[counts.converted,'Converted Leads','border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-800']].map(([value,label,tone]) => <article key={label} className={`rounded-2xl p-4 shadow-sm ${tone}`}><span className="text-[10px] font-black uppercase tracking-wider opacity-70">{label}</span><strong className="mt-1 block text-3xl font-black">{Number(value || 0).toLocaleString('en-IN')}</strong></article>)}</div>
         <form onSubmit={saveTemporaryLead} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"><label className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Client name</label><div className="mt-2 flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Building2 className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"/><input autoFocus value={clientName} maxLength={240} onChange={(event) => setClientName(event.target.value)} placeholder="Enter company or client name" className="h-12 w-full rounded-xl border border-slate-200 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"/></div><button disabled={saving || clientName.trim().length < 2} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-40"><Plus className="h-4 w-4"/>{saving ? 'Saving...' : 'Submit Temp Lead'}</button></div><p className="mt-2 text-xs font-semibold text-slate-400">A unique ID such as ATPL-TEMP-0001 is generated automatically.</p></form>
@@ -5166,7 +5260,7 @@ function LeadDirectoryPagination({ page, totalPages, setPage }) {
   );
 }
 
-function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPage, page, setPage, totalPages, temporaryLeadCount = 0, onTemporaryOpen }) {
+function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPage, page, setPage, totalPages }) {
   const start = total ? (page - 1) * rowsPerPage + 1 : 0;
   const end = total ? start + showing - 1 : 0;
   const [draftPage, setDraftPage] = useState(String(page));
@@ -5184,7 +5278,6 @@ function DirectoryTableHeader({ showing, total, label, rowsPerPage, setRowsPerPa
   return (
     <div className="lead-directory-summary flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-wrap items-center gap-4"><div className="flex items-center gap-3"><span className="lead-directory-summary-icon"><FileText className="h-5 w-5" /></span><div><p className="font-semibold text-slate-800">Showing {showing} of {total} {label}</p><small className="text-slate-400">Page {page} of {totalPages}</small></div></div>
-      <button type="button" onClick={onTemporaryOpen} className="inline-flex items-center gap-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 px-4 py-2 text-left text-violet-700 transition hover:-translate-y-0.5 hover:shadow-md"><Clock3 className="h-5 w-5"/><span><small className="block text-[9px] font-black uppercase tracking-wider">Temporary Leads</small><strong className="text-sm">{temporaryLeadCount.toLocaleString('en-IN')} captured · View table</strong></span><ArrowRight className="h-4 w-4"/></button>
       </div><div className="flex flex-wrap items-center gap-3 font-black text-slate-600">
         <span>{start} - {end} of {total}</span>
         <form onSubmit={jumpToPage} className="inline-flex items-center gap-2">

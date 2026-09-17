@@ -126,7 +126,7 @@ function App(){
         <Route path="/assistant" element={<ProtectedRoute><AssistantPage/></ProtectedRoute>} />
         <Route path="/sales/lead-generation" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/sales/lead-allocate" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><LeadAllocate/></ProtectedRoute>} />
-        <Route path="/sales/lead-generation/temporary" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
+        <Route path="/sales/lead-generation/temporary" element={<Navigate to="/sales/lead-generation?tab=temporary" replace />} />
         <Route path="/sales/compliance-health-report/:leadId" element={<ProtectedRoute><LeadGeneration/></ProtectedRoute>} />
         <Route path="/compliance/health-report" element={<ProtectedRoute><ComplianceHealthDashboard/></ProtectedRoute>} />
         <Route path="/sales/client-master" element={<ProtectedRoute><ClientMaster/></ProtectedRoute>} />

@@ -72,7 +72,7 @@ async function notifyLeadAssignment({ lead, managerId, assignedBy, assignmentInd
 
   if (manager.email) {
     const appUrl = String(process.env.FRONTEND_URL || process.env.APP_URL || '').replace(/\/$/, '');
-    const leadUrl = appUrl ? `${appUrl}/sales/lead-generation` : '';
+    const leadUrl = appUrl ? `${appUrl}/sales/lead-generation?tab=notified` : '';
     const html = `<div style="font-family:Arial,sans-serif;color:#334155">
           <h2 style="color:#0f766e">Existing lead updated for a new financial year</h2>
           <p>${escapeHtml(creatorName)} added ${escapeHtml(fyRow.fy)} for ${escapeHtml(company)}.</p>
@@ -80,6 +80,9 @@ async function notifyLeadAssignment({ lead, managerId, assignedBy, assignmentInd
           <p style="padding:14px 16px;border-left:4px solid #047857;background:#f0fdfa">
             This lead has been assigned to <strong>${escapeHtml(manager.name || manager.email)}</strong>.
             Please take action and assign it to staff.
+          </p>
+          <p style="padding:14px 16px;border:1px solid #fed7aa;border-radius:10px;background:#fff7ed;color:#9a3412">
+            Your complete pending list is available in the <strong>Notified Leads</strong> tab on the Leads page. Once you assign a staff member, that item is automatically removed from the pending list.
           </p>
           <div style="overflow:auto">
             <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;margin:20px 0">
@@ -120,7 +123,7 @@ async function notifyLeadAssignment({ lead, managerId, assignedBy, assignmentInd
               </tr></tbody>
             </table>
           </div>
-          ${leadUrl ? `<p><a href="${escapeHtml(leadUrl)}" style="display:inline-block;background:#047857;color:#fff;text-decoration:none;border-radius:10px;padding:12px 18px;font-weight:700">Open Lead in CRM</a></p>` : ''}
+          ${leadUrl ? `<p><a href="${escapeHtml(leadUrl)}" style="display:inline-block;background:#ea580c;color:#fff;text-decoration:none;border-radius:10px;padding:12px 18px;font-weight:700">Open Notified Leads</a></p>` : ''}
           <p style="margin-top:20px;color:#64748b">Please review this update in the CRM Notification Center.</p>
     </div>`;
     try {
