@@ -3497,6 +3497,9 @@ function pendingManagerAssignmentRows(leads = [], currentUser = {}) {
 }
 
 function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, initialWorkspace = 'leads', canEdit = false }) {
+  const currentRole = String(currentUser?.role || '').trim().toLowerCase();
+  const canViewNotifiedLeads = ['manager', 'admin', 'superadmin'].includes(currentRole);
+  const allowedInitialWorkspace = initialWorkspace === 'notified' && !canViewNotifiedLeads ? 'leads' : initialWorkspace;
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -3505,7 +3508,7 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
   const [page, setPage] = useState(1);
   const [actionMenuId, setActionMenuId] = useState('');
   const [temporaryLeadCount, setTemporaryLeadCount] = useState(0);
-  const [workspaceTab, setWorkspaceTab] = useState(initialWorkspace);
+  const [workspaceTab, setWorkspaceTab] = useState(allowedInitialWorkspace);
 
   useEffect(() => {
     api.get(API_ENDPOINTS.leads.temporaryLeads, { params: { page: 1, limit: 1 } })
@@ -3514,8 +3517,8 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
   }, [leads.length]);
 
   useEffect(() => {
-    setWorkspaceTab(initialWorkspace);
-  }, [initialWorkspace]);
+    setWorkspaceTab(initialWorkspace === 'notified' && !canViewNotifiedLeads ? 'leads' : initialWorkspace);
+  }, [canViewNotifiedLeads, initialWorkspace]);
 
   const filteredLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -3555,8 +3558,8 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
     });
   }, [leads, metricFilter, query, staff, staffFilter, statusFilter]);
 
-  const allNotifiedRows = useMemo(() => pendingManagerAssignmentRows(leads, currentUser), [currentUser, leads]);
-  const notifiedRows = useMemo(() => pendingManagerAssignmentRows(filteredLeads, currentUser), [currentUser, filteredLeads]);
+  const allNotifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(leads, currentUser) : [], [canViewNotifiedLeads, currentUser, leads]);
+  const notifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(filteredLeads, currentUser) : [], [canViewNotifiedLeads, currentUser, filteredLeads]);
 
   useEffect(() => {
     setPage(1);
@@ -3697,6 +3700,7 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
           activeTab={workspaceTab}
           temporaryLeadCount={temporaryLeadCount}
           notifiedLeadCount={allNotifiedRows.length}
+          showNotified={canViewNotifiedLeads}
           onChange={setWorkspaceTab}
         />
 
@@ -3762,11 +3766,11 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
   );
 }
 
-function LeadWorkspaceTabs({ activeTab, temporaryLeadCount, notifiedLeadCount, onChange }) {
+function LeadWorkspaceTabs({ activeTab, temporaryLeadCount, notifiedLeadCount, showNotified, onChange }) {
   const tabs = [
     { id: 'leads', label: 'All Leads', note: 'Complete lead table', icon: FileText, tone: 'emerald' },
     { id: 'temporary', label: 'Temporary Leads', note: `${temporaryLeadCount.toLocaleString('en-IN')} captured`, icon: Clock3, tone: 'violet' },
-    { id: 'notified', label: 'Notified Leads', note: `${notifiedLeadCount.toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }
+    ...(showNotified ? [{ id: 'notified', label: 'Notified Leads', note: `${notifiedLeadCount.toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }] : [])
   ];
   return (
     <div className="flex justify-start" role="tablist" aria-label="Lead workspaces">

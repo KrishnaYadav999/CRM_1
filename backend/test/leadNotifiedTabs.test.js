@@ -26,6 +26,10 @@ test('Lead Generation uses inline tabs for temporary and notified leads', () => 
 test('Notified Leads contains manager assignments that are still waiting for staff', () => {
   const page = read('frontend/src/pages/LeadGeneration.jsx');
 
+  assert.match(page, /\['manager', 'admin', 'superadmin'\]\.includes\(currentRole\)/);
+  assert.match(page, /initialWorkspace === 'notified' && !canViewNotifiedLeads \? 'leads'/);
+  assert.match(page, /showNotified=\{canViewNotifiedLeads\}/);
+  assert.match(page, /\.\.\.\(showNotified \? \[\{ id: 'notified'/);
   assert.match(page, /function pendingManagerAssignmentRows/);
   assert.match(page, /if \(!hasManager \|\| hasStaff\) return \[\]/);
   assert.match(page, /service\.managerAssignedStaffName/);
