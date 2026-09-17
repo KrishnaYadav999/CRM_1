@@ -65,21 +65,62 @@ function Wordmark({ inverse = false, compact = false }) {
   </span>
 }
 
+const clientLogoCache = new Map()
+function ClientLogo({ client, duplicate }) {
+  const original = `/clients/${client}.png`
+  const [src, setSrc] = useState(original)
+  useEffect(() => {
+    let active = true
+    if (!clientLogoCache.has(client)) clientLogoCache.set(client, new Promise((resolve) => {
+      const image = new Image()
+      image.onload = () => {
+        // Fit the visible artwork, rather than the large white margins in the files.
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        context.drawImage(image, 0, 0)
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+        let left = canvas.width, top = canvas.height, right = -1, bottom = -1
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index + 3] > 32 && Math.min(pixels[index], pixels[index + 1], pixels[index + 2]) < 235) {
+            const x = (index / 4) % canvas.width, y = Math.floor(index / 4 / canvas.width)
+            left = Math.min(left, x); right = Math.max(right, x)
+            top = Math.min(top, y); bottom = Math.max(bottom, y)
+          }
+        }
+        if (right < left) { resolve(original); return }
+        left = Math.max(0, left - 5); top = Math.max(0, top - 5)
+        right = Math.min(canvas.width - 1, right + 5); bottom = Math.min(canvas.height - 1, bottom + 5)
+        const cropped = document.createElement('canvas')
+        cropped.width = right - left + 1
+        cropped.height = bottom - top + 1
+        cropped.getContext('2d').drawImage(canvas, left, top, cropped.width, cropped.height, 0, 0, cropped.width, cropped.height)
+        resolve(cropped.toDataURL('image/png'))
+      }
+      image.onerror = () => resolve(original)
+      image.src = original
+    }))
+    clientLogoCache.get(client).then((url) => { if (active) setSrc(url) })
+    return () => { active = false }
+  }, [client, original])
+  return <img src={src} alt={duplicate ? '' : `Client logo ${client}`} loading="eager" draggable={false} />
+}
+
 function ClientScroller() {
   const row = useRef(null)
-  const interacting = useRef(false)
+  const position = useRef(0)
   const [paused, setPaused] = useState(false)
   useEffect(() => {
     if (paused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    let frame, previous = 0, position = row.current.scrollLeft
+    let frame, previous = 0
     const tick = (time) => {
       const element = row.current
-      if (!interacting.current && previous) {
-        position += Math.min(time - previous, 64) * 0.032
-        const loopWidth = element.scrollWidth / 2
-        if (position >= loopWidth) position -= loopWidth
-        element.scrollLeft = position
-      } else position = element.scrollLeft
+      const loopWidth = element.firstElementChild.offsetWidth
+      if (previous && loopWidth) {
+        position.current = (position.current + Math.min(time - previous, 64) * 0.055) % loopWidth
+        element.scrollLeft = position.current
+      }
       previous = time
       frame = requestAnimationFrame(tick)
     }
@@ -87,21 +128,26 @@ function ClientScroller() {
     return () => cancelAnimationFrame(frame)
   }, [paused])
   const move = (direction) => {
-    setPaused(true)
-    row.current.scrollBy({ left: direction * row.current.clientWidth * 0.7, behavior: 'smooth' })
+    const element = row.current
+    const loopWidth = element.firstElementChild.offsetWidth
+    position.current = ((element.scrollLeft + direction * element.clientWidth * 0.7) % loopWidth + loopWidth) % loopWidth
+    element.scrollLeft = position.current
   }
   return <>
     <div className="lp-client-controls">
       <button type="button" onClick={() => move(-1)} aria-label="Previous clients"><ChevronLeft /></button>
-      <button type="button" onClick={() => setPaused(!paused)} aria-label={paused ? 'Play client scroller' : 'Pause client scroller'}>{paused ? <Play /> : <Pause />}</button>
+      <button type="button" onClick={() => setPaused(!paused)} aria-label={paused ? 'Play client scroller' : 'Pause client scroller'} aria-pressed={paused}>{paused ? <Play /> : <Pause />}</button>
       <button type="button" onClick={() => move(1)} aria-label="Next clients"><ChevronRight /></button>
     </div>
-    <div ref={row} className="lp-logo-row" tabIndex={0} role="region" aria-label="All 54 client logos; scroll horizontally to browse"
-      onMouseEnter={() => { interacting.current = true }} onMouseLeave={() => { interacting.current = false }}
-      onFocus={() => { interacting.current = true }} onBlur={() => { interacting.current = false }}
-      onTouchStart={() => setPaused(true)} onWheel={() => setPaused(true)}>
+    <div ref={row} className="lp-logo-row" tabIndex={0} role="region" aria-label="All 54 client logos; use arrow buttons to browse"
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault()
+          move(event.key === 'ArrowLeft' ? -1 : 1)
+        }
+      }}>
       {[false, true].map((duplicate) => <div className="lp-client-group" key={String(duplicate)} aria-hidden={duplicate || undefined}>
-        {clients.map((client) => <div className="lp-client" key={client}><img src={`/clients/${client}.png`} alt={duplicate ? '' : `Client logo ${client}`} loading="eager" /></div>)}
+        {clients.map((client) => <div className="lp-client" key={client}><ClientLogo client={client} duplicate={duplicate} /></div>)}
       </div>)}
     </div>
   </>
@@ -125,7 +171,7 @@ function DashboardPreview() {
           <div className="lp-dash-bottom">
             <article className="lp-performance">
               <div><b><BarChart3 /> Performance</b><span><strong>+32%</strong><small>Team growth</small></span></div>
-              <svg viewBox="0 0 560 145" role="img" aria-label="Performance improving from January to June"><defs><linearGradient id="lpChartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#11a98a" stopOpacity=".28"/><stop offset="1" stopColor="#11a98a" stopOpacity="0"/></linearGradient></defs><path className="lp-chart-grid" d="M0 35H560M0 75H560M0 115H560" /><path className="lp-chart-fill" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17 L560 145H0Z" /><path className="lp-chart-line" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17" /></svg>
+              <svg viewBox="0 0 560 145" preserveAspectRatio="none" role="img" aria-label="Performance improving from January to June"><defs><linearGradient id="lpChartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#11a98a" stopOpacity=".28"/><stop offset="1" stopColor="#11a98a" stopOpacity="0"/></linearGradient></defs><path className="lp-chart-grid" d="M0 35H560M0 75H560M0 115H560" /><path className="lp-chart-fill" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17 L560 145H0Z" /><path className="lp-chart-line" pathLength="1" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17" /></svg>
               <div className="lp-chart-months"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
             </article>
             <article className="lp-tasks"><div><span className="lp-check"><Check /></span><b>24 tasks completed<small>Today</small></b></div><ul><li><Check />Follow up with client</li><li><Check />Submit compliance docs</li><li><Check />Review new leads</li><li><Check />Update approvals</li></ul><a href="#workspace">View all tasks <ArrowRight /></a></article>
