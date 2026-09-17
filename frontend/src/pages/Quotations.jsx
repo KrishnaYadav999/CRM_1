@@ -12,6 +12,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
 import { adminRoles } from '../constants/dashboard';
 import { QUOTATION_SCOPE_PRESET_OPTIONS, QUOTATION_SCOPE_PRESETS } from '../constants/quotationScopePresets';
+import { createQuotationPdf } from '../utils/quotationPdf';
 import { addServiceDays, datesFromAnnualYears, normalizeDateInputValue, normalizePeriodUnit, periodDisplay, renewalDateFrom, serviceEndDateFrom } from '../utils/servicePeriod';
 
 const ANANT_LOGO_SOURCE_URL = '/anant-tattva-logo-chroma.png';
@@ -626,27 +627,6 @@ function scopePresetKeyForAmount(amount) {
   return 'superPremium';
 }
 
-function sanitizePdfClone(clonedDocument) {
-  const root = clonedDocument.querySelector('[data-quotation-pdf]');
-  if (!root) return;
-  const unsupportedColor = /(?:color|oklch|oklab|lab|lch)\(/i;
-  root.querySelectorAll('*').forEach((element) => {
-    const computed = clonedDocument.defaultView?.getComputedStyle(element);
-    if (!computed) return;
-    for (const property of computed) {
-      const value = computed.getPropertyValue(property);
-      if (!unsupportedColor.test(value)) continue;
-      let fallback = 'initial';
-      if (property === 'color') fallback = '#0f172a';
-      else if (property === 'background-color') fallback = 'transparent';
-      else if (property.includes('border') && property.endsWith('color')) fallback = '#cbd5e1';
-      else if (property === 'fill') fallback = '#0f172a';
-      else if (property === 'stroke') fallback = '#64748b';
-      else if (property.includes('shadow') || property.includes('image')) fallback = 'none';
-      element.style.setProperty(property, fallback, 'important');
-    }
-  });
-}
 
 function combinedQuotationTotal(quotation = {}, items = []) {
   const groups = normalizeCombinedPricingGroups(quotation, items);
@@ -2950,38 +2930,6 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
     return () => { cancelled = true; };
   }, []);
 
-  async function paintLogoOnCanvas(canvas, captureElement = documentRef.current) {
-    const logoElement = captureElement?.querySelector('[data-pdf-logo]');
-    if (!logoElement || !captureElement) return;
-    const documentRect = captureElement.getBoundingClientRect();
-    const logoRect = logoElement.getBoundingClientRect();
-    const scaleX = canvas.width / captureElement.offsetWidth;
-    const scaleY = scaleX;
-    const x = (logoRect.left - documentRect.left) * scaleX;
-    const y = (logoRect.top - documentRect.top) * scaleY;
-    const width = logoRect.width * scaleX;
-    const height = logoRect.height * scaleY;
-    const context = canvas.getContext('2d');
-
-    try {
-      if (!logoElement.complete || !logoElement.naturalWidth) throw new Error('Processed logo is not ready');
-      context.clearRect(x, y, width, height);
-      context.drawImage(logoElement, x, y, width, height);
-      return;
-    } catch (error) {
-      console.warn('PDF logo rasterization fallback used', error);
-    }
-
-    context.clearRect(x, y, width, height);
-    context.fillStyle = '#f97316';
-    context.font = `700 ${Math.max(18, height * 0.38)}px Arial`;
-    context.textBaseline = 'top';
-    context.fillText('ANANT', x, y + (height * 0.05));
-    context.fillStyle = '#111827';
-    context.font = `600 ${Math.max(11, height * 0.22)}px Arial`;
-    context.fillText('TATTVA', x + (width * 0.13), y + (height * 0.52));
-  }
-
   async function handleDownloadPdf() {
     if (!canDownloadPdf) {
       setDownloadError('Quotation PDF can be downloaded only after Admin or Super Admin approval.');
@@ -2991,70 +2939,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
     setDownloadingPdf(true);
     setDownloadError('');
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const images = [...documentRef.current.querySelectorAll('img')];
-      await Promise.all(images.map((image) => image.complete && image.naturalWidth
-        ? Promise.resolve()
-        : new Promise((resolve) => {
-          const finish = () => resolve();
-          image.addEventListener('load', finish, { once: true });
-          image.addEventListener('error', finish, { once: true });
-          window.setTimeout(finish, 5000);
-        })));
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-      const pageWidth = 210;
-      const pageHeight = 297;
-      const margin = 5;
-      const printableWidth = pageWidth - (margin * 2);
-      const printableHeight = pageHeight - (margin * 2);
-      const appRoot = document.getElementById('root');
-      const previousRootZoom = appRoot?.style.zoom || '';
-      const previousDocumentWidth = documentRef.current.style.width;
-      try {
-        // The CRM workspace uses a compact desktop zoom. html2canvas inherits that
-        // zoom and produces compressed text unless the printable document is
-        // captured at its true CSS size.
-        if (appRoot) appRoot.style.zoom = '1';
-        documentRef.current.style.width = '760px';
-        await document.fonts?.ready;
-        await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
-
-        const sections = [...documentRef.current.children].filter((element) => element.tagName === 'SECTION');
-        const pages = sections.length ? sections : [documentRef.current];
-        for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
-          if (pageIndex > 0) pdf.addPage();
-          const pageElement = pages[pageIndex];
-          const previousStyles = { boxShadow: pageElement.style.boxShadow, minHeight: pageElement.style.minHeight };
-          pageElement.style.boxShadow = 'none';
-          pageElement.style.minHeight = '0';
-          let canvas;
-          try {
-            canvas = await html2canvas(pageElement, {
-              scale: 2.5,
-              useCORS: true,
-              backgroundColor: '#ffffff',
-              logging: false,
-              windowWidth: Math.max(window.innerWidth, 1200),
-              windowHeight: pageElement.scrollHeight,
-              onclone: sanitizePdfClone
-            });
-          } finally {
-            pageElement.style.boxShadow = previousStyles.boxShadow;
-            pageElement.style.minHeight = previousStyles.minHeight;
-          }
-          await paintLogoOnCanvas(canvas, pageElement);
-          const naturalHeight = (canvas.height / canvas.width) * printableWidth;
-          const renderedHeight = Math.min(printableHeight, naturalHeight);
-          const renderedWidth = naturalHeight > printableHeight
-            ? (canvas.width / canvas.height) * printableHeight
-            : printableWidth;
-          const offsetX = (pageWidth - renderedWidth) / 2;
-          pdf.addImage(canvas.toDataURL('image/jpeg', 0.94), 'JPEG', offsetX, margin, renderedWidth, renderedHeight, undefined, 'FAST');
-        }
-      } finally {
-        if (appRoot) appRoot.style.zoom = previousRootZoom;
-        documentRef.current.style.width = previousDocumentWidth;
-      }
+      const pdf = await createQuotationPdf(buildQuotationPrintHtml(quotation), quotationLogoUrl);
       const clientFileName = String(details.companyName || quotation.quotationNumber || 'quotation')
         .trim()
         .replace(/[^a-z0-9]+/gi, '-')
@@ -3237,7 +3122,7 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-function buildQuotationPrintHtml(quotation) {
+export function buildQuotationPrintHtml(quotation) {
   const details = quotation.leadDetails || {};
   const items = meaningfulQuotationItems(quotation.items);
   const combined = isCombinedQuotation(quotation);
@@ -3292,9 +3177,7 @@ function buildQuotationPrintHtml(quotation) {
       table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 4px; }
       th { background: #f97316; color: white; border: 1px solid #020617; padding: 7px 6px; text-align: left; font-size: 9px; line-height: 1.15; font-weight: 900; text-transform: uppercase; overflow-wrap: anywhere; }
       td { background: #fff; border: 1px solid #020617; padding: 7px 6px; font-size: 9px; line-height: 1.2; font-weight: 700; text-transform: uppercase; overflow-wrap: anywhere; word-break: normal; }
-      table:first-of-type th:nth-child(1), table:first-of-type td:nth-child(1) { width: 5%; text-align: center; }
-      table:first-of-type th:nth-child(2), table:first-of-type td:nth-child(2) { width: 16%; }
-      table:first-of-type th:nth-child(3), table:first-of-type td:nth-child(3) { width: 18%; }
+      table:first-of-type th:nth-child(1), table:first-of-type td:nth-child(1) { text-align: center; }
       td.amount { font-weight: 800; }
       td.combined-amount { text-align: center; vertical-align: middle; font-size: 11px; }
       .center { text-align: center; }
@@ -3355,6 +3238,7 @@ function buildQuotationPrintHtml(quotation) {
       </section>
       ${combinedPackageHeader}
       <table>
+        <colgroup>${[5, 14, 16, 9, 11, 15, 6, 12, 12].map((width) => `<col style="width:${width}%">`).join('')}</colgroup>
         <thead>
           <tr><th>Sr.No</th><th>Business Category</th><th>Service Category</th><th>Service Period</th><th>Applicant Type</th><th>Services Offered</th><th>Unit</th><th>Unit Name</th><th>Basic Amount (INR)</th></tr>
         </thead>
