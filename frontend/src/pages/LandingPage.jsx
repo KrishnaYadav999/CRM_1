@@ -61,7 +61,7 @@ function Wordmark({ inverse = false, compact = false }) {
     return () => { active = false }
   }, [])
   return <span className={`lp-wordmark ${inverse ? 'inverse' : ''} ${compact ? 'compact' : ''}`}>
-    {logo && <img src={logo} alt="Anant Tattva" />}
+    {logo && <img src={logo} alt="Anant Tattva" width={compact ? 78 : 150} height={compact ? 28 : 46} />}
   </span>
 }
 
@@ -104,7 +104,7 @@ function ClientLogo({ client, duplicate }) {
     clientLogoCache.get(client).then((url) => { if (active) setSrc(url) })
     return () => { active = false }
   }, [client, original])
-  return <img src={src} alt={duplicate ? '' : `Client logo ${client}`} loading="eager" draggable={false} />
+  return <img src={src} width="134" height="70" alt={duplicate ? '' : `Client logo ${client}`} loading="eager" draggable={false} />
 }
 
 function ClientScroller() {
@@ -154,7 +154,17 @@ function ClientScroller() {
 }
 
 function DashboardPreview() {
-  return <div className="lp-preview-stage" aria-label="Anant Tattva Business CRM dashboard preview">
+  const stage = useRef(null)
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      const scale = Math.min(1, entry.contentRect.width / 690)
+      stage.current.style.setProperty('--lp-preview-scale', String(scale))
+      stage.current.style.setProperty('--lp-preview-height', `${Math.ceil(377 * scale)}px`)
+    })
+    observer.observe(stage.current)
+    return () => observer.disconnect()
+  }, [])
+  return <div ref={stage} className="lp-preview-stage" aria-label="Anant Tattva Business CRM dashboard preview">
     <div className="lp-preview-blob blob-one" /><div className="lp-preview-blob blob-two" />
     <div className="lp-dashboard">
       <header className="lp-dashboard-head"><Wordmark compact /><div className="lp-dash-search">Search anything...</div><span className="lp-dash-avatar">AT</span><span className="lp-dash-welcome"><small>Welcome</small><b>Anant Tattva</b></span></header>
@@ -171,7 +181,7 @@ function DashboardPreview() {
           <div className="lp-dash-bottom">
             <article className="lp-performance">
               <div><b><BarChart3 /> Performance</b><span><strong>+32%</strong><small>Team growth</small></span></div>
-              <svg viewBox="0 0 560 145" preserveAspectRatio="none" role="img" aria-label="Performance improving from January to June"><defs><linearGradient id="lpChartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#11a98a" stopOpacity=".28"/><stop offset="1" stopColor="#11a98a" stopOpacity="0"/></linearGradient></defs><path className="lp-chart-grid" d="M0 35H560M0 75H560M0 115H560" /><path className="lp-chart-fill" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17 L560 145H0Z" /><path className="lp-chart-line" pathLength="1" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17" /></svg>
+              <svg width="560" height="145" viewBox="0 0 560 145" preserveAspectRatio="none" role="img" aria-label="Performance improving from January to June"><defs><linearGradient id="lpChartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#11a98a" stopOpacity=".28"/><stop offset="1" stopColor="#11a98a" stopOpacity="0"/></linearGradient></defs><path className="lp-chart-grid" d="M0 35H560M0 75H560M0 115H560" /><path className="lp-chart-fill" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17 L560 145H0Z" /><path className="lp-chart-line" pathLength="1" d="M0 124 C55 116,88 86,145 94 S220 106,270 68 S345 78,392 59 S466 39,560 17" /></svg>
               <div className="lp-chart-months"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
             </article>
             <article className="lp-tasks"><div><span className="lp-check"><Check /></span><b>24 tasks completed<small>Today</small></b></div><ul><li><Check />Follow up with client</li><li><Check />Submit compliance docs</li><li><Check />Review new leads</li><li><Check />Update approvals</li></ul><a href="#workspace">View all tasks <ArrowRight /></a></article>
