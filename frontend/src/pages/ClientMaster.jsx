@@ -2872,7 +2872,6 @@ export default function ClientMaster() {
             clients={clients}
             totalClientCount={totalClientCount}
             staff={staff}
-            currentUser={currentUser}
             loading={loading}
             error={error}
             notice={notice}
@@ -2881,7 +2880,6 @@ export default function ClientMaster() {
             onEdit={openClientEdit}
             canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
             onCreate={openClientForm}
-            onOpenAllocation={() => navigate('/sales/client-master-allocate')}
             selectOptions={selectOptions}
           />
         )}
@@ -3335,6 +3333,28 @@ function clientDocumentUrl(value) {
   return String(value.secureUrl || value.url || value.dataUrl || value.fileUrl || value.path || '').trim();
 }
 
+function clientDocumentActionUrls(value) {
+  const urls = [];
+  const visit = (item) => {
+    if (!item) return;
+    if (Array.isArray(item)) {
+      item.forEach(visit);
+      return;
+    }
+    if (typeof item === 'string') {
+      const url = item.trim();
+      if (url) urls.push(url);
+      return;
+    }
+    if (typeof item !== 'object') return;
+    const directUrl = clientDocumentUrl(item);
+    if (directUrl) urls.push(directUrl);
+    else if (item.file) visit(item.file);
+  };
+  visit(value);
+  return [...new Set(urls)];
+}
+
 function looksLikeClientDocument(value) {
   const text = String(value || '').trim();
   return /^(https?:|data:|blob:)/i.test(text)
@@ -3419,12 +3439,15 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     : String(rawDocumentUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
   const docLinks = mapClientDocuments(documentUrls);
   const clientDocuments = useMemo(() => collectClientDocuments(data), [client]);
+  const msmeDocumentFiles = msmeRows.map((row) => row?.file).filter(Boolean);
+  const complianceDocument = (name, fallback = '') => data.compliance?.[`${name}File`] || fallback;
   const companyWideProfileRows = [
     ['ATPL Lead ID', data.importMeta?.leadNumber || data.importMeta?.uniqueId || getClientUniqueId(client), FileText],
     ['Company Overview Name', data.companyOverview?.companyName, Building2],
     ['Company Summary', data.companyOverview?.companySummary, FileText],
     ['Overview Points', Array.isArray(data.companyOverview?.overviewItems) ? data.companyOverview.overviewItems.filter(Boolean).join(' | ') : '', ClipboardList],
     ['Product Name', data.companyOverview?.productName, FileText],
+    ...(data.companyOverview?.productImage ? [['Product Image', 'Uploaded image', Images, data.companyOverview.productImage]] : []),
     ['Product Category', normalizeCompanyOverviewCategories(data.companyOverview?.category).join(', '), FolderCheck],
     ['Client Name', clientName, Building2],
     ['Trade Name', data.basic?.tradeName, Building2],
@@ -3433,10 +3456,10 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Website', data.basic?.website, Eye]
   ];
   const companyWideComplianceRows = [
-    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, docLinks.gst],
-    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, docLinks.pan],
-    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, docLinks.cin],
-    ['MSME', getMsmeSummary(data), FileCheck2, docLinks.msme]
+    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, complianceDocument('gst', docLinks.gst)],
+    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, complianceDocument('pan', docLinks.pan)],
+    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, complianceDocument('cin', docLinks.cin)],
+    ['MSME', getMsmeSummary(data), FileCheck2, msmeDocumentFiles.length ? msmeDocumentFiles : docLinks.msme]
   ];
   const profileRows = [
     ...companyWideProfileRows,
@@ -3460,12 +3483,14 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Email', data.authorised?.email || data.coordinating?.email, FileText],
     ['Website', data.basic?.website, Eye],
     ['Authorised Person', data.authorised?.name, UserRound],
+    ...(data.authorised?.panDocument ? [['Authorised Person PAN Document', 'Uploaded document', FileText, data.authorised.panDocument]] : []),
+    ...(data.authorised?.aadhaarDocument ? [['Authorised Person Aadhaar Document', 'Uploaded document', FileText, data.authorised.aadhaarDocument]] : []),
     ['Coordinator', data.coordinating?.name, UserRound]
   ];
   const complianceRows = [
     ...companyWideComplianceRows,
-    ['Factory License', data.compliance?.factoryLicense || data.compliance?.factoryLicenseNumber, FileText, docLinks.factory],
-    ['EPR Certificate', data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, ShieldCheck, docLinks.epr]
+    ['Factory License', data.compliance?.factoryLicense || data.compliance?.factoryLicenseNumber, FileText, complianceDocument('factoryLicense', docLinks.factory)],
+    ['EPR Certificate', data.compliance?.eprCertificate || data.compliance?.eprCertificateNumber, ShieldCheck, complianceDocument('eprCertificate', docLinks.epr)]
   ];
   const hasMultipleServices = serviceClients.length > 1;
   const perServiceData = useMemo(() => {
@@ -3482,6 +3507,8 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
         ? svcRawDocUrls.map((item) => (typeof item === 'string' ? item : item?.url || item?.fileUrl || item?.path || '')).map((item) => item.trim()).filter(Boolean)
         : String(svcRawDocUrls || '').split(',').map((item) => item.trim()).filter(Boolean);
       const svcDocLinks = mapClientDocuments(svcDocUrls);
+      const svcMsmeFiles = svcMsmeRows.map((row) => row?.file).filter(Boolean);
+      const svcComplianceDocument = (name, fallback = '') => svcData.compliance?.[`${name}File`] || fallback;
       const colorPalette = [
         { header: 'from-sky-50 to-blue-50', border: 'border-sky-200', badge: 'border-sky-200 bg-sky-50 text-sky-700', badge2: 'border-blue-200 bg-blue-50 text-blue-700', accent: '#0369a1', icon: Package },
         { header: 'from-emerald-50 to-green-50', border: 'border-emerald-200', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700', badge2: 'border-green-200 bg-green-50 text-green-700', accent: '#047857', icon: Tag },
@@ -3517,16 +3544,16 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
           ['Communication PIN', svcData.communicationAddress?.pincode, MapPin]
         ],
         svcComplianceRows: [
-          ['Factory License', svcData.compliance?.factoryLicense || svcData.compliance?.factoryLicenseNumber, FileText, svcDocLinks.factory],
-          ['EPR Certificate', svcData.compliance?.eprCertificate || svcData.compliance?.eprCertificateNumber, ShieldCheck, svcDocLinks.epr],
-          ['MSME (if service specific)', getMsmeSummary(svcData), FileCheck2, svcDocLinks.msme]
+          ['Factory License', svcData.compliance?.factoryLicense || svcData.compliance?.factoryLicenseNumber, FileText, svcComplianceDocument('factoryLicense', svcDocLinks.factory)],
+          ['EPR Certificate', svcData.compliance?.eprCertificate || svcData.compliance?.eprCertificateNumber, ShieldCheck, svcComplianceDocument('eprCertificate', svcDocLinks.epr)],
+          ['MSME (if service specific)', getMsmeSummary(svcData), FileCheck2, svcMsmeFiles.length ? svcMsmeFiles : svcDocLinks.msme]
         ],
         svcDocRows: [
-          ['Factory License Date', svcData.compliance?.factoryLicenseDate, FileText, svcDocLinks.factory],
-          ['EPR Certificate Date', svcData.compliance?.eprCertificateDate, ShieldCheck, svcDocLinks.epr],
-          ['GST Certificate Date (shared)', svcData.compliance?.gstDate, FileText, svcDocLinks.gst],
-          ['CIN Document Date (shared)', svcData.compliance?.cinDate, FileText, svcDocLinks.cin],
-          ['PAN Document Date (shared)', svcData.compliance?.panDate, FileText, svcDocLinks.pan],
+          ['Factory License Date', svcData.compliance?.factoryLicenseDate, FileText, svcComplianceDocument('factoryLicense', svcDocLinks.factory)],
+          ['EPR Certificate Date', svcData.compliance?.eprCertificateDate, ShieldCheck, svcComplianceDocument('eprCertificate', svcDocLinks.epr)],
+          ['GST Certificate Date (shared)', svcData.compliance?.gstDate, FileText, svcComplianceDocument('gst', svcDocLinks.gst)],
+          ['CIN Document Date (shared)', svcData.compliance?.cinDate, FileText, svcComplianceDocument('cin', svcDocLinks.cin)],
+          ['PAN Document Date (shared)', svcData.compliance?.panDate, FileText, svcComplianceDocument('pan', svcDocLinks.pan)],
           ...(svcDocLinks.application ? [['Application Page', 'Uploaded document', FileText, svcDocLinks.application]] : [])
         ],
         svcContactRows: [
@@ -3559,7 +3586,10 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
           ['CPCB Unit ID', (svcData.cpcb || {}).unitId, FileText],
           ['CPCB Application Date', (svcData.cpcb || {}).applicationDate, CalendarDays],
           ['CPCB Approval Date', (svcData.cpcb || {}).approvalDate, CalendarDays],
-          ['CPCB Remark', (svcData.cpcb || {}).remark, ClipboardList]
+          ['CPCB Remark', (svcData.cpcb || {}).remark, ClipboardList],
+          ...((svcData.cpcb || {}).homePageFile ? [['CPCB Home Page', 'Uploaded document', Images, (svcData.cpcb || {}).homePageFile]] : []),
+          ...(clientDocumentActionUrls(svcData.cpcbScreenshots).length ? [['CPCB Screenshots / Documents', `${clientDocumentActionUrls(svcData.cpcbScreenshots).length} uploaded`, Images, svcData.cpcbScreenshots]] : []),
+          ...(clientDocumentActionUrls(svcData.processDiagrams).length ? [['Process Diagrams', `${clientDocumentActionUrls(svcData.processDiagrams).length} uploaded`, Images, svcData.processDiagrams]] : [])
         ].filter(([, v]) => String(v || '').trim() !== ''),
         svcCpcbFileCount: Array.isArray(svcData.cpcbScreenshots) ? svcData.cpcbScreenshots.length : 0,
         svcProgress: 0,
@@ -3602,21 +3632,28 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['Communication PIN', data.communicationAddress?.pincode, MapPin]
   ];
   const docRows = [
-    ['GST Certificate Date', data.compliance?.gstDate, FileText, docLinks.gst],
-    ['CIN Document Date', data.compliance?.cinDate, FileText, docLinks.cin],
-    ['PAN Document Date', data.compliance?.panDate, FileText, docLinks.pan],
-    ['Factory License Date', data.compliance?.factoryLicenseDate, FileText, docLinks.factory],
-    ['EPR Certificate No', data.compliance?.eprCertificate, ShieldCheck, docLinks.epr],
+    ['GST Certificate Date', data.compliance?.gstDate, FileText, complianceDocument('gst', docLinks.gst)],
+    ['CIN Document Date', data.compliance?.cinDate, FileText, complianceDocument('cin', docLinks.cin)],
+    ['PAN Document Date', data.compliance?.panDate, FileText, complianceDocument('pan', docLinks.pan)],
+    ['Factory License Date', data.compliance?.factoryLicenseDate, FileText, complianceDocument('factoryLicense', docLinks.factory)],
+    ['EPR Certificate No', data.compliance?.eprCertificate, ShieldCheck, complianceDocument('eprCertificate', docLinks.epr)],
+    ...(data.cpcb?.homePageFile ? [['CPCB Home Page', 'Uploaded document', Images, data.cpcb.homePageFile]] : []),
+    ...(clientDocumentActionUrls(data.cpcbScreenshots).length ? [['CPCB Screenshots / Documents', `${clientDocumentActionUrls(data.cpcbScreenshots).length} uploaded`, Images, data.cpcbScreenshots]] : []),
+    ...(clientDocumentActionUrls(data.processDiagrams).length ? [['Process Diagrams', `${clientDocumentActionUrls(data.processDiagrams).length} uploaded`, Images, data.processDiagrams]] : []),
+    ...((data.cte?.plantWiseDetails || []).flatMap((plant, index) => [
+      ...(plant?.cteDocument ? [[`Plant ${index + 1} CTE Document`, 'Uploaded document', FileText, plant.cteDocument]] : []),
+      ...(plant?.ctoDocument ? [[`Plant ${index + 1} CTO / CCA Document`, 'Uploaded document', FileText, plant.ctoDocument]] : [])
+    ])),
     ...(docLinks.application ? [['Application Page', 'Uploaded document', FileText, docLinks.application]] : [])
   ];
   const sharedComplianceRows = [
-    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, docLinks.gst],
-    ['GST Certificate Date', data.compliance?.gstDate ? formatDisplayDate(data.compliance.gstDate) : '', CalendarDays, docLinks.gst],
-    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, docLinks.pan],
-    ['PAN Document Date', data.compliance?.panDate ? formatDisplayDate(data.compliance.panDate) : '', CalendarDays, docLinks.pan],
-    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, docLinks.cin],
-    ['CIN Document Date', data.compliance?.cinDate ? formatDisplayDate(data.compliance.cinDate) : '', CalendarDays, docLinks.cin],
-    ['MSME', getMsmeSummary(data), FileCheck2, docLinks.msme]
+    ['GST Number', data.compliance?.gst || data.compliance?.gstNumber, FileText, complianceDocument('gst', docLinks.gst)],
+    ['GST Certificate Date', data.compliance?.gstDate ? formatDisplayDate(data.compliance.gstDate) : '', CalendarDays, complianceDocument('gst', docLinks.gst)],
+    ['PAN', data.compliance?.pan || data.compliance?.panNumber, FileText, complianceDocument('pan', docLinks.pan)],
+    ['PAN Document Date', data.compliance?.panDate ? formatDisplayDate(data.compliance.panDate) : '', CalendarDays, complianceDocument('pan', docLinks.pan)],
+    ['CIN', data.compliance?.cin || data.compliance?.cinNumber, FileText, complianceDocument('cin', docLinks.cin)],
+    ['CIN Document Date', data.compliance?.cinDate ? formatDisplayDate(data.compliance.cinDate) : '', CalendarDays, complianceDocument('cin', docLinks.cin)],
+    ['MSME', getMsmeSummary(data), FileCheck2, msmeDocumentFiles.length ? msmeDocumentFiles : docLinks.msme]
   ];
   const detailTabs = [
     { id: 'basic', label: 'Basic Info', icon: Building2 },
@@ -4319,6 +4356,7 @@ function DetailSheet({ children, columns = 1 }) {
 function DetailValue({ label, value, icon: Icon, link = false, actionUrl = '' }) {
   const isDocumentList = Array.isArray(value);
   const display = value || '-';
+  const actionUrls = clientDocumentActionUrls(actionUrl);
   return (
     <div className="detail-value-card group min-w-0 border-slate-100 px-4 py-3 transition hover:bg-emerald-50/50 sm:px-5">
       <div className="grid gap-3 xl:grid-cols-[minmax(150px,190px)_minmax(0,1fr)_auto] xl:items-center">
@@ -4333,17 +4371,23 @@ function DetailValue({ label, value, icon: Icon, link = false, actionUrl = '' })
             <p className="break-words text-sm font-black leading-6 text-slate-900">{display}</p>
           )}
         </div>
-        {actionUrl && !isDocumentList ? (
-          <a
-            href={normalizeDocumentUrl(actionUrl)}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-lift ml-11 inline-flex h-9 w-fit shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-[#30737B] hover:bg-[#30737B] hover:text-white xl:ml-0"
-            title={getDocumentLinkName(actionUrl, 0)}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            View
-          </a>
+        {actionUrls.length > 0 && !isDocumentList ? (
+          <div className="ml-11 flex flex-wrap gap-2 xl:ml-0 xl:justify-end">
+            {actionUrls.map((url, index) => (
+              <a
+                key={`${url}-${index}`}
+                href={openableClientDocumentUrl(url)}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-lift inline-flex h-9 w-fit shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-[#30737B] hover:bg-[#30737B] hover:text-white"
+                title={getDocumentLinkName(url, index)}
+                aria-label={`View ${label}${actionUrls.length > 1 ? ` document ${index + 1}` : ''}`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                {actionUrls.length > 1 ? `View ${index + 1}` : 'View'}
+              </a>
+            ))}
+          </div>
         ) : <span className="hidden xl:block" />}
       </div>
       {isDocumentList ? (
