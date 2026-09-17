@@ -61,6 +61,28 @@
   }
 }
 
+@keyframes lead-tab-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.996);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.lead-tab-content-enter {
+  animation: lead-tab-content-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lead-tab-content-enter {
+    animation: none;
+  }
+}
+
 @keyframes drawerIn {
   from {
     opacity: 0;

@@ -9,12 +9,16 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 test('Lead Generation uses inline tabs for temporary and notified leads', () => {
   const page = read('frontend/src/pages/LeadGeneration.jsx');
   const app = read('frontend/src/App.jsx');
+  const styles = read('frontend/src/styles/modules/02-auth-leads-and-client-detail.css');
 
   assert.match(page, /function LeadWorkspaceTabs/);
   assert.match(page, /label: 'Temporary Leads'/);
   assert.match(page, /label: 'Notified Leads'/);
   assert.match(page, /workspaceTab === 'temporary'/);
   assert.match(page, /workspaceTab === 'notified'/);
+  assert.match(page, /h-12 min-w-\[150px\]/);
+  assert.match(page, /key=\{workspaceTab\} className="lead-tab-content-enter"/);
+  assert.match(styles, /@keyframes lead-tab-content-in/);
   assert.doesNotMatch(page, /navigate\('\/sales\/lead-generation\/temporary'\)/);
   assert.match(app, /lead-generation\/temporary.*Navigate to="\/sales\/lead-generation\?tab=temporary"/);
 });

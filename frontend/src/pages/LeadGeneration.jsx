@@ -3670,16 +3670,7 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
 
         {error && <ToastMessage type="error">{error}</ToastMessage>}
 
-        <LeadWorkspaceTabs
-          activeTab={workspaceTab}
-          temporaryLeadCount={temporaryLeadCount}
-          notifiedLeadCount={allNotifiedRows.length}
-          onChange={setWorkspaceTab}
-        />
-
-        {workspaceTab === 'temporary' ? (
-          <div className="animate-[fadeIn_.25s_ease-out]"><TemporaryLeadsWorkspace onClose={() => setWorkspaceTab('leads')} onConverted={onRefresh} embedded /></div>
-        ) : <>
+        {workspaceTab !== 'temporary' && <>
         <div className="lead-directory-toolbar grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-950/5 xl:grid-cols-[minmax(320px,1.15fr)_minmax(210px,0.72fr)_minmax(280px,1fr)_auto] xl:items-center">
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
@@ -3700,7 +3691,19 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
         </div>
 
         <DirectoryTableHeader showing={workspaceTab === 'notified' ? visibleNotifiedRows.length : visibleLeads.length} total={activeTotal} label={workspaceTab === 'notified' ? 'notified leads' : 'leads'} rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
-        {workspaceTab === 'notified' ? (
+        </>}
+
+        <LeadWorkspaceTabs
+          activeTab={workspaceTab}
+          temporaryLeadCount={temporaryLeadCount}
+          notifiedLeadCount={allNotifiedRows.length}
+          onChange={setWorkspaceTab}
+        />
+
+        <div key={workspaceTab} className="lead-tab-content-enter">
+        {workspaceTab === 'temporary' ? (
+          <TemporaryLeadsWorkspace onClose={() => setWorkspaceTab('leads')} onConverted={onRefresh} embedded />
+        ) : workspaceTab === 'notified' ? (
           <NotifiedLeadsTable rows={visibleNotifiedRows} loading={loading} onView={onView} onEdit={onEdit} canEdit={canEdit} />
         ) : <div className="lead-directory-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
           <div className="lead-directory-scroll max-h-[680px] overflow-auto">
@@ -3752,8 +3755,8 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
             </table>
           </div>
         </div>}
-        <LeadDirectoryPagination page={page} totalPages={totalPages} setPage={setPage} />
-        </>}
+        </div>
+        {workspaceTab !== 'temporary' && <LeadDirectoryPagination page={page} totalPages={totalPages} setPage={setPage} />}
       </div>
     </div>
   );
@@ -3766,15 +3769,15 @@ function LeadWorkspaceTabs({ activeTab, temporaryLeadCount, notifiedLeadCount, o
     { id: 'notified', label: 'Notified Leads', note: `${notifiedLeadCount.toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }
   ];
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" role="tablist" aria-label="Lead workspaces">
-      <div className="grid gap-2 md:grid-cols-3">
+    <div className="flex justify-start" role="tablist" aria-label="Lead workspaces">
+      <div className="inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm shadow-slate-950/5">
         {tabs.map(({ id, label, note, icon: Icon, tone }) => {
           const active = activeTab === id;
           const activeClass = tone === 'violet' ? 'border-violet-300 bg-violet-50 text-violet-800 shadow-violet-100' : tone === 'orange' ? 'border-orange-300 bg-orange-50 text-orange-800 shadow-orange-100' : 'border-emerald-300 bg-emerald-50 text-emerald-800 shadow-emerald-100';
-          return <button key={id} type="button" role="tab" aria-selected={active} onClick={() => onChange(id)} className={`flex min-h-16 items-center gap-3 rounded-xl border px-4 py-3 text-left transition duration-200 ${active ? `${activeClass} shadow-sm` : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50'}`}>
-            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${active ? 'bg-white/80' : 'bg-slate-100'}`}><Icon className="h-5 w-5" /></span>
-            <span className="min-w-0"><strong className="block text-sm font-black">{label}</strong><small className="block truncate text-xs font-bold opacity-75">{note}</small></span>
-            {active && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0" />}
+          return <button key={id} type="button" role="tab" aria-selected={active} onClick={() => onChange(id)} className={`flex h-12 min-w-[150px] items-center gap-2 rounded-lg border px-3 text-left transition-all duration-300 ease-out sm:min-w-[170px] ${active ? `${activeClass} -translate-y-px shadow-sm` : 'border-transparent text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-700'}`}>
+            <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-all duration-300 ${active ? 'scale-105 bg-white/90 shadow-sm' : 'bg-slate-100'}`}><Icon className="h-4 w-4" /></span>
+            <span className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{label}</strong><small className="block truncate text-[10px] font-bold opacity-70">{note}</small></span>
+            <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 transition-all duration-300 ${active ? 'scale-100 opacity-100' : 'scale-75 opacity-0'}`} />
           </button>;
         })}
       </div>
