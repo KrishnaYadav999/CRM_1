@@ -2801,6 +2801,8 @@ export default function ClientMaster() {
 
   async function openDirectoryClientView(selectedClient) {
     const lookupId = ++clientRecordRequestRef.current;
+    setViewClient(null);
+    setViewLoading(true);
     setError('');
     try {
       const selectedData = readClientData(selectedClient);
@@ -2818,19 +2820,23 @@ export default function ClientMaster() {
       const relatedServices = getRelatedClientServices(serviceSource, selectedService);
       setViewServiceClients(relatedServices);
       if (relatedServices.length > 1) {
+        setViewLoading(false);
         setPendingServiceView({ client: selectedClient, services: relatedServices });
         return;
       }
       await openClientView(relatedServices[0] || selectedClient, relatedServices);
-    } catch (err) {
+    } catch {
       if (lookupId !== clientRecordRequestRef.current) return;
       const relatedServices = getRelatedClientServices(clients, selectedClient);
       setViewServiceClients(relatedServices);
       if (relatedServices.length > 1) {
+        setViewLoading(false);
         setPendingServiceView({ client: selectedClient, services: relatedServices });
         return;
       }
-      setError(err?.response?.data?.error || 'Unable to load applicant types for this company. Please try again.');
+      // Service discovery enriches the chooser, but a temporary discovery
+      // failure must not block a client record that is already visible.
+      await openClientView(relatedServices[0] || selectedClient, relatedServices);
     }
   }
 

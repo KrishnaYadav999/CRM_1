@@ -26,6 +26,17 @@ test('detail view preserves discovered services and renders the requested detail
   assert.match(source, /\['CIN'[\s\S]*\['CIN Document Date'/);
 });
 
+test('directory eye action still opens a visible client when service discovery fails', () => {
+  const source = read('frontend/src/pages/ClientMaster.jsx');
+  const handler = source.slice(source.indexOf('async function openDirectoryClientView'), source.indexOf("if (viewMode === 'list')"));
+  const fallback = handler.slice(handler.indexOf('} catch'));
+
+  assert.match(handler, /setViewLoading\(true\)/);
+  assert.match(fallback, /getRelatedClientServices\(clients, selectedClient\)/);
+  assert.match(fallback, /await openClientView\(relatedServices\[0\] \|\| selectedClient, relatedServices\)/);
+  assert.doesNotMatch(fallback, /Unable to load applicant types/);
+});
+
 test('service chooser includes secure CEPR credential controls', () => {
   const frontend = read('frontend/src/pages/ClientMaster.jsx');
   const controller = read('backend/src/controllers/clientController.js');
