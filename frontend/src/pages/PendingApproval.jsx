@@ -661,7 +661,9 @@ export default function PendingApproval() {
   const normalizedRole = effectiveRoles.join('|');
   const canApprove = hasAnyRole(currentUser, adminRoles);
   const isSuperAdmin = hasAnyRole(currentUser, ['superadmin']);
-  const canAdminApproveQuotation = hasAnyRole(currentUser, ['admin']) && !isSuperAdmin;
+  const primaryRole = String(currentUser?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const isQuotationSuperAdmin = primaryRole === 'superadmin' || (!primaryRole && hasAnyRole(currentUser, ['superadmin']));
+  const canAdminApproveQuotation = primaryRole === 'admin' || (!primaryRole && hasAnyRole(currentUser, ['admin']) && !isQuotationSuperAdmin);
   const canApproveTemporary = hasAnyRole(currentUser, ['admin', 'superadmin']);
   const isComplianceApprovalView = hasAnyRole(currentUser, ['compliance']) && !canApprove;
   const canApproveClients = canApprove || isComplianceApprovalView;
@@ -1118,7 +1120,7 @@ export default function PendingApproval() {
     event.preventDefault();
     if (!quotationDecision?.row) return;
     const remarks = String(quotationDecision.remarks || '').trim();
-    const adminProofRequired = quotationDecision.status === 'APPROVED' && !isSuperAdmin;
+    const adminProofRequired = quotationDecision.status === 'APPROVED' && canAdminApproveQuotation;
     if (quotationDecision.status === 'REJECTED' && !remarks) return;
     if (adminProofRequired && !quotationDecision.proofUrl) return;
     const decision = quotationDecision;
@@ -1131,7 +1133,7 @@ export default function PendingApproval() {
   }
 
   async function finalizeManagementApproval(row) {
-    if (!isSuperAdmin || getApprovalStatus(row) !== 'PENDING') return;
+    if (!isQuotationSuperAdmin || getApprovalStatus(row) !== 'PENDING') return;
     const id = row.quotationId || row._id || row.id;
     setSavingId(`management-final-${id}`);
     setError('');
@@ -1648,7 +1650,7 @@ export default function PendingApproval() {
                 total={filteredQuotations.length}
                 onPrev={() => setQuotePage((value) => Math.max(1, value - 1))}
                 onNext={() => setQuotePage((value) => Math.min(quoteTotalPages, value + 1))}
-                actions={['APPROVED', 'REJECTED'].includes(statusFilter) ? null : isSuperAdmin ? (
+                actions={['APPROVED', 'REJECTED'].includes(statusFilter) ? null : isQuotationSuperAdmin ? (
                   <button
                     type="button"
                     disabled={!pendingQuotations.length || Boolean(savingId)}
@@ -1680,7 +1682,7 @@ export default function PendingApproval() {
                     <ManagementApprovalCell
                       row={quote}
                       savingId={savingId}
-                      isSuperAdmin={isSuperAdmin}
+                      isSuperAdmin={isQuotationSuperAdmin}
                       currentUser={currentUser}
                       onFinalize={finalizeManagementApproval}
                     />

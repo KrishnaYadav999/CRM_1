@@ -864,8 +864,10 @@ exports.updateQuotationApproval = async (req, res) => {
   }
 
   const reviewerRole = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-  const isSuperAdminReviewer = userHasAnyRole(req.user, ['superadmin']);
-  const isAdminReviewer = userHasAnyRole(req.user, ['admin']) && !isSuperAdminReviewer;
+  const isSuperAdminReviewer = reviewerRole === 'superadmin'
+    || (!reviewerRole && userHasAnyRole(req.user, ['superadmin']));
+  const isAdminReviewer = reviewerRole === 'admin'
+    || (!reviewerRole && userHasAnyRole(req.user, ['admin']) && !isSuperAdminReviewer);
   const remarks = String(req.body.remarks || '').trim();
   const proofUrl = String(req.body.proofUrl || '').trim();
   const proofName = String(req.body.proofName || '').trim();
@@ -1109,6 +1111,10 @@ exports.submitManagementApproval = async (req, res) => {
 };
 
 exports.finalizeManagementApproval = async (req, res) => {
+  const finalReviewerRole = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (finalReviewerRole !== 'superadmin') {
+    return res.status(403).json({ error: 'Only a primary Super Admin account can complete final approval.' });
+  }
   const requestedId = String(req.params.id || '').trim();
   const quotation = mongoose.Types.ObjectId.isValid(requestedId)
     ? await Quotation.findById(requestedId).populate('createdBy', 'name email')
