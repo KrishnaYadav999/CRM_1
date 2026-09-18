@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileSpreadsheet, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Search, Trash2, UploadCloud, Users, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileSpreadsheet, FileText, Filter, Mail, MessageCircle, MoreHorizontal, Phone, Plus, RefreshCw, Save, Search, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -16,6 +16,26 @@ import { createQuotationPdf } from '../utils/quotationPdf';
 import { addServiceDays, datesFromAnnualYears, normalizeDateInputValue, normalizePeriodUnit, periodDisplay, renewalDateFrom, serviceEndDateFrom } from '../utils/servicePeriod';
 
 const ANANT_LOGO_SOURCE_URL = '/anant-tattva-logo-chroma.png';
+
+const MANAGEMENT_APPROVAL_SOURCES = [
+  { value: 'TEAMS', label: 'Teams' },
+  { value: 'EMAIL', label: 'Email' },
+  { value: 'VERBAL_CALL', label: 'Verbal Call' },
+  { value: 'WHATSAPP', label: 'WhatsApp' },
+  { value: 'OTHER', label: 'Other' }
+];
+
+function TeamsApprovalIcon({ className = '' }) {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className={className}><path fill="currentColor" d="M14.2 5.2a3.1 3.1 0 1 1 6.2 0 3.1 3.1 0 0 1-6.2 0ZM13 9h8.2c.44 0 .8.36.8.8v5.1a4.1 4.1 0 0 1-8.2 0V9.8c0-.44-.36-.8-.8-.8Zm-4.2-6a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6ZM2.8 9.5h10c.44 0 .8.36.8.8v6.05A5.65 5.65 0 0 1 2.3 16.4v-6.1c0-.44.23-.8.5-.8Z"/><path fill="#fff" d="M5.2 11.2h7v1.45H9.9v5.05H8.25v-5.05H5.2V11.2Z"/></svg>;
+}
+
+function ApprovalSourceIcon({ source, className = '' }) {
+  if (source === 'TEAMS') return <TeamsApprovalIcon className={className} />;
+  if (source === 'EMAIL') return <Mail className={className} />;
+  if (source === 'VERBAL_CALL') return <Phone className={className} />;
+  if (source === 'WHATSAPP') return <MessageCircle className={className} />;
+  return <MoreHorizontal className={className} />;
+}
 
 const emptyLeadDetails = {
   referredBy: '',
@@ -939,6 +959,7 @@ export default function Quotations() {
   const [managementApprovers, setManagementApprovers] = useState([]);
   const [managementApproversLoading, setManagementApproversLoading] = useState(false);
   const [managementApprovalSaving, setManagementApprovalSaving] = useState(false);
+  const [managementSourceOpen, setManagementSourceOpen] = useState(false);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
   const [itemDrafts, setItemDrafts] = useState({});
   const [financialYearItemIndex, setFinancialYearItemIndex] = useState(null);
@@ -1215,6 +1236,7 @@ export default function Quotations() {
   async function openManagementApproval(row) {
     if (!canRequestManagementApproval || ['approved', 'rejected'].includes(String(row?.status || '').toLowerCase())) return;
     setManagementApproval({ row, approverId: '', source: '', note: '' });
+    setManagementSourceOpen(false);
     setManagementApproversLoading(true);
     setError('');
     try {
@@ -1255,6 +1277,7 @@ export default function Quotations() {
         note: String(managementApproval.note || '').trim()
       });
       setManagementApproval(null);
+      setManagementSourceOpen(false);
       setSuccessModal({
         title: 'Sent to Super Admin',
         message: response.data?.message || 'Quotation is now visible in Pending Approval for final Super Admin approval.'
@@ -2197,7 +2220,7 @@ export default function Quotations() {
                 <div className="management-approval-grid">
                   <label><span>Approve By <b>*</b></span><select required disabled={managementApproversLoading || managementApprovalSaving} value={managementApproval.approverId} onChange={(event) => setManagementApproval((current) => ({ ...current, approverId: event.target.value }))}><option value="">{managementApproversLoading ? 'Loading Super Admins...' : 'Select Super Admin'}</option>{managementApprovers.map((approver) => <option key={approver.id} value={approver.id}>{approver.name}{approver.email && approver.email !== approver.name ? ` (${approver.email})` : ''}</option>)}</select></label>
                   <label><span>Amount (₹)</span><div className="management-approval-amount"><i>₹</i><input readOnly aria-readonly="true" value={formatInr(Number(managementApproval.row.grandTotal) || 0).replace('₹', '').trim()} /></div><small>Auto-fetched from quotation</small></label>
-                  <label><span>Approval Source <b>*</b></span><select required disabled={managementApprovalSaving} value={managementApproval.source} onChange={(event) => setManagementApproval((current) => ({ ...current, source: event.target.value }))}><option value="">Select Source</option><option value="TEAMS">Teams</option><option value="EMAIL">Email</option><option value="VERBAL_CALL">Verbal Call</option><option value="WHATSAPP">WhatsApp</option><option value="OTHER">Other</option></select></label>
+                  <div className="management-source-field"><span>Approval Source <b>*</b></span><div className={`management-source-picker ${managementSourceOpen ? 'is-open' : ''}`}><button type="button" className="management-source-trigger" disabled={managementApprovalSaving} aria-haspopup="listbox" aria-expanded={managementSourceOpen} onClick={() => setManagementSourceOpen((open) => !open)}>{managementApproval.source ? <><i className={`management-source-icon is-${managementApproval.source.toLowerCase()}`}><ApprovalSourceIcon source={managementApproval.source} className="h-5 w-5" /></i><strong>{MANAGEMENT_APPROVAL_SOURCES.find((option) => option.value === managementApproval.source)?.label}</strong></> : <strong className="is-placeholder">Select Source</strong>}<ChevronDown className="ml-auto h-4 w-4" /></button>{managementSourceOpen && <div className="management-source-menu" role="listbox" aria-label="Approval Source">{MANAGEMENT_APPROVAL_SOURCES.map((option) => <button type="button" role="option" aria-selected={managementApproval.source === option.value} key={option.value} onClick={() => { setManagementApproval((current) => ({ ...current, source: option.value })); setManagementSourceOpen(false); }}><i className={`management-source-icon is-${option.value.toLowerCase()}`}><ApprovalSourceIcon source={option.value} className="h-5 w-5" /></i><span>{option.label}</span>{managementApproval.source === option.value && <Check className="ml-auto h-4 w-4 text-emerald-600" />}</button>)}</div>}</div></div>
                   <label><span>Note <em>(Optional)</em></span><textarea maxLength={500} rows={5} disabled={managementApprovalSaving} value={managementApproval.note} onChange={(event) => setManagementApproval((current) => ({ ...current, note: event.target.value }))} placeholder="Add any note (optional)..." /><small className="management-note-count">{managementApproval.note.length}/500</small></label>
                 </div>
               </div>

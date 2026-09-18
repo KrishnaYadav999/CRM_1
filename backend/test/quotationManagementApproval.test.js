@@ -31,6 +31,9 @@ test('quotation actions expose the request modal and Pending Approval exposes fi
   assert.match(quotationsPage, /Management Approval/);
   assert.match(quotationsPage, /Send to Pending Approval/);
   assert.match(quotationsPage, /Auto-fetched from quotation/);
+  assert.match(quotationsPage, /ApprovalSourceIcon/);
+  assert.match(quotationsPage, /MessageCircle/);
+  assert.match(quotationsPage, /VERBAL_CALL/);
   assert.match(pendingPage, /Super Admin Approval/);
   assert.match(pendingPage, /Final Approve/);
   assert.match(pendingPage, /Admin Approval Required/);
