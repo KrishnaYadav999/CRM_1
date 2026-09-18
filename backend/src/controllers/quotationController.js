@@ -552,6 +552,8 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     managementApproverName: quotation.managementApproval?.approverName || '',
     managementApprovalSource: quotation.managementApproval?.source || '',
     managementApprovalNote: quotation.managementApproval?.note || '',
+    managementApprovalRequestedBy: quotation.managementApproval?.requestedByName || '',
+    managementApprovalRequestedAt: quotation.managementApproval?.requestedAt || null,
     requestDate: parts.date,
     requestTime: parts.time
   };
@@ -873,9 +875,6 @@ exports.updateQuotationApproval = async (req, res) => {
   const proofName = String(req.body.proofName || '').trim();
   if (status === 'REJECTED' && !remarks) {
     return res.status(400).json({ error: 'Please enter a rejection reason.' });
-  }
-  if (status === 'APPROVED' && isAdminReviewer && !proofUrl) {
-    return res.status(400).json({ error: 'Admin must upload approval proof before approving this quotation.' });
   }
 
   const approvalRecordId = String(req.body.approvalRecordId || '').trim();
