@@ -10,7 +10,7 @@ import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
-import { adminRoles, hasAnyRole } from '../constants/dashboard';
+import { adminRoles } from '../constants/dashboard';
 import { QUOTATION_SCOPE_PRESET_OPTIONS, QUOTATION_SCOPE_PRESETS } from '../constants/quotationScopePresets';
 import { createQuotationPdf } from '../utils/quotationPdf';
 import { addServiceDays, datesFromAnnualYears, normalizeDateInputValue, normalizePeriodUnit, periodDisplay, renewalDateFrom, serviceEndDateFrom } from '../utils/servicePeriod';
@@ -1011,7 +1011,7 @@ export default function Quotations() {
     [currentQuotationServiceCategories, customServiceCategories]
   );
   const canManageDropdownOptions = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
-  const canRequestManagementApproval = hasAnyRole(currentUser, adminRoles);
+  const canRequestManagementApproval = Boolean(currentUser);
   const optionsFor = (field, builtIn) => [...new Set([
     ...builtIn,
     ...customDropdownOptions.filter((option) => option.field === field).map((option) => option.name)
