@@ -22,6 +22,7 @@ const purchaseProofRoutes = require('./routes/purchaseProofs');
 const healthReportAssignmentRoutes = require('./routes/healthReportAssignments');
 const salesMisRoutes = require('./routes/salesMis');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
+const { runWeeklyPendingQuotationDigest } = require('./services/weeklyPendingQuotationDigest');
 const { runClientComplianceCorrectionReminders, startClientComplianceCorrectionReminderScheduler } = require('./services/clientComplianceCorrectionReminders');
 const { startClientOnboardingReminderScheduler, runClientOnboardingReminders } = require('./services/clientOnboardingReminders');
 const { startLeadWorkflowReminderScheduler } = require('./services/leadWorkflowReminders');
@@ -121,6 +122,17 @@ app.get('/api/internal/client-onboarding-reminders', async (req, res) => {
   if (authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized cron request' });
   try { return res.json({ ok: true, ...(await runClientOnboardingReminders()) }); }
   catch (error) { return res.status(500).json({ ok: false, error: error.message || 'Reminder run failed' }); }
+});
+app.get('/api/internal/weekly-pending-quotation-digest', async (req, res) => {
+  const cronSecret = String(process.env.CRON_SECRET || '').trim();
+  const authorization = String(req.get('authorization') || '').trim();
+  if (!cronSecret) return res.status(503).json({ ok: false, error: 'CRON_SECRET is not configured' });
+  if (authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized cron request' });
+  try { return res.json({ ok: true, ...(await runWeeklyPendingQuotationDigest()) }); }
+  catch (error) {
+    console.error('Weekly pending quotation digest failed', error);
+    return res.status(500).json({ ok: false, error: error.message || 'Weekly quotation digest failed' });
+  }
 });
 app.get('/api/internal/lead-service-approval-reminders', async (req, res) => {
   const cronSecret = String(process.env.CRON_SECRET || '').trim();

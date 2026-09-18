@@ -2,6 +2,12 @@
   "installCommand": "npm install --prefix backend && npm install --prefix frontend",
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
+  "crons": [
+    {
+      "path": "/api/internal/weekly-pending-quotation-digest",
+      "schedule": "30 12 * * 6"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",

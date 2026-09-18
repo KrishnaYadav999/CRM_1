@@ -70,6 +70,7 @@ Configure these in Vercel Project Settings:
 
 - `MONGODB_URI`
 - `JWT_SECRET`
+- `CRON_SECRET` (protects scheduled reminder endpoints; Vercel sends it as a Bearer token)
 - `CCP_API_URL`
 - `CCP_SHARED_SECRET` or `CCP_API_KEY`
 - `MAIL_PROVIDER=microsoft-graph`
@@ -94,3 +95,11 @@ Exchange Online mailbox.
 Never commit the client secret. If a secret is pasted into chat, logs, screenshots, or
 source code, revoke it in Microsoft Entra, create a replacement, and update only the
 Vercel encrypted environment value.
+
+### Weekly Super Admin quotation digest
+
+The root `vercel.json` calls `/api/internal/weekly-pending-quotation-digest` every
+Saturday at 12:30 UTC (6:00 PM IST). When quotations are still pending, every active
+Super Admin receives a complete table with quotation, company, creator, date, service,
+category, amount, and pending age. Set `CRON_SECRET` in the Production environment;
+the endpoint rejects requests that do not carry the matching Bearer token.
