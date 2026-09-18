@@ -958,7 +958,12 @@ async function readStoredPendingApprovals() {
 
   return {
     pendingClients: clientRows,
-    pendingQuotations: records.filter((record) => record.type === 'quotation').map(mapPendingApprovalRecord)
+    pendingQuotations: records
+      .filter((record) => record.type === 'quotation' && (
+        ['APPROVED', 'REJECTED'].includes(record.approvalStatus)
+        || String(record.payload?.managementApprovalStatus || '').toUpperCase() === 'PENDING'
+      ))
+      .map(mapPendingApprovalRecord)
   };
 }
 
@@ -1369,7 +1374,7 @@ exports.listPendingApprovals = async (req, res) => {
   let liveQuotationRows = [];
   if (isAdministrativeReviewer) {
     try {
-      const liveQuotations = await Quotation.find({ status: { $in: ['draft', 'submitted', 'sent'] } })
+      const liveQuotations = await Quotation.find({ 'managementApproval.status': 'PENDING', status: { $in: ['draft', 'submitted', 'sent'] } })
         .populate('createdBy', 'name email')
         .sort({ createdAt: -1 })
         .limit(500)

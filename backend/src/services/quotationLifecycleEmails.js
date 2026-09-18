@@ -9,8 +9,8 @@ function escapeHtml(value) {
 
 function eventLabel(event) {
   return {
-    created: 'Generated — Pending Approval',
-    revised: 'Revised — Re-approval Required',
+    created: 'Generated — Draft',
+    revised: 'Revised — Management Approval Required',
     approved: 'Approved',
     rejected: 'Rejected'
   }[event] || 'Updated';
@@ -96,8 +96,8 @@ function quotationLifecycleEmailContent({ quotation = {}, event, actor = {} }) {
   const intro = decision
     ? `${quotationNumber} for ${company} has been ${event}.`
     : event === 'revised'
-      ? `${quotationNumber} for ${company} was revised and requires approval again.`
-      : `${quotationNumber} for ${company} was generated and is waiting for approval.`;
+      ? `${quotationNumber} for ${company} was revised. Use Management Approval in quotation Actions when it is ready for final review.`
+      : `${quotationNumber} for ${company} was generated as a draft. Use Management Approval in quotation Actions when it is ready for final review.`;
   const html = `<div style="font-family:Arial,sans-serif;color:#334155">
     <h2 style="color:#0f766e">Quotation ${escapeHtml(label)}</h2>
     <p>${escapeHtml(intro)}</p>
@@ -107,7 +107,7 @@ function quotationLifecycleEmailContent({ quotation = {}, event, actor = {} }) {
       <tr><td style="padding:10px;background:#ecfdf5;font-weight:700">Status</td><td style="padding:10px">${escapeHtml(label)}</td></tr>
       <tr><td style="padding:10px;background:#ecfdf5;font-weight:700">Action By</td><td style="padding:10px">${escapeHtml(actorName)}</td></tr>
     </table>
-    <p style="margin-top:16px">Open CRM Pending Approval to review the latest quotation details.</p>
+    <p style="margin-top:16px">Open CRM Quotations to review the latest details and request Management Approval.</p>
   </div>`;
   return { subject, html };
 }

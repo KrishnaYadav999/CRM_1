@@ -219,7 +219,7 @@ async function claimDigestRun({ key, weekEnding, recipients, rowCount, now }) {
 }
 
 async function runWeeklyPendingQuotationDigest({ now = new Date() } = {}) {
-  const records = await PendingApproval.find({ type: 'quotation', approvalStatus: 'PENDING' })
+  const records = await PendingApproval.find({ type: 'quotation', approvalStatus: 'PENDING', 'payload.managementApprovalStatus': 'PENDING' })
     .sort({ createdAt: 1 })
     .lean();
   const quotationIds = records
@@ -229,7 +229,7 @@ async function runWeeklyPendingQuotationDigest({ now = new Date() } = {}) {
     Quotation.find({
       $or: [
         { _id: { $in: quotationIds } },
-        { status: { $in: ['draft', 'submitted', 'sent'] } }
+        { 'managementApproval.status': 'PENDING', status: { $in: ['draft', 'submitted', 'sent'] } }
       ]
     })
       .select('_id quotationNumber companyName leadDetails quotationDate grandTotal items createdBy createdByName status createdAt')

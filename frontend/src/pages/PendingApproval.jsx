@@ -638,9 +638,6 @@ export default function PendingApproval() {
   const [poApprovals, setPoApprovals] = useState([]);
   const [poDecision, setPoDecision] = useState(null);
   const [quotationDecision, setQuotationDecision] = useState(null);
-  const [managementApproval, setManagementApproval] = useState(null);
-  const [managementApprovers, setManagementApprovers] = useState([]);
-  const [managementApproversLoading, setManagementApproversLoading] = useState(false);
   const [approvalInputs, setApprovalInputs] = useState({});
   const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -1128,66 +1125,20 @@ export default function PendingApproval() {
   }
 
   function requestQuotationDecision(row, status) {
-    if (status === 'APPROVED' && isSuperAdmin) {
-      updateQuotationApproval(row, status);
-      return;
-    }
     setQuotationDecision({ row, status, remarks: '', proofUrl: '', proofName: '' });
   }
 
-  async function requestManagementApproval(row) {
-    if (!canApprove || getApprovalStatus(row) !== 'PENDING') return;
-    setManagementApproval({ row, approverId: '', source: '', note: '' });
-    setManagementApproversLoading(true);
-    setError('');
-    try {
-      const id = row.quotationId || row._id || row.id;
-      const [approversResult, quotationResult] = await Promise.allSettled([
-        managementApprovers.length
-          ? Promise.resolve({ data: { approvers: managementApprovers } })
-          : api.get(API_ENDPOINTS.quotations.managementApprovers),
-        api.get(API_ENDPOINTS.quotations.detail(id))
-      ]);
-      if (approversResult.status === 'rejected') throw approversResult.reason;
-      const approvers = approversResult.value.data?.approvers || [];
-      const fullQuotation = quotationResult.status === 'fulfilled' ? quotationResult.value.data?.quotation : null;
-      setManagementApprovers(approvers);
-      if (fullQuotation) {
-        setManagementApproval((current) => current ? {
-          ...current,
-          row: { ...current.row, grandTotal: fullQuotation.grandTotal || current.row.grandTotal }
-        } : current);
-      }
-      if (approvers.length === 1) {
-        setManagementApproval((current) => current ? { ...current, approverId: String(approvers[0].id) } : current);
-      }
-      if (!approvers.length) setError('No active Super Admin is available for management approval.');
-    } catch (err) {
-      setError(readError(err, 'Unable to load Super Admin approvers.'));
-    } finally {
-      setManagementApproversLoading(false);
-    }
-  }
-
-  async function submitManagementApproval(event) {
-    event.preventDefault();
-    if (!managementApproval?.row || !managementApproval.approverId || !managementApproval.source) return;
-    const row = managementApproval.row;
+  async function finalizeManagementApproval(row) {
+    if (!isSuperAdmin || getApprovalStatus(row) !== 'PENDING') return;
     const id = row.quotationId || row._id || row.id;
-    setSavingId(`management-${id}`);
+    setSavingId(`management-final-${id}`);
     setError('');
     try {
-      const response = await api.patch(API_ENDPOINTS.quotations.managementApproval(id), {
-        approvalRecordId: row.approvalRecordId,
-        approverId: managementApproval.approverId,
-        source: managementApproval.source,
-        note: String(managementApproval.note || '').trim()
-      });
-      setManagementApproval(null);
-      setNotice(response.data?.message || 'Management approval submitted successfully. Quotation PDF is now available.');
+      const response = await api.patch(API_ENDPOINTS.quotations.managementApprovalFinalize(id), {});
+      setNotice(response.data?.message || 'Quotation received final Super Admin approval.');
       await loadPage({ force: true, silent: true });
     } catch (err) {
-      setError(readError(err, 'Unable to submit management approval.'));
+      setError(readError(err, 'Unable to complete final Super Admin approval.'));
     } finally {
       setSavingId('');
     }
@@ -1727,8 +1678,9 @@ export default function PendingApproval() {
                     <ManagementApprovalCell
                       row={quote}
                       savingId={savingId}
-                      canApprove={canApprove}
-                      onApprove={requestManagementApproval}
+                      isSuperAdmin={isSuperAdmin}
+                      currentUser={currentUser}
+                      onFinalize={finalizeManagementApproval}
                     />
                     <QuotationActionCell
                       row={quote}
@@ -1745,36 +1697,6 @@ export default function PendingApproval() {
           </section>
         </div>
       </div>
-
-      {managementApproval && (
-        <div className="pending-decision-backdrop management-approval-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setManagementApproval(null); }}>
-          <form onSubmit={submitManagementApproval} className="management-approval-modal">
-            <header className="management-approval-header">
-              <div className="management-approval-title-icon"><Users className="h-6 w-6" /></div>
-              <div><p>Final quotation decision</p><h2>Management Approval</h2></div>
-              <button type="button" disabled={Boolean(savingId)} onClick={() => setManagementApproval(null)} aria-label="Close management approval"><X className="h-5 w-5" /></button>
-            </header>
-
-            <div className="management-approval-body">
-              <div className="management-approval-info"><AlertTriangle className="h-5 w-5" /><p>The quotation amount is auto-fetched. Select the Super Admin who approved it and record the approval source.</p></div>
-              <dl className="management-approval-summary">
-                <div><dt>Quotation No.</dt><dd>{managementApproval.row.quotationNumber || managementApproval.row.uniqueId || '-'}</dd></div>
-                <div><dt>Company</dt><dd>{managementApproval.row.companyName || '-'}</dd></div>
-                <div><dt>Date</dt><dd>{managementApproval.row.quotationDate || '-'}</dd></div>
-              </dl>
-
-              <div className="management-approval-grid">
-                <label><span>Approve By <b>*</b></span><select required disabled={managementApproversLoading || Boolean(savingId)} value={managementApproval.approverId} onChange={(event) => setManagementApproval((current) => ({ ...current, approverId: event.target.value }))}><option value="">{managementApproversLoading ? 'Loading Super Admins...' : 'Select Super Admin'}</option>{managementApprovers.map((approver) => <option key={approver.id} value={approver.id}>{approver.name}{approver.email && approver.email !== approver.name ? ` (${approver.email})` : ''}</option>)}</select></label>
-                <label><span>Amount (₹)</span><div className="management-approval-amount"><i>₹</i><input readOnly aria-readonly="true" value={formatAmount(managementApproval.row.grandTotal || managementApproval.row.basicAmount || 0)} /></div><small>Auto-fetched from quotation</small></label>
-                <label><span>Approval Source <b>*</b></span><select required disabled={Boolean(savingId)} value={managementApproval.source} onChange={(event) => setManagementApproval((current) => ({ ...current, source: event.target.value }))}><option value="">Select Source</option><option value="TEAMS">Teams</option><option value="EMAIL">Email</option><option value="VERBAL_CALL">Verbal Call</option><option value="WHATSAPP">WhatsApp</option><option value="OTHER">Other</option></select></label>
-                <label><span>Note <em>(Optional)</em></span><textarea maxLength={500} rows={5} disabled={Boolean(savingId)} value={managementApproval.note} onChange={(event) => setManagementApproval((current) => ({ ...current, note: event.target.value }))} placeholder="Add any note (optional)..." /><small className="management-note-count">{managementApproval.note.length}/500</small></label>
-              </div>
-            </div>
-
-            <footer className="management-approval-footer"><button type="button" disabled={Boolean(savingId)} onClick={() => setManagementApproval(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || managementApproversLoading || !managementApproval.approverId || !managementApproval.source}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Submit Management Approval</button></footer>
-          </form>
-        </div>
-      )}
 
       {serviceApprovalDetail && (
         <div className="fixed inset-0 z-[10000] grid place-items-center bg-slate-950/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setServiceApprovalDetail(null); }}>
@@ -2037,24 +1959,29 @@ function ActionCell({ row, savingId, onUpdate, savingPrefix = '', canApprove = f
   );
 }
 
-function ManagementApprovalCell({ row, savingId, canApprove = false, onApprove }) {
+function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, currentUser, onFinalize }) {
   const id = row?.quotationId || row?._id || row?.id;
   const pending = getApprovalStatus(row) === 'PENDING';
-  const submitting = savingId === `management-${id}`;
-  const approvedByManagement = Boolean(row?.managementApproverName);
+  const submitting = savingId === `management-final-${id}`;
+  const managementStatus = String(row?.managementApprovalStatus || '').toUpperCase();
+  const assignedApproverId = String(row?.managementApproverId || '');
+  const currentUserId = String(currentUser?._id || currentUser?.id || '');
+  const assignedToCurrentUser = !assignedApproverId || assignedApproverId === currentUserId;
 
-  if (approvedByManagement) {
+  if (managementStatus === 'APPROVED') {
     const source = String(row.managementApprovalSource || '').replace(/_/g, ' ');
-    return <td><span className="management-approved-badge" title={source ? `Approved via ${source}` : 'Management approved'}><CheckCircle2 className="h-3.5 w-3.5" />{row.managementApproverName}</span></td>;
+    return <td><span className="management-approved-badge" title={source ? `Approved via ${source}` : 'Final approved'}><CheckCircle2 className="h-3.5 w-3.5" />Final Approved</span></td>;
   }
   if (!pending) return <td><span className="pending-admin-only">Completed</span></td>;
-  if (!canApprove) return <td><span className="pending-admin-only">Admin only</span></td>;
+  if (managementStatus !== 'PENDING') return <td><span className="pending-admin-only">Not requested</span></td>;
+  if (!isSuperAdmin) return <td><span className="pending-admin-only">Awaiting {row.managementApproverName || 'Super Admin'}</span></td>;
+  if (!assignedToCurrentUser) return <td><span className="pending-admin-only">Assigned to {row.managementApproverName || 'another Super Admin'}</span></td>;
 
   return (
     <td className="management-approval-cell">
-      <button type="button" disabled={Boolean(savingId)} onClick={() => onApprove(row)} className="management-approve-button">
+      <button type="button" disabled={Boolean(savingId)} onClick={() => onFinalize(row)} className="management-approve-button">
         {submitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
-        Super Admin Approve
+        Final Approve
       </button>
     </td>
   );
@@ -2062,7 +1989,6 @@ function ManagementApprovalCell({ row, savingId, canApprove = false, onApprove }
 
 function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApprove = false }) {
   const id = row?.id;
-  const approving = savingId === `quote-${id}-APPROVED`;
   const rejecting = savingId === `quote-${id}-REJECTED`;
   const revisable = getApprovalStatus(row) !== 'PENDING';
 
@@ -2091,15 +2017,6 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
         </div>
         {canApprove && getApprovalStatus(row) === 'PENDING' ? (
           <div className="pending-quotation-actions-bottom">
-            <button
-              type="button"
-              disabled={Boolean(savingId)}
-              onClick={() => onUpdate(row, 'APPROVED')}
-              className="pending-action pending-action-approve"
-            >
-              {approving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-              Approve
-            </button>
             <button
               type="button"
               disabled={Boolean(savingId)}

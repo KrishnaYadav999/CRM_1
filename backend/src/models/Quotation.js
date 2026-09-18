@@ -91,6 +91,7 @@ const QuotationSchema = new mongoose.Schema({
   leadGeneratedBy: { type: String, trim: true },
   assignedUserName: { type: String, trim: true },
   revisionHistory: { type: Array, default: [] },
+  managementApproval: { type: mongoose.Schema.Types.Mixed, default: {} },
   approvalDecision: { type: mongoose.Schema.Types.Mixed, default: {} },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
@@ -99,5 +100,6 @@ QuotationSchema.index(
   { leadId: 1, quotationNumber: 1 },
   { unique: true, partialFilterExpression: { leadId: { $type: 'string' }, quotationNumber: { $type: 'string' } } }
 );
+QuotationSchema.index({ 'managementApproval.status': 1, updatedAt: -1 });
 
 module.exports = mongoose.model('Quotation', QuotationSchema);

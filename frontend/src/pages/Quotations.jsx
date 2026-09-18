@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileSpreadsheet, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, Download, Edit3, Eye, FileSpreadsheet, FileText, Filter, MoreHorizontal, Plus, RefreshCw, Save, Search, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
@@ -10,7 +10,7 @@ import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
-import { adminRoles } from '../constants/dashboard';
+import { adminRoles, hasAnyRole } from '../constants/dashboard';
 import { QUOTATION_SCOPE_PRESET_OPTIONS, QUOTATION_SCOPE_PRESETS } from '../constants/quotationScopePresets';
 import { createQuotationPdf } from '../utils/quotationPdf';
 import { addServiceDays, datesFromAnnualYears, normalizeDateInputValue, normalizePeriodUnit, periodDisplay, renewalDateFrom, serviceEndDateFrom } from '../utils/servicePeriod';
@@ -935,6 +935,10 @@ export default function Quotations() {
   const [previewQuotation, setPreviewQuotation] = useState(null);
   const [detailQuotation, setDetailQuotation] = useState(null);
   const [successModal, setSuccessModal] = useState(null);
+  const [managementApproval, setManagementApproval] = useState(null);
+  const [managementApprovers, setManagementApprovers] = useState([]);
+  const [managementApproversLoading, setManagementApproversLoading] = useState(false);
+  const [managementApprovalSaving, setManagementApprovalSaving] = useState(false);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
   const [itemDrafts, setItemDrafts] = useState({});
   const [financialYearItemIndex, setFinancialYearItemIndex] = useState(null);
@@ -986,6 +990,7 @@ export default function Quotations() {
     [currentQuotationServiceCategories, customServiceCategories]
   );
   const canManageDropdownOptions = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
+  const canRequestManagementApproval = hasAnyRole(currentUser, adminRoles);
   const optionsFor = (field, builtIn) => [...new Set([
     ...builtIn,
     ...customDropdownOptions.filter((option) => option.field === field).map((option) => option.name)
@@ -1207,6 +1212,61 @@ export default function Quotations() {
     }
   }
 
+  async function openManagementApproval(row) {
+    if (!canRequestManagementApproval || ['approved', 'rejected'].includes(String(row?.status || '').toLowerCase())) return;
+    setManagementApproval({ row, approverId: '', source: '', note: '' });
+    setManagementApproversLoading(true);
+    setError('');
+    try {
+      const id = row?._id || row?.id;
+      const [approversResult, quotationResult] = await Promise.allSettled([
+        managementApprovers.length
+          ? Promise.resolve({ data: { approvers: managementApprovers } })
+          : api.get(API_ENDPOINTS.quotations.managementApprovers),
+        api.get(API_ENDPOINTS.quotations.detail(id))
+      ]);
+      if (approversResult.status === 'rejected') throw approversResult.reason;
+      const approvers = approversResult.value.data?.approvers || [];
+      const fullQuotation = quotationResult.status === 'fulfilled' ? quotationResult.value.data?.quotation : null;
+      setManagementApprovers(approvers);
+      setManagementApproval((current) => current ? {
+        ...current,
+        approverId: approvers.length === 1 ? String(approvers[0].id) : current.approverId,
+        row: fullQuotation ? { ...current.row, ...fullQuotation } : current.row
+      } : current);
+      if (!approvers.length) setError('No active Super Admin is available for final approval.');
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Unable to load Super Admin approvers.');
+    } finally {
+      setManagementApproversLoading(false);
+    }
+  }
+
+  async function submitManagementApproval(event) {
+    event.preventDefault();
+    if (!managementApproval?.row || !managementApproval.approverId || !managementApproval.source) return;
+    const id = managementApproval.row._id || managementApproval.row.id;
+    setManagementApprovalSaving(true);
+    setError('');
+    try {
+      const response = await api.patch(API_ENDPOINTS.quotations.managementApproval(id), {
+        approverId: managementApproval.approverId,
+        source: managementApproval.source,
+        note: String(managementApproval.note || '').trim()
+      });
+      setManagementApproval(null);
+      setSuccessModal({
+        title: 'Sent to Super Admin',
+        message: response.data?.message || 'Quotation is now visible in Pending Approval for final Super Admin approval.'
+      });
+      await loadPage();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Unable to send the quotation for final approval.');
+    } finally {
+      setManagementApprovalSaving(false);
+    }
+  }
+
   async function readBulkFile(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1239,7 +1299,7 @@ export default function Quotations() {
       const summary = response.data.summary || {};
       setBulkPreview(null);
       await loadPage();
-      setSuccessModal({ title: 'Bulk quotation import complete', message: `${summary.created || 0} created, ${summary.updated || 0} updated, ${summary.failed || 0} failed, and ${skippedCount} incomplete quotation${skippedCount === 1 ? ' was' : 's were'} skipped. All successfully saved quotations were sent to Pending Approval.` });
+      setSuccessModal({ title: 'Bulk quotation import complete', message: `${summary.created || 0} created, ${summary.updated || 0} updated, ${summary.failed || 0} failed, and ${skippedCount} incomplete quotation${skippedCount === 1 ? ' was' : 's were'} skipped. Saved quotations remain drafts until Management Approval is requested from Actions.` });
     } catch (importError) {
       const failures = importError.response?.data?.failures || [];
       setError(failures.length ? failures.slice(0, 3).map((row) => `${row.quotationNumber || `Row ${row.row}`}: ${row.error}`).join(' · ') : (importError.response?.data?.error || 'Bulk quotation import failed.'));
@@ -1940,8 +2000,8 @@ export default function Quotations() {
         ? await api.put(API_ENDPOINTS.quotations.detail(editingId), payload)
         : await api.post(API_ENDPOINTS.quotations.create, payload);
       setSuccessModal({
-        title: editingId ? 'Quotation updated' : 'Quotation sent to Approval',
-        message: `${response.data.quotation?.quotationNumber || 'Quotation'} was saved successfully and sent to Pending Approval.`
+        title: editingId ? 'Quotation updated' : 'Quotation saved',
+        message: `${response.data.quotation?.quotationNumber || 'Quotation'} was saved successfully. Use Management Approval in quotation Actions to send it to Pending Approval.`
       });
       setQuotation({ ...emptyQuotation, leadDetails: { ...emptyLeadDetails }, items: [], terms: [] });
       setEditingId('');
@@ -1953,6 +2013,19 @@ export default function Quotations() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function renderManagementApprovalAction(row) {
+    if (!canRequestManagementApproval) return null;
+    const requestStatus = String(row?.managementApproval?.status || '').toUpperCase();
+    if (requestStatus === 'PENDING') {
+      return <span className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700"><Users className="h-3.5 w-3.5" /> Approval Requested</span>;
+    }
+    if (requestStatus === 'APPROVED' || String(row?.status || '').toLowerCase() === 'approved') {
+      return <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700"><Check className="h-3.5 w-3.5" /> Final Approved</span>;
+    }
+    if (String(row?.status || '').toLowerCase() === 'rejected') return null;
+    return <button type="button" onClick={() => openManagementApproval(row)} className="inline-flex items-center gap-1 rounded-lg border border-orange-300 bg-white px-3 py-2 text-xs font-black text-orange-600"><Users className="h-3.5 w-3.5" /> Management Approval</button>;
   }
 
   if (viewMode === 'list') {
@@ -2060,7 +2133,7 @@ export default function Quotations() {
                       <td className="px-4 py-5 font-bold text-slate-700">{formatDisplayDate(row.quotationDate || row.createdAt)}</td>
                       <td className="px-4 py-5 font-bold text-slate-700">{formatDisplayDate(row.validUntil)}</td>
                       <td className="px-4 py-5 font-black text-orange-600">{formatInr(Number(row.grandTotal) || 0)}</td>
-                      <td className="px-4 py-5"><div className="flex items-center gap-2"><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-600">{row.status || 'draft'}</span><button type="button" onClick={() => showQuotationDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-black text-emerald-700"><Eye className="h-3.5 w-3.5" /> View</button>{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 text-xs font-black text-orange-600">Edit</button>}</div></td>
+                      <td className="px-4 py-5"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-600">{row.status || 'draft'}</span><button type="button" onClick={() => showQuotationDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-black text-emerald-700"><Eye className="h-3.5 w-3.5" /> View</button>{renderManagementApprovalAction(row)}{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 text-xs font-black text-orange-600">Edit</button>}</div></td>
                     </tr>
                   )) : visibleCompanyGroups.map((group) => {
                     const quotationCount = group.quotations.length;
@@ -2080,7 +2153,7 @@ export default function Quotations() {
                         <td className="px-4 py-5 font-black text-orange-600">{formatInr(grandTotal)}</td>
                         <td className="px-4 py-5"><span className={`rounded-full border px-3 py-2 text-xs font-black uppercase ${leadStatus === 'Open' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{leadStatus}{openCount && openCount !== quotationCount ? ` (${openCount})` : ''}</span></td>
                       </tr>
-                      {isOpen && <tr><td colSpan={7} className="bg-slate-50 p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="font-black text-slate-900">Company Wise Quotations</h3><p className="text-xs font-bold text-slate-500">Latest quotation is always listed first. Select View to open an individual quotation.</p></div><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">{quotationCount} total</span></div><div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['Quotation No.', 'Date', 'Valid Until', 'Items', 'Amount', 'Lead Status', 'Quotation Status', 'Actions'].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{group.quotations.map((row, quotationIndex) => <tr key={row._id || row.id} className={`border-t ${quotationIndex === 0 ? 'bg-emerald-50/60' : ''}`}><td className="p-3 font-black text-orange-600"><span className="inline-flex items-center gap-2">{row.quotationNumber || '-'}{quotationIndex === 0 && <em className="not-italic rounded-full bg-emerald-600 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-white">Latest</em>}</span></td><td className="p-3 font-bold">{formatDisplayDate(row.quotationDate || row.createdAt)}</td><td className="p-3 font-bold">{formatDisplayDate(row.validUntil)}</td><td className="p-3 font-black">{row.items?.length || 0}</td><td className="p-3 font-black text-orange-600">{formatInr(Number(row.grandTotal) || 0)}</td><td className="p-3"><span className={`font-black uppercase ${String(row.serviceState || 'open').toLowerCase() === 'closed' ? 'text-red-600' : 'text-emerald-700'}`}>{row.serviceState || 'open'}</span></td><td className="p-3 font-black uppercase">{row.status || 'draft'}</td><td className="p-3"><div className="flex gap-2"><button type="button" onClick={() => showQuotationDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 font-black text-emerald-700"><Eye className="h-3.5 w-3.5" /> View</button>{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 font-black text-orange-600">Edit</button>}</div></td></tr>)}</tbody></table></div></td></tr>}
+                      {isOpen && <tr><td colSpan={7} className="bg-slate-50 p-5"><div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="font-black text-slate-900">Company Wise Quotations</h3><p className="text-xs font-bold text-slate-500">Latest quotation is always listed first. Select View to open an individual quotation.</p></div><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">{quotationCount} total</span></div><div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['Quotation No.', 'Date', 'Valid Until', 'Items', 'Amount', 'Lead Status', 'Quotation Status', 'Actions'].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{group.quotations.map((row, quotationIndex) => <tr key={row._id || row.id} className={`border-t ${quotationIndex === 0 ? 'bg-emerald-50/60' : ''}`}><td className="p-3 font-black text-orange-600"><span className="inline-flex items-center gap-2">{row.quotationNumber || '-'}{quotationIndex === 0 && <em className="not-italic rounded-full bg-emerald-600 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-white">Latest</em>}</span></td><td className="p-3 font-bold">{formatDisplayDate(row.quotationDate || row.createdAt)}</td><td className="p-3 font-bold">{formatDisplayDate(row.validUntil)}</td><td className="p-3 font-black">{row.items?.length || 0}</td><td className="p-3 font-black text-orange-600">{formatInr(Number(row.grandTotal) || 0)}</td><td className="p-3"><span className={`font-black uppercase ${String(row.serviceState || 'open').toLowerCase() === 'closed' ? 'text-red-600' : 'text-emerald-700'}`}>{row.serviceState || 'open'}</span></td><td className="p-3 font-black uppercase">{row.status || 'draft'}</td><td className="p-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => showQuotationDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 font-black text-emerald-700"><Eye className="h-3.5 w-3.5" /> View</button>{renderManagementApprovalAction(row)}{canReviseQuotation(row) && <button type="button" onClick={() => editQuotation(row)} className="rounded-lg border px-3 py-2 font-black text-orange-600">Edit</button>}</div></td></tr>)}</tbody></table></div></td></tr>}
                     </React.Fragment>;
                   })}
                 </tbody>
@@ -2105,6 +2178,32 @@ export default function Quotations() {
             onClose={() => setDetailQuotation(null)}
             onRevise={() => editQuotation(detailQuotation)}
           />
+        )}
+        {managementApproval && (
+          <div className="pending-decision-backdrop management-approval-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !managementApprovalSaving) setManagementApproval(null); }}>
+            <form onSubmit={submitManagementApproval} className="management-approval-modal">
+              <header className="management-approval-header">
+                <div className="management-approval-title-icon"><Users className="h-6 w-6" /></div>
+                <div><p>Final approval request</p><h2>Management Approval</h2></div>
+                <button type="button" disabled={managementApprovalSaving} onClick={() => setManagementApproval(null)} aria-label="Close management approval"><X className="h-5 w-5" /></button>
+              </header>
+              <div className="management-approval-body">
+                <div className="management-approval-info"><AlertTriangle className="h-5 w-5" /><p>Fill these details to send the quotation to Pending Approval. The selected Super Admin will give the final approval there.</p></div>
+                <dl className="management-approval-summary">
+                  <div><dt>Quotation No.</dt><dd>{managementApproval.row.quotationNumber || '-'}</dd></div>
+                  <div><dt>Company</dt><dd>{managementApproval.row.companyName || managementApproval.row.leadDetails?.companyName || '-'}</dd></div>
+                  <div><dt>Date</dt><dd>{formatDisplayDate(managementApproval.row.quotationDate || managementApproval.row.createdAt)}</dd></div>
+                </dl>
+                <div className="management-approval-grid">
+                  <label><span>Approve By <b>*</b></span><select required disabled={managementApproversLoading || managementApprovalSaving} value={managementApproval.approverId} onChange={(event) => setManagementApproval((current) => ({ ...current, approverId: event.target.value }))}><option value="">{managementApproversLoading ? 'Loading Super Admins...' : 'Select Super Admin'}</option>{managementApprovers.map((approver) => <option key={approver.id} value={approver.id}>{approver.name}{approver.email && approver.email !== approver.name ? ` (${approver.email})` : ''}</option>)}</select></label>
+                  <label><span>Amount (₹)</span><div className="management-approval-amount"><i>₹</i><input readOnly aria-readonly="true" value={formatInr(Number(managementApproval.row.grandTotal) || 0).replace('₹', '').trim()} /></div><small>Auto-fetched from quotation</small></label>
+                  <label><span>Approval Source <b>*</b></span><select required disabled={managementApprovalSaving} value={managementApproval.source} onChange={(event) => setManagementApproval((current) => ({ ...current, source: event.target.value }))}><option value="">Select Source</option><option value="TEAMS">Teams</option><option value="EMAIL">Email</option><option value="VERBAL_CALL">Verbal Call</option><option value="WHATSAPP">WhatsApp</option><option value="OTHER">Other</option></select></label>
+                  <label><span>Note <em>(Optional)</em></span><textarea maxLength={500} rows={5} disabled={managementApprovalSaving} value={managementApproval.note} onChange={(event) => setManagementApproval((current) => ({ ...current, note: event.target.value }))} placeholder="Add any note (optional)..." /><small className="management-note-count">{managementApproval.note.length}/500</small></label>
+                </div>
+              </div>
+              <footer className="management-approval-footer"><button type="button" disabled={managementApprovalSaving} onClick={() => setManagementApproval(null)}>Cancel</button><button type="submit" disabled={managementApprovalSaving || managementApproversLoading || !managementApproval.approverId || !managementApproval.source}>{managementApprovalSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Send to Pending Approval</button></footer>
+            </form>
+          </div>
         )}
         {previewQuotation && <QuotationPreviewDrawer quotation={previewQuotation} currentUser={currentUser} onClose={() => setPreviewQuotation(null)} onBackToPendingApproval={fromPendingApproval ? () => navigate('/pending-approval') : null} />}
         {successModal && (
@@ -2840,7 +2939,7 @@ function QuotationDetailPage({ quotation, onBack, onRevise }) {
       <DetailSection title="Quote History">
         <div className="space-y-4 rounded-lg border border-slate-200 p-4">
           <HistoryRow tone="emerald" title="Quote created / updated" by={quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-'} date={createdDate} status={quotation.status || 'draft'} />
-          <HistoryRow tone="blue" title="Quote sent to pending approval" by={quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-'} date={createdDate} status="PENDING" />
+          {quotation.managementApproval?.status && <HistoryRow tone="blue" title={String(quotation.managementApproval.status).toUpperCase() === 'APPROVED' ? 'Final Super Admin approval completed' : 'Sent to Pending Approval for final Super Admin review'} by={quotation.managementApproval.requestedByName || quotation.createdBy?.name || quotation.createdBy?.email || details.referredBy || '-'} date={formatDisplayDate(quotation.managementApproval.actionAt || quotation.managementApproval.requestedAt)} status={quotation.managementApproval.status} />}
         </div>
       </DetailSection>
     </div>

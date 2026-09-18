@@ -107,6 +107,7 @@ const API_ENDPOINTS = {
     approveAllPending: '/quotations/pending-approvals/approve-all',
     detail: (id) => `/quotations/${encodePathValue(id)}`,
     managementApproval: (id) => `/quotations/${encodePathValue(id)}/management-approval`,
+    managementApprovalFinalize: (id) => `/quotations/${encodePathValue(id)}/management-approval/finalize`,
     approval: (id) => `/quotations/${encodePathValue(id)}/approval`,
     byLead: (leadId) => `/leads/${encodePathValue(leadId)}/quotations`
   },

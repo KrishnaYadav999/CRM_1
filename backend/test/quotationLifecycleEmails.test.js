@@ -11,17 +11,17 @@ const quotation = {
 };
 const actor = { name: 'KRISHNA Yadav', email: 'krishna@example.com' };
 
-test('quotation generation email identifies pending approval', () => {
+test('quotation generation email identifies a draft awaiting management request', () => {
   const content = quotationLifecycleEmailContent({ quotation, event: 'created', actor });
-  assert.match(content.subject, /Pending Approval/);
-  assert.match(content.html, /waiting for approval/);
+  assert.match(content.subject, /Draft/);
+  assert.match(content.html, /generated as a draft/);
   assert.match(content.html, /AT\/26-27\/001/);
 });
 
-test('quotation revision email requires approval again', () => {
+test('quotation revision email requires a new management approval request', () => {
   const content = quotationLifecycleEmailContent({ quotation, event: 'revised', actor });
-  assert.equal(eventLabel('revised'), 'Revised — Re-approval Required');
-  assert.match(content.html, /requires approval again/);
+  assert.equal(eventLabel('revised'), 'Revised — Management Approval Required');
+  assert.match(content.html, /Use Management Approval/);
 });
 
 test('quotation decision emails clearly identify approved and rejected status', () => {
