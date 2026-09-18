@@ -103,8 +103,10 @@ const API_ENDPOINTS = {
     serviceCategories: '/quotations/service-categories',
     piboCategories: '/quotations/pibo-categories',
     dropdownOptions: '/quotations/dropdown-options',
+    managementApprovers: '/quotations/management-approvers',
     approveAllPending: '/quotations/pending-approvals/approve-all',
     detail: (id) => `/quotations/${encodePathValue(id)}`,
+    managementApproval: (id) => `/quotations/${encodePathValue(id)}/management-approval`,
     approval: (id) => `/quotations/${encodePathValue(id)}/approval`,
     byLead: (leadId) => `/leads/${encodePathValue(leadId)}/quotations`
   },

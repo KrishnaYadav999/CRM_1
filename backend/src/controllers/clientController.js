@@ -882,6 +882,10 @@ function mapPendingApprovalRecord(record) {
     requestTime: record.requestTime || payload.requestTime || '-',
     decisionBy: record.actionBy?.name || record.actionBy?.email || '-',
     decisionAt: record.actionAt || null,
+    managementApproverId: record.managementApprover || payload.managementApproverId || '',
+    managementApproverName: record.managementApproverName || payload.managementApproverName || '',
+    managementApprovalSource: record.managementApprovalSource || payload.managementApprovalSource || '',
+    managementApprovalNote: record.managementApprovalNote || payload.managementApprovalNote || '',
     reminderFlag: record.reminderFlag || '',
     redFlagAt: record.redFlagAt || null,
     greenFlagDeadline: record.greenFlagDeadline || null

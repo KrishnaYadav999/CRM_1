@@ -10,11 +10,13 @@ router.post('/service-categories', requireAuth, requireRoles(ADMIN_ROLES), quota
 router.get('/pibo-categories', requireAuth, quotationCtrl.listPiboCategories);
 router.post('/pibo-categories', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.createPiboCategory);
 router.get('/dropdown-options', requireAuth, quotationCtrl.listDropdownOptions);
+router.get('/management-approvers', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.listManagementApprovers);
 router.post('/dropdown-options', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.createDropdownOption);
 router.patch('/pending-approvals/approve-all', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.approveAllPendingQuotations);
 router.post('/bulk', requireAuth, quotationCtrl.bulkCreateQuotations);
 router.post('/', requireAuth, quotationCtrl.createQuotation);
 router.get('/:id', requireAuth, quotationCtrl.getQuotation);
+router.patch('/:id/management-approval', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.submitManagementApproval);
 router.patch('/:id/approval', requireAuth, requireRoles(ADMIN_ROLES), quotationCtrl.updateQuotationApproval);
 router.put('/:id', requireAuth, quotationCtrl.updateQuotation);
 

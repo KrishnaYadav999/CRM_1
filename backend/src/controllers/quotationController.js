@@ -12,6 +12,7 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendQuotationLifecycleEmail } = require('../services/quotationLifecycleEmails');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const { userHasAnyRole } = require('../utils/userRoles');
 const {
   BUILT_IN_SERVICE_CATEGORIES,
   normalizeServiceCategoryName
@@ -533,7 +534,7 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     uniqueId: quotation.quotationNumber || quotation.leadCode || '',
     userName: displayUser,
     leadGeneratedBy: leadCreator,
-    companyName: details.companyName || 'Untitled quotation',
+    companyName: details.companyName || quotation.companyName || 'Untitled quotation',
     contactPerson: details.contactPerson || '-',
     mobileNo1: details.mobileNo1 || '-',
     quotationDate: parts.date,
@@ -541,6 +542,7 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     category: firstItem.eprCategory || '-',
     piboCategory: firstItem.piboCategory || '-',
     basicAmount: totalBasicAmount || firstItem.basicAmount || '-',
+    grandTotal: roundMoney(quotation.grandTotal || totalBasicAmount || firstItem.basicAmount || 0),
     approvalStatus: quotation.status === 'approved' ? 'APPROVED' : quotation.status === 'rejected' ? 'REJECTED' : 'PENDING',
     approvalType,
     createdBy: displayCreator,
@@ -922,6 +924,132 @@ exports.updateQuotationApproval = async (req, res) => {
   }).catch((error) => console.error('[Quotation lifecycle email] decision failed', error));
 
   res.json({ ok: true, approvalStatus: status, quotation });
+};
+
+const MANAGEMENT_APPROVAL_SOURCES = new Set(['TEAMS', 'EMAIL', 'VERBAL_CALL', 'WHATSAPP', 'OTHER']);
+
+function normalizeManagementApprovalSource(value) {
+  return String(value || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+}
+
+exports.listManagementApprovers = async (_req, res) => {
+  const users = await User.find({ isActive: { $ne: false } })
+    .select('_id name email role roles')
+    .sort({ name: 1, email: 1 })
+    .lean();
+  const approvers = users
+    .filter((user) => userHasAnyRole(user, ['superadmin']))
+    .map((user) => ({ id: user._id, name: user.name || user.email, email: user.email || '' }));
+  return res.json({ ok: true, approvers });
+};
+
+exports.submitManagementApproval = async (req, res) => {
+  const approverId = String(req.body.approverId || '').trim();
+  const source = normalizeManagementApprovalSource(req.body.source);
+  const note = String(req.body.note || '').trim();
+
+  if (!mongoose.Types.ObjectId.isValid(approverId)) {
+    return res.status(400).json({ error: 'Please select the Super Admin who approved this quotation.' });
+  }
+  if (!MANAGEMENT_APPROVAL_SOURCES.has(source)) {
+    return res.status(400).json({ error: 'Please select a valid management approval source.' });
+  }
+  if (note.length > 500) {
+    return res.status(400).json({ error: 'Management approval note cannot exceed 500 characters.' });
+  }
+
+  const approver = await User.findOne({ _id: approverId, isActive: { $ne: false } })
+    .select('_id name email role roles');
+  if (!approver || !userHasAnyRole(approver, ['superadmin'])) {
+    return res.status(400).json({ error: 'The selected approver is not an active Super Admin.' });
+  }
+
+  const requestedId = String(req.params.id || '').trim();
+  const approvalRecordId = String(req.body.approvalRecordId || '').trim();
+  const approvalRecord = mongoose.Types.ObjectId.isValid(approvalRecordId)
+    ? await PendingApproval.findById(approvalRecordId)
+    : null;
+  const resolvedQuotationId = mongoose.Types.ObjectId.isValid(requestedId)
+    ? requestedId
+    : String(approvalRecord?.sourceClientId || approvalRecord?.payload?.quotationId || '').trim();
+  const quotation = mongoose.Types.ObjectId.isValid(resolvedQuotationId)
+    ? await Quotation.findById(resolvedQuotationId).populate('createdBy', 'name email')
+    : null;
+
+  if (!quotation) {
+    return res.status(404).json({ error: 'Linked quotation not found. Refresh Pending Approval and try again.' });
+  }
+  if (quotation.status === 'approved') {
+    return res.status(409).json({ error: 'This quotation has already been approved.' });
+  }
+  if (quotation.status === 'rejected') {
+    return res.status(409).json({ error: 'A rejected quotation must be revised before management can approve it.' });
+  }
+
+  const actionAt = new Date();
+  const approverName = approver.name || approver.email || 'Super Admin';
+  const recordedByName = req.user?.name || req.user?.email || 'CRM Admin';
+  const remarks = note || `Management approval confirmed by ${approverName} via ${source.replace(/_/g, ' ')}.`;
+
+  quotation.status = 'approved';
+  quotation.approvalDecision = {
+    status: 'APPROVED',
+    approvalKind: 'MANAGEMENT',
+    remarks,
+    note,
+    source,
+    proofUrl: '',
+    proofName: '',
+    reviewerRole: 'superadmin',
+    managementApprover: approver._id,
+    managementApproverName: approverName,
+    recordedBy: req.user?._id,
+    recordedByName,
+    actionBy: req.user?._id,
+    actionAt
+  };
+  await quotation.save();
+
+  await PendingApproval.updateMany(
+    {
+      type: 'quotation',
+      $or: [
+        ...(approvalRecord?._id ? [{ _id: approvalRecord._id }] : []),
+        { sourceClientId: String(quotation._id) },
+        { 'payload.quotationId': quotation._id },
+        { 'payload.quotationId': String(quotation._id) }
+      ]
+    },
+    {
+      $set: {
+        approvalStatus: 'APPROVED',
+        nextReminderAt: null,
+        actionBy: req.user?._id,
+        actionAt,
+        remarks,
+        managementApprover: approver._id,
+        managementApproverName: approverName,
+        managementApprovalSource: source,
+        managementApprovalNote: note,
+        managementApprovalRecordedBy: req.user?._id,
+        'payload.managementApproverId': String(approver._id),
+        'payload.managementApproverName': approverName,
+        'payload.managementApprovalSource': source,
+        'payload.managementApprovalNote': note
+      }
+    }
+  );
+
+  await sendQuotationLifecycleEmail({ quotation, event: 'approved', actor: approver })
+    .catch((error) => console.error('[Quotation lifecycle email] management approval failed', error));
+
+  return res.json({
+    ok: true,
+    approvalStatus: 'APPROVED',
+    message: 'Management approval submitted successfully.',
+    managementApproval: { approverId: approver._id, approverName, source, note, recordedByName, actionAt },
+    quotation
+  });
 };
 
 exports.bulkCreateQuotations = async (req, res) => {

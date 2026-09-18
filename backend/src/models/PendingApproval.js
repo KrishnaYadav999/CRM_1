@@ -41,6 +41,11 @@ const PendingApprovalSchema = new mongoose.Schema({
   actionAt: { type: Date },
   decisionProofUrl: { type: String, trim: true },
   decisionProofName: { type: String, trim: true },
+  managementApprover: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  managementApproverName: { type: String, trim: true },
+  managementApprovalSource: { type: String, enum: ['', 'TEAMS', 'EMAIL', 'VERBAL_CALL', 'WHATSAPP', 'OTHER'], default: '' },
+  managementApprovalNote: { type: String, trim: true, maxlength: 500 },
+  managementApprovalRecordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   remarks: { type: String, trim: true, maxlength: 2500 }
 }, { timestamps: true });
 
