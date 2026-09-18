@@ -1125,11 +1125,6 @@ exports.finalizeManagementApproval = async (req, res) => {
   if (String(quotation.managementApproval?.adminApprovalStatus || '').toUpperCase() !== 'APPROVED') {
     return res.status(409).json({ error: 'Admin approval must be completed before final Super Admin approval.' });
   }
-  const assignedApproverId = String(quotation.managementApproval?.approverId || quotation.managementApproval?.approver || '');
-  if (assignedApproverId && assignedApproverId !== String(req.user?._id || '')) {
-    return res.status(403).json({ error: `This final approval is assigned to ${quotation.managementApproval?.approverName || 'another Super Admin'}.` });
-  }
-
   const actionAt = new Date();
   const approverName = req.user?.name || req.user?.email || 'Super Admin';
   const remarks = String(req.body.remarks || '').trim() || `Final approval completed by ${approverName}.`;
@@ -1225,8 +1220,7 @@ exports.approveAllPendingQuotations = async (req, res) => {
     type: 'quotation',
     approvalStatus: 'PENDING',
     'payload.managementApprovalStatus': 'PENDING',
-    'payload.adminApprovalStatus': 'APPROVED',
-    'payload.managementApproverId': String(req.user?._id || '')
+    'payload.adminApprovalStatus': 'APPROVED'
   });
   let approved = 0;
   const failures = [];

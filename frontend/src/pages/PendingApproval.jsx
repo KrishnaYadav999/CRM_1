@@ -1128,7 +1128,7 @@ export default function PendingApproval() {
   }
 
   function requestQuotationDecision(row, status) {
-    setQuotationDecision({ row, status, remarks: '', proofUrl: '', proofName: '' });
+    setQuotationDecision({ row, status, finalApproval: status === 'APPROVED' && isQuotationSuperAdmin && row.managementApprovalStatus === 'PENDING', remarks: '', proofUrl: '', proofName: '' });
   }
 
   async function finalizeManagementApproval(row) {
@@ -1693,6 +1693,7 @@ export default function PendingApproval() {
                       onUpdate={requestQuotationDecision}
                       canApprove={canApprove}
                       canAdminApprove={canAdminApproveQuotation}
+                      isSuperAdmin={isQuotationSuperAdmin}
                     />
                   </tr>
                 ))}
@@ -1977,14 +1978,11 @@ function ManagementApprovalDetails({ row }) {
   return <dl className="quotation-management-details">{fields.map(([label, value]) => <div key={label}><dt className="text-xs font-bold text-slate-500">{label}</dt><dd className="mt-1 whitespace-pre-wrap break-words font-semibold text-slate-900">{value}</dd></div>)}</dl>;
 }
 
-function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, currentUser, onFinalize }) {
+function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, onFinalize }) {
   const id = row?.quotationId || row?._id || row?.id;
   const pending = getApprovalStatus(row) === 'PENDING';
   const submitting = savingId === `management-final-${id}`;
   const managementStatus = String(row?.managementApprovalStatus || '').toUpperCase();
-  const assignedApproverId = String(row?.managementApproverId || '');
-  const currentUserId = String(currentUser?._id || currentUser?.id || '');
-  const assignedToCurrentUser = !assignedApproverId || assignedApproverId === currentUserId;
   const adminApproved = String(row?.adminApprovalStatus || '').toUpperCase() === 'APPROVED';
 
   if (managementStatus === 'APPROVED') {
@@ -1994,7 +1992,6 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, currentUs
   if (!pending) return <td><span className="pending-admin-only">Completed</span></td>;
   if (managementStatus !== 'PENDING') return <td><span className="pending-admin-only">Not requested</span></td>;
   if (!isSuperAdmin) return <td><span className="pending-admin-only">Awaiting {row.managementApproverName || 'Super Admin'} Final Approval</span></td>;
-  if (!assignedToCurrentUser) return <td><span className="pending-admin-only">Assigned to {row.managementApproverName || 'another Super Admin'}</span></td>;
 
   return (
     <td className="management-approval-cell">
@@ -2006,7 +2003,7 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, currentUs
   );
 }
 
-function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApprove = false, canAdminApprove = false }) {
+function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApprove = false, canAdminApprove = false, isSuperAdmin = false }) {
   const id = row?.id;
   const approving = savingId === `quote-${id}-APPROVED`;
   const rejecting = savingId === `quote-${id}-REJECTED`;
@@ -2038,10 +2035,11 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
         </div>
         {canApprove && getApprovalStatus(row) === 'PENDING' ? (
           <div className="pending-quotation-actions-bottom">
-            {canAdminApprove && !adminApproved && <button
+            {((canAdminApprove && !adminApproved) || isSuperAdmin) && <button
               type="button"
-              disabled={Boolean(savingId)}
+              disabled={Boolean(savingId) || (isSuperAdmin && row.managementApprovalStatus === 'PENDING' && !adminApproved)}
               onClick={() => onUpdate(row, 'APPROVED')}
+              title={isSuperAdmin && row.managementApprovalStatus === 'PENDING' && !adminApproved ? 'Admin approval is required first' : 'Approve quotation'}
               className="pending-action pending-action-approve"
             >
               {approving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
