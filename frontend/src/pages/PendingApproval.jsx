@@ -45,7 +45,7 @@ function writePendingApprovalCache(data) {
 
 function statusBadge(value) {
   const status = String(value || 'PENDING').toUpperCase();
-  const tone = status === 'APPROVED' ? 'approved' : status === 'PARTIALLY_APPROVED' ? 'partial' : status === 'REJECTED' ? 'rejected' : 'pending';
+  const tone = ['APPROVED', 'ADMIN APPROVED'].includes(status) ? 'approved' : status === 'PARTIALLY_APPROVED' ? 'partial' : status === 'REJECTED' ? 'rejected' : 'pending';
   return <span className={`pending-status pending-status-${tone}`}>{status === 'PARTIALLY_APPROVED' ? 'PARTIALLY APPROVED' : status}</span>;
 }
 
@@ -661,6 +661,7 @@ export default function PendingApproval() {
   const normalizedRole = effectiveRoles.join('|');
   const canApprove = hasAnyRole(currentUser, adminRoles);
   const isSuperAdmin = hasAnyRole(currentUser, ['superadmin']);
+  const canAdminApproveQuotation = hasAnyRole(currentUser, ['admin']) && !isSuperAdmin;
   const canApproveTemporary = hasAnyRole(currentUser, ['admin', 'superadmin']);
   const isComplianceApprovalView = hasAnyRole(currentUser, ['compliance']) && !canApprove;
   const canApproveClients = canApprove || isComplianceApprovalView;
@@ -1084,10 +1085,11 @@ export default function PendingApproval() {
         proofUrl: decision.proofUrl || '',
         proofName: decision.proofName || ''
       });
-      if (String(response.data?.quotation?.status || '').toUpperCase() !== status) {
+      const savedStatus = String(response.data?.quotation?.status || '').toUpperCase();
+      if (status === 'APPROVED' && response.data?.adminApprovalStatus !== 'APPROVED' && savedStatus !== 'APPROVED') {
         throw new Error(`Quotation status was not saved as ${status}.`);
       }
-      setNotice(`Quotation ${status.toLowerCase()} successfully.`);
+      setNotice(response.data?.message || `Quotation ${status.toLowerCase()} successfully.`);
       await loadPage({ force: true, silent: true });
     } catch (err) {
       setError(readError(err, 'Unable to update quotation approval.'));
@@ -1672,7 +1674,7 @@ export default function PendingApproval() {
                     <Cell>{quote.category}</Cell>
                     <Cell>{quote.piboCategory}</Cell>
                     <Cell strong>{formatAmount(quote.basicAmount)}</Cell>
-                    <Cell>{statusBadge(quote.approvalStatus)}</Cell>
+                    <Cell>{statusBadge(quote.adminApprovalStatus === 'APPROVED' && quote.managementApprovalStatus === 'PENDING' ? 'ADMIN APPROVED' : quote.approvalStatus)}</Cell>
                     <Cell>{quote.approvalType}</Cell>
                     <Cell>{formatApprovalValue(quote.createdBy)}</Cell>
                     <ManagementApprovalCell
@@ -1689,6 +1691,7 @@ export default function PendingApproval() {
                       onRevise={reviseQuotation}
                       onUpdate={requestQuotationDecision}
                       canApprove={canApprove}
+                      canAdminApprove={canAdminApproveQuotation}
                     />
                   </tr>
                 ))}
@@ -1767,7 +1770,7 @@ export default function PendingApproval() {
       })()}
       {poDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setPoDecision(null); }}><form onSubmit={submitPoDecision} className={`pending-decision-modal ${poDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><div className="pending-decision-icon">{poDecision.status === 'APPROVED' ? <CheckCircle2 className="h-7 w-7" /> : <XCircle className="h-7 w-7" />}</div><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)} className="pending-decision-close" aria-label="Close PO decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Purchase Order Approval</p><h2>{poDecision.status === 'APPROVED' ? 'Approve Purchase Order' : poDecision.status === 'REJECTED' ? 'Reject Purchase Order' : 'Request quotation and PO revision'}</h2><strong className="pending-decision-client">{poDecision.row.clientName}</strong><p className="pending-decision-help">No image or document is required. Add clear remarks and submit. The dialog will close immediately while the decision email is sent to the responsible users.</p><label className="pending-decision-field"><span>Decision remarks <b>*</b></span><textarea autoFocus required rows={6} value={poDecision.remarks} onChange={(event) => setPoDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Clearly explain this PO decision..." /></label><div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || !poDecision.remarks.trim()}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : poDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Submit {poDecision.status === 'APPROVED' ? 'Approval' : poDecision.status === 'REJECTED' ? 'Rejection' : 'Revision'}</button></div></form></div>}
 
-      {quotationDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setQuotationDecision(null); }}><form onSubmit={submitQuotationDecision} className={`pending-decision-modal ${quotationDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)} className="pending-decision-close" aria-label="Close quotation decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Quotation Decision</p><h2>{quotationDecision.status === 'APPROVED' ? 'Upload approval proof' : 'Reject quotation'}</h2><strong className="pending-decision-client">{quotationDecision.row.companyName || '-'}</strong>{quotationDecision.status === 'APPROVED' ? <><p className="pending-decision-help">Admin approval requires supporting proof. Super Admin can approve directly without this step.</p><label className="mt-4 flex min-h-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 font-black text-emerald-700"><FileCheck2 className="mr-2 h-5 w-5" />{quotationDecision.proofName || 'Please upload the approval proof'}<input type="file" accept="image/*,.pdf" className="sr-only" onChange={uploadQuotationDecisionProof} /></label><label className="pending-decision-field mt-4"><span>Approval note</span><textarea rows={4} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Add an optional approval note..." /></label></> : <label className="pending-decision-field"><span>Rejection reason <b>*</b></span><textarea autoFocus required rows={7} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Please explain why this quotation is being rejected..." /></label>}<div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || (quotationDecision.status === 'APPROVED' && !quotationDecision.proofUrl) || (quotationDecision.status === 'REJECTED' && !quotationDecision.remarks.trim())}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : quotationDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Confirm {quotationDecision.status === 'APPROVED' ? 'Approval' : 'Rejection'}</button></div></form></div>}
+      {quotationDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setQuotationDecision(null); }}><form onSubmit={submitQuotationDecision} className={`pending-decision-modal ${quotationDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)} className="pending-decision-close" aria-label="Close quotation decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Quotation Decision</p><h2>{quotationDecision.status === 'APPROVED' ? 'Upload approval proof' : 'Reject quotation'}</h2><strong className="pending-decision-client">{quotationDecision.row.companyName || '-'}</strong>{quotationDecision.status === 'APPROVED' ? <><p className="pending-decision-help">Admin approval requires supporting proof and unlocks the quotation PDF. Final Super Admin approval remains a separate last step.</p><label className="mt-4 flex min-h-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 font-black text-emerald-700"><FileCheck2 className="mr-2 h-5 w-5" />{quotationDecision.proofName || 'Please upload the approval proof'}<input type="file" accept="image/*,.pdf" className="sr-only" onChange={uploadQuotationDecisionProof} /></label><label className="pending-decision-field mt-4"><span>Approval note</span><textarea rows={4} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Add an optional approval note..." /></label></> : <label className="pending-decision-field"><span>Rejection reason <b>*</b></span><textarea autoFocus required rows={7} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Please explain why this quotation is being rejected..." /></label>}<div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || (quotationDecision.status === 'APPROVED' && !quotationDecision.proofUrl) || (quotationDecision.status === 'REJECTED' && !quotationDecision.remarks.trim())}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : quotationDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Confirm {quotationDecision.status === 'APPROVED' ? 'Approval' : 'Rejection'}</button></div></form></div>}
 
       {serviceRejection && (
         <div className="fixed inset-0 z-[10001] grid place-items-center bg-slate-950/55 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setServiceRejection(null); }}>
@@ -1967,6 +1970,7 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, currentUs
   const assignedApproverId = String(row?.managementApproverId || '');
   const currentUserId = String(currentUser?._id || currentUser?.id || '');
   const assignedToCurrentUser = !assignedApproverId || assignedApproverId === currentUserId;
+  const adminApproved = String(row?.adminApprovalStatus || '').toUpperCase() === 'APPROVED';
 
   if (managementStatus === 'APPROVED') {
     const source = String(row.managementApprovalSource || '').replace(/_/g, ' ');
@@ -1974,23 +1978,25 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, currentUs
   }
   if (!pending) return <td><span className="pending-admin-only">Completed</span></td>;
   if (managementStatus !== 'PENDING') return <td><span className="pending-admin-only">Not requested</span></td>;
-  if (!isSuperAdmin) return <td><span className="pending-admin-only">Awaiting {row.managementApproverName || 'Super Admin'}</span></td>;
+  if (!isSuperAdmin) return <td><span className="pending-admin-only">Awaiting {row.managementApproverName || 'Super Admin'} Final Approval</span></td>;
   if (!assignedToCurrentUser) return <td><span className="pending-admin-only">Assigned to {row.managementApproverName || 'another Super Admin'}</span></td>;
 
   return (
     <td className="management-approval-cell">
-      <button type="button" disabled={Boolean(savingId)} onClick={() => onFinalize(row)} className="management-approve-button">
+      <button type="button" disabled={Boolean(savingId) || !adminApproved} title={adminApproved ? 'Complete final Super Admin approval' : 'Admin approval is required first'} onClick={() => onFinalize(row)} className="management-approve-button disabled:cursor-not-allowed disabled:opacity-50">
         {submitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
-        Final Approve
+        {adminApproved ? 'Final Approve' : 'Admin Approval Required'}
       </button>
     </td>
   );
 }
 
-function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApprove = false }) {
+function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApprove = false, canAdminApprove = false }) {
   const id = row?.id;
+  const approving = savingId === `quote-${id}-APPROVED`;
   const rejecting = savingId === `quote-${id}-REJECTED`;
   const revisable = getApprovalStatus(row) !== 'PENDING';
+  const adminApproved = String(row?.adminApprovalStatus || '').toUpperCase() === 'APPROVED';
 
   return (
     <td className="pending-quotation-actions-cell">
@@ -2017,6 +2023,15 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
         </div>
         {canApprove && getApprovalStatus(row) === 'PENDING' ? (
           <div className="pending-quotation-actions-bottom">
+            {canAdminApprove && !adminApproved && <button
+              type="button"
+              disabled={Boolean(savingId)}
+              onClick={() => onUpdate(row, 'APPROVED')}
+              className="pending-action pending-action-approve"
+            >
+              {approving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Approve
+            </button>}
             <button
               type="button"
               disabled={Boolean(savingId)}

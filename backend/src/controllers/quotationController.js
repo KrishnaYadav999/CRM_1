@@ -454,7 +454,7 @@ function cleanBody(body, user = null, existingItems = []) {
     scopeOfWork: cleanTerms(body.scopeOfWork),
     subtotal: roundMoney(body.subtotal || calculatedTotal),
     grandTotal: roundMoney(body.grandTotal || calculatedTotal),
-    status: ['draft', 'submitted', 'sent', 'approved', 'rejected'].includes(body.status) ? body.status : 'draft'
+    status: ['draft', 'submitted', 'sent', 'admin_approved', 'approved', 'rejected'].includes(body.status) ? body.status : 'draft'
   };
 }
 
@@ -546,6 +546,7 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     approvalStatus: quotation.status === 'approved' ? 'APPROVED' : quotation.status === 'rejected' ? 'REJECTED' : 'PENDING',
     approvalType,
     createdBy: displayCreator,
+    adminApprovalStatus: quotation.managementApproval?.adminApprovalStatus || '',
     managementApprovalStatus: quotation.managementApproval?.status || '',
     managementApproverId: quotation.managementApproval?.approverId || quotation.managementApproval?.approver || '',
     managementApproverName: quotation.managementApproval?.approverName || '',
@@ -863,13 +864,15 @@ exports.updateQuotationApproval = async (req, res) => {
   }
 
   const reviewerRole = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const isSuperAdminReviewer = userHasAnyRole(req.user, ['superadmin']);
+  const isAdminReviewer = userHasAnyRole(req.user, ['admin']) && !isSuperAdminReviewer;
   const remarks = String(req.body.remarks || '').trim();
   const proofUrl = String(req.body.proofUrl || '').trim();
   const proofName = String(req.body.proofName || '').trim();
   if (status === 'REJECTED' && !remarks) {
     return res.status(400).json({ error: 'Please enter a rejection reason.' });
   }
-  if (status === 'APPROVED' && reviewerRole === 'admin' && !proofUrl) {
+  if (status === 'APPROVED' && isAdminReviewer && !proofUrl) {
     return res.status(400).json({ error: 'Admin must upload approval proof before approving this quotation.' });
   }
 
@@ -899,7 +902,54 @@ exports.updateQuotationApproval = async (req, res) => {
     return res.status(404).json({ error: 'Linked quotation not found. Refresh Pending Approval and try again.' });
   }
   if (status === 'APPROVED' && String(quotation.managementApproval?.status || '').toUpperCase() === 'PENDING') {
-    return res.status(409).json({ error: 'This quotation requires the assigned Super Admin to use Final Approve.' });
+    if (isSuperAdminReviewer) {
+      return res.status(409).json({ error: 'Use Super Admin Final Approve to complete this quotation.' });
+    }
+    const actionAt = update.actionAt;
+    const adminName = req.user?.name || req.user?.email || 'CRM Admin';
+    quotation.status = 'admin_approved';
+    quotation.approvalDecision = {
+      status: 'APPROVED', approvalKind: 'ADMIN', remarks, proofUrl, proofName,
+      reviewerRole, actionBy: req.user?._id, actionAt
+    };
+    quotation.managementApproval = {
+      ...(quotation.managementApproval || {}),
+      status: 'PENDING',
+      adminApprovalStatus: 'APPROVED',
+      adminApprovedBy: req.user?._id,
+      adminApprovedByName: adminName,
+      adminApprovedAt: actionAt,
+      adminApprovalRemarks: remarks,
+      adminApprovalProofUrl: proofUrl,
+      adminApprovalProofName: proofName
+    };
+    await quotation.save();
+    await PendingApproval.updateMany(
+      {
+        type: 'quotation',
+        $or: [
+          ...(approvalRecord?._id ? [{ _id: approvalRecord._id }] : []),
+          { sourceClientId: String(quotation._id) },
+          { 'payload.quotationId': quotation._id },
+          { 'payload.quotationId': String(quotation._id) }
+        ]
+      },
+      { $set: {
+        actionBy: req.user?._id, actionAt, remarks, decisionProofUrl: proofUrl, decisionProofName: proofName,
+        'payload.adminApprovalStatus': 'APPROVED',
+        'payload.adminApprovedByName': adminName,
+        'payload.adminApprovedAt': actionAt
+      } }
+    );
+    await sendQuotationLifecycleEmail({ quotation, event: 'admin_approved', actor: req.user })
+      .catch((error) => console.error('[Quotation lifecycle email] admin approval failed', error));
+    return res.json({
+      ok: true,
+      approvalStatus: 'PENDING',
+      adminApprovalStatus: 'APPROVED',
+      message: 'Admin approval completed. The quotation PDF is now available and final Super Admin approval is still pending.',
+      quotation
+    });
   }
 
   quotation.status = status === 'APPROVED' ? 'approved' : 'rejected';
@@ -1067,6 +1117,9 @@ exports.finalizeManagementApproval = async (req, res) => {
   if (String(quotation.managementApproval?.status || '').toUpperCase() !== 'PENDING') {
     return res.status(409).json({ error: 'This quotation does not have a pending management approval request.' });
   }
+  if (String(quotation.managementApproval?.adminApprovalStatus || '').toUpperCase() !== 'APPROVED') {
+    return res.status(409).json({ error: 'Admin approval must be completed before final Super Admin approval.' });
+  }
   const assignedApproverId = String(quotation.managementApproval?.approverId || quotation.managementApproval?.approver || '');
   if (assignedApproverId && assignedApproverId !== String(req.user?._id || '')) {
     return res.status(403).json({ error: `This final approval is assigned to ${quotation.managementApproval?.approverName || 'another Super Admin'}.` });
@@ -1082,7 +1135,11 @@ exports.finalizeManagementApproval = async (req, res) => {
   quotation.approvalDecision = {
     status: 'APPROVED', approvalKind: 'MANAGEMENT_FINAL', remarks,
     source: quotation.managementApproval.source || '', note: quotation.managementApproval.note || '',
-    proofUrl: '', proofName: '', reviewerRole: 'superadmin', actionBy: req.user?._id, actionAt
+    proofUrl: quotation.managementApproval.adminApprovalProofUrl || '',
+    proofName: quotation.managementApproval.adminApprovalProofName || '',
+    adminApprovedByName: quotation.managementApproval.adminApprovedByName || '',
+    adminApprovedAt: quotation.managementApproval.adminApprovedAt || null,
+    reviewerRole: 'superadmin', actionBy: req.user?._id, actionAt
   };
   await quotation.save();
   await PendingApproval.updateMany({
@@ -1163,6 +1220,7 @@ exports.approveAllPendingQuotations = async (req, res) => {
     type: 'quotation',
     approvalStatus: 'PENDING',
     'payload.managementApprovalStatus': 'PENDING',
+    'payload.adminApprovalStatus': 'APPROVED',
     'payload.managementApproverId': String(req.user?._id || '')
   });
   let approved = 0;

@@ -29,7 +29,7 @@ test('weekly digest calculates pending age and hydrates current quotation values
   }];
   const quotations = [{
     _id: 'quotation-1', quotationNumber: 'AT/26-27/400', companyName: 'Current Company',
-    quotationDate: '2026-09-18', grandTotal: 75000, status: 'draft', items: [{ serviceCategory: 'EPR', eprCategory: 'Plastic' }]
+    quotationDate: '2026-09-18', grandTotal: 75000, status: 'admin_approved', items: [{ serviceCategory: 'EPR', eprCategory: 'Plastic' }]
   }];
   const rows = __test.normalizeDigestRows(records, quotations, now);
 
@@ -46,7 +46,7 @@ test('weekly digest recovers unindexed pending quotations and excludes stale ter
   ];
   const quotations = [
     { _id: 'approved-1', quotationNumber: 'APPROVED', status: 'approved', createdAt: '2026-09-10' },
-    { _id: 'missing-index-1', quotationNumber: 'AT/26-27/401', companyName: 'Recovered Company', status: 'submitted', grandTotal: 90000, createdAt: '2026-09-18' }
+    { _id: 'missing-index-1', quotationNumber: 'AT/26-27/401', companyName: 'Recovered Company', status: 'admin_approved', grandTotal: 90000, createdAt: '2026-09-18' }
   ];
   const rows = __test.normalizeDigestRows(records, quotations, now);
 

@@ -77,7 +77,7 @@ function pendingDays(record, now = new Date()) {
 
 function normalizeDigestRows(records, quotations, now = new Date()) {
   const quotationById = new Map(quotations.map((quotation) => [String(quotation._id), quotation]));
-  const pendingStatuses = new Set(['draft', 'submitted', 'sent']);
+  const pendingStatuses = new Set(['admin_approved']);
   const recordedQuotationIds = new Set();
   const rows = records.flatMap((record) => {
     const payload = record.payload || {};
@@ -219,7 +219,11 @@ async function claimDigestRun({ key, weekEnding, recipients, rowCount, now }) {
 }
 
 async function runWeeklyPendingQuotationDigest({ now = new Date() } = {}) {
-  const records = await PendingApproval.find({ type: 'quotation', approvalStatus: 'PENDING', 'payload.managementApprovalStatus': 'PENDING' })
+  const records = await PendingApproval.find({
+    type: 'quotation', approvalStatus: 'PENDING',
+    'payload.managementApprovalStatus': 'PENDING',
+    'payload.adminApprovalStatus': 'APPROVED'
+  })
     .sort({ createdAt: 1 })
     .lean();
   const quotationIds = records
@@ -229,7 +233,7 @@ async function runWeeklyPendingQuotationDigest({ now = new Date() } = {}) {
     Quotation.find({
       $or: [
         { _id: { $in: quotationIds } },
-        { 'managementApproval.status': 'PENDING', status: { $in: ['draft', 'submitted', 'sent'] } }
+        { 'managementApproval.status': 'PENDING', 'managementApproval.adminApprovalStatus': 'APPROVED', status: 'admin_approved' }
       ]
     })
       .select('_id quotationNumber companyName leadDetails quotationDate grandTotal items createdBy createdByName status createdAt')

@@ -11,6 +11,7 @@ function eventLabel(event) {
   return {
     created: 'Generated — Draft',
     revised: 'Revised — Management Approval Required',
+    admin_approved: 'Admin Approved — PDF Available',
     approved: 'Approved',
     rejected: 'Rejected'
   }[event] || 'Updated';
@@ -90,10 +91,12 @@ function quotationLifecycleEmailContent({ quotation = {}, event, actor = {} }) {
   const quotationNumber = String(quotation.quotationNumber || 'Quotation').trim();
   const company = String(quotation.companyName || quotation.leadDetails?.companyName || 'Client').trim();
   const actorName = String(actor.name || actor.email || 'CRM User').trim();
-  const decision = event === 'approved' || event === 'rejected';
+  const decision = event === 'approved' || event === 'rejected' || event === 'admin_approved';
   const subject = `${quotationNumber} - ${label}`;
   if (event === 'rejected') return rejectedQuotationEmail({ quotation, quotationNumber, company, actorName, subject });
-  const intro = decision
+  const intro = event === 'admin_approved'
+    ? `${quotationNumber} for ${company} was approved by Admin. The quotation PDF is now available; final Super Admin approval is still pending.`
+    : decision
     ? `${quotationNumber} for ${company} has been ${event}.`
     : event === 'revised'
       ? `${quotationNumber} for ${company} was revised. Use Management Approval in quotation Actions when it is ready for final review.`

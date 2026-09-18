@@ -1374,7 +1374,7 @@ exports.listPendingApprovals = async (req, res) => {
   let liveQuotationRows = [];
   if (isAdministrativeReviewer) {
     try {
-      const liveQuotations = await Quotation.find({ 'managementApproval.status': 'PENDING', status: { $in: ['draft', 'submitted', 'sent'] } })
+      const liveQuotations = await Quotation.find({ 'managementApproval.status': 'PENDING', status: { $in: ['draft', 'submitted', 'sent', 'admin_approved'] } })
         .populate('createdBy', 'name email')
         .sort({ createdAt: -1 })
         .limit(500)

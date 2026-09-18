@@ -33,6 +33,13 @@ test('quotation decision emails clearly identify approved and rejected status', 
   assert.match(rejected.html, /has been rejected/);
 });
 
+test('admin approval email unlocks the PDF while keeping final approval pending', () => {
+  const content = quotationLifecycleEmailContent({ quotation, event: 'admin_approved', actor });
+  assert.match(content.subject, /Admin Approved/);
+  assert.match(content.html, /PDF is now available/);
+  assert.match(content.html, /final Super Admin approval is still pending/);
+});
+
 test('quotation rejection email has premium action UI and includes escaped admin notes', () => {
   const rejected = quotationLifecycleEmailContent({
     quotation: {

@@ -80,7 +80,7 @@ const QuotationSchema = new mongoose.Schema({
   scopeOfWork: { type: [String], default: [] },
   subtotal: { type: Number, default: 0 },
   grandTotal: { type: Number, default: 0 },
-  status: { type: String, enum: ['draft', 'submitted', 'sent', 'approved', 'rejected'], default: 'draft', index: true },
+  status: { type: String, enum: ['draft', 'submitted', 'sent', 'admin_approved', 'approved', 'rejected'], default: 'draft', index: true },
   source: { type: String, trim: true, default: 'crm', index: true },
   lastSyncedAt: { type: Date },
   syncMatchStatus: { type: String, enum: ['matched', 'unmatched'], default: 'matched', index: true },

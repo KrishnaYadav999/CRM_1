@@ -2985,7 +2985,10 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
   const isAdminUser = normalizedRole === 'admin' || normalizedRole === 'superadmin';
   const approvalStatus = String(quotation.approvalStatus || quotation.adminApproval || quotation.status || '').trim().toLowerCase();
   const isQuotationApproved = approvalStatus === 'approved';
-  const canDownloadPdf = isAdminUser || isQuotationApproved;
+  const isAdminApproved = approvalStatus === 'admin_approved'
+    || String(quotation.managementApproval?.adminApprovalStatus || '').toUpperCase() === 'APPROVED'
+    || (String(quotation.approvalDecision?.approvalKind || '').toUpperCase() === 'ADMIN' && String(quotation.approvalDecision?.status || '').toUpperCase() === 'APPROVED');
+  const canDownloadPdf = isAdminUser || isQuotationApproved || isAdminApproved;
   const date = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-GB').replace(/\//g, '-') : new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
   const scopeItems = (quotation.scopeOfWork || []).filter(Boolean);
   const scopeItemsPerPage = 22;
@@ -3070,12 +3073,12 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
           <div className="flex gap-2">
             {onBackToPendingApproval && <button type="button" onClick={onBackToPendingApproval} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-5 font-black text-emerald-800"><ArrowLeft className="h-4 w-4" />Back to Pending Approval</button>}
             <button type="button" onClick={onClose} className="btn-lift min-h-10 rounded-lg border border-slate-200 bg-white px-5 font-black text-slate-700">Close</button>
-            <button type="button" disabled={downloadingPdf || !canDownloadPdf} title={!canDownloadPdf ? 'Admin or Super Admin approval is required before downloading this quotation.' : 'Download quotation PDF'} onClick={handleDownloadPdf} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"><Download className={`h-4 w-4 ${downloadingPdf ? 'animate-bounce' : ''}`} />{downloadingPdf ? 'Generating PDF...' : canDownloadPdf ? 'Download PDF' : 'Approval Required'}</button>
+            <button type="button" disabled={downloadingPdf || !canDownloadPdf} title={!canDownloadPdf ? 'Admin approval is required before downloading this quotation.' : 'Download quotation PDF'} onClick={handleDownloadPdf} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"><Download className={`h-4 w-4 ${downloadingPdf ? 'animate-bounce' : ''}`} />{downloadingPdf ? 'Generating PDF...' : canDownloadPdf ? 'Download PDF' : 'Approval Required'}</button>
           </div>
         </div>
         <div className="hidden-scrollbar flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_36%,#eef2f7_100%)] p-5 sm:p-8">
           {downloadError && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600">{downloadError}</div>}
-          {!canDownloadPdf && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800">PDF download will be available after this quotation is approved by an Admin or Super Admin.</div>}
+          {!canDownloadPdf && <div className="mx-auto mb-3 max-w-[760px] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800">PDF download will be available after Admin approval. Final Super Admin approval completes the full quotation workflow.</div>}
           <div ref={documentRef} data-quotation-pdf className="mx-auto max-w-[760px]">
             <section className="min-h-[1020px] rounded-sm border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/15">
               <div className="flex items-center justify-between pb-2">
