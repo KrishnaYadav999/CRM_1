@@ -49,6 +49,12 @@ test('frontend uses the row-scoped staff endpoint and handles rejected requests'
   assert.doesNotMatch(page.slice(page.indexOf('async function assignStaffFromDetail'), page.indexOf('function requestStaffAssignmentFromDetail')), /api\.put\(API_ENDPOINTS\.leads\.detail/);
 });
 
+test('API path encoding preserves the first assignment row index', () => {
+  const endpoints = read('../../frontend/src/services/apiEndpoints.js');
+  assert.match(endpoints, /String\(value \?\? ''\)/);
+  assert.doesNotMatch(endpoints, /String\(value \|\| ''\)/);
+});
+
 test('staff assignment updates only the selected row and audit logging cannot fail the request', () => {
   const controller = read('../src/controllers/leadController.js');
   const handler = controller.slice(controller.indexOf('exports.assignLeadStaff'), controller.indexOf('exports.permanentlyCloseProvisionalLead'));
