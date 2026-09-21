@@ -5,6 +5,7 @@ const ClientComplianceReview = require('../models/ClientComplianceReview');
 const { notifyClientApprovalDecision } = require('../services/clientApprovalDecisionNotifications');
 const { getAssignedServiceId, resolveClientMasterData } = require('../services/clientMasterResolver');
 const { analyzeClientMasterData } = require('../services/userProductivityReport');
+const { CLIENT_CORRECTION_DEADLINE_POLICY, addClientCorrectionHours } = require('../utils/clientCorrectionDeadline');
 
 const REVIEW_SECTIONS = [
   ['companyOverview', 'Company Overview'], ['basic', 'Client Basic Info'], ['addressDetails', 'Address Details'],
@@ -132,14 +133,16 @@ exports.completeReview = async (req, res) => {
     correctionEmailError: '',
     reminderFlag: permanentRed ? 'PERMANENT_RED' : 'RED',
     redFlagAt: existingPendingRecord?.redFlagAt || decidedAt,
-    greenFlagDeadline: legacyRedNeedsGrace ? new Date(decidedAt.getTime() + 24 * 60 * 60 * 1000) : existingPendingRecord?.greenFlagDeadline || decidedAt
+    correctionDeadlinePolicy: CLIENT_CORRECTION_DEADLINE_POLICY,
+    greenFlagDeadline: legacyRedNeedsGrace ? addClientCorrectionHours(decidedAt, 24) : existingPendingRecord?.greenFlagDeadline || decidedAt
   } : correctionRequired ? {
     correctionStatus: 'OPEN',
     correctionDecision: decision === 'REJECTED' ? 'REJECTED' : 'PARTIALLY_APPROVED',
     correctionStartedAt: decidedAt,
-    correctionReminderAt: new Date(decidedAt.getTime() + 24 * 60 * 60 * 1000),
+    correctionDeadlinePolicy: CLIENT_CORRECTION_DEADLINE_POLICY,
+    correctionReminderAt: addClientCorrectionHours(decidedAt, 24),
     correctionReminderSentAt: null,
-    correctionDueAt: new Date(decidedAt.getTime() + 48 * 60 * 60 * 1000),
+    correctionDueAt: addClientCorrectionHours(decidedAt, 48),
     correctionBreachedAt: null,
     redRecoveryStartedAt: null,
     redRecoveryEmailSentAt: null,
@@ -148,7 +151,7 @@ exports.completeReview = async (req, res) => {
     correctionEmailError: '',
     reminderFlag: 'GREEN',
     redFlagAt: null,
-    greenFlagDeadline: new Date(decidedAt.getTime() + 72 * 60 * 60 * 1000)
+    greenFlagDeadline: addClientCorrectionHours(decidedAt, 72)
   } : {
     correctionStatus: 'RESOLVED',
     correctionResolvedAt: decidedAt,

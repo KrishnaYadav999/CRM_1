@@ -23,6 +23,7 @@ const PendingApprovalSchema = new mongoose.Schema({
   correctionStatus: { type: String, enum: ['NONE', 'OPEN', 'RESOLVED', 'BREACHED'], default: 'NONE', index: true },
   correctionDecision: { type: String, enum: ['', 'PARTIALLY_APPROVED', 'REJECTED'], default: '' },
   correctionStartedAt: { type: Date },
+  correctionDeadlinePolicy: { type: String, trim: true, default: '' },
   correctionReminderAt: { type: Date, index: true },
   correctionReminderSentAt: { type: Date },
   correctionDueAt: { type: Date, index: true },
