@@ -573,6 +573,7 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
       permanentClosedAt: row.permanentClosedAt || previous.permanentClosedAt,
       permanentClosedBy: row.permanentClosedBy || previous.permanentClosedBy,
       permanentClosedByText: row.permanentClosedByText || previous.permanentClosedByText,
+      originalPoDetails: previous.originalPoDetails || null,
       originalPoFileUrl: previous.originalPoFileUrl || '',
       originalPoFileName: previous.originalPoFileName || '',
       originalPoFileType: previous.originalPoFileType || '',
@@ -1370,26 +1371,42 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
     if (req.body?.originalPoReceived !== true) {
       return res.status(400).json({ error: 'Confirm that the original Purchase Order has been received.' });
     }
-    const submittedProof = req.body?.originalPoProof || {};
-    const originalPoProof = {
-      url: String(submittedProof.url || '').trim().slice(0, 2000),
-      name: String(submittedProof.name || '').trim().slice(0, 255),
-      type: String(submittedProof.type || '').trim().slice(0, 100),
-      size: Math.max(0, Number(submittedProof.size) || 0),
-      publicId: String(submittedProof.publicId || '').trim().slice(0, 500),
-      uploadedAt: String(submittedProof.uploadedAt || '').trim()
-    };
-    const supportedOriginalPoType = originalPoProof.type === 'application/pdf' || originalPoProof.type.startsWith('image/');
-    if (!/^https:\/\//i.test(originalPoProof.url) || !originalPoProof.name || !supportedOriginalPoType) {
-      return res.status(400).json({ error: 'Upload the original Purchase Order before permanently closing the lead.' });
-    }
     const lead = await Lead.findOne(combineAccessFilters({ _id: req.params.id }, await leadAccessFilter(req.user)));
     if (!lead) return res.status(404).json({ error: 'Lead not found or not accessible' });
-
-    const result = permanentlyCloseProvisionalAssignments(lead.assignments || [], req.user, originalPoProof);
-    if (!result.changedCount) {
+    const provisionalIndexes = (lead.assignments || []).map((row, index) => row?.poStatus === 'provisional' ? index : -1).filter((index) => index >= 0);
+    if (!provisionalIndexes.length) {
       return res.status(409).json({ error: 'This lead has no provisional closure awaiting permanent confirmation.' });
     }
+    const submittedRows = Array.isArray(req.body?.originalPoRows) ? req.body.originalPoRows.slice(0, 25) : [];
+    const originalPoRows = provisionalIndexes.map((assignmentIndex) => {
+      const submitted = submittedRows.find((row) => Number(row?.assignmentIndex) === assignmentIndex) || {};
+      const serviceRow = lead.serviceSelections?.[assignmentIndex] || {};
+      const proofType = String(submitted.poFileType || '').trim().slice(0, 100);
+      return {
+        assignmentIndex,
+        assignedServiceId: String(lead.assignments?.[assignmentIndex]?.assignedServiceId || serviceRow.assignedServiceId || '').trim(),
+        fy: String(submitted.fy || serviceRow.firstAnnualReturnYearApplicable || '').trim().slice(0, 30),
+        poNumber: String(submitted.poNumber || '').trim().slice(0, 100),
+        poDate: String(submitted.poDate || '').trim(),
+        poAmount: Math.max(0, Number(submitted.poAmount) || 0),
+        service: String(serviceRow.servicesOffered || serviceRow.applicableService || serviceRow.eprCategory || submitted.service || '').trim().slice(0, 255),
+        poFileUrl: String(submitted.poFileUrl || '').trim().slice(0, 2000),
+        poFileName: String(submitted.poFileName || '').trim().slice(0, 255),
+        poFileType: proofType,
+        poFileSize: Math.max(0, Number(submitted.poFileSize) || 0),
+        poPublicId: String(submitted.poPublicId || '').trim().slice(0, 500),
+        poUploadedAt: String(submitted.poUploadedAt || '').trim()
+      };
+    });
+    const invalidPoRow = originalPoRows.find((row) => !row.fy || !row.poNumber || !/^\d{4}-\d{2}-\d{2}$/.test(row.poDate)
+      || Number.isNaN(new Date(`${row.poDate}T00:00:00`).getTime()) || !(row.poAmount > 0) || !row.service
+      || !/^https:\/\//i.test(row.poFileUrl) || !row.poFileName
+      || !(row.poFileType === 'application/pdf' || row.poFileType.startsWith('image/')));
+    if (submittedRows.length !== provisionalIndexes.length || invalidPoRow) {
+      return res.status(400).json({ error: 'Complete PO Number, PO Date, PO Amount, PO Proof, Service Period, and Service for every provisional service.' });
+    }
+
+    const result = permanentlyCloseProvisionalAssignments(lead.assignments || [], req.user, originalPoRows);
 
     lead.assignments = result.assignments;
     const primary = result.assignments[0] || {};
@@ -1406,7 +1423,7 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
       title: 'Lead permanently closed',
       description: `${result.changedCount} provisional service closure(s) permanently closed after original PO confirmation. Automatic reopening is disabled.`,
       actor: req.user?._id,
-      metadata: { serviceCount: result.changedCount, originalPoConfirmed: true, originalPoFileName: originalPoProof.name, originalPoFileUrl: originalPoProof.url }
+      metadata: { serviceCount: result.changedCount, originalPoConfirmed: true, originalPoNumbers: originalPoRows.map((row) => row.poNumber), originalPoFileUrls: originalPoRows.map((row) => row.poFileUrl) }
     }).catch((error) => console.error('Permanent lead closure audit failed', error));
 
     res.json({ ok: true, message: 'Lead permanently closed. It will not reopen after 7 business days.', lead: lead.toObject() });
