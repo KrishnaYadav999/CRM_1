@@ -327,6 +327,7 @@ function quotationPaymentTerm(row = {}) {
   return legacySelections.length === 1 ? legacySelections[0] : '';
 }
 const ANANT_TATTVA_GST_NUMBER = '27AAZCA6657R1ZB';
+const ANANT_TATTVA_ADDRESS = '1st Floor, A/25, Technocraft House, Road No. 3, MIDC, Andheri East, Mumbai, Maharashtra 400093';
 
 function cleanScopePresetItem(value) {
   return String(value || '').replace(/:\s*\d+\.\d+\s*/g, ': ').replace(/^\d+\.\d+\s*/, '').trim();
@@ -3114,7 +3115,7 @@ function QuotationPreviewDrawer({ quotation, currentUser, onClose, onBackToPendi
                     <p className="font-black">From:</p>
                     <p>{quotationOwnerName(quotation)}</p>
                     <p>AnantTattva Private Limited</p>
-                    <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Andheri East, Mumbai - 400059</p>
+                    <p>{ANANT_TATTVA_ADDRESS}</p>
                     <p>GST Number: {ANANT_TATTVA_GST_NUMBER}</p>
                   </div>
                   <div className="text-right text-[11px] font-normal leading-5 text-slate-950">
@@ -3339,7 +3340,7 @@ export function buildQuotationPrintHtml(quotation) {
           <p class="label">From:</p>
           <p>${escapeHtml(quotationOwnerName(quotation))}</p>
           <p class="strong">AnantTattva Private Limited</p>
-          <p>Office No.12 &14, Midas Building, Sahar Plaza JB Nagar, Next to J B Nagar Metro Chakala, Andheri East, Mumbai - 400059</p>
+          <p>${escapeHtml(ANANT_TATTVA_ADDRESS)}</p>
           <p><span class="strong">GST Number:</span> ${ANANT_TATTVA_GST_NUMBER}</p>
         </div>
         <div class="right">
