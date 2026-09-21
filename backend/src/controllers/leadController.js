@@ -27,6 +27,7 @@ function escapeHtml(value) {
 }
 const CalendarItem = require('../models/CalendarItem');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const { userHasAnyRole } = require('../utils/userRoles');
 const { normalizeParent, inferPiboParent, validatePiboSelection } = require('../utils/piboCategories');
 const { ADMIN_ROLES } = require('../constants/roles');
 
@@ -61,6 +62,33 @@ async function leadAccessFilter(user) {
 function combineAccessFilters(...filters) {
   const active = filters.filter((filter) => filter && Object.keys(filter).length);
   return active.length > 1 ? { $and: active } : active[0] || {};
+}
+
+function stableUserIdentity(value) {
+  if (value && typeof value === 'object') {
+    return String(value._id || value.id || value.crmUserId || value.userId || value.email || '').trim().toLowerCase();
+  }
+  return String(value || '').trim().toLowerCase();
+}
+
+function canAssignStaffToRow(user = {}, assignment = {}) {
+  if (userHasAnyRole(user, ADMIN_ROLES)) return true;
+  if (!userHasAnyRole(user, ['manager'])) return false;
+  const userTokens = [user._id, user.id, user.crmUserId, user.userId, user.email]
+    .map(stableUserIdentity).filter(Boolean);
+  const managerTokens = [assignment.assignedTo, assignment.assignedToCrmUserId, assignment.assignedToEmail]
+    .map(stableUserIdentity).filter(Boolean);
+  return managerTokens.some((token) => userTokens.includes(token));
+}
+
+function activeUserLookup(value) {
+  const identity = value && typeof value === 'object'
+    ? String(value._id || value.id || value.crmUserId || value.userId || value.email || '').trim()
+    : String(value || '').trim();
+  if (!identity) return null;
+  const conditions = [{ crmUserId: identity }, { email: identity.toLowerCase() }];
+  if (/^[a-f\d]{24}$/i.test(identity)) conditions.push({ _id: identity });
+  return { isActive: { $ne: false }, $or: conditions };
 }
 
 const REQUIRED_FIELDS = ['status', 'company', 'servicesOffered', 'addressLine1', 'state', 'city', 'pinCode'];
@@ -1366,6 +1394,83 @@ exports.updateLead = async (req, res) => {
   }
 };
 
+exports.assignLeadStaff = async (req, res) => {
+  try {
+    const rowIndex = Number.parseInt(req.params.rowIndex, 10);
+    if (!Number.isInteger(rowIndex) || rowIndex < 0) {
+      return res.status(400).json({ error: 'A valid assignment row is required.' });
+    }
+
+    const lead = await Lead.findOne(combineAccessFilters(
+      { _id: req.params.id },
+      await leadAccessFilter(req.user)
+    ));
+    if (!lead) return res.status(404).json({ error: 'Lead not found or not accessible.' });
+
+    const assignments = Array.isArray(lead.assignments) ? lead.assignments.map((row) => ({ ...(row || {}) })) : [];
+    const assignment = assignments[rowIndex];
+    if (!assignment) return res.status(404).json({ error: 'Assignment row not found.' });
+    if (!canAssignStaffToRow(req.user, assignment)) {
+      return res.status(403).json({ error: 'Only the assigned manager or an administrator can assign staff for this service.' });
+    }
+
+    const requestedStaffId = String(req.body?.staffUserId || '').trim();
+    const kickoffEmailConsent = requestedStaffId && req.body?.kickoffEmailConsent === 'yes' ? 'yes'
+      : requestedStaffId && req.body?.kickoffEmailConsent === 'no' ? 'no' : '';
+    const staff = requestedStaffId
+      ? await User.findOne(activeUserLookup(requestedStaffId)).select('_id crmUserId name email role roles team isActive').lean()
+      : null;
+    if (requestedStaffId && !staff) return res.status(404).json({ error: 'Active staff user not found.' });
+
+    const beforeLead = lead.toObject();
+    assignments[rowIndex] = {
+      ...assignment,
+      assignedStaff: staff?._id || '',
+      assignedStaffText: staff ? (staff.name || staff.email) : '',
+      assignedStaffEmail: staff?.email || '',
+      assignedBy: req.user?._id || '',
+      kickoffEmailConsent
+    };
+    lead.assignments = assignments;
+    lead.markModified('assignments');
+    if (rowIndex === 0) {
+      lead.assignedStaff = staff?._id || undefined;
+      lead.assignedStaffText = staff ? (staff.name || staff.email) : '';
+      lead.assignedStaffEmail = staff?.email || '';
+    }
+    lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
+    await lead.save();
+
+    const savedLead = lead.toObject();
+    await sendLeadClosureKickoffEmail({ beforeLead, lead: savedLead })
+      .catch((error) => console.error('Lead staff assignment kick-off email failed', { leadId: String(lead._id), rowIndex, error: error.message }));
+    if (staff) {
+      await registerStaffOnboardingAssignments({ lead: savedLead, manager: req.user })
+        .catch((error) => console.error('Lead staff onboarding registration failed', { leadId: String(lead._id), rowIndex, error: error.message }));
+    }
+    await LeadActivity.create({
+      lead: lead._id,
+      type: staff ? 'lead_staff_assigned' : 'lead_staff_unassigned',
+      title: staff ? 'Staff assigned to service' : 'Staff removed from service',
+      description: staff
+        ? `${staff.name || staff.email} assigned to ${lead.company || lead.leadCode || 'lead'} service row ${rowIndex + 1}`
+        : `Staff removed from ${lead.company || lead.leadCode || 'lead'} service row ${rowIndex + 1}`,
+      actor: req.user?._id,
+      metadata: { rowIndex, staffUserId: staff ? String(staff._id) : '', kickoffEmailConsent }
+    });
+
+    return res.json({
+      ok: true,
+      message: staff ? `${staff.name || staff.email} assigned successfully.` : 'Staff assignment removed.',
+      assignment: assignments[rowIndex],
+      lead
+    });
+  } catch (err) {
+    console.error('Lead staff assignment failed', { leadId: req.params.id, rowIndex: req.params.rowIndex, error: err.message });
+    return res.status(err.statusCode || 500).json({ error: err.message || 'Unable to assign staff.' });
+  }
+};
+
 exports.permanentlyCloseProvisionalLead = async (req, res) => {
   try {
     if (req.body?.originalPoReceived !== true) {
@@ -2030,6 +2135,9 @@ exports._test = {
   resolveBulkCreator,
   changedFollowUpIndexes,
   validateServiceRemovalPermission,
+  stableUserIdentity,
+  canAssignStaffToRow,
+  activeUserLookup,
   leadCodeSequence
 };
 
