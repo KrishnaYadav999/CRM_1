@@ -2,6 +2,7 @@ const PendingApproval = require('../models/PendingApproval');
 const Client = require('../models/Client');
 const { sendMail } = require('../utils/mailer');
 const { resolveClientManager } = require('./clientApprovalDecisionNotifications');
+const { CLIENT_CORRECTION_DEADLINE_POLICY, addClientCorrectionHours } = require('../utils/clientCorrectionDeadline');
 
 const HOUR_MS = 60 * 60 * 1000;
 const SCAN_MS = Math.max(60 * 1000, Number(process.env.COMPLIANCE_CORRECTION_SCAN_MS) || HOUR_MS);
@@ -70,6 +71,45 @@ async function runClientComplianceCorrectionReminders(now = new Date()) {
   running = true;
   const result = { reminders: 0, breached: 0, legacyRecoveryGrants: 0, redFlags: 0, permanentRedFlags: 0, errors: 0 };
   try {
+    const legacyDeadlines = await PendingApproval.find({
+      type: 'client', correctionDecision: { $in: ['PARTIALLY_APPROVED', 'REJECTED'] },
+      correctionStatus: { $in: ['OPEN', 'BREACHED'] },
+      correctionDeadlinePolicy: { $ne: CLIENT_CORRECTION_DEADLINE_POLICY },
+      correctionStartedAt: { $ne: null }
+    }).limit(100);
+    for (const record of legacyDeadlines) {
+      const startedAt = new Date(record.correctionStartedAt);
+      if (Number.isNaN(startedAt.getTime())) continue;
+      const correctionDueAt = addClientCorrectionHours(startedAt, 48);
+      const greenFlagDeadline = addClientCorrectionHours(startedAt, 72);
+      record.correctionDeadlinePolicy = CLIENT_CORRECTION_DEADLINE_POLICY;
+      record.correctionReminderAt = addClientCorrectionHours(startedAt, 24);
+      record.correctionDueAt = correctionDueAt;
+      record.greenFlagDeadline = greenFlagDeadline;
+      if (now < correctionDueAt) {
+        record.correctionStatus = 'OPEN';
+        record.reminderFlag = 'GREEN';
+        record.correctionBreachedAt = undefined;
+        record.redFlagAt = undefined;
+        record.redRecoveryStartedAt = undefined;
+        record.redRecoveryEmailSentAt = undefined;
+        record.redRecoveryEmailNextAttemptAt = undefined;
+      } else if (now < greenFlagDeadline) {
+        record.correctionStatus = 'BREACHED';
+        record.reminderFlag = 'RED';
+        record.correctionBreachedAt = record.correctionBreachedAt || now;
+        record.redFlagAt = record.redFlagAt || now;
+        record.redRecoveryStartedAt = record.redRecoveryStartedAt || now;
+        record.redRecoveryEmailNextAttemptAt = record.redRecoveryEmailSentAt ? null : now;
+      } else {
+        record.correctionStatus = 'BREACHED';
+        record.reminderFlag = 'PERMANENT_RED';
+        record.correctionBreachedAt = record.correctionBreachedAt || correctionDueAt;
+        record.redFlagAt = record.redFlagAt || correctionDueAt;
+      }
+      await record.save();
+    }
+
     const legacyRedFlags = await PendingApproval.find({
       type: 'client', reminderFlag: { $in: ['RED', 'PERMANENT_RED'] }, correctionDecision: { $in: ['PARTIALLY_APPROVED', 'REJECTED'] },
       approvalStatus: { $in: ['PARTIALLY_APPROVED', 'REJECTED'] },
@@ -77,11 +117,12 @@ async function runClientComplianceCorrectionReminders(now = new Date()) {
       $or: [{ greenFlagDeadline: { $lte: now } }, { greenFlagDeadline: null }]
     }).limit(100);
     for (const record of legacyRedFlags) {
-      const recoveryDeadline = new Date(now.getTime() + 24 * HOUR_MS);
+      const recoveryDeadline = addClientCorrectionHours(now, 24);
       const claimed = await PendingApproval.findOneAndUpdate(
         { _id: record._id, reminderFlag: { $in: ['RED', 'PERMANENT_RED'] }, redRecoveryStartedAt: null },
         { $set: {
           correctionStatus: 'BREACHED',
+          correctionDeadlinePolicy: CLIENT_CORRECTION_DEADLINE_POLICY,
           reminderFlag: 'RED',
           redRecoveryStartedAt: now,
           greenFlagDeadline: recoveryDeadline,

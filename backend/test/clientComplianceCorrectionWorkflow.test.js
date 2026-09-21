@@ -6,6 +6,7 @@ const path = require('node:path');
 const PendingApproval = require('../src/models/PendingApproval');
 const { correctionEmail } = require('../src/services/clientComplianceCorrectionReminders');
 const { buildClientApprovalDecisionEmail } = require('../src/services/clientApprovalDecisionNotifications');
+const { CLIENT_CORRECTION_DEADLINE_POLICY, addClientCorrectionHours, isFirstOrThirdSaturdayInIst } = require('../src/utils/clientCorrectionDeadline');
 
 test('pending approval persists the 24-hour, 48-hour and permanent-red correction state', () => {
   const reminderFlag = PendingApproval.schema.path('reminderFlag');
@@ -17,6 +18,20 @@ test('pending approval persists the 24-hour, 48-hour and permanent-red correctio
   assert.ok(PendingApproval.schema.path('redRecoveryEmailSentAt'));
   assert.ok(PendingApproval.schema.path('redRecoveryEmailNextAttemptAt'));
   assert.ok(PendingApproval.schema.path('correctionRecipientEmail'));
+  assert.ok(PendingApproval.schema.path('correctionDeadlinePolicy'));
+});
+
+test('Client Master correction time excludes first and third Saturdays in IST', () => {
+  assert.equal(CLIENT_CORRECTION_DEADLINE_POLICY, 'skip_first_third_saturday_v1');
+  assert.equal(isFirstOrThirdSaturdayInIst('2026-10-03T06:30:00.000Z'), true);
+  assert.equal(isFirstOrThirdSaturdayInIst('2026-10-10T06:30:00.000Z'), false);
+  assert.equal(isFirstOrThirdSaturdayInIst('2026-10-17T06:30:00.000Z'), true);
+  // Friday noon IST + 48 counted hours would be Sunday noon; excluding the
+  // first Saturday moves it to Monday noon and adds exactly 24 calendar hours.
+  assert.equal(addClientCorrectionHours('2026-10-02T06:30:00.000Z', 48).toISOString(), '2026-10-05T06:30:00.000Z');
+  // The second Saturday remains a normal counted day.
+  assert.equal(addClientCorrectionHours('2026-10-09T06:30:00.000Z', 48).toISOString(), '2026-10-11T06:30:00.000Z');
+  assert.equal(addClientCorrectionHours('2026-10-16T06:30:00.000Z', 48).toISOString(), '2026-10-19T06:30:00.000Z');
 });
 
 test('partial and rejected decision emails explain the 48-hour SLA and 24-hour recovery window', () => {
@@ -27,10 +42,11 @@ test('partial and rejected decision emails explain the 48-hour SLA and 24-hour r
       approvalMode,
       recipientName: 'Client Manager'
     });
-    assert.match(email.html, /within 48 hours/i);
-    assert.match(email.html, /reminder.*24 hours/i);
-    assert.match(email.html, /final 24-hour recovery window/i);
-    assert.match(email.html, /after 72 hours/i);
+    assert.match(email.html, /within 48 working hours/i);
+    assert.match(email.html, /reminder.*24 working hours/i);
+    assert.match(email.html, /final 24-working-hour recovery window/i);
+    assert.match(email.html, /after 72 working hours/i);
+    assert.match(email.html, /First and third Saturdays.*do not count/i);
   }
 });
 
@@ -54,10 +70,12 @@ test('scheduled correction emails distinguish reminder, recoverable red and perm
   assert.match(permanent.html, /recovery window has expired/i);
 });
 
-test('compliance correction workflow uses a 72-hour permanent-red deadline and permits timely red-to-green approval', () => {
+test('compliance correction workflow uses Saturday-aware deadlines and permits timely red-to-green approval', () => {
   const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/clientComplianceReviewController.js'), 'utf8');
   const scheduler = fs.readFileSync(path.resolve(__dirname, '../src/services/clientComplianceCorrectionReminders.js'), 'utf8');
-  assert.match(controller, /greenFlagDeadline: new Date\(decidedAt\.getTime\(\) \+ 72 \* 60 \* 60 \* 1000\)/);
+  assert.match(controller, /greenFlagDeadline: addClientCorrectionHours\(decidedAt, 72\)/);
+  assert.match(controller, /correctionDueAt: addClientCorrectionHours\(decidedAt, 48\)/);
+  assert.match(controller, /correctionDeadlinePolicy: CLIENT_CORRECTION_DEADLINE_POLICY/);
   assert.match(controller, /reminderFlag: permanentRed \? 'PERMANENT_RED' : 'GREEN'/);
   assert.match(controller, /reminderFlag: permanentRed \? 'PERMANENT_RED' : 'RED'/);
   assert.match(scheduler, /reminderFlag: 'RED'/);
@@ -68,6 +86,7 @@ test('compliance correction workflow uses a 72-hour permanent-red deadline and p
   assert.match(scheduler, /redRecoveryEmailNextAttemptAt: nextAttemptAt/);
   assert.match(scheduler, /greenFlagDeadline: \{ \$lte: now \}/);
   assert.match(scheduler, /reminderFlag: 'PERMANENT_RED'/);
+  assert.match(scheduler, /correctionDeadlinePolicy: \{ \$ne: CLIENT_CORRECTION_DEADLINE_POLICY \}/);
 });
 
 test('server startup runs the legacy red recovery scan so deployed records receive email', () => {
