@@ -1,7 +1,7 @@
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const IST_OFFSET_MS = 330 * 60 * 1000;
-const CLIENT_CORRECTION_DEADLINE_POLICY = 'skip_first_third_saturday_v1';
+const CLIENT_CORRECTION_DEADLINE_POLICY = 'skip_first_third_saturday_96h_v2';
 
 function isFirstOrThirdSaturdayInIst(value) {
   const ist = new Date(new Date(value).getTime() + IST_OFFSET_MS);

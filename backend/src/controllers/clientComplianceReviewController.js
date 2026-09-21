@@ -134,7 +134,7 @@ exports.completeReview = async (req, res) => {
     reminderFlag: permanentRed ? 'PERMANENT_RED' : 'RED',
     redFlagAt: existingPendingRecord?.redFlagAt || decidedAt,
     correctionDeadlinePolicy: CLIENT_CORRECTION_DEADLINE_POLICY,
-    greenFlagDeadline: legacyRedNeedsGrace ? addClientCorrectionHours(decidedAt, 24) : existingPendingRecord?.greenFlagDeadline || decidedAt
+    greenFlagDeadline: legacyRedNeedsGrace ? addClientCorrectionHours(decidedAt, 48) : existingPendingRecord?.greenFlagDeadline || decidedAt
   } : correctionRequired ? {
     correctionStatus: 'OPEN',
     correctionDecision: decision === 'REJECTED' ? 'REJECTED' : 'PARTIALLY_APPROVED',
@@ -151,7 +151,7 @@ exports.completeReview = async (req, res) => {
     correctionEmailError: '',
     reminderFlag: 'GREEN',
     redFlagAt: null,
-    greenFlagDeadline: addClientCorrectionHours(decidedAt, 72)
+    greenFlagDeadline: addClientCorrectionHours(decidedAt, 96)
   } : {
     correctionStatus: 'RESOLVED',
     correctionResolvedAt: decidedAt,
