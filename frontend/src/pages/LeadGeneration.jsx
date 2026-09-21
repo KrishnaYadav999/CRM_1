@@ -4369,46 +4369,35 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     if ((!isManager || !managerOwnsRow) && !isAssignmentAdmin) return;
     const selected = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId]
       .filter(Boolean).some((id) => String(id) === String(value)));
-    const assignments = detailAssignments.map((item, rowIndex) => rowIndex === index ? {
-      ...item,
-      assignedStaff: value,
-      assignedStaffText: selected?.name || selected?.email || '',
-      assignedStaffEmail: selected?.email || '',
-      kickoffEmailConsent: value ? kickoffEmailConsent : ''
-    } : item);
     setAssignmentSavingIndex(index);
     try {
-      // CCP still exposes legacy lead-level staff fields. Sending those fields while
-      // editing one row makes older CCP handlers copy that staff member to every
-      // assignment. The assignments array is the source of truth for row-wise edits.
-      const {
-        assignedStaff: _legacyAssignedStaff,
-        assignedStaffText: _legacyAssignedStaffText,
-        assignedStaffEmail: _legacyAssignedStaffEmail,
-        ...leadWithoutLegacyStaff
-      } = activeLead;
-      const payload = {
-        ...leadWithoutLegacyStaff,
-        assignments
-      };
-      const response = await api.put(API_ENDPOINTS.leads.detail(activeLead._id || activeLead.id || activeLead.sourceLeadId), payload);
+      const leadId = activeLead._id || activeLead.id || activeLead.sourceLeadId;
+      const response = await api.patch(API_ENDPOINTS.leads.staffAssignment(leadId, index), {
+        staffUserId: value,
+        kickoffEmailConsent: value ? kickoffEmailConsent : ''
+      });
       const responseLead = response.data?.lead || response.data?.data?.lead || response.data?.data;
-      // Some CCP update responses contain only the changed assignment fields.
-      // Merge that patch into the current lead so company/service/contact data does
-      // not disappear, and retain the exact row-wise assignments we submitted.
+      const savedAssignment = response.data?.assignment || {};
+      const savedAssignments = Array.isArray(responseLead?.assignments)
+        ? responseLead.assignments
+        : detailAssignments.map((item, rowIndex) => rowIndex === index ? {
+          ...item,
+          ...savedAssignment,
+          assignedStaff: savedAssignment.assignedStaff || value,
+          assignedStaffText: savedAssignment.assignedStaffText || selected?.name || selected?.email || '',
+          assignedStaffEmail: savedAssignment.assignedStaffEmail || selected?.email || '',
+          kickoffEmailConsent: value ? kickoffEmailConsent : ''
+        } : item);
       const updatedLead = {
         ...activeLead,
         ...(responseLead && typeof responseLead === 'object' ? responseLead : {}),
-        assignments,
-        serviceSelections: activeLead.serviceSelections,
-        addresses: activeLead.addresses,
-        contacts: activeLead.contacts,
-        assignedStaff: assignments[0]?.assignedStaff || '',
-        assignedStaffText: assignments[0]?.assignedStaffText || '',
-        assignedStaffEmail: assignments[0]?.assignedStaffEmail || ''
+        assignments: savedAssignments
       };
       setDetailLead(updatedLead);
       onLeadUpdated?.(updatedLead);
+      setDetailToast({ id: Date.now(), type: 'success', message: response.data?.message || (value ? 'Staff member assigned successfully.' : 'Staff assignment removed.') });
+    } catch (error) {
+      setDetailToast({ id: Date.now(), type: 'error', message: error?.response?.data?.error || 'Unable to assign the staff member. Please try again.' });
     } finally {
       setAssignmentSavingIndex(-1);
     }
