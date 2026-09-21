@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { addBusinessDaysInIst, normalizeProvisionalClosure } = require('../src/utils/provisionalClosureDeadline');
+const { addBusinessDaysInIst, normalizeProvisionalClosure, permanentlyCloseProvisionalAssignments } = require('../src/utils/provisionalClosureDeadline');
 const Lead = require('../src/models/Lead');
 const LeadActivity = require('../src/models/LeadActivity');
 const User = require('../src/models/User');
@@ -40,6 +40,23 @@ test('Pending legacy closures get seven business days from their original closur
   assert.equal(row.provisionalCloseExpiresAt, '2026-09-28T11:08:00.000Z');
 });
 
+test('Original PO confirmation permanently closes only provisional services and removes their reopen deadline', () => {
+  const received = { poStatus: 'received', closedBy: 'received-closer' };
+  const result = permanentlyCloseProvisionalAssignments([
+    { poStatus: 'provisional', closedBy: 'closer', provisionalCloseExpiresAt: '2026-09-28T11:08:00.000Z', provisionalCloseDeadlineBusinessDays: 7 },
+    received
+  ], { _id: 'user-1', name: 'CRM User' }, new Date('2026-09-21T08:00:00.000Z'));
+  assert.equal(result.changedCount, 1);
+  assert.equal(result.assignments[0].poStatus, 'permanently_closed');
+  assert.equal(result.assignments[0].originalPoConfirmed, true);
+  assert.equal(result.assignments[0].permanentClosedBy, 'user-1');
+  assert.equal(result.assignments[0].permanentClosedByText, 'CRM User');
+  assert.equal(result.assignments[0].permanentClosedAt, '2026-09-21T08:00:00.000Z');
+  assert.equal(result.assignments[0].provisionalCloseExpiresAt, '');
+  assert.equal(result.assignments[0].provisionalCloseDeadlineBusinessDays, 0);
+  assert.equal(result.assignments[1], received);
+});
+
 test('The scheduler extends a legacy ten-minute deadline without reopening the service', async () => {
   let saved = 0;
   const lead = { assignments: [{ poStatus: 'provisional', closedBy: 'closer', provisionalCloseExpiresAt: new Date(Date.now() - 60000).toISOString() }], save: async () => { saved += 1; } };
@@ -53,13 +70,14 @@ test('The scheduler extends a legacy ten-minute deadline without reopening the s
   assert.ok(new Date(lead.assignments[0].provisionalCloseExpiresAt) > new Date());
 });
 
-test('Only expired provisional services reopen; received POs and future deadlines stay closed', async () => {
+test('Only expired provisional services reopen; permanent closures, received POs, and future deadlines stay closed', async () => {
   sent.length = 0;
   const now = Date.now();
   const received = { poStatus: 'received', closedBy: 'received-closer', provisionalCloseExpiresAt: new Date(now - 60000).toISOString() };
   const future = { poStatus: 'provisional', closedBy: 'future-closer', provisionalCloseDeadlineBusinessDays: 7, provisionalCloseExpiresAt: new Date(now + 86400000).toISOString() };
+  const permanent = { poStatus: 'permanently_closed', closedBy: 'permanent-closer', provisionalCloseExpiresAt: '' };
   const lead = { _id: 'test-lead', company: 'Sample', assignments: [
-    { poStatus: 'provisional', closedBy: 'expired-closer', closedByEmail: 'closer@example.com', provisionalCloseDeadlineBusinessDays: 7, provisionalCloseExpiresAt: new Date(now - 60000).toISOString() }, received, future
+    { poStatus: 'provisional', closedBy: 'expired-closer', closedByEmail: 'closer@example.com', provisionalCloseDeadlineBusinessDays: 7, provisionalCloseExpiresAt: new Date(now - 60000).toISOString() }, received, future, permanent
   ], save: async () => {} };
   Lead.find = async () => [lead];
   LeadActivity.create = async () => {};
@@ -69,6 +87,7 @@ test('Only expired provisional services reopen; received POs and future deadline
   assert.equal(lead.assignments[0].closedBy, '');
   assert.equal(lead.assignments[1], received);
   assert.equal(lead.assignments[2].closedBy, future.closedBy);
+  assert.equal(lead.assignments[3], permanent);
   assert.equal(sent.length, 1);
   assert.match(sent[0][2], /7-business-day deadline/);
 });

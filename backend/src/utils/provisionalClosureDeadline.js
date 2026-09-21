@@ -1,4 +1,5 @@
 const BUSINESS_DAYS = 7;
+const PERMANENT_PO_STATUS = 'permanently_closed';
 const IST_OFFSET_MS = 330 * 60 * 1000;
 const LEGACY_WINDOW_MS = 10 * 60 * 1000;
 
@@ -27,4 +28,24 @@ function normalizeProvisionalClosure(row, previous = {}, now = new Date()) {
   return { ...row, provisionalCloseExpiresAt: expiresAt.toISOString(), provisionalCloseDeadlineBusinessDays: BUSINESS_DAYS };
 }
 
-module.exports = { BUSINESS_DAYS, addBusinessDaysInIst, normalizeProvisionalClosure };
+function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, now = new Date()) {
+  const closedAt = new Date(now).toISOString();
+  let changedCount = 0;
+  const rows = assignments.map((row) => {
+    if (row?.poStatus !== 'provisional') return row;
+    changedCount += 1;
+    return {
+      ...row,
+      poStatus: PERMANENT_PO_STATUS,
+      originalPoConfirmed: true,
+      permanentClosedAt: closedAt,
+      permanentClosedBy: String(actor?._id || actor?.id || '').trim(),
+      permanentClosedByText: String(actor?.name || actor?.email || '').trim(),
+      provisionalCloseExpiresAt: '',
+      provisionalCloseDeadlineBusinessDays: 0
+    };
+  });
+  return { assignments: rows, changedCount };
+}
+
+module.exports = { BUSINESS_DAYS, PERMANENT_PO_STATUS, addBusinessDaysInIst, normalizeProvisionalClosure, permanentlyCloseProvisionalAssignments };
