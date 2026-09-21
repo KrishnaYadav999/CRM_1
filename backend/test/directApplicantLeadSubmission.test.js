@@ -27,3 +27,26 @@ test('lead submit payload explicitly clears PIBO fallbacks for direct-applicant 
   assert.match(payloadBlock, /subApplicantType: primaryUsesDirectApplicant \? ''/);
   assert.match(payloadBlock, /piboParent: primaryUsesDirectApplicant \? ''/);
 });
+
+test('Add Services validates the effective service rows instead of an omitted top-level category', () => {
+  const existingLead = {
+    workflowStatus: 'submitted',
+    serviceSelections: [{
+      eprCategory: 'Consent Compliance Services',
+      applicantType: 'Producer'
+    }]
+  };
+  const appendOnlyPatch = {
+    serviceSelections: [
+      ...existingLead.serviceSelections,
+      {
+        eprCategory: 'Solid Waste Management',
+        applicantType: 'Bulk Waste Generator',
+        subApplicantType: ''
+      }
+    ]
+  };
+
+  assert.equal(_test.primaryServiceCategory(appendOnlyPatch, existingLead), 'Consent Compliance Services');
+  assert.equal(_test.shouldValidatePiboSelection(appendOnlyPatch, existingLead), false);
+});

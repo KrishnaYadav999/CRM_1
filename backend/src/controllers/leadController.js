@@ -159,6 +159,24 @@ function usesDirectApplicantType(eprCategory) {
   return Boolean(category && !category.includes('plastic'));
 }
 
+function primaryServiceCategory(data = {}, fallback = {}) {
+  const dataServices = Array.isArray(data.serviceSelections) ? data.serviceSelections : [];
+  const fallbackServices = Array.isArray(fallback.serviceSelections) ? fallback.serviceSelections : [];
+  return String(
+    dataServices[0]?.eprCategory
+    || data.eprCategory
+    || fallbackServices[0]?.eprCategory
+    || fallback.eprCategory
+    || ''
+  ).trim();
+}
+
+function shouldValidatePiboSelection(data = {}, fallback = {}) {
+  const workflowStatus = data.workflowStatus || fallback.workflowStatus || 'draft';
+  return (!usesDirectApplicantType(primaryServiceCategory(data, fallback)) && workflowStatus === 'submitted')
+    || Boolean(data.piboParent || data.subApplicantType);
+}
+
 function cleanBody(body) {
   const data = {};
   [
@@ -751,7 +769,7 @@ async function createLeadRecord(rawBody, user) {
     data.fillDurationSeconds = Math.max(0, Math.min(86400, Math.round((new Date(data.submittedAt).getTime() - new Date(data.formStartedAt).getTime()) / 1000)));
   }
 
-  if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.subApplicantType) {
+  if (shouldValidatePiboSelection(data)) {
     const selection = await validatePiboSelection({ parent: data.piboParent, child: data.subApplicantType, required: true });
     data.piboParent = selection.piboParent;
     data.subApplicantType = selection.piboCategory;
@@ -1312,8 +1330,8 @@ exports.updateLead = async (req, res) => {
       if (error) return res.status(400).json({ error });
     }
 
-    if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.subApplicantType) {
-      const current = lead.toObject();
+    const current = lead.toObject();
+    if (shouldValidatePiboSelection(data, current)) {
       const selection = await validatePiboSelection({
         parent: data.piboParent || current.piboParent || current.piboCategoryParent,
         child: data.subApplicantType || current.subApplicantType || current.piboCategory,
@@ -2130,6 +2148,8 @@ exports.updateDuplicateLeadApproval = async (req, res) => {
 
 exports._test = {
   usesDirectApplicantType,
+  primaryServiceCategory,
+  shouldValidatePiboSelection,
   cleanBody,
   validateSubmittedLead,
   bulkServiceRow,
