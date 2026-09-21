@@ -28,11 +28,13 @@ function normalizeProvisionalClosure(row, previous = {}, now = new Date()) {
   return { ...row, provisionalCloseExpiresAt: expiresAt.toISOString(), provisionalCloseDeadlineBusinessDays: BUSINESS_DAYS };
 }
 
-function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, originalPoProof = {}, now = new Date()) {
+function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, originalPoRows = [], now = new Date()) {
   const closedAt = new Date(now).toISOString();
+  const poByAssignment = new Map(originalPoRows.map((row) => [Number(row.assignmentIndex), row]));
   let changedCount = 0;
-  const rows = assignments.map((row) => {
+  const rows = assignments.map((row, index) => {
     if (row?.poStatus !== 'provisional') return row;
+    const po = poByAssignment.get(index) || {};
     changedCount += 1;
     return {
       ...row,
@@ -41,12 +43,28 @@ function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, or
       permanentClosedAt: closedAt,
       permanentClosedBy: String(actor?._id || actor?.id || '').trim(),
       permanentClosedByText: String(actor?.name || actor?.email || '').trim(),
-      originalPoFileUrl: String(originalPoProof.url || '').trim(),
-      originalPoFileName: String(originalPoProof.name || '').trim(),
-      originalPoFileType: String(originalPoProof.type || '').trim(),
-      originalPoFileSize: Math.max(0, Number(originalPoProof.size) || 0),
-      originalPoPublicId: String(originalPoProof.publicId || '').trim(),
-      originalPoUploadedAt: String(originalPoProof.uploadedAt || closedAt).trim(),
+      originalPoDetails: {
+        fy: String(po.fy || '').trim(),
+        poNumber: String(po.poNumber || '').trim(),
+        poDate: String(po.poDate || '').trim(),
+        poAmount: Math.max(0, Number(po.poAmount) || 0),
+        currency: 'INR',
+        service: String(po.service || '').trim(),
+        assignedServiceId: String(po.assignedServiceId || row.assignedServiceId || '').trim(),
+        poFileUrl: String(po.poFileUrl || '').trim(),
+        poFileName: String(po.poFileName || '').trim(),
+        poFileType: String(po.poFileType || '').trim(),
+        poFileSize: Math.max(0, Number(po.poFileSize) || 0),
+        poPublicId: String(po.poPublicId || '').trim(),
+        poUploadedAt: String(po.poUploadedAt || closedAt).trim(),
+        recordedAt: closedAt
+      },
+      originalPoFileUrl: String(po.poFileUrl || '').trim(),
+      originalPoFileName: String(po.poFileName || '').trim(),
+      originalPoFileType: String(po.poFileType || '').trim(),
+      originalPoFileSize: Math.max(0, Number(po.poFileSize) || 0),
+      originalPoPublicId: String(po.poPublicId || '').trim(),
+      originalPoUploadedAt: String(po.poUploadedAt || closedAt).trim(),
       provisionalCloseExpiresAt: '',
       provisionalCloseDeadlineBusinessDays: 0
     };

@@ -4256,8 +4256,8 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const [permanentCloseStep, setPermanentCloseStep] = useState('');
   const [permanentCloseSaving, setPermanentCloseSaving] = useState(false);
   const [permanentCloseError, setPermanentCloseError] = useState('');
-  const [originalPoProof, setOriginalPoProof] = useState(null);
-  const [originalPoUploading, setOriginalPoUploading] = useState(false);
+  const [originalPoRows, setOriginalPoRows] = useState([]);
+  const [originalPoUploadingIndex, setOriginalPoUploadingIndex] = useState(-1);
   const [detailToast, setDetailToast] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -4304,6 +4304,18 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   // API rows use subApplicantType while older CCP payloads use piboCategory.
   // Normalize once so every detail table renders the same service values.
   const detailServices = normalizeLegacyServiceSelections(activeLead);
+  const buildOriginalPoRows = () => detailAssignments.flatMap((assignment, assignmentIndex) => {
+    if (assignment?.poStatus !== 'provisional') return [];
+    const service = detailServices[assignmentIndex] || detailServices.at(-1) || {};
+    return [{
+      assignmentIndex,
+      assignedServiceId: assignment.assignedServiceId || service.assignedServiceId || '',
+      fy: service.firstAnnualReturnYearApplicable || activeLead.firstAnnualReturnYearApplicable || '',
+      poNumber: '', poDate: '', poAmount: '',
+      service: service.servicesOffered || service.applicableService || service.eprCategory || `Service ${assignmentIndex + 1}`,
+      poFileUrl: '', poFileName: '', poFileType: '', poFileSize: 0, poPublicId: '', poUploadedAt: ''
+    }];
+  });
   const currentUserTokens = [currentUser?._id, currentUser?.id, currentUser?.crmUserId, currentUser?.userId, currentUser?.email, currentUser?.name]
     .filter(Boolean).map((item) => String(item).trim().toLowerCase());
   const ownedServiceOptions = detailServices.map((service, index) => ({ service, index, ownerTokens: [service.createdByCrmUserId, service.createdByEmail, service.createdByName].filter(Boolean).map((item) => String(item).trim().toLowerCase()) }))
@@ -4418,22 +4430,23 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   }
 
   async function permanentlyCloseLead() {
-    if (!originalPoProof?.url) {
-      setPermanentCloseError('Upload the original Purchase Order before permanently closing the lead.');
+    const incompletePoRow = !originalPoRows.length || originalPoRows.some((row) => !row.fy || !row.poNumber.trim() || !row.poDate || !(Number(row.poAmount) > 0) || !row.poFileUrl || !row.service);
+    if (incompletePoRow) {
+      setPermanentCloseError('Complete PO Number, PO Date, PO Amount, and PO Proof for every service before permanently closing the lead.');
       return;
     }
     const leadId = activeLead._id || activeLead.id || activeLead.sourceLeadId;
     setPermanentCloseSaving(true);
     setPermanentCloseError('');
     try {
-      const response = await api.post(API_ENDPOINTS.leads.permanentClosure(leadId), { originalPoReceived: true, originalPoProof });
+      const response = await api.post(API_ENDPOINTS.leads.permanentClosure(leadId), { originalPoReceived: true, originalPoRows });
       const updatedLead = response.data?.lead;
       if (!updatedLead) throw new Error('CRM did not return the permanently closed lead.');
       setDetailLead(updatedLead);
       onLeadUpdated?.(updatedLead);
       setPermanentCloseStep('');
-      setOriginalPoProof(null);
-      setDetailToast({ id: Date.now(), type: 'success', message: 'Original PO saved and the lead was permanently closed. It will not reopen automatically.' });
+      setOriginalPoRows([]);
+      setDetailToast({ id: Date.now(), type: 'success', message: 'All original PO details were saved and the lead was permanently closed. It will not reopen automatically.' });
     } catch (error) {
       setPermanentCloseError(error?.response?.data?.error || error.message || 'Unable to permanently close the lead.');
     } finally {
@@ -4441,7 +4454,11 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     }
   }
 
-  async function uploadOriginalPo(event) {
+  function updateOriginalPoRow(rowIndex, patch) {
+    setOriginalPoRows((current) => current.map((row, index) => index === rowIndex ? { ...row, ...patch } : row));
+  }
+
+  async function uploadOriginalPo(event, rowIndex) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
@@ -4449,23 +4466,23 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       setPermanentCloseError('Upload the original PO as a PDF or image file.');
       return;
     }
-    setOriginalPoUploading(true);
+    setOriginalPoUploadingIndex(rowIndex);
     setPermanentCloseError('');
     try {
       const uploaded = await uploadMedia(file, 'crm/leads/original-purchase-orders');
-      setOriginalPoProof({
-        url: uploaded.secureUrl || uploaded.url,
-        name: uploaded.name || file.name,
-        type: uploaded.type || file.type,
-        size: uploaded.bytes || uploaded.size || file.size,
-        publicId: uploaded.publicId || '',
-        uploadedAt: uploaded.uploadedAt || new Date().toISOString()
+      updateOriginalPoRow(rowIndex, {
+        poFileUrl: uploaded.secureUrl || uploaded.url,
+        poFileName: uploaded.name || file.name,
+        poFileType: uploaded.type || file.type,
+        poFileSize: uploaded.bytes || uploaded.size || file.size,
+        poPublicId: uploaded.publicId || '',
+        poUploadedAt: uploaded.uploadedAt || new Date().toISOString()
       });
     } catch (error) {
-      setOriginalPoProof(null);
+      updateOriginalPoRow(rowIndex, { poFileUrl: '', poFileName: '', poFileType: '', poFileSize: 0, poPublicId: '', poUploadedAt: '' });
       setPermanentCloseError(error?.message || 'Original PO upload failed. Please retry.');
     } finally {
-      setOriginalPoUploading(false);
+      setOriginalPoUploadingIndex(-1);
     }
   }
 
@@ -4791,22 +4808,28 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   <tbody>{detailServices.map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3 font-black text-violet-700">{directApplicantOptions(row.eprCategory) ? 'Not applicable' : (row.piboCategory || '-')}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td><td className="px-4 py-3"><span className={`rounded-full px-3 py-1 text-[10px] font-black ${detailAssignments[index]?.poStatus === 'provisional' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>{detailAssignments[index]?.poStatus === 'provisional' ? 'PERMANENT CLOSE' : 'UNCHANGED'}</span></td></tr>)}</tbody>
                 </table>
               </div>
-              <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div><h4 className="font-black text-emerald-950">Upload Original Purchase Order <span className="text-red-600">*</span></h4><p className="mt-1 text-sm font-semibold text-emerald-800">The original PO is mandatory and will be stored with every provisional service being permanently closed.</p></div>
-                  {originalPoProof?.url && <a href={originalPoProof.url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-xs font-black text-emerald-800">View uploaded PO</a>}
+              <section className="overflow-hidden rounded-xl border border-amber-300 bg-white">
+                <header className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-4"><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Manual PO Details</p><h4 className="font-black text-slate-950">Enter original Purchase Order details</h4></div><span className="rounded-full bg-white px-3 py-1 text-[10px] font-black text-amber-700">Original PO required</span></header>
+                <div className="overflow-auto">
+                  <table className="w-full min-w-[1250px] text-left text-xs">
+                    <thead className="bg-slate-100 uppercase text-slate-500"><tr>{['#', 'EPR / Service Period', 'PO Number', 'PO Date', 'PO Amount (INR)', 'PO Proof', 'Service'].map((heading) => <th key={heading} className="whitespace-nowrap p-3">{heading}</th>)}</tr></thead>
+                    <tbody>{originalPoRows.map((po, rowIndex) => <tr key={po.assignmentIndex} className="border-t align-middle">
+                      <td className="p-3 font-black">{rowIndex + 1}</td>
+                      <td className="p-3 font-black text-slate-700">{po.fy || '-'}</td>
+                      <td className="p-3"><input required className="form-input min-w-48" value={po.poNumber} onChange={(event) => updateOriginalPoRow(rowIndex, { poNumber: event.target.value })} placeholder="PO Number" /></td>
+                      <td className="p-3"><input required type="date" aria-label={`Original PO Date row ${rowIndex + 1}`} className="form-input min-w-40" value={po.poDate} onChange={(event) => updateOriginalPoRow(rowIndex, { poDate: event.target.value })} /></td>
+                      <td className="p-3"><div className="relative min-w-48"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-500">₹</span><input required type="number" min="0.01" step="0.01" className="form-input pl-7" value={po.poAmount} onChange={(event) => updateOriginalPoRow(rowIndex, { poAmount: event.target.value })} placeholder="Enter PO Amount" /></div></td>
+                      <td className="p-3"><div className="flex items-center gap-2"><label className={`flex min-h-11 min-w-40 items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-3 font-black text-amber-700 ${originalPoUploadingIndex === rowIndex ? 'cursor-wait opacity-60' : 'cursor-pointer'}`}><Upload className="mr-2 h-4 w-4" />{originalPoUploadingIndex === rowIndex ? 'Uploading...' : (po.poFileName || 'Choose File')}<input type="file" disabled={originalPoUploadingIndex >= 0 || permanentCloseSaving} className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadOriginalPo(event, rowIndex)} /></label>{po.poFileUrl && <a href={po.poFileUrl} target="_blank" rel="noopener noreferrer" className="font-black text-emerald-700">View</a>}</div></td>
+                      <td className="p-3 font-bold text-slate-800">{po.service || '-'}</td>
+                    </tr>)}</tbody>
+                  </table>
                 </div>
-                <label className={`mt-4 flex min-h-14 items-center justify-center rounded-xl border-2 border-dashed px-4 font-black ${originalPoUploading ? 'cursor-wait border-slate-300 bg-slate-100 text-slate-500' : 'cursor-pointer border-emerald-400 bg-white text-emerald-800'}`}>
-                  <Upload className="mr-2 h-5 w-5" />{originalPoUploading ? 'Uploading Original PO...' : (originalPoProof?.name || 'Choose Original PO (PDF or image)')}
-                  <input type="file" disabled={originalPoUploading || permanentCloseSaving} className="sr-only" accept="image/*,.pdf" onChange={uploadOriginalPo} />
-                </label>
-                {originalPoProof?.name && <p className="mt-2 text-xs font-bold text-emerald-700">Saved for submission: {originalPoProof.name}</p>}
               </section>
               {permanentCloseError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{permanentCloseError}</div>}
             </div>
             <footer className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-6 py-5 sm:flex-row sm:justify-end">
               <button type="button" disabled={permanentCloseSaving} onClick={() => setPermanentCloseStep('')} className="min-h-11 rounded-lg border border-slate-200 bg-white px-6 font-black text-slate-700 disabled:opacity-50">Cancel</button>
-              <button type="button" disabled={permanentCloseSaving || originalPoUploading || !hasProvisionalClosure || !originalPoProof?.url} onClick={permanentlyCloseLead} className="min-h-11 rounded-lg bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-50">{permanentCloseSaving ? 'Closing Lead...' : 'Permanently Close Lead'}</button>
+              <button type="button" disabled={permanentCloseSaving || originalPoUploadingIndex >= 0 || !hasProvisionalClosure || !originalPoRows.length || originalPoRows.some((row) => !row.fy || !row.poNumber.trim() || !row.poDate || !(Number(row.poAmount) > 0) || !row.poFileUrl)} onClick={permanentlyCloseLead} className="min-h-11 rounded-lg bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-50">{permanentCloseSaving ? 'Closing Lead...' : 'Permanently Close Lead'}</button>
             </footer>
           </section>
         </div>
@@ -4837,7 +4860,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          {hasProvisionalClosure && <button type="button" onClick={() => { setPermanentCloseError(''); setOriginalPoProof(null); setPermanentCloseStep('confirm'); }} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-amber-500 px-5 text-sm font-black text-white shadow-lg shadow-amber-500/20"><CheckCircle2 className="h-4 w-4" />Original PO Received?</button>}
+          {hasProvisionalClosure && <button type="button" onClick={() => { setPermanentCloseError(''); setOriginalPoRows(buildOriginalPoRows()); setPermanentCloseStep('confirm'); }} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-amber-500 px-5 text-sm font-black text-white shadow-lg shadow-amber-500/20"><CheckCircle2 className="h-4 w-4" />Original PO Received?</button>}
           {showCurrentUserServiceActions && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
           {showCurrentUserServiceActions && (
             <>
