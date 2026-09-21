@@ -253,10 +253,15 @@ test('quotation PDF main amount table shows service start and end dates in the s
   assert.match(page, /const ANANT_TATTVA_GST_NUMBER = '27AAZCA6657R1ZB'/);
 });
 
-test('EPR Consultancy quotation mapping uses the combined annual return and registration year header', () => {
+test('EPR Consultancy quotation mapping labels the year column from services offered', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
+  assert.match(page, /function normalizedQuotationService\(item = \{\}\)/);
+  assert.match(page, /normalizedQuotationService\(item\)\.includes\('annualreturn'\)/);
+  assert.match(page, /normalizedQuotationService\(item\)\.includes\('registration'\)/);
   assert.match(page, /function quotationYearMappingHeader\(items = \[\]\)/);
-  assert.match(page, /items\.some\(isEprConsultancyItem\).*Annual Return & Registration Year/);
+  assert.match(page, /if \(hasAnnualReturn && !hasRegistration\) return 'Annual Return Year'/);
+  assert.match(page, /if \(hasRegistration && !hasAnnualReturn\) return 'Registration EPR Year'/);
+  assert.match(page, /return 'EPR Year'/);
   assert.match(page, /\{quotationYearMappingHeader\(items\)\}/);
   assert.match(page, /escapeHtml\(yearMappingHeader\)/);
 });

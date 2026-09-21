@@ -267,8 +267,30 @@ function isPwpEprCreditItem(item = {}) {
   return isEprCreditItem(item) && String(getQuotationApplicantType(item) || '').trim().toLowerCase() === 'pwp';
 }
 
+function normalizedQuotationService(item = {}) {
+  return String(item.servicesOffered || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function isAnnualReturnQuotationService(item = {}) {
+  return normalizedQuotationService(item).includes('annualreturn');
+}
+
+function isRegistrationQuotationService(item = {}) {
+  return normalizedQuotationService(item).includes('registration');
+}
+
 function quotationYearMappingHeader(items = []) {
-  if (items.some(isEprConsultancyItem)) return 'Annual Return & Registration Year';
+  const consultancyItems = items.filter(isEprConsultancyItem);
+  if (consultancyItems.length) {
+    const hasAnnualReturn = consultancyItems.some(isAnnualReturnQuotationService);
+    const hasRegistration = consultancyItems.some(isRegistrationQuotationService);
+    if (hasAnnualReturn && !hasRegistration) return 'Annual Return Year';
+    if (hasRegistration && !hasAnnualReturn) return 'Registration EPR Year';
+    return 'EPR Year';
+  }
   return 'Annual Return EPR Year / Credit Year';
 }
 
