@@ -16,7 +16,7 @@ const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
 const { resolvePoProof, resolveApprovalPoProof } = require('../services/poProofResolver');
-const { normalizeProvisionalClosure } = require('../utils/provisionalClosureDeadline');
+const { normalizeProvisionalClosure, permanentlyCloseProvisionalAssignments } = require('../utils/provisionalClosureDeadline');
 const LeadDropdownOption = require('../models/LeadDropdownOption');
 const { sendLeadIntroductionEmail } = require('../services/leadIntroductionEmail');
 
@@ -305,6 +305,7 @@ function cleanBody(body) {
           assignedStaffText: String(row?.assignedStaffText || '').trim(),
           assignedStaffEmail: String(row?.assignedStaffEmail || '').trim(),
           assignedBy: String(row?.assignedBy || '').trim(),
+          // Permanent closure is server-only and cannot be forged through a normal lead update.
           poStatus: ['received', 'provisional'].includes(String(row?.poStatus || '')) ? String(row.poStatus) : '',
           poYearRows: Array.isArray(row?.poYearRows) ? row.poYearRows.slice(0, 25).map((po) => ({
             fy: String(po?.fy || '').trim(), poNumber: String(po?.poNumber || '').trim(),
@@ -336,6 +337,11 @@ function cleanBody(body) {
           closureApprovalProofUrl: String(row?.closureApprovalProofUrl || '').trim(),
           closureApprovalProofName: String(row?.closureApprovalProofName || '').trim(),
           provisionalCloseExpiresAt: String(row?.provisionalCloseExpiresAt || '').trim(),
+          provisionalCloseDeadlineBusinessDays: Math.max(0, Number(row?.provisionalCloseDeadlineBusinessDays) || 0),
+          originalPoConfirmed: Boolean(row?.originalPoConfirmed),
+          permanentClosedAt: String(row?.permanentClosedAt || '').trim(),
+          permanentClosedBy: String(row?.permanentClosedBy || '').trim(),
+          permanentClosedByText: String(row?.permanentClosedByText || '').trim(),
           kickoffEmailConsent: row?.kickoffEmailConsent === 'yes' ? 'yes' : row?.kickoffEmailConsent === 'no' ? 'no' : ''
         })) : [];
         return;
@@ -561,7 +567,12 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
       closureRequestedBy: row.closureRequestedBy || previous.closureRequestedBy,
       closureRequestedByText: row.closureRequestedByText || previous.closureRequestedByText,
       closureFinalizedByManager: Boolean(row.closureFinalizedByManager || previous.closureFinalizedByManager),
-      provisionalCloseExpiresAt: row.provisionalCloseExpiresAt || previous.provisionalCloseExpiresAt
+      provisionalCloseExpiresAt: row.provisionalCloseExpiresAt || previous.provisionalCloseExpiresAt,
+      provisionalCloseDeadlineBusinessDays: row.provisionalCloseDeadlineBusinessDays || previous.provisionalCloseDeadlineBusinessDays,
+      originalPoConfirmed: Boolean(row.originalPoConfirmed || previous.originalPoConfirmed),
+      permanentClosedAt: row.permanentClosedAt || previous.permanentClosedAt,
+      permanentClosedBy: row.permanentClosedBy || previous.permanentClosedBy,
+      permanentClosedByText: row.permanentClosedByText || previous.permanentClosedByText
     };
   });
   return nextData;
@@ -1345,6 +1356,43 @@ exports.updateLead = async (req, res) => {
     res.json({ ok: true, lead, introductionEmail });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message || 'Unable to update lead' });
+  }
+};
+
+exports.permanentlyCloseProvisionalLead = async (req, res) => {
+  try {
+    if (req.body?.originalPoReceived !== true) {
+      return res.status(400).json({ error: 'Confirm that the original Purchase Order has been received.' });
+    }
+    const lead = await Lead.findOne(combineAccessFilters({ _id: req.params.id }, await leadAccessFilter(req.user)));
+    if (!lead) return res.status(404).json({ error: 'Lead not found or not accessible' });
+
+    const result = permanentlyCloseProvisionalAssignments(lead.assignments || [], req.user);
+    if (!result.changedCount) {
+      return res.status(409).json({ error: 'This lead has no provisional closure awaiting permanent confirmation.' });
+    }
+
+    lead.assignments = result.assignments;
+    const primary = result.assignments[0] || {};
+    lead.closedBy = primary.closedBy || lead.closedBy;
+    lead.closedByText = primary.closedByText || lead.closedByText || '';
+    lead.closedByEmail = primary.closedByEmail || lead.closedByEmail || '';
+    lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
+    lead.markModified('assignments');
+    await lead.save();
+
+    await LeadActivity.create({
+      lead: lead._id,
+      type: 'lead_permanently_closed',
+      title: 'Lead permanently closed',
+      description: `${result.changedCount} provisional service closure(s) permanently closed after original PO confirmation. Automatic reopening is disabled.`,
+      actor: req.user?._id,
+      metadata: { serviceCount: result.changedCount, originalPoConfirmed: true }
+    }).catch((error) => console.error('Permanent lead closure audit failed', error));
+
+    res.json({ ok: true, message: 'Lead permanently closed. It will not reopen after 7 business days.', lead: lead.toObject() });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to permanently close the lead.' });
   }
 };
 

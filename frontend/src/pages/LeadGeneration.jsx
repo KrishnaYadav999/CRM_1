@@ -535,6 +535,11 @@ function createAssignmentRow(source = {}) {
     closureApprovalProofUrl: source.closureApprovalProofUrl || '',
     closureApprovalProofName: source.closureApprovalProofName || '',
     provisionalCloseExpiresAt: source.provisionalCloseExpiresAt || '',
+    provisionalCloseDeadlineBusinessDays: Number(source.provisionalCloseDeadlineBusinessDays) || 0,
+    originalPoConfirmed: Boolean(source.originalPoConfirmed),
+    permanentClosedAt: source.permanentClosedAt || '',
+    permanentClosedBy: source.permanentClosedBy?._id || source.permanentClosedBy || '',
+    permanentClosedByText: source.permanentClosedByText || source.permanentClosedBy?.name || '',
     kickoffEmailConsent: source.kickoffEmailConsent === 'yes' ? 'yes' : source.kickoffEmailConsent === 'no' ? 'no' : ''
   };
 }
@@ -4248,6 +4253,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const [followUpError, setFollowUpError] = useState('');
   const [assignmentSavingIndex, setAssignmentSavingIndex] = useState(-1);
   const [detailKickoffDialog, setDetailKickoffDialog] = useState(null);
+  const [permanentCloseStep, setPermanentCloseStep] = useState('');
+  const [permanentCloseSaving, setPermanentCloseSaving] = useState(false);
+  const [permanentCloseError, setPermanentCloseError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyData, setHistoryData] = useState({ events: [], summary: {} });
@@ -4289,6 +4297,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   const detailAssignments = Array.isArray(activeLead.assignments) && activeLead.assignments.length
     ? activeLead.assignments
     : [createAssignmentRow(activeLead)];
+  const hasProvisionalClosure = detailAssignments.some((row) => row?.poStatus === 'provisional');
   // API rows use subApplicantType while older CCP payloads use piboCategory.
   // Normalize once so every detail table renders the same service values.
   const detailServices = normalizeLegacyServiceSelections(activeLead);
@@ -4403,6 +4412,24 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
     if (!pendingAssignment) return;
     setDetailKickoffDialog(null);
     assignStaffFromDetail(pendingAssignment.index, pendingAssignment.value, sendEmail ? 'yes' : 'no');
+  }
+
+  async function permanentlyCloseLead() {
+    const leadId = activeLead._id || activeLead.id || activeLead.sourceLeadId;
+    setPermanentCloseSaving(true);
+    setPermanentCloseError('');
+    try {
+      const response = await api.post(API_ENDPOINTS.leads.permanentClosure(leadId), { originalPoReceived: true });
+      const updatedLead = response.data?.lead;
+      if (!updatedLead) throw new Error('CRM did not return the permanently closed lead.');
+      setDetailLead(updatedLead);
+      onLeadUpdated?.(updatedLead);
+      setPermanentCloseStep('');
+    } catch (error) {
+      setPermanentCloseError(error?.response?.data?.error || error.message || 'Unable to permanently close the lead.');
+    } finally {
+      setPermanentCloseSaving(false);
+    }
   }
 
   const hasBusinessCard = Boolean(activeLead.businessCardUrl);
@@ -4687,6 +4714,49 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
 
   return (
     <div className="min-h-[calc(100vh-72px)] bg-[#f3f8f6] px-4 py-5 sm:px-6 lg:px-8">
+      {permanentCloseStep === 'confirm' && (
+        <div className="fixed inset-0 z-[10060] grid place-items-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm" onClick={() => setPermanentCloseStep('')}>
+          <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/25" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b border-slate-100 px-6 py-6">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Lead Closure Confirmation</p>
+              <h3 className="mt-2 text-2xl font-black text-slate-950">Have you received the original Purchase Order?</h3>
+              <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">Confirm only after the original PO has been received. Selecting No will close this message without changing the lead.</p>
+            </div>
+            <div className="flex flex-col-reverse gap-3 bg-slate-50 px-6 py-5 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setPermanentCloseStep('')} className="min-h-11 rounded-lg border border-slate-200 bg-white px-6 font-black text-slate-700">No</button>
+              <button type="button" onClick={() => { setPermanentCloseError(''); setPermanentCloseStep('details'); }} className="min-h-11 rounded-lg bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20">Yes</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {permanentCloseStep === 'details' && (
+        <div className="fixed inset-0 z-[10060] grid place-items-center overflow-y-auto bg-slate-950/50 px-4 py-6 backdrop-blur-sm" onClick={() => !permanentCloseSaving && setPermanentCloseStep('')}>
+          <section className="my-auto w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/25" onClick={(event) => event.stopPropagation()}>
+            <header className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5">
+              <div><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Permanent Lead Closure</p><h3 className="mt-1 text-2xl font-black text-slate-950">Verify frozen lead details</h3><p className="mt-2 text-sm font-semibold text-slate-600">These saved details are read-only. Permanent closure disables the 7-business-day automatic reopening.</p></div>
+              <button type="button" disabled={permanentCloseSaving} onClick={() => setPermanentCloseStep('')} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 disabled:opacity-50" aria-label="Close permanent closure dialog"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="max-h-[70vh] space-y-5 overflow-y-auto p-6">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-500">Lead ID<input readOnly value={displayLeadId(activeLead) || ''} className="mt-2 h-12 w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 px-4 text-sm font-black normal-case tracking-normal text-slate-700" /></label>
+                <label className="text-xs font-black uppercase tracking-wider text-slate-500">Company<input readOnly value={activeLead.company || ''} className="mt-2 h-12 w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 px-4 text-sm font-black normal-case tracking-normal text-slate-700" /></label>
+              </div>
+              <div className="overflow-auto rounded-xl border border-slate-200">
+                <div className="border-b border-slate-200 bg-emerald-50 px-5 py-4"><h4 className="font-black text-slate-900">Service &amp; Applicant</h4></div>
+                <table className="w-full min-w-[980px] text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['#', 'Industry Type', 'Service Category', 'Applicant Type', 'Sub Applicant Type', 'Services Offered', 'Financial Year', 'Closure'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+                  <tbody>{detailServices.map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-3 font-black">{index + 1}</td><td className="px-4 py-3">{row.industryType || '-'}</td><td className="px-4 py-3">{row.eprCategory || '-'}</td><td className="px-4 py-3">{row.applicantType || '-'}</td><td className="px-4 py-3 font-black text-violet-700">{directApplicantOptions(row.eprCategory) ? 'Not applicable' : (row.piboCategory || '-')}</td><td className="px-4 py-3">{row.servicesOffered || '-'}</td><td className="px-4 py-3 font-black">{row.firstAnnualReturnYearApplicable || '-'}</td><td className="px-4 py-3"><span className={`rounded-full px-3 py-1 text-[10px] font-black ${detailAssignments[index]?.poStatus === 'provisional' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>{detailAssignments[index]?.poStatus === 'provisional' ? 'PERMANENT CLOSE' : 'UNCHANGED'}</span></td></tr>)}</tbody>
+                </table>
+              </div>
+              {permanentCloseError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{permanentCloseError}</div>}
+            </div>
+            <footer className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-6 py-5 sm:flex-row sm:justify-end">
+              <button type="button" disabled={permanentCloseSaving} onClick={() => setPermanentCloseStep('')} className="min-h-11 rounded-lg border border-slate-200 bg-white px-6 font-black text-slate-700 disabled:opacity-50">Cancel</button>
+              <button type="button" disabled={permanentCloseSaving || !hasProvisionalClosure} onClick={permanentlyCloseLead} className="min-h-11 rounded-lg bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-50">{permanentCloseSaving ? 'Closing Lead...' : 'Permanently Close Lead'}</button>
+            </footer>
+          </section>
+        </div>
+      )}
       {detailKickoffDialog && (
         <div className="fixed inset-0 z-[10050] grid place-items-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm" onClick={() => setDetailKickoffDialog(null)}>
           <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/25" onClick={(event) => event.stopPropagation()}>
@@ -4713,6 +4783,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
+          {hasProvisionalClosure && <button type="button" onClick={() => { setPermanentCloseError(''); setPermanentCloseStep('confirm'); }} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-amber-500 px-5 text-sm font-black text-white shadow-lg shadow-amber-500/20"><CheckCircle2 className="h-4 w-4" />Original PO Received?</button>}
           {showCurrentUserServiceActions && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
           {showCurrentUserServiceActions && (
             <>
