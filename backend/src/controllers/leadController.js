@@ -572,7 +572,13 @@ function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
       originalPoConfirmed: Boolean(row.originalPoConfirmed || previous.originalPoConfirmed),
       permanentClosedAt: row.permanentClosedAt || previous.permanentClosedAt,
       permanentClosedBy: row.permanentClosedBy || previous.permanentClosedBy,
-      permanentClosedByText: row.permanentClosedByText || previous.permanentClosedByText
+      permanentClosedByText: row.permanentClosedByText || previous.permanentClosedByText,
+      originalPoFileUrl: previous.originalPoFileUrl || '',
+      originalPoFileName: previous.originalPoFileName || '',
+      originalPoFileType: previous.originalPoFileType || '',
+      originalPoFileSize: previous.originalPoFileSize || 0,
+      originalPoPublicId: previous.originalPoPublicId || '',
+      originalPoUploadedAt: previous.originalPoUploadedAt || ''
     };
   });
   return nextData;
@@ -1364,10 +1370,23 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
     if (req.body?.originalPoReceived !== true) {
       return res.status(400).json({ error: 'Confirm that the original Purchase Order has been received.' });
     }
+    const submittedProof = req.body?.originalPoProof || {};
+    const originalPoProof = {
+      url: String(submittedProof.url || '').trim().slice(0, 2000),
+      name: String(submittedProof.name || '').trim().slice(0, 255),
+      type: String(submittedProof.type || '').trim().slice(0, 100),
+      size: Math.max(0, Number(submittedProof.size) || 0),
+      publicId: String(submittedProof.publicId || '').trim().slice(0, 500),
+      uploadedAt: String(submittedProof.uploadedAt || '').trim()
+    };
+    const supportedOriginalPoType = originalPoProof.type === 'application/pdf' || originalPoProof.type.startsWith('image/');
+    if (!/^https:\/\//i.test(originalPoProof.url) || !originalPoProof.name || !supportedOriginalPoType) {
+      return res.status(400).json({ error: 'Upload the original Purchase Order before permanently closing the lead.' });
+    }
     const lead = await Lead.findOne(combineAccessFilters({ _id: req.params.id }, await leadAccessFilter(req.user)));
     if (!lead) return res.status(404).json({ error: 'Lead not found or not accessible' });
 
-    const result = permanentlyCloseProvisionalAssignments(lead.assignments || [], req.user);
+    const result = permanentlyCloseProvisionalAssignments(lead.assignments || [], req.user, originalPoProof);
     if (!result.changedCount) {
       return res.status(409).json({ error: 'This lead has no provisional closure awaiting permanent confirmation.' });
     }
@@ -1387,7 +1406,7 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
       title: 'Lead permanently closed',
       description: `${result.changedCount} provisional service closure(s) permanently closed after original PO confirmation. Automatic reopening is disabled.`,
       actor: req.user?._id,
-      metadata: { serviceCount: result.changedCount, originalPoConfirmed: true }
+      metadata: { serviceCount: result.changedCount, originalPoConfirmed: true, originalPoFileName: originalPoProof.name, originalPoFileUrl: originalPoProof.url }
     }).catch((error) => console.error('Permanent lead closure audit failed', error));
 
     res.json({ ok: true, message: 'Lead permanently closed. It will not reopen after 7 business days.', lead: lead.toObject() });

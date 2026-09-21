@@ -28,7 +28,7 @@ function normalizeProvisionalClosure(row, previous = {}, now = new Date()) {
   return { ...row, provisionalCloseExpiresAt: expiresAt.toISOString(), provisionalCloseDeadlineBusinessDays: BUSINESS_DAYS };
 }
 
-function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, now = new Date()) {
+function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, originalPoProof = {}, now = new Date()) {
   const closedAt = new Date(now).toISOString();
   let changedCount = 0;
   const rows = assignments.map((row) => {
@@ -41,6 +41,12 @@ function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, no
       permanentClosedAt: closedAt,
       permanentClosedBy: String(actor?._id || actor?.id || '').trim(),
       permanentClosedByText: String(actor?.name || actor?.email || '').trim(),
+      originalPoFileUrl: String(originalPoProof.url || '').trim(),
+      originalPoFileName: String(originalPoProof.name || '').trim(),
+      originalPoFileType: String(originalPoProof.type || '').trim(),
+      originalPoFileSize: Math.max(0, Number(originalPoProof.size) || 0),
+      originalPoPublicId: String(originalPoProof.publicId || '').trim(),
+      originalPoUploadedAt: String(originalPoProof.uploadedAt || closedAt).trim(),
       provisionalCloseExpiresAt: '',
       provisionalCloseDeadlineBusinessDays: 0
     };
