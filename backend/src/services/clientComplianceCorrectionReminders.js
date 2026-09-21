@@ -34,12 +34,12 @@ function correctionEmail(record, stage) {
   const dueAt = record.correctionDueAt ? displayDateTime(record.correctionDueAt) : '-';
   const recoveryDeadline = record.greenFlagDeadline ? displayDateTime(record.greenFlagDeadline) : '-';
   const color = permanent ? '#7f1d1d' : redRecovery ? '#b91c1c' : '#d97706';
-  const title = permanent ? 'Permanent Red Flag Applied' : redRecovery ? 'Red Flag - Final 24-Hour Recovery' : '24-Hour Correction Reminder';
+  const title = permanent ? 'Permanent Red Flag Applied' : redRecovery ? 'Red Flag - Final 48-Hour Recovery' : '24-Hour Correction Reminder';
   const message = permanent
-    ? '<div style="padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b"><strong>The final 24-hour recovery window has expired.</strong> The Client Master now has a permanent red flag in CRM.</div>'
+    ? '<div style="padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b"><strong>The final 48-hour recovery window has expired.</strong> The Client Master now has a permanent red flag in CRM.</div>'
     : redRecovery
-      ? `<div style="padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b"><strong>The initial 48-hour correction deadline has expired and a red flag has been applied.</strong> You have a final 24 hours, until <strong>${escapeHtml(recoveryDeadline)}</strong>, to correct the data and obtain compliance approval. Approval within this recovery window will return the flag to green.</div>`
-      : `<div style="padding:15px;border:1px solid #fde68a;border-radius:12px;background:#fffbeb;color:#92400e"><strong>24 hours remain in the initial correction period.</strong> Complete the requested data and obtain compliance approval before <strong>${escapeHtml(dueAt)}</strong> to avoid a red flag. If missed, a final 24-hour red-to-green recovery window will begin.</div>`;
+      ? `<div style="padding:15px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b"><strong>The initial 48-hour correction deadline has expired and a red flag has been applied.</strong> You have a final 48 hours, until <strong>${escapeHtml(recoveryDeadline)}</strong>, to correct the data and obtain compliance approval. Approval within this recovery window will return the flag to green.</div>`
+      : `<div style="padding:15px;border:1px solid #fde68a;border-radius:12px;background:#fffbeb;color:#92400e"><strong>24 hours remain in the initial correction period.</strong> Complete the requested data and obtain compliance approval before <strong>${escapeHtml(dueAt)}</strong> to avoid a red flag. If missed, a final 48-hour red-to-green recovery window will begin.</div>`;
   return {
     subject: `${title} - ${record.clientName || 'Client Master'}`,
     html: `<div style="background:#f1f5f9;padding:28px 12px;font-family:Arial,Helvetica,sans-serif;color:#334155"><div style="max-width:680px;margin:auto;overflow:hidden;border:1px solid #e2e8f0;border-radius:18px;background:#fff"><div style="background:${color};padding:25px 28px;color:#fff"><div style="font-size:12px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase">AnantTattva CRM</div><h1 style="margin:8px 0 0;font-size:24px">${title}</h1></div><div style="padding:26px 28px"><p>Hello <strong>${recipient}</strong>,</p><p>The compliance decision for <strong>${clientName}</strong> is <strong>${decision}</strong>.</p>${message}<p style="margin-top:22px"><a href="${escapeHtml(appUrl())}/client-master" style="display:inline-block;border-radius:10px;background:#075848;padding:13px 20px;color:#fff;text-decoration:none;font-weight:800">Open Client Master</a></p><p style="margin-top:22px;color:#64748b;font-size:12px">Automated compliance correction notification. No reply required.</p></div></div></div>`
@@ -81,7 +81,7 @@ async function runClientComplianceCorrectionReminders(now = new Date()) {
       const startedAt = new Date(record.correctionStartedAt);
       if (Number.isNaN(startedAt.getTime())) continue;
       const correctionDueAt = addClientCorrectionHours(startedAt, 48);
-      const greenFlagDeadline = addClientCorrectionHours(startedAt, 72);
+      const greenFlagDeadline = addClientCorrectionHours(startedAt, 96);
       record.correctionDeadlinePolicy = CLIENT_CORRECTION_DEADLINE_POLICY;
       record.correctionReminderAt = addClientCorrectionHours(startedAt, 24);
       record.correctionDueAt = correctionDueAt;
@@ -117,7 +117,7 @@ async function runClientComplianceCorrectionReminders(now = new Date()) {
       $or: [{ greenFlagDeadline: { $lte: now } }, { greenFlagDeadline: null }]
     }).limit(100);
     for (const record of legacyRedFlags) {
-      const recoveryDeadline = addClientCorrectionHours(now, 24);
+      const recoveryDeadline = addClientCorrectionHours(now, 48);
       const claimed = await PendingApproval.findOneAndUpdate(
         { _id: record._id, reminderFlag: { $in: ['RED', 'PERMANENT_RED'] }, redRecoveryStartedAt: null },
         { $set: {
