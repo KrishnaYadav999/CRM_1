@@ -45,13 +45,18 @@ test('Original PO confirmation permanently closes only provisional services and 
   const result = permanentlyCloseProvisionalAssignments([
     { poStatus: 'provisional', closedBy: 'closer', provisionalCloseExpiresAt: '2026-09-28T11:08:00.000Z', provisionalCloseDeadlineBusinessDays: 7 },
     received
-  ], { _id: 'user-1', name: 'CRM User' }, new Date('2026-09-21T08:00:00.000Z'));
+  ], { _id: 'user-1', name: 'CRM User' }, { url: 'https://example.com/original-po.pdf', name: 'original-po.pdf', type: 'application/pdf', size: 1234, publicId: 'po-1' }, new Date('2026-09-21T08:00:00.000Z'));
   assert.equal(result.changedCount, 1);
   assert.equal(result.assignments[0].poStatus, 'permanently_closed');
   assert.equal(result.assignments[0].originalPoConfirmed, true);
   assert.equal(result.assignments[0].permanentClosedBy, 'user-1');
   assert.equal(result.assignments[0].permanentClosedByText, 'CRM User');
   assert.equal(result.assignments[0].permanentClosedAt, '2026-09-21T08:00:00.000Z');
+  assert.equal(result.assignments[0].originalPoFileUrl, 'https://example.com/original-po.pdf');
+  assert.equal(result.assignments[0].originalPoFileName, 'original-po.pdf');
+  assert.equal(result.assignments[0].originalPoFileType, 'application/pdf');
+  assert.equal(result.assignments[0].originalPoFileSize, 1234);
+  assert.equal(result.assignments[0].originalPoPublicId, 'po-1');
   assert.equal(result.assignments[0].provisionalCloseExpiresAt, '');
   assert.equal(result.assignments[0].provisionalCloseDeadlineBusinessDays, 0);
   assert.equal(result.assignments[1], received);
