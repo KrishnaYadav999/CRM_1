@@ -7,7 +7,9 @@ import {
 } from 'lucide-react'
 import '../styles/landing.css'
 
-const clients = Array.from({ length: 54 }, (_, index) => index + 1)
+// Client artwork 3 is the retired Vadilal logo and must not appear in the
+// public partnership carousel.
+const clients = Array.from({ length: 54 }, (_, index) => index + 1).filter((client) => client !== 3)
 const services = [
   { icon: UsersRound, tone: 'blue', label: 'Sales CRM', title: 'Turn every lead into a relationship.', copy: 'Capture enquiries, assign owners, follow every conversation and move opportunities forward.' },
   { icon: FileCheck2, tone: 'orange', label: 'EPR Compliance', title: 'Never miss a filing milestone.', copy: 'Keep registrations, documents, returns and approvals organised with action-ready workflows.' },
@@ -139,7 +141,7 @@ function ClientScroller() {
       <button type="button" onClick={() => setPaused(!paused)} aria-label={paused ? 'Play client scroller' : 'Pause client scroller'} aria-pressed={paused}>{paused ? <Play /> : <Pause />}</button>
       <button type="button" onClick={() => move(1)} aria-label="Next clients"><ChevronRight /></button>
     </div>
-    <div ref={row} className="lp-logo-row" tabIndex={0} role="region" aria-label="All 54 client logos; use arrow buttons to browse"
+    <div ref={row} className="lp-logo-row" tabIndex={0} role="region" aria-label="All 53 client logos; use arrow buttons to browse"
       onKeyDown={(event) => {
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
           event.preventDefault()
