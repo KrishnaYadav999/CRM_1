@@ -66,7 +66,10 @@ function combineAccessFilters(...filters) {
 
 function stableUserIdentity(value) {
   if (value && typeof value === 'object') {
-    return String(value._id || value.id || value.crmUserId || value.userId || value.email || '').trim().toLowerCase();
+    const nestedIdentity = value._id || value.id || value.crmUserId || value.userId || value.email;
+    if (nestedIdentity && nestedIdentity !== value) return stableUserIdentity(nestedIdentity);
+    const serialized = typeof value.toString === 'function' ? value.toString() : '';
+    return serialized === '[object Object]' ? '' : String(serialized || '').trim().toLowerCase();
   }
   return String(value || '').trim().toLowerCase();
 }
@@ -1447,7 +1450,7 @@ exports.assignLeadStaff = async (req, res) => {
     if (requestedStaffId && !staff) return res.status(404).json({ error: 'Active staff user not found.' });
 
     const beforeLead = lead.toObject();
-    assignments[rowIndex] = {
+    const updatedAssignment = {
       ...assignment,
       assignedStaff: staff?._id || '',
       assignedStaffText: staff ? (staff.name || staff.email) : '',
@@ -1455,17 +1458,30 @@ exports.assignLeadStaff = async (req, res) => {
       assignedBy: req.user?._id || '',
       kickoffEmailConsent
     };
-    lead.assignments = assignments;
-    lead.markModified('assignments');
-    if (rowIndex === 0) {
-      lead.assignedStaff = staff?._id || undefined;
-      lead.assignedStaffText = staff ? (staff.name || staff.email) : '';
-      lead.assignedStaffEmail = staff?.email || '';
-    }
-    lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
-    await lead.save();
+    assignments[rowIndex] = updatedAssignment;
 
-    const savedLead = lead.toObject();
+    // Only persist the selected row. Saving the complete document validates
+    // unrelated legacy/imported fields and can reject a valid staff assignment.
+    const setFields = {
+      [`assignments.${rowIndex}`]: updatedAssignment,
+      updatedBy: req.user?.name || req.user?.email || String(req.user?._id || '')
+    };
+    const unsetFields = {};
+    if (rowIndex === 0) {
+      setFields.assignedStaffText = staff ? (staff.name || staff.email) : '';
+      setFields.assignedStaffEmail = staff?.email || '';
+      if (staff) setFields.assignedStaff = staff._id;
+      else unsetFields.assignedStaff = 1;
+    }
+    const update = { $set: setFields };
+    if (Object.keys(unsetFields).length) update.$unset = unsetFields;
+    const savedLeadDocument = await Lead.findByIdAndUpdate(lead._id, update, {
+      new: true,
+      runValidators: false
+    });
+    if (!savedLeadDocument) return res.status(404).json({ error: 'Lead was removed before the assignment could be saved.' });
+
+    const savedLead = savedLeadDocument.toObject();
     await sendLeadClosureKickoffEmail({ beforeLead, lead: savedLead })
       .catch((error) => console.error('Lead staff assignment kick-off email failed', { leadId: String(lead._id), rowIndex, error: error.message }));
     if (staff) {
@@ -1481,13 +1497,15 @@ exports.assignLeadStaff = async (req, res) => {
         : `Staff removed from ${lead.company || lead.leadCode || 'lead'} service row ${rowIndex + 1}`,
       actor: req.user?._id,
       metadata: { rowIndex, staffUserId: staff ? String(staff._id) : '', kickoffEmailConsent }
-    });
+    }).catch((error) => console.error('Lead staff assignment activity log failed', {
+      leadId: String(lead._id), rowIndex, error: error.message
+    }));
 
     return res.json({
       ok: true,
       message: staff ? `${staff.name || staff.email} assigned successfully.` : 'Staff assignment removed.',
-      assignment: assignments[rowIndex],
-      lead
+      assignment: savedLead.assignments?.[rowIndex] || updatedAssignment,
+      lead: savedLeadDocument
     });
   } catch (err) {
     console.error('Lead staff assignment failed', { leadId: req.params.id, rowIndex: req.params.rowIndex, error: err.message });

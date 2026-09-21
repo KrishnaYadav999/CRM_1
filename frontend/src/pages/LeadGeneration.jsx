@@ -4400,7 +4400,14 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
       onLeadUpdated?.(updatedLead);
       setDetailToast({ id: Date.now(), type: 'success', message: response.data?.message || (value ? 'Staff member assigned successfully.' : 'Staff assignment removed.') });
     } catch (error) {
-      setDetailToast({ id: Date.now(), type: 'error', message: error?.response?.data?.error || 'Unable to assign the staff member. Please try again.' });
+      setDetailToast({
+        id: Date.now(),
+        type: 'error',
+        message: error?.response?.data?.error
+          || error?.response?.data?.message
+          || error?.message
+          || 'Unable to assign the staff member. Please try again.'
+      });
     } finally {
       setAssignmentSavingIndex(-1);
     }
