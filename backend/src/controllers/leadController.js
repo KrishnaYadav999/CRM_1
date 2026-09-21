@@ -397,6 +397,12 @@ function cleanBody(body) {
         ? { piboParent: 'PWP', subApplicantType: 'Recycler' }
         : { piboParent: 'PWP', subApplicantType: 'PWP' };
     Object.assign(data, compatibility);
+  } else if (usesDirectApplicantType(data.eprCategory)) {
+    // Direct-applicant services (for example Solid Waste Management) do not
+    // use PIBO/SIMP/PWP. Clear stale values inherited from legacy or previously
+    // selected service categories before submitted-lead validation runs.
+    data.piboParent = undefined;
+    data.subApplicantType = '';
   }
   delete data.piboCategoryParent;
   delete data.piboCategory;

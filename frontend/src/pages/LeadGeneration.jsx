@@ -833,6 +833,7 @@ export default function LeadGeneration() {
       piboParent: direct ? '' : first.applicantType,
       piboCategoryParent: '',
       piboCategory: direct ? '' : first.piboCategory,
+      subApplicantType: direct ? '' : first.piboCategory,
       servicesOffered: first.servicesOffered,
       applicableService: first.applicableService
       ,firstAnnualReturnYearApplicable: first.firstAnnualReturnYearApplicable
@@ -1872,6 +1873,7 @@ export default function LeadGeneration() {
       ...leadWithoutLegacyStaff
     } = payloadLead;
     const primaryService = serviceRows[0] || {};
+    const primaryUsesDirectApplicant = Boolean(directApplicantOptions(primaryService.eprCategory));
     const generatedForOwner = [...staff, ...(currentUser ? [currentUser] : [])].find((user) => [user?._id, user?.id, user?.crmUserId, user?.userId]
       .filter(Boolean).some((value) => String(value) === String(generatedForUserId || currentUser?._id || currentUser?.id || '')));
     const generatedForOwnerId = generatedForOwner?._id || generatedForOwner?.id || generatedForOwner?.crmUserId || generatedForOwner?.userId || generatedForUserId || currentUser?._id || currentUser?.id || '';
@@ -1904,8 +1906,9 @@ export default function LeadGeneration() {
       industryType: primaryService.industryType || lead.industryType || '',
       eprCategory: primaryService.eprCategory || lead.eprCategory || '',
       applicantType: primaryService.applicantType || lead.applicantType || '',
-      piboCategory: primaryService.piboCategory || lead.piboCategory || '',
-      piboParent: primaryService.piboParent || lead.piboParent || lead.piboCategoryParent || inferPiboParent(primaryService.piboCategory || lead.piboCategory),
+      piboCategory: primaryUsesDirectApplicant ? '' : (primaryService.piboCategory || lead.piboCategory || ''),
+      subApplicantType: primaryUsesDirectApplicant ? '' : (primaryService.piboCategory || lead.subApplicantType || lead.piboCategory || ''),
+      piboParent: primaryUsesDirectApplicant ? '' : (primaryService.piboParent || lead.piboParent || lead.piboCategoryParent || inferPiboParent(primaryService.piboCategory || lead.piboCategory)),
       servicesOffered: primaryService.servicesOffered || lead.servicesOffered || '',
       applicableService: primaryService.applicableService || lead.applicableService || '',
       firstAnnualReturnYearApplicable: primaryService.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable || '',
