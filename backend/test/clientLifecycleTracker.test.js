@@ -48,4 +48,15 @@ test('ticket tab renders milestone, MOM, proof and work follow-up controls', () 
   assert.match(tracker, /Add proof/);
   assert.match(tracker, /Work follow-ups/);
   assert.match(tracker, /Done & save all/);
+  assert.match(tracker, /Sales Process Checklist/);
+  assert.match(tracker, /Showing 1 to 3 of 3 steps/);
+  assert.match(tracker, /deriveAutoStages/);
+  assert.match(tracker, /Lead Closure and PO update automatically/);
+  assert.match(tracker, /disabled=\{milestone\.auto\}/);
+});
+
+test('client detail fetch includes lead closure and PO assignment source fields', () => {
+  const controller = read('backend/src/controllers/clientController.js');
+  assert.match(controller, /leadDate importedCreatedAt createdAt closedAt closureDate closedBy closedByText closedOnBehalfOfName/);
+  assert.match(controller, /serviceSelections addresses contacts assignments/);
 });
