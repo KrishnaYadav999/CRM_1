@@ -1916,7 +1916,18 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
   const query = { type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service', 'lead_temporary', 'purchase_order'] } };
   if (!admin) {
     const userId = String(req.user?._id || req.user?.id || '');
-    query.$or = [{ 'payload.requestedById': userId }, { 'payload.claimantId': userId }, { 'payload.originalCreatorId': userId }, { 'payload.managerId': userId }, { 'payload.temporaryUserId': userId }];
+    // A service approval belongs to both people displayed in the UI: the user
+    // who added the service and the original lead creator. Keep this filter in
+    // the API (rather than only filtering the table) so one user cannot load
+    // another user's pending-service records from the browser.
+    query.$or = [
+      { 'payload.requestedById': userId },
+      { 'payload.claimantId': userId },
+      { 'payload.contributorId': userId },
+      { 'payload.originalCreatorId': userId },
+      { 'payload.managerId': userId },
+      { 'payload.temporaryUserId': userId }
+    ];
   }
   const approvals = await PendingApproval.find(query).populate('actionBy', 'name email').sort({ createdAt: -1 }).lean();
   const purchaseOrderApprovals = approvals.filter((approval) => approval.type === 'purchase_order');

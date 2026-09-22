@@ -115,7 +115,7 @@ function App(){
         <Route path="/mis/complete" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'manager', 'operation head', 'operations head']}><SuperAdminDashboard misPage /></ProtectedRoute>} />
         <Route path="/mis/sales-management" element={<Navigate to="/mis" replace />} />
         <Route path="/dashboard/activity-logs" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><ActivityLogs/></ProtectedRoute>} />
-        <Route path="/pending-approval" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'compliance']}><PendingApproval/></ProtectedRoute>} />
+        <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />
         <Route path="/pending-approval/clients/:clientId/review" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'compliance']}><ClientComplianceReview/></ProtectedRoute>} />
         <Route path="/pending-leads" element={<Navigate to="/pending-leads/open" replace />} />
         <Route path="/pending-leads/open" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><PendingLeads mode="open"/></ProtectedRoute>} />
