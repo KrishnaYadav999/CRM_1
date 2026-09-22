@@ -3667,6 +3667,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
   const activeTabMeta = detailTabs.find((tab) => tab.id === activeClientTab) || detailTabs[0];
   const isAnnualProcessingView = activeClientTab === 'annual' && annualYears.some((year) => year.label === selectedAnnualYear);
   const isAnnualStandaloneView = activeClientTab === 'annual' && initialTab === 'annual';
+  const isLifecycleView = activeClientTab === 'ticket';
   const calendarClientKey = String(client._id || client.id || getClientUniqueId(client) || clientName);
   const [interactionTab, setInteractionTab] = useState('follow-up');
   const [calendarItems, setCalendarItems] = useState(() => readCalendarTodoItems());
@@ -3870,8 +3871,8 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
             </section>}
 
             <main className="space-y-5">
-              <section className={isAnnualStandaloneView ? '' : 'client-detail-card rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5'}>
-                {!isAnnualStandaloneView && <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <section className={isAnnualStandaloneView || isLifecycleView ? '' : 'client-detail-card rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5'}>
+                {!isAnnualStandaloneView && !isLifecycleView && <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.18em] text-[#30737B]">{activeTabMeta.label}</p>
                     <h3 className="mt-1 text-2xl font-black text-slate-950">{activeTabMeta.title || activeTabMeta.label}</h3>

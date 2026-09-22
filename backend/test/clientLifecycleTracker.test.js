@@ -71,3 +71,10 @@ test('legacy completed stages receive safe target-date fallbacks and light contr
   assert.match(tracker, /bg-gradient-to-r from-teal-50 via-white to-orange-50/);
   assert.match(tracker, /border border-teal-200 bg-teal-50/);
 });
+
+test('ticket navigation and checklist are merged without a duplicate Ticket heading card', () => {
+  const page = read('frontend/src/pages/ClientMaster.jsx');
+  assert.match(page, /const isLifecycleView = activeClientTab === 'ticket'/);
+  assert.match(page, /isAnnualStandaloneView \|\| isLifecycleView \? ''/);
+  assert.match(page, /!isAnnualStandaloneView && !isLifecycleView && <div/);
+});
