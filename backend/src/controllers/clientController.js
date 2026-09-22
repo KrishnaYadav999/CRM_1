@@ -1309,7 +1309,7 @@ exports.getClient = async (req, res) => {
     { _id: clientId },
     await clientAccessFilter(req.user)
   ))
-    .populate('selectedLead', 'leadCode company status createdAt closedAt closureDate emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
+    .populate('selectedLead', 'leadCode company status leadDate importedCreatedAt createdAt closedAt closureDate closedBy closedByText closedOnBehalfOfName emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
     .populate('adminControls.assignedTo', 'name email role avatarUrl');
 
   if (!client) return res.status(404).json({ error: 'Client Master record not found' });
