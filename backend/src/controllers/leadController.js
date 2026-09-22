@@ -326,6 +326,7 @@ function cleanBody(body) {
           closedBy: String(row?.closedBy || '').trim(),
           closedByText: String(row?.closedByText || '').trim(),
           closedByEmail: String(row?.closedByEmail || '').trim(),
+          closedAt: String(row?.closedAt || '').trim(),
           closedOnBehalfOfUser: String(row?.closedOnBehalfOfUser || '').trim(),
           closedOnBehalfOfName: String(row?.closedOnBehalfOfName || '').trim(),
           closedOnBehalfOfEmail: String(row?.closedOnBehalfOfEmail || '').trim().toLowerCase(),

@@ -57,6 +57,17 @@ test('ticket tab renders milestone, MOM, proof and work follow-up controls', () 
 
 test('client detail fetch includes lead closure and PO assignment source fields', () => {
   const controller = read('backend/src/controllers/clientController.js');
-  assert.match(controller, /leadDate importedCreatedAt createdAt closedAt closureDate closedBy closedByText closedOnBehalfOfName/);
+  assert.match(controller, /leadDate importedCreatedAt importedUpdatedAt createdAt updatedAt closedAt closureDate closedBy closedByText closedOnBehalfOfName/);
   assert.match(controller, /serviceSelections addresses contacts assignments/);
+});
+
+test('legacy completed stages receive safe target-date fallbacks and light controls', () => {
+  const leadController = read('backend/src/controllers/leadController.js');
+  const tracker = read('frontend/src/features/clientMaster/ClientLifecycleTracker.jsx');
+  assert.match(leadController, /closedAt: String\(row\?\.closedAt \|\| ''\)\.trim\(\)/);
+  assert.match(tracker, /leadClosed \? \(lead\.updatedAt \|\| lead\.importedUpdatedAt \|\| client\.updatedAt \|\| client\.createdAt\)/);
+  assert.match(tracker, /poReceived \? \(lead\.closedAt \|\| lead\.updatedAt \|\| lead\.importedUpdatedAt/);
+  assert.doesNotMatch(tracker, /bg-slate-900 p-6 text-white/);
+  assert.match(tracker, /bg-gradient-to-r from-teal-50 via-white to-orange-50/);
+  assert.match(tracker, /border border-teal-200 bg-teal-50/);
 });
