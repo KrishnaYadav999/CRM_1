@@ -1410,7 +1410,7 @@ exports.getAnnualReturnPoStatus = async (req, res) => {
   const query = Client.findOne({
     _id: clientId,
     ...ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', ['data.importMeta.assignedTo'])
-  }).select('selectedLead data.selectedLead data.sourceLeadId data.leadId data.selectedLeadSnapshot data.importMeta.leadNumber data.annualReturn.filings');
+  }).select('selectedLead assignedServiceId data.assignedServiceId data.basic.piboCategory data.selectedLead data.sourceLeadId data.leadId data.selectedLeadSnapshot data.importMeta.leadNumber data.annualReturn.filings');
   const client = typeof query.lean === 'function' ? await query.lean() : await query;
   if (!client) return res.status(404).json({ error: 'Client Master record not found' });
 

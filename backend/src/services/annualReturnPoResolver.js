@@ -27,6 +27,12 @@ function isAnnualReturnService(value) {
   return normalizeServiceName(value) === 'annualreturn';
 }
 
+function normalizeApplicantType(value) {
+  return text(value && typeof value === 'object'
+    ? value.subApplicantType || value.piboCategory || value.applicantType || value.label || value.name
+    : value).toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 function serviceValues(source = {}) {
   return [
     ...(Array.isArray(source.services) ? source.services : []),
@@ -106,6 +112,15 @@ function readLeadReference(clientMaster = {}) {
   };
 }
 
+function readClientServiceScope(clientMaster = {}) {
+  const data = clientMaster.data && typeof clientMaster.data === 'object' ? clientMaster.data : {};
+  return {
+    assignedServiceId: idText(clientMaster.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId),
+    applicantType: normalizeApplicantType(data.basic?.piboCategory || data.selectedLeadSnapshot?.subApplicantType
+      || data.selectedLeadSnapshot?.piboCategory || data.selectedLeadSnapshot?.applicantType)
+  };
+}
+
 async function findSourceLead(clientMaster, LeadModel = Lead) {
   const reference = readLeadReference(clientMaster);
   let query = null;
@@ -116,16 +131,28 @@ async function findSourceLead(clientMaster, LeadModel = Lead) {
   return typeof query.lean === 'function' ? query.lean() : query;
 }
 
-function buildAnnualReturnContext(lead = {}) {
+function buildAnnualReturnContext(lead = {}, serviceScope = {}) {
   const serviceSelections = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
   const serviceByAssignmentId = new Map(serviceSelections
     .map((service) => [idText(service.assignedServiceId || service.serviceAssignmentId || service.id), service])
     .filter(([id]) => id));
   const annualAssignments = [];
   const candidates = [];
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const scopedServiceId = idText(serviceScope.assignedServiceId);
+  const scopedApplicantType = normalizeApplicantType(serviceScope.applicantType);
+  const rowsWithService = assignments.map((assignment, index) => {
+    const assignmentId = idText(assignment.assignedServiceId || assignment.serviceAssignmentId || assignment.id);
+    const linkedService = serviceByAssignmentId.get(assignmentId) || serviceSelections[index] || {};
+    const applicantType = normalizeApplicantType(linkedService) || normalizeApplicantType(assignment);
+    return { assignment, assignmentId, linkedService, applicantType };
+  });
+  const hasExactServiceMatch = Boolean(scopedServiceId && rowsWithService.some((row) => row.assignmentId === scopedServiceId));
+  const hasApplicantMatch = Boolean(!hasExactServiceMatch && scopedApplicantType && rowsWithService.some((row) => row.applicantType === scopedApplicantType));
 
-  (Array.isArray(lead.assignments) ? lead.assignments : []).forEach((assignment) => {
-    const linkedService = serviceByAssignmentId.get(idText(assignment.assignedServiceId)) || {};
+  rowsWithService.forEach(({ assignment, assignmentId, linkedService, applicantType }) => {
+    if (hasExactServiceMatch && assignmentId !== scopedServiceId) return;
+    if (hasApplicantMatch && applicantType !== scopedApplicantType) return;
     const assignmentServices = [...serviceValues(linkedService), ...serviceValues(assignment)];
     const assignmentIsAnnual = assignmentServices.some(isAnnualReturnService);
     const rows = Array.isArray(assignment.poYearRows) ? assignment.poYearRows : [];
@@ -189,7 +216,8 @@ async function resolveAnnualReturnPO({ clientMaster, financialYears = [], LeadMo
       years: years.map((fy) => ({ fy, poRequired: false, poStatus: 'unlinked', po: null }))
     };
   }
-  const context = buildAnnualReturnContext(lead);
+  const serviceScope = readClientServiceScope(clientMaster);
+  const context = buildAnnualReturnContext(lead, serviceScope);
   const legacyCandidates = buildLegacyAnnualReturnCandidates(clientMaster, lead);
   return {
     sourceLead: { id: idText(lead), leadCode: text(lead.leadCode) || null },
@@ -207,8 +235,10 @@ async function resolveAnnualReturnPO({ clientMaster, financialYears = [], LeadMo
 module.exports = {
   normalizeFinancialYear,
   normalizeServiceName,
+  normalizeApplicantType,
   isAnnualReturnService,
   readLeadReference,
+  readClientServiceScope,
   buildAnnualReturnContext,
   buildLegacyAnnualReturnCandidates,
   dedupePoCandidates,
