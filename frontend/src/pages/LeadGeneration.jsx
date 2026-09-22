@@ -15,6 +15,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizeLegacyPiboCategory, normalizePiboCategories, PIBO_PARENTS } from '../constants/piboCategories';
 import { uploadMedia } from '../services/mediaUpload';
 import { fetchIndiaStateCities, fetchIndiaStates } from '../services/countriesNow';
+import { selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
 
 const emptyLead = {
   sourceLeadId: '',
@@ -1120,15 +1121,13 @@ export default function LeadGeneration() {
       const leadMatch = [quote.leadId, quote.leadCode, quote.businessLeadCode].filter(Boolean).some((id) => [editingLeadId, lead._id, lead.id, lead.leadCode].filter(Boolean).map(String).includes(String(id)));
       return leadMatch && !['rejected'].includes(String(quote.status || '').toLowerCase());
     }).sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0));
-    const latestQuotation = relevantQuotations[0] || null;
-    const allQuotationItems = latestQuotation?.items || [];
-    const matchingAssignedServiceId = String(matchingService.assignedServiceId || matchingAssignment.assignedServiceId || '').trim();
-    const quotationItems = allQuotationItems.filter((item, itemIndex) => (
-      (matchingAssignedServiceId && String(item.assignedServiceId || '').trim() === matchingAssignedServiceId)
-      || Number(item.sourceServiceIndex) === index
-      || (!matchingAssignedServiceId && !Number.isInteger(Number(item.sourceServiceIndex)) && itemIndex === index)
-    ));
-    const selectedQuotationItems = quotationItems.length ? quotationItems : (allQuotationItems[index] ? [allQuotationItems[index]] : []);
+    const quotationSelection = selectLeadClosureQuotation(relevantQuotations, {
+      service: matchingService,
+      assignment: matchingAssignment,
+      serviceIndex: index
+    });
+    const latestQuotation = quotationSelection.quotation;
+    const selectedQuotationItems = quotationSelection.items;
     const defaultAmount = latestQuotation?.pricingMode === 'combined'
       ? Number(latestQuotation.combinedBasicAmount || latestQuotation.grandTotal || 0)
       : selectedQuotationItems.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
