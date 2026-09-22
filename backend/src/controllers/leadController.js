@@ -587,6 +587,28 @@ function validateClosureAssignments(data = {}, previousData = null) {
   return '';
 }
 
+function normalizedPoClosureRows(assignment = {}) {
+  return (Array.isArray(assignment?.poYearRows) ? assignment.poYearRows : []).map((po) => ({
+    fy: String(po?.fy || '').trim(),
+    poNumber: String(po?.poNumber || '').trim(),
+    poDate: String(po?.poDate || '').trim(),
+    poAmount: Math.max(0, Number(po?.poAmount) || 0),
+    poFileUrl: resolvePoProof(po).url,
+    services: (Array.isArray(po?.services) ? po.services : [])
+      .map((service) => String(service || '').trim())
+      .filter(Boolean)
+      .sort()
+  }));
+}
+
+function poClosureSubmissionChanged(previous = {}, next = {}) {
+  if (String(previous?.poStatus || '') !== String(next?.poStatus || '')) return true;
+  const previousClosing = Boolean(previous?.closedBy || previous?.closureRequestedBy);
+  const nextClosing = Boolean(next?.closedBy || next?.closureRequestedBy);
+  if (previousClosing !== nextClosing) return true;
+  return JSON.stringify(normalizedPoClosureRows(previous)) !== JSON.stringify(normalizedPoClosureRows(next));
+}
+
 function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
   if (!Array.isArray(nextData.assignments)) return nextData;
   const previousAssignments = Array.isArray(beforeData.assignments) ? beforeData.assignments : [];
@@ -1372,8 +1394,7 @@ exports.updateLead = async (req, res) => {
     if (Array.isArray(data.assignments)) {
       const invalidPoDate = data.assignments.some((row, index) => {
         const beforeAssignment = beforeLead.assignments?.[index] || {};
-        const poSubmissionChanged = beforeAssignment.poStatus !== row?.poStatus
-          || JSON.stringify(beforeAssignment.poYearRows || []) !== JSON.stringify(row?.poYearRows || []);
+        const poSubmissionChanged = poClosureSubmissionChanged(beforeAssignment, row);
         return poSubmissionChanged && row?.poStatus === 'received' && (row.closedBy || row.closureRequestedBy)
           && (row.poYearRows || []).some((po) => !/^\d{4}-\d{2}-\d{2}$/.test(String(po?.poDate || '').trim()) || Number.isNaN(new Date(`${po.poDate}T00:00:00`).getTime()));
       });
@@ -2223,7 +2244,8 @@ exports._test = {
   stableUserIdentity,
   canAssignStaffToRow,
   activeUserLookup,
-  leadCodeSequence
+  leadCodeSequence,
+  poClosureSubmissionChanged
 };
 
 const LeadServiceCatalog = require('../models/LeadServiceCatalog');
