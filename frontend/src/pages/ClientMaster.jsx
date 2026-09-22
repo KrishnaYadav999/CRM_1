@@ -12,6 +12,7 @@ import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import ClientDirectoryView from '../features/clientMaster/ClientDirectoryView';
+import ClientLifecycleTracker from '../features/clientMaster/ClientLifecycleTracker';
 import { selectOptions } from '../features/clientMaster/clientMaster.constants';
 import {
   AddressTab,
@@ -4052,7 +4053,11 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
                     />
                   )}
 
-                  {activeClientTab !== 'basic' && activeClientTab !== 'documents' && activeClientTab !== 'company' && activeClientTab !== 'annual' && activeClientTab !== 'quotation' && (
+                  {activeClientTab === 'ticket' && (
+                    <ClientLifecycleTracker client={client} data={data} onClientUpdated={onClientUpdated} />
+                  )}
+
+                  {activeClientTab !== 'basic' && activeClientTab !== 'documents' && activeClientTab !== 'company' && activeClientTab !== 'annual' && activeClientTab !== 'quotation' && activeClientTab !== 'ticket' && (
                     <EmptyTab title={activeTabMeta.title} message={activeTabMeta.message} />
                   )}
                 </div>

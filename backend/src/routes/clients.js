@@ -51,6 +51,7 @@ router.post('/:id/compliance-review/decision', requireAuth, requireRoles(CLIENT_
 router.patch('/:id/approval', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), clientCtrl.updateClientApproval);
 router.put('/:id/allocations', requireAuth, requireRoles([...ADMIN_ROLES, 'manager']), clientCtrl.upsertClientServiceAllocations);
 router.put('/:id/annual-return', requireAuth, clientCtrl.updateAnnualReturn);
+router.put('/:id/lifecycle', requireAuth, clientCtrl.updateClientLifecycle);
 router.put('/:id', requireAuth, clientCtrl.updateClient);
 
 module.exports = router;

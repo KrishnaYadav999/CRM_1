@@ -293,7 +293,7 @@ const clientMasterKnowledge = [
     keywords: ['ticket', 'tickets', 'raise ticket', 'support ticket'],
     title: 'Client Detail - Ticket',
     answer:
-      'Ticket is for client issue tracking or support requests. The current screen can show an empty state when no tickets are raised yet. It is intended to keep client problems and service requests separate from normal follow-ups or todos.'
+      'Ticket is the client journey tracker. It records Lead Closure, PO Received, and Kick-off Meeting dates with Yes/No completion, remarks, MOM points, and proof files. The separate Work Follow-ups table supports multiple dated action rows with Pending, In Progress, or Done status.'
   },
   {
     keywords: ['client interaction', 'interactions', 'client follow-up', 'client todo', 'to-do', 'todo'],
