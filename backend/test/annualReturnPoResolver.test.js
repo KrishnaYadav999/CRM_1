@@ -107,6 +107,47 @@ test('deduplicates identical Annual Return POs but reports different records as 
   assert.equal(conflict.years[0].po, null);
 });
 
+test('scopes same-year Annual Return POs to the selected Producer or Importer Client Master', async () => {
+  const source = lead({
+    serviceSelections: [
+      { assignedServiceId: 'annual-importer', subApplicantType: 'Importer', servicesOffered: 'Annual Return Filling', firstAnnualReturnYearApplicable: '2025-26' },
+      { assignedServiceId: 'annual-producer', subApplicantType: 'Producer', servicesOffered: 'Annual Return Filling', firstAnnualReturnYearApplicable: '2025-26' }
+    ],
+    assignments: [
+      { assignedServiceId: 'annual-importer', poStatus: 'received', poYearRows: [annualPo({ poNumber: 'IMPORTER-15000', poAmount: 15000 })] },
+      { assignedServiceId: 'annual-producer', poStatus: 'received', poYearRows: [annualPo({ poNumber: 'PRODUCER-25000', poAmount: 25000 })] }
+    ]
+  });
+  const producerClient = { ...client, assignedServiceId: 'annual-producer', data: { ...client.data, assignedServiceId: 'annual-producer', basic: { ...client.data.basic, piboCategory: 'Producer' } } };
+  const importerClient = { ...client, assignedServiceId: 'annual-importer', data: { ...client.data, assignedServiceId: 'annual-importer', basic: { ...client.data.basic, piboCategory: 'Importer' } } };
+
+  const [producer, importer] = await Promise.all([
+    resolveAnnualReturnPO({ clientMaster: producerClient, financialYears: ['2025-26'], LeadModel: modelFor(source) }),
+    resolveAnnualReturnPO({ clientMaster: importerClient, financialYears: ['2025-26'], LeadModel: modelFor(source) })
+  ]);
+  assert.equal(producer.years[0].poStatus, 'received');
+  assert.equal(producer.years[0].po.number, 'PRODUCER-25000');
+  assert.equal(importer.years[0].poStatus, 'received');
+  assert.equal(importer.years[0].po.number, 'IMPORTER-15000');
+});
+
+test('uses applicant type to scope legacy Client Masters without a matching assignment id', async () => {
+  const source = lead({
+    serviceSelections: [
+      { assignedServiceId: 'legacy-importer', piboCategory: 'Importer', servicesOffered: 'Annual Return Filling' },
+      { assignedServiceId: 'legacy-producer', piboCategory: 'Producer', servicesOffered: 'Annual Return Filling' }
+    ],
+    assignments: [
+      { assignedServiceId: 'legacy-importer', poStatus: 'received', poYearRows: [annualPo({ poNumber: 'IMPORTER-PO' })] },
+      { assignedServiceId: 'legacy-producer', poStatus: 'received', poYearRows: [annualPo({ poNumber: 'PRODUCER-PO' })] }
+    ]
+  });
+  const legacyProducer = { ...client, data: { ...client.data, basic: { ...client.data.basic, piboCategory: 'Producer' } } };
+  const result = await resolveAnnualReturnPO({ clientMaster: legacyProducer, financialYears: ['2025-26'], LeadModel: modelFor(source) });
+  assert.equal(result.years[0].poStatus, 'received');
+  assert.equal(result.years[0].po.number, 'PRODUCER-PO');
+});
+
 test('PO resolution does not mutate existing Lead, Client Master, or Annual Return data', async () => {
   const source = lead();
   source.assignments[1].poYearRows = [annualPo()];
