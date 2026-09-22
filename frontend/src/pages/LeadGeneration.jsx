@@ -1241,20 +1241,16 @@ export default function LeadGeneration() {
       nextAssignments[closureDialog.index].closedByEmail = '';
     }
     if (!editingLeadId) return showToast('Save the lead before recording closure details.', 'warning');
+    const poDebugId = globalThis.crypto?.randomUUID?.() || `po-${Date.now()}`;
     setClosureSaving(true);
     try {
-      const poDebugId = globalThis.crypto?.randomUUID?.() || `po-${Date.now()}`;
-      const primaryAssignment = nextAssignments[0] || {};
-      const payload = buildLeadPayload(lead.workflowStatus || 'submitted', {
+      // Closure is an assignment workflow, not a lead-profile edit. Sending the
+      // complete legacy lead here caused valid PO submissions to be rejected by
+      // newer Company/Contact/PIBO creation rules before the PO could be saved.
+      const payload = {
         assignments: nextAssignments,
-        ...primaryAssignment,
-        assignedToCrmUserId: primaryAssignment.assignedTo,
-        assignedStaff: primaryAssignment.assignedStaff,
-        assignedStaffText: primaryAssignment.assignedStaffText,
-        assignedStaffEmail: primaryAssignment.assignedStaffEmail,
-        closedByCrmUserId: primaryAssignment.closedBy,
-        assignedBy: currentUser?.name || currentUser?.email || ''
-      });
+        workflowStatus: lead.workflowStatus || 'submitted'
+      };
       console.info('[POProof:closure:submit]', { poDebugId, leadId: editingLeadId, assignmentIndex: closureDialog.index, quotationSent: closureDialog.quotationSent, rows: closureDialog.poYearRows.map((row, rowIndex) => ({ rowIndex, poNumber: row.poNumber, poAmount: row.poAmount, hasPoFileUrl: Boolean(row.poFileUrl), poFileName: row.poFileName || '' })) });
       const response = await api.put(API_ENDPOINTS.leads.detail(editingLeadId), payload, { headers: { 'X-PO-Debug-ID': poDebugId } });
       const savedLead = response.data.lead || response.data.data?.lead || response.data.data;
@@ -1265,6 +1261,14 @@ export default function LeadGeneration() {
       setClosureDialog(null);
       showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database after admin approval. Approval is pending.', 'success');
     } catch (saveError) {
+      console.error('[POProof:closure:error]', {
+        poDebugId,
+        leadId: editingLeadId,
+        assignmentIndex: closureDialog.index,
+        status: saveError?.response?.status || 0,
+        code: saveError?.response?.data?.code || '',
+        error: saveError?.response?.data?.error || saveError?.message || 'Unable to save PO details.'
+      });
       showToast(saveError?.response?.data?.error || saveError.message || 'Unable to save PO details.', 'error');
     } finally {
       setClosureSaving(false);

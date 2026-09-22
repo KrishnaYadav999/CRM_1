@@ -465,6 +465,23 @@ function validateSubmittedLead(data) {
   return '';
 }
 
+function isAssignmentOnlyLeadUpdate(body = {}) {
+  if (!Array.isArray(body?.assignments) || !body.assignments.length) return false;
+  const allowedFields = new Set(['assignments', 'workflowStatus']);
+  return Object.keys(body).every((field) => allowedFields.has(field));
+}
+
+function logLeadUpdateRejection(poDebugId, lead, stage, error) {
+  if (!poDebugId) return;
+  console.warn('[POProof:lead:rejected]', {
+    poDebugId,
+    leadId: String(lead?._id || ''),
+    leadCode: lead?.leadCode || '',
+    stage,
+    error
+  });
+}
+
 const SERVICE_DUPLICATE_FIELDS = ['industryType', 'eprCategory', 'applicantType', 'subApplicantType', 'servicesOffered', 'plantUnit', 'firstAnnualReturnYearApplicable'];
 
 function validateDuplicateServiceSelections(data = {}) {
@@ -1277,6 +1294,7 @@ exports.updateLeadCreator = async (req, res) => {
 exports.updateLead = async (req, res) => {
   try {
     const addServicesMode = req.body?.addServicesMode === true;
+    const assignmentOnlyUpdate = isAssignmentOnlyLeadUpdate(req.body);
     const lead = addServicesMode
       ? await Lead.findById(req.params.id)
       : await Lead.findOne(combineAccessFilters({ _id: req.params.id }, await leadAccessFilter(req.user)));
@@ -1320,22 +1338,28 @@ exports.updateLead = async (req, res) => {
       if (removalPermissionError) return res.status(403).json({ error: removalPermissionError, code: 'SERVICE_REMOVAL_FORBIDDEN' });
     }
     const closureError = validateClosureAssignments({ ...lead.toObject(), ...data }, beforeLead);
-    if (closureError) return res.status(400).json({ error: closureError, code: 'INVALID_LEAD_CLOSURE' });
+    if (closureError) {
+      logLeadUpdateRejection(poDebugId, lead, 'closure-validation', closureError);
+      return res.status(400).json({ error: closureError, code: 'INVALID_LEAD_CLOSURE' });
+    }
     if (Object.prototype.hasOwnProperty.call(data, 'company')) {
       data.companyIdentity = normalizeCompanyIdentity(data.company);
     }
     data.workflowStatus = data.workflowStatus === 'submitted' ? 'submitted' : (data.workflowStatus || lead.workflowStatus || 'draft');
 
-    if (data.workflowStatus === 'submitted') {
+    if (data.workflowStatus === 'submitted' && !assignmentOnlyUpdate) {
       data.formStartedAt = data.formStartedAt || lead.formStartedAt || lead.createdAt || new Date();
       data.submittedAt = data.submittedAt || lead.submittedAt || new Date();
       data.fillDurationSeconds = Math.max(0, Math.min(86400, Math.round((new Date(data.submittedAt).getTime() - new Date(data.formStartedAt).getTime()) / 1000)));
       const error = validateSubmittedLead({ ...lead.toObject(), ...data });
-      if (error) return res.status(400).json({ error });
+      if (error) {
+        logLeadUpdateRejection(poDebugId, lead, 'submitted-lead-validation', error);
+        return res.status(400).json({ error });
+      }
     }
 
     const current = lead.toObject();
-    if (shouldValidatePiboSelection(data, current)) {
+    if (!assignmentOnlyUpdate && shouldValidatePiboSelection(data, current)) {
       const selection = await validatePiboSelection({
         parent: data.piboParent || current.piboParent || current.piboCategoryParent,
         child: data.subApplicantType || current.subApplicantType || current.piboCategory,
@@ -1353,7 +1377,11 @@ exports.updateLead = async (req, res) => {
         return poSubmissionChanged && row?.poStatus === 'received' && (row.closedBy || row.closureRequestedBy)
           && (row.poYearRows || []).some((po) => !/^\d{4}-\d{2}-\d{2}$/.test(String(po?.poDate || '').trim()) || Number.isNaN(new Date(`${po.poDate}T00:00:00`).getTime()));
       });
-      if (invalidPoDate) return res.status(400).json({ error: 'A valid PO Date is required for every Purchase Order row.' });
+      if (invalidPoDate) {
+        const error = 'A valid PO Date is required for every Purchase Order row.';
+        logLeadUpdateRejection(poDebugId, lead, 'po-date-validation', error);
+        return res.status(400).json({ error });
+      }
       data.assignments = data.assignments.map((row) => {
         const approved = String(row?.poApprovalStatus || '').toUpperCase() === 'APPROVED';
         if (!approved || !row?.assignedTo || !row?.closureRequestedBy || row?.closedBy) return row;
@@ -2171,6 +2199,7 @@ exports._test = {
   shouldValidatePiboSelection,
   cleanBody,
   validateSubmittedLead,
+  isAssignmentOnlyLeadUpdate,
   bulkServiceRow,
   normalizeLegacyBulkServices,
   alignBulkAssignments,
