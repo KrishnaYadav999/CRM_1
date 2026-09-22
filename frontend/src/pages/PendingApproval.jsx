@@ -666,6 +666,7 @@ export default function PendingApproval() {
   const canAdminApproveQuotation = primaryRole === 'admin' || (!primaryRole && hasAnyRole(currentUser, ['admin']) && !isQuotationSuperAdmin);
   const canApproveTemporary = hasAnyRole(currentUser, ['admin', 'superadmin']);
   const isComplianceApprovalView = hasAnyRole(currentUser, ['compliance']) && !canApprove;
+  const isServiceParticipantView = !canApprove && !isComplianceApprovalView;
   const canApproveClients = canApprove || isComplianceApprovalView;
 
   useEffect(() => {
@@ -674,7 +675,9 @@ export default function PendingApproval() {
 
   const allApprovalRows = useMemo(() => isComplianceApprovalView
     ? pendingClients
-    : [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals, ...temporaryApprovals, ...poApprovals], [isComplianceApprovalView, pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals, temporaryApprovals, poApprovals]);
+    : isServiceParticipantView
+      ? serviceApprovals
+      : [...pendingClients, ...pendingQuotations, ...duplicateLeadApprovals, ...serviceApprovals, ...royaltyApprovals, ...temporaryApprovals, ...poApprovals], [isComplianceApprovalView, isServiceParticipantView, pendingClients, pendingQuotations, duplicateLeadApprovals, serviceApprovals, royaltyApprovals, temporaryApprovals, poApprovals]);
   const piboOptions = useMemo(() => {
     const values = allApprovalRows
       .map((row) => formatApprovalValue(row?.piboCategory))
@@ -728,6 +731,10 @@ export default function PendingApproval() {
 
   const approvalTabs = useMemo(() => {
     const list = [];
+    if (isServiceParticipantView) {
+      list.push({ id: 'services', icon: FileText, label: 'Pending Service Approvals', count: filteredServices.length });
+      return list;
+    }
     if (canApproveClients) {
       list.push({ id: 'clients', icon: Clock3, label: 'Pending Clients', count: filteredClients.length });
     }
@@ -742,7 +749,7 @@ export default function PendingApproval() {
       list.push({ id: 'duplicates', icon: Users, label: 'Special Approvals', count: filteredDuplicateLeads.length });
     }
     return list;
-  }, [canApproveClients, canApproveTemporary, isComplianceApprovalView, filteredClients.length, filteredTemporary.length, filteredPoApprovals.length, filteredQuotations.length, filteredRoyalty.length, filteredServices.length, filteredDuplicateLeads.length]);
+  }, [canApproveClients, canApproveTemporary, isComplianceApprovalView, isServiceParticipantView, filteredClients.length, filteredTemporary.length, filteredPoApprovals.length, filteredQuotations.length, filteredRoyalty.length, filteredServices.length, filteredDuplicateLeads.length]);
 
   function handleTabChange(tabId) {
     if (tabId && typeof tabId === 'string') {
@@ -764,9 +771,15 @@ export default function PendingApproval() {
       setStatusFilter('PENDING');
       return;
     }
+    if (isServiceParticipantView) {
+      setActiveTab('services');
+      setTypeFilter('services');
+      setStatusFilter('all');
+      return;
+    }
     if (tab === 'clients' || tab === 'quotations' || tab === 'duplicates' || tab === 'royalty' || tab === 'services' || tab === 'po') setActiveTab(tab);
     else setActiveTab('quotations');
-  }, [isComplianceApprovalView, location.search, normalizedRole]);
+  }, [isComplianceApprovalView, isServiceParticipantView, location.search, normalizedRole]);
 
   useEffect(() => {
     setClientPage(1);
@@ -780,7 +793,7 @@ export default function PendingApproval() {
 
   function resetFilters() {
     setSearchTerm('');
-    setTypeFilter(isComplianceApprovalView ? 'clients' : 'all');
+    setTypeFilter(isComplianceApprovalView ? 'clients' : isServiceParticipantView ? 'services' : 'all');
     setStatusFilter(isComplianceApprovalView ? 'PENDING' : 'all');
     setPiboFilter('all');
     setUserFilter('all');

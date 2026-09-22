@@ -69,7 +69,7 @@ export const navSections = [
           { label: 'Super Admin Dashboard', icon: Gauge, path: '/superadmin-dashboard', roles: adminRoles },
           { label: 'Sales Management MIS', icon: TrendingUp, path: '/mis', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
           { label: 'Complete MIS', icon: BarChart3, path: '/mis/complete', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
-          { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', roles: [...adminRoles, 'compliance'], complianceFamily: true },
+          { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', complianceFamily: true },
           {
             label: 'Pending Leads',
             icon: ClipboardList,
