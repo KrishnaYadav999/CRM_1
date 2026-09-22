@@ -11,7 +11,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/[...path].js"
+      "destination": "https://crm-1-am0y.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
