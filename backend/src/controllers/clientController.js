@@ -345,6 +345,64 @@ function isPlainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
 
+const CLIENT_LIFECYCLE_MILESTONES = ['leadClosure', 'poReceived', 'kickOffMeeting'];
+const CLIENT_LIFECYCLE_STATUSES = new Set(['Pending', 'In Progress', 'Done']);
+
+function cleanLifecycleText(value, maxLength = 500) {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
+function cleanLifecycleDate(value) {
+  const date = cleanLifecycleText(value, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+}
+
+function cleanLifecycleProof(file = {}) {
+  if (!isPlainObject(file)) return null;
+  const url = cleanLifecycleText(file.secureUrl || file.url, 2000);
+  if (!/^https:\/\//i.test(url)) return null;
+  return {
+    name: cleanLifecycleText(file.name || 'Proof', 240),
+    type: cleanLifecycleText(file.type, 120),
+    size: Math.max(0, Number(file.size || file.bytes) || 0),
+    url,
+    secureUrl: url,
+    publicId: cleanLifecycleText(file.publicId, 300),
+    uploadedAt: file.uploadedAt || new Date().toISOString()
+  };
+}
+
+function cleanClientLifecycle(payload = {}) {
+  const source = isPlainObject(payload) ? payload : {};
+  const sourceMilestones = isPlainObject(source.milestones) ? source.milestones : {};
+  const milestones = Object.fromEntries(CLIENT_LIFECYCLE_MILESTONES.map((key) => {
+    const row = isPlainObject(sourceMilestones[key]) ? sourceMilestones[key] : {};
+    const moms = (Array.isArray(row.moms) ? row.moms : []).slice(0, 25).map((mom, index) => ({
+      id: cleanLifecycleText(mom?.id, 80) || `mom-${Date.now()}-${index}`,
+      date: cleanLifecycleDate(mom?.date),
+      subject: cleanLifecycleText(mom?.subject, 200),
+      points: (Array.isArray(mom?.points) ? mom.points : []).slice(0, 20).map((point) => cleanLifecycleText(point, 500)).filter(Boolean)
+    })).filter((mom) => mom.date || mom.subject || mom.points.length);
+    return [key, {
+      date: cleanLifecycleDate(row.date),
+      completed: row.completed === 'yes' ? 'yes' : 'no',
+      remark: cleanLifecycleText(row.remark, 1000),
+      moms,
+      proofs: (Array.isArray(row.proofs) ? row.proofs : []).slice(0, 10).map(cleanLifecycleProof).filter(Boolean)
+    }];
+  }));
+  const workFollowUps = (Array.isArray(source.workFollowUps) ? source.workFollowUps : []).slice(0, 100).map((row, index) => {
+    const status = cleanLifecycleText(row?.status, 30);
+    return {
+      id: cleanLifecycleText(row?.id, 80) || `follow-up-${Date.now()}-${index}`,
+      remark: cleanLifecycleText(row?.remark, 1000),
+      date: cleanLifecycleDate(row?.date),
+      status: CLIENT_LIFECYCLE_STATUSES.has(status) ? status : 'Pending'
+    };
+  });
+  return { milestones, workFollowUps };
+}
+
 function isMongoObjectId(value) {
   return /^[a-f\d]{24}$/i.test(String(value || ''));
 }
@@ -1251,7 +1309,7 @@ exports.getClient = async (req, res) => {
     { _id: clientId },
     await clientAccessFilter(req.user)
   ))
-    .populate('selectedLead', 'leadCode company status emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
+    .populate('selectedLead', 'leadCode company status createdAt closedAt closureDate emails mobileNo1 piboCategory eprCategory addressLine1 addressLine2 addressLine3 state city pinCode contactPerson designation serviceSelections addresses contacts assignments')
     .populate('adminControls.assignedTo', 'name email role avatarUrl');
 
   if (!client) return res.status(404).json({ error: 'Client Master record not found' });
@@ -1667,6 +1725,30 @@ exports.updateClient = async (req, res) => {
   }
 
   res.json({ ok: true, client });
+};
+
+exports.updateClientLifecycle = async (req, res) => {
+  const clientId = String(req.params.id || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(clientId)) {
+    return res.status(400).json({ error: 'Invalid Client Master ID' });
+  }
+  const client = await Client.findOne(combineAccessFilters(
+    { _id: clientId },
+    await clientAccessFilter(req.user)
+  ));
+  if (!client) return res.status(404).json({ error: 'Client Master record not found' });
+
+  const lifecycle = {
+    ...cleanClientLifecycle(req.body),
+    updatedAt: new Date(),
+    updatedBy: req.user?._id,
+    updatedByName: cleanLifecycleText(req.user?.name || req.user?.email || 'CRM User', 160)
+  };
+  const currentData = isPlainObject(client.data) ? client.data : {};
+  client.data = { ...currentData, clientLifecycle: lifecycle };
+  client.markModified('data');
+  await client.save();
+  return res.json({ ok: true, lifecycle });
 };
 
 exports.updateAnnualReturn = async (req, res) => {
@@ -2852,6 +2934,7 @@ exports.__test = {
   validateRestrictedCpcbUpdate,
   preserveRestrictedCpcbSections,
   applyCpcbOnboardingData,
+  cleanClientLifecycle,
   readRequestedClientId,
   validateClientMasterIdentity,
   normalizeClientMaster,
