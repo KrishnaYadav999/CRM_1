@@ -250,13 +250,30 @@ function isPwpQuotationApplicant(item = {}) {
   ].some((value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '') === 'pwp');
 }
 
+function quotationServicePeriodYears(item = {}) {
+  const start = parseDateInputValue(normalizeDateInputValue(item.serviceStartDate));
+  if (!start) return [];
+  const savedEnd = normalizeDateInputValue(item.serviceEndDate);
+  const computedEnd = savedEnd || serviceEndDateFrom(item.serviceStartDate, item.servicePeriod || 1, item.periodUnit || 'annual');
+  const end = parseDateInputValue(computedEnd) || start;
+  const firstYear = start.month >= 4 ? start.year : start.year - 1;
+  const lastYear = end.month >= 4 ? end.year : end.year - 1;
+  return Array.from({ length: Math.max(1, lastYear - firstYear + 1) }, (_, index) => {
+    const year = firstYear + index;
+    return `${year}-${String(year + 1).slice(-2)}`;
+  });
+}
+
 function quotationAnnualReturnRegistrationYear(item = {}) {
-  if (isEprCreditItem(item) || isPwpQuotationApplicant(item)) return '';
+  if (isEprCreditItem(item)) return '';
+  const selectedYears = quotationAnnualReturnOrCreditYears(item);
+  const displayedYears = selectedYears.length ? selectedYears : quotationServicePeriodYears(item);
+  if (isPwpQuotationApplicant(item)) return displayedYears.join(', ') || item.financialYear || '-';
   if (isEprConsultancyItem(item)) {
-    return quotationAnnualReturnOrCreditYears(item).join(', ') || item.financialYear || '-';
+    return displayedYears.join(', ') || item.financialYear || '-';
   }
   if (!isAnnualReturnRegistrationApplicant(item)) return '-';
-  return quotationAnnualReturnOrCreditYears(item).join(', ') || item.financialYear || '-';
+  return displayedYears.join(', ') || item.financialYear || '-';
 }
 
 function isEprConsultancyItem(item = {}) {

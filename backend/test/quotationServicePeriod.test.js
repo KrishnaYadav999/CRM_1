@@ -281,14 +281,17 @@ test('quotation mapping view and download place Applicant Type beside Service Ca
   assert.match(page, /escapeHtml\(item\.eprCategory \|\| item\.serviceCategory \|\| '-'\)\}<\/td><td>\$\{escapeHtml\(getQuotationApplicantType\(item\)\)\}<\/td>/);
 });
 
-test('quotation year mapping shows EPR Consultancy years for every non-PWP applicant and stays blank for EPR Credit', () => {
+test('quotation year mapping shows selected or service-period EPR years, including PWP, while EPR Credit stays blank', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/Quotations.jsx'), 'utf8');
   assert.match(page, /function isAnnualReturnRegistrationApplicant\(item = \{\}\)/);
   assert.match(page, /applicantType === 'producer' \|\| applicantType === 'importerofrawmaterial'/);
   assert.match(page, /function isPwpQuotationApplicant\(item = \{\}\)/);
   assert.match(page, /function quotationAnnualReturnRegistrationYear\(item = \{\}\)/);
-  assert.match(page, /if \(isEprCreditItem\(item\) \|\| isPwpQuotationApplicant\(item\)\) return ''/);
-  assert.match(page, /if \(isEprConsultancyItem\(item\)\) \{\s*return quotationAnnualReturnOrCreditYears\(item\)\.join\(', '\) \|\| item\.financialYear \|\| '-'/);
+  assert.match(page, /if \(isEprCreditItem\(item\)\) return ''/);
+  assert.match(page, /function quotationServicePeriodYears\(item = \{\}\)/);
+  assert.match(page, /const displayedYears = selectedYears\.length \? selectedYears : quotationServicePeriodYears\(item\)/);
+  assert.match(page, /if \(isPwpQuotationApplicant\(item\)\) return displayedYears\.join\(', '\) \|\| item\.financialYear \|\| '-'/);
+  assert.match(page, /if \(isEprConsultancyItem\(item\)\) \{\s*return displayedYears\.join\(', '\) \|\| item\.financialYear \|\| '-'/);
   assert.match(page, /if \(!isAnnualReturnRegistrationApplicant\(item\)\) return '-'/);
   assert.equal((page.match(/const hasReturnYearItems = items\.some\(isEprConsultancyItem\)/g) || []).length, 2);
   assert.doesNotMatch(page, /hidePwpRegistrationYearColumn/);
