@@ -29,6 +29,7 @@ import InternalTickets from './pages/InternalTickets'
 import SuperAdminDashboard from './pages/SuperAdminDashboard'
 import ActivityLogs from './pages/ActivityLogs'
 import SalesManagementDashboard from './pages/SalesManagementDashboard'
+import ClientDailyMIS from './pages/ClientDailyMIS'
 import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
 import SupportTicketMilestoneCelebration from './components/SupportTicketMilestoneCelebration'
 
@@ -113,6 +114,7 @@ function App(){
         <Route path="/superadmin-dashboard" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><SuperAdminDashboard/></ProtectedRoute>} />
         <Route path="/mis" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'manager', 'operation head', 'operations head']}><SalesManagementDashboard /></ProtectedRoute>} />
         <Route path="/mis/complete" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'manager', 'operation head', 'operations head']}><SuperAdminDashboard misPage /></ProtectedRoute>} />
+        <Route path="/mis/client-daily" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'manager', 'operation head', 'operations head']}><ClientDailyMIS /></ProtectedRoute>} />
         <Route path="/mis/sales-management" element={<Navigate to="/mis" replace />} />
         <Route path="/dashboard/activity-logs" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><ActivityLogs/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />

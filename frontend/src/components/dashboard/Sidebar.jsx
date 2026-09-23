@@ -13,6 +13,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   const [dashboardChoicesOpen, setDashboardChoicesOpen] = useState(false)
   const [openNestedGroups, setOpenNestedGroups] = useState(() => ({
     'Pending Leads': location.pathname.startsWith('/pending-leads'),
+    'Complete MIS': location.pathname.startsWith('/mis/'),
     Tickets: location.pathname.includes('tickets')
   }))
 

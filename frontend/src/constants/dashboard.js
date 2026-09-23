@@ -68,7 +68,15 @@ export const navSections = [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard', roles: adminRoles },
           { label: 'Super Admin Dashboard', icon: Gauge, path: '/superadmin-dashboard', roles: adminRoles },
           { label: 'Sales Management MIS', icon: TrendingUp, path: '/mis', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
-          { label: 'Complete MIS', icon: BarChart3, path: '/mis/complete', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
+          {
+            label: 'Complete MIS',
+            icon: BarChart3,
+            roles: [...adminRoles, 'manager', 'operation head', 'operations head'],
+            children: [
+              { label: 'Complete MIS', icon: BarChart3, path: '/mis/complete' },
+              { label: 'Client Daily MIS', icon: ClipboardList, path: '/mis/client-daily' }
+            ]
+          },
           { label: 'Pending Approval', icon: Clock3, path: '/pending-approval', complianceFamily: true },
           {
             label: 'Pending Leads',

@@ -1056,7 +1056,7 @@ exports.listClients = async (req, res) => {
       '-data.authorisedPersons.panDocument', '-data.authorised.aadhaarDocument',
       '-data.authorisedPersons.aadhaarDocument'
     ].join(' '))
-    .populate('selectedLead', 'leadCode company status createdBy createdByName createdByEmail importedCreatedBy assignedStaff assignedStaffText assignedStaffEmail assignments')
+    .populate('selectedLead', 'leadCode company status eprCategory applicantType subApplicantType piboParent createdBy createdByName createdByEmail importedCreatedBy assignedTo assignedToText assignedStaff assignedStaffText assignedStaffEmail assignments assignReachedAt closedAt closedByText createdAt updatedAt')
     .populate('createdBy', 'name email role avatarUrl')
     .populate('adminControls.assignedTo', 'name email role avatarUrl')
     .sort({ createdAt: -1 })
