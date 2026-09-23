@@ -347,6 +347,7 @@ function isPlainObject(value) {
 
 const CLIENT_LIFECYCLE_MILESTONES = ['leadClosure', 'poReceived', 'kickOffMeeting'];
 const CLIENT_LIFECYCLE_STATUSES = new Set(['Pending', 'In Progress', 'Done']);
+const CLIENT_LIFECYCLE_PRIORITIES = new Set(['High', 'Medium', 'Low']);
 
 function cleanLifecycleText(value, maxLength = 500) {
   return String(value || '').trim().slice(0, maxLength);
@@ -397,7 +398,8 @@ function cleanClientLifecycle(payload = {}) {
       id: cleanLifecycleText(row?.id, 80) || `follow-up-${Date.now()}-${index}`,
       remark: cleanLifecycleText(row?.remark, 1000),
       date: cleanLifecycleDate(row?.date),
-      status: CLIENT_LIFECYCLE_STATUSES.has(status) ? status : 'Pending'
+      status: CLIENT_LIFECYCLE_STATUSES.has(status) ? status : 'Pending',
+      priority: CLIENT_LIFECYCLE_PRIORITIES.has(cleanLifecycleText(row?.priority, 20)) ? cleanLifecycleText(row?.priority, 20) : 'Medium'
     };
   });
   return { milestones, workFollowUps };
@@ -1056,7 +1058,7 @@ exports.listClients = async (req, res) => {
       '-data.authorisedPersons.panDocument', '-data.authorised.aadhaarDocument',
       '-data.authorisedPersons.aadhaarDocument'
     ].join(' '))
-    .populate('selectedLead', 'leadCode company status eprCategory applicantType subApplicantType piboParent createdBy createdByName createdByEmail importedCreatedBy assignedTo assignedToText assignedStaff assignedStaffText assignedStaffEmail assignments assignReachedAt closedAt closedByText createdAt updatedAt')
+    .populate('selectedLead', 'leadCode company status eprCategory applicantType subApplicantType piboParent serviceSelections createdBy createdByName createdByEmail importedCreatedBy assignedTo assignedToText assignedStaff assignedStaffText assignedStaffEmail assignments assignReachedAt closedAt closedByText createdAt updatedAt')
     .populate('createdBy', 'name email role avatarUrl')
     .populate('adminControls.assignedTo', 'name email role avatarUrl')
     .sort({ createdAt: -1 })
