@@ -798,6 +798,7 @@ function getApplicantCardTheme(applicantType = '') {
 
 function ClientServiceChooserModal({ selection, onClose, onSelect }) {
   const [visibleCredentials, setVisibleCredentials] = useState(() => new Set());
+  const hasMultipleServices = selection.services.length > 1;
   const toggleCredential = (key) => setVisibleCredentials((current) => {
     const next = new Set(current);
     if (next.has(key)) next.delete(key); else next.add(key);
@@ -812,9 +813,11 @@ function ClientServiceChooserModal({ selection, onClose, onSelect }) {
             <Briefcase className="h-7 w-7" />
           </span>
           <div className="min-w-0 pr-10">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-teal-700">Select Applicant Type</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-teal-700">Select Client Master Type</p>
             <h2 id="client-service-view-title" className="mt-2 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Which Client Master do you want to view?</h2>
-            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500 sm:text-base">This company has multiple service-specific records. Select an applicant type to open only its exact Client Master data.</p>
+            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-500 sm:text-base">{hasMultipleServices
+              ? 'This company has multiple service-specific records. Select the applicant and sub-applicant type to open its exact Client Master data.'
+              : 'Confirm the applicant and sub-applicant type before opening this Client Master.'}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close applicant type selection" className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md sm:right-7 sm:top-7"><X className="h-5 w-5" /></button>
         </header>
@@ -822,7 +825,8 @@ function ClientServiceChooserModal({ selection, onClose, onSelect }) {
         <div className="relative grid gap-4 p-5 sm:p-8 md:grid-cols-3">
           {selection.services.map((service, index) => {
             const serviceData = readClientData(service);
-            const applicantType = serviceData.basic?.piboCategory || serviceData.selectedLeadSnapshot?.subApplicantType || `Service ${index + 1}`;
+            const applicantType = serviceData.selectedLeadSnapshot?.applicantType || serviceData.selectedLeadSnapshot?.piboParent || serviceData.selectedLeadSnapshot?.piboCategoryParent || service.applicantType || service.piboParent || service.piboCategoryParent || 'Not provided';
+            const subApplicantType = serviceData.basic?.piboCategory || serviceData.selectedLeadSnapshot?.subApplicantType || serviceData.selectedLeadSnapshot?.piboCategory || service.subApplicantType || service.piboCategory || 'Not applicable';
             const category = serviceData.basic?.eprCategory || serviceData.selectedLeadSnapshot?.eprCategory || 'Service category not provided';
             const theme = getApplicantCardTheme(applicantType);
             const ApplicantIcon = theme.icon;
@@ -837,11 +841,14 @@ function ClientServiceChooserModal({ selection, onClose, onSelect }) {
                   {ceprUserId && <p className="truncate text-[10px] font-black text-slate-500" title={ceprUserId}>CEPR ID: <span className="text-slate-900">{ceprUserId}</span></p>}
                   {ceprPassword && <div className="flex items-center justify-end gap-1 text-[10px] font-black text-slate-500"><span>CEPR Password:</span><span className="max-w-20 truncate text-slate-900">{passwordVisible ? ceprPassword : '••••••••'}</span><button type="button" onClick={(event) => { event.stopPropagation(); toggleCredential(credentialKey); }} className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label={passwordVisible ? 'Hide CEPR password' : 'View CEPR password'}>{passwordVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</button></div>}
                 </div>}
-                <h3 className="mt-5 text-2xl font-black tracking-tight text-slate-950">{applicantType}</h3>
+                <div className="mt-5 space-y-3">
+                  <div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Applicant Type</p><h3 className="mt-1 text-2xl font-black tracking-tight text-slate-950">{applicantType}</h3></div>
+                  <div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Sub Applicant Type</p><p className="mt-1 text-base font-black text-slate-700">{subApplicantType}</p></div>
+                </div>
                 <span className={`mt-3 w-fit rounded-xl px-3 py-2 text-sm font-black ring-1 ${theme.badgeClass}`}>{category}</span>
                 <div className="my-4 h-px bg-slate-100" />
                 <p className="flex items-center gap-2 text-sm font-bold text-slate-500"><ShieldCheck className="h-5 w-5 text-slate-500" />Service-specific record available</p>
-                <button type="button" onClick={() => onSelect(service)} className={`mt-auto inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r px-4 text-sm font-black text-white shadow-lg transition group-hover:brightness-105 ${theme.buttonClass}`}>View {applicantType}<ChevronRight className="h-5 w-5" /></button>
+                <button type="button" onClick={() => onSelect(service)} className={`mt-auto inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r px-4 text-sm font-black text-white shadow-lg transition group-hover:brightness-105 ${theme.buttonClass}`}>View Client Master<ChevronRight className="h-5 w-5" /></button>
               </article>
             );
           })}
@@ -849,7 +856,9 @@ function ClientServiceChooserModal({ selection, onClose, onSelect }) {
 
         <footer className="relative flex items-center gap-3 border-t border-emerald-100 bg-gradient-to-r from-emerald-50/80 to-cyan-50/60 px-5 py-4 text-sm font-bold text-slate-600 sm:px-8">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-teal-700 shadow-sm ring-1 ring-emerald-100"><ShieldCheck className="h-5 w-5" /></span>
-          You can switch between this company&apos;s Client Master records at any time.
+          {hasMultipleServices
+            ? `You can switch between this company's Client Master records at any time.`
+            : 'The service-specific Client Master record shown above will open.'}
         </footer>
       </section>
     </div>
@@ -2825,25 +2834,19 @@ export default function ClientMaster() {
       const serviceSource = discoveredServices.length ? discoveredServices : clients;
       const selectedService = discoveredServices.find((service) => String(service.clientMasterId || service._id || service.id || '') === clientMasterId) || selectedClient;
       const relatedServices = getRelatedClientServices(serviceSource, selectedService);
-      setViewServiceClients(relatedServices);
-      if (relatedServices.length > 1) {
-        setViewLoading(false);
-        setPendingServiceView({ client: selectedClient, services: relatedServices });
-        return;
-      }
-      await openClientView(relatedServices[0] || selectedClient, relatedServices);
+      const servicesToView = relatedServices.length ? relatedServices : [selectedClient];
+      setViewServiceClients(servicesToView);
+      setViewLoading(false);
+      setPendingServiceView({ client: selectedClient, services: servicesToView });
     } catch {
       if (lookupId !== clientRecordRequestRef.current) return;
       const relatedServices = getRelatedClientServices(clients, selectedClient);
-      setViewServiceClients(relatedServices);
-      if (relatedServices.length > 1) {
-        setViewLoading(false);
-        setPendingServiceView({ client: selectedClient, services: relatedServices });
-        return;
-      }
+      const servicesToView = relatedServices.length ? relatedServices : [selectedClient];
+      setViewServiceClients(servicesToView);
       // Service discovery enriches the chooser, but a temporary discovery
       // failure must not block a client record that is already visible.
-      await openClientView(relatedServices[0] || selectedClient, relatedServices);
+      setViewLoading(false);
+      setPendingServiceView({ client: selectedClient, services: servicesToView });
     }
   }
 

@@ -1,5 +1,5 @@
 function encodePathValue(value) {
-  return encodeURIComponent(String(value || '').trim());
+  return encodeURIComponent(String(value ?? '').trim());
 }
 
 const API_ENDPOINTS = {

@@ -66,7 +66,10 @@ function combineAccessFilters(...filters) {
 
 function stableUserIdentity(value) {
   if (value && typeof value === 'object') {
-    return String(value._id || value.id || value.crmUserId || value.userId || value.email || '').trim().toLowerCase();
+    const nestedIdentity = value._id || value.id || value.crmUserId || value.userId || value.email;
+    if (nestedIdentity && nestedIdentity !== value) return stableUserIdentity(nestedIdentity);
+    const serialized = typeof value.toString === 'function' ? value.toString() : '';
+    return serialized === '[object Object]' ? '' : String(serialized || '').trim().toLowerCase();
   }
   return String(value || '').trim().toLowerCase();
 }
@@ -157,6 +160,24 @@ exports.createLeadDropdownOption = async (req, res) => {
 function usesDirectApplicantType(eprCategory) {
   const category = String(eprCategory || '').toLowerCase();
   return Boolean(category && !category.includes('plastic'));
+}
+
+function primaryServiceCategory(data = {}, fallback = {}) {
+  const dataServices = Array.isArray(data.serviceSelections) ? data.serviceSelections : [];
+  const fallbackServices = Array.isArray(fallback.serviceSelections) ? fallback.serviceSelections : [];
+  return String(
+    dataServices[0]?.eprCategory
+    || data.eprCategory
+    || fallbackServices[0]?.eprCategory
+    || fallback.eprCategory
+    || ''
+  ).trim();
+}
+
+function shouldValidatePiboSelection(data = {}, fallback = {}) {
+  const workflowStatus = data.workflowStatus || fallback.workflowStatus || 'draft';
+  return (!usesDirectApplicantType(primaryServiceCategory(data, fallback)) && workflowStatus === 'submitted')
+    || Boolean(data.piboParent || data.subApplicantType);
 }
 
 function cleanBody(body) {
@@ -566,6 +587,28 @@ function validateClosureAssignments(data = {}, previousData = null) {
   return '';
 }
 
+function normalizedPoClosureRows(assignment = {}) {
+  return (Array.isArray(assignment?.poYearRows) ? assignment.poYearRows : []).map((po) => ({
+    fy: String(po?.fy || '').trim(),
+    poNumber: String(po?.poNumber || '').trim(),
+    poDate: String(po?.poDate || '').trim(),
+    poAmount: Math.max(0, Number(po?.poAmount) || 0),
+    poFileUrl: resolvePoProof(po).url,
+    services: (Array.isArray(po?.services) ? po.services : [])
+      .map((service) => String(service || '').trim())
+      .filter(Boolean)
+      .sort()
+  }));
+}
+
+function poClosureSubmissionChanged(previous = {}, next = {}) {
+  if (String(previous?.poStatus || '') !== String(next?.poStatus || '')) return true;
+  const previousClosing = Boolean(previous?.closedBy || previous?.closureRequestedBy);
+  const nextClosing = Boolean(next?.closedBy || next?.closureRequestedBy);
+  if (previousClosing !== nextClosing) return true;
+  return JSON.stringify(normalizedPoClosureRows(previous)) !== JSON.stringify(normalizedPoClosureRows(next));
+}
+
 function preserveExistingClosureEvidence(beforeData = {}, nextData = {}) {
   if (!Array.isArray(nextData.assignments)) return nextData;
   const previousAssignments = Array.isArray(beforeData.assignments) ? beforeData.assignments : [];
@@ -769,7 +812,7 @@ async function createLeadRecord(rawBody, user) {
     data.fillDurationSeconds = Math.max(0, Math.min(86400, Math.round((new Date(data.submittedAt).getTime() - new Date(data.formStartedAt).getTime()) / 1000)));
   }
 
-  if ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.subApplicantType) {
+  if (shouldValidatePiboSelection(data)) {
     const selection = await validatePiboSelection({ parent: data.piboParent, child: data.subApplicantType, required: true });
     data.piboParent = selection.piboParent;
     data.subApplicantType = selection.piboCategory;
@@ -1337,8 +1380,8 @@ exports.updateLead = async (req, res) => {
       }
     }
 
-    if (!assignmentOnlyUpdate && ((!usesDirectApplicantType(data.eprCategory) && data.workflowStatus === 'submitted') || data.piboParent || data.subApplicantType)) {
-      const current = lead.toObject();
+    const current = lead.toObject();
+    if (!assignmentOnlyUpdate && shouldValidatePiboSelection(data, current)) {
       const selection = await validatePiboSelection({
         parent: data.piboParent || current.piboParent || current.piboCategoryParent,
         child: data.subApplicantType || current.subApplicantType || current.piboCategory,
@@ -1351,8 +1394,7 @@ exports.updateLead = async (req, res) => {
     if (Array.isArray(data.assignments)) {
       const invalidPoDate = data.assignments.some((row, index) => {
         const beforeAssignment = beforeLead.assignments?.[index] || {};
-        const poSubmissionChanged = beforeAssignment.poStatus !== row?.poStatus
-          || JSON.stringify(beforeAssignment.poYearRows || []) !== JSON.stringify(row?.poYearRows || []);
+        const poSubmissionChanged = poClosureSubmissionChanged(beforeAssignment, row);
         return poSubmissionChanged && row?.poStatus === 'received' && (row.closedBy || row.closureRequestedBy)
           && (row.poYearRows || []).some((po) => !/^\d{4}-\d{2}-\d{2}$/.test(String(po?.poDate || '').trim()) || Number.isNaN(new Date(`${po.poDate}T00:00:00`).getTime()));
       });
@@ -1458,7 +1500,7 @@ exports.assignLeadStaff = async (req, res) => {
     if (requestedStaffId && !staff) return res.status(404).json({ error: 'Active staff user not found.' });
 
     const beforeLead = lead.toObject();
-    assignments[rowIndex] = {
+    const updatedAssignment = {
       ...assignment,
       assignedStaff: staff?._id || '',
       assignedStaffText: staff ? (staff.name || staff.email) : '',
@@ -1466,17 +1508,30 @@ exports.assignLeadStaff = async (req, res) => {
       assignedBy: req.user?._id || '',
       kickoffEmailConsent
     };
-    lead.assignments = assignments;
-    lead.markModified('assignments');
-    if (rowIndex === 0) {
-      lead.assignedStaff = staff?._id || undefined;
-      lead.assignedStaffText = staff ? (staff.name || staff.email) : '';
-      lead.assignedStaffEmail = staff?.email || '';
-    }
-    lead.updatedBy = req.user?.name || req.user?.email || String(req.user?._id || '');
-    await lead.save();
+    assignments[rowIndex] = updatedAssignment;
 
-    const savedLead = lead.toObject();
+    // Only persist the selected row. Saving the complete document validates
+    // unrelated legacy/imported fields and can reject a valid staff assignment.
+    const setFields = {
+      [`assignments.${rowIndex}`]: updatedAssignment,
+      updatedBy: req.user?.name || req.user?.email || String(req.user?._id || '')
+    };
+    const unsetFields = {};
+    if (rowIndex === 0) {
+      setFields.assignedStaffText = staff ? (staff.name || staff.email) : '';
+      setFields.assignedStaffEmail = staff?.email || '';
+      if (staff) setFields.assignedStaff = staff._id;
+      else unsetFields.assignedStaff = 1;
+    }
+    const update = { $set: setFields };
+    if (Object.keys(unsetFields).length) update.$unset = unsetFields;
+    const savedLeadDocument = await Lead.findByIdAndUpdate(lead._id, update, {
+      new: true,
+      runValidators: false
+    });
+    if (!savedLeadDocument) return res.status(404).json({ error: 'Lead was removed before the assignment could be saved.' });
+
+    const savedLead = savedLeadDocument.toObject();
     await sendLeadClosureKickoffEmail({ beforeLead, lead: savedLead })
       .catch((error) => console.error('Lead staff assignment kick-off email failed', { leadId: String(lead._id), rowIndex, error: error.message }));
     if (staff) {
@@ -1492,13 +1547,15 @@ exports.assignLeadStaff = async (req, res) => {
         : `Staff removed from ${lead.company || lead.leadCode || 'lead'} service row ${rowIndex + 1}`,
       actor: req.user?._id,
       metadata: { rowIndex, staffUserId: staff ? String(staff._id) : '', kickoffEmailConsent }
-    });
+    }).catch((error) => console.error('Lead staff assignment activity log failed', {
+      leadId: String(lead._id), rowIndex, error: error.message
+    }));
 
     return res.json({
       ok: true,
       message: staff ? `${staff.name || staff.email} assigned successfully.` : 'Staff assignment removed.',
-      assignment: assignments[rowIndex],
-      lead
+      assignment: savedLead.assignments?.[rowIndex] || updatedAssignment,
+      lead: savedLeadDocument
     });
   } catch (err) {
     console.error('Lead staff assignment failed', { leadId: req.params.id, rowIndex: req.params.rowIndex, error: err.message });
@@ -2170,6 +2227,8 @@ exports.updateDuplicateLeadApproval = async (req, res) => {
 
 exports._test = {
   usesDirectApplicantType,
+  primaryServiceCategory,
+  shouldValidatePiboSelection,
   cleanBody,
   validateSubmittedLead,
   isAssignmentOnlyLeadUpdate,
@@ -2185,7 +2244,8 @@ exports._test = {
   stableUserIdentity,
   canAssignStaffToRow,
   activeUserLookup,
-  leadCodeSequence
+  leadCodeSequence,
+  poClosureSubmissionChanged
 };
 
 const LeadServiceCatalog = require('../models/LeadServiceCatalog');

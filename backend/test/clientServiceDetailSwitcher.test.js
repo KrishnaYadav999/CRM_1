@@ -29,14 +29,16 @@ test('Client Master directory hides PIBO and chooser prefers exact persisted com
   assert.ok(chooser.indexOf('persistedRecords.length > 1') < chooser.indexOf('populatedLead'));
 });
 
-test('directory eye action discovers every company applicant type before opening details', () => {
+test('directory eye action always confirms applicant and sub-applicant type before opening details', () => {
   const handler = page.slice(page.indexOf('async function openDirectoryClientView'), page.indexOf("if (viewMode === 'list')"));
 
   assert.match(handler, /API_ENDPOINTS\.clients\.discoveryServices/);
   assert.match(handler, /identity = clientMasterId \? `client:\$\{clientMasterId\}` : selectedLeadId/);
   assert.match(handler, /discoveredServices\.length \? discoveredServices : clients/);
-  assert.match(handler, /if \(relatedServices\.length > 1\)/);
-  assert.ok(handler.indexOf('setPendingServiceView') < handler.indexOf('await openClientView'));
+  assert.equal((handler.match(/const servicesToView = relatedServices\.length \? relatedServices : \[selectedClient\]/g) || []).length, 2);
+  assert.equal((handler.match(/setPendingServiceView\(\{ client: selectedClient, services: servicesToView \}\)/g) || []).length, 2);
+  assert.doesNotMatch(handler, /relatedServices\.length > 1/);
+  assert.doesNotMatch(handler, /await openClientView/);
 });
 
 test('applicant chooser uses responsive applicant-specific premium cards', () => {
@@ -47,8 +49,14 @@ test('applicant chooser uses responsive applicant-specific premium cards', () =>
   assert.match(chooser, /max-w-6xl/);
   assert.match(chooser, /md:grid-cols-3/);
   assert.doesNotMatch(chooser, /max-h-\[62vh\]/);
+  assert.match(chooser, />Applicant Type</);
+  assert.match(chooser, />Sub Applicant Type</);
+  assert.match(chooser, /service\.applicantType \|\| service\.piboParent/);
+  assert.match(chooser, /service\.subApplicantType \|\| service\.piboCategory/);
+  assert.match(chooser, /Confirm the applicant and sub-applicant type before opening this Client Master/);
+  assert.match(chooser, /View Client Master/);
   assert.match(chooser, /Service-specific record available/);
-  assert.match(chooser, /You can switch between this company/);
+  assert.match(chooser, /hasMultipleServices/);
   assert.match(chooser, /aria-labelledby="client-service-view-title"/);
 });
 

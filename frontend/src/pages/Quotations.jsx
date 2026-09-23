@@ -10,7 +10,7 @@ import PremiumDatePicker from '../components/form/PremiumDatePicker';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizePiboCategories } from '../constants/piboCategories';
-import { adminRoles, hasAnyRole } from '../constants/dashboard';
+import { adminRoles } from '../constants/dashboard';
 import { QUOTATION_SCOPE_PRESET_OPTIONS, QUOTATION_SCOPE_PRESETS } from '../constants/quotationScopePresets';
 import { createQuotationPdf } from '../utils/quotationPdf';
 import { addServiceDays, datesFromAnnualYears, normalizeDateInputValue, normalizePeriodUnit, periodDisplay, renewalDateFrom, serviceEndDateFrom } from '../utils/servicePeriod';
@@ -267,8 +267,30 @@ function isPwpEprCreditItem(item = {}) {
   return isEprCreditItem(item) && String(getQuotationApplicantType(item) || '').trim().toLowerCase() === 'pwp';
 }
 
+function normalizedQuotationService(item = {}) {
+  return String(item.servicesOffered || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function isAnnualReturnQuotationService(item = {}) {
+  return normalizedQuotationService(item).includes('annualreturn');
+}
+
+function isRegistrationQuotationService(item = {}) {
+  return normalizedQuotationService(item).includes('registration');
+}
+
 function quotationYearMappingHeader(items = []) {
-  if (items.some(isEprConsultancyItem)) return 'Annual Return & Registration Year';
+  const consultancyItems = items.filter(isEprConsultancyItem);
+  if (consultancyItems.length) {
+    const hasAnnualReturn = consultancyItems.some(isAnnualReturnQuotationService);
+    const hasRegistration = consultancyItems.some(isRegistrationQuotationService);
+    if (hasAnnualReturn && !hasRegistration) return 'Annual Return Year';
+    if (hasRegistration && !hasAnnualReturn) return 'Registration EPR Year';
+    return 'EPR Year';
+  }
   return 'Annual Return EPR Year / Credit Year';
 }
 
@@ -1012,7 +1034,7 @@ export default function Quotations() {
     [currentQuotationServiceCategories, customServiceCategories]
   );
   const canManageDropdownOptions = adminRoles.includes(String(currentUser?.role || '').toLowerCase());
-  const canRequestManagementApproval = hasAnyRole(currentUser, adminRoles);
+  const canRequestManagementApproval = Boolean(currentUser);
   const optionsFor = (field, builtIn) => [...new Set([
     ...builtIn,
     ...customDropdownOptions.filter((option) => option.field === field).map((option) => option.name)
@@ -2219,7 +2241,7 @@ export default function Quotations() {
                   <div><dt>Date</dt><dd>{formatDisplayDate(managementApproval.row.quotationDate || managementApproval.row.createdAt)}</dd></div>
                 </dl>
                 <div className="management-approval-grid">
-                  <label><span>Approve By <b>*</b></span><select required disabled={managementApproversLoading || managementApprovalSaving} value={managementApproval.approverId} onChange={(event) => setManagementApproval((current) => ({ ...current, approverId: event.target.value }))}><option value="">{managementApproversLoading ? 'Loading Super Admins...' : 'Select Super Admin'}</option>{managementApprovers.map((approver) => <option key={approver.id} value={approver.id}>{approver.name}{approver.email && approver.email !== approver.name ? ` (${approver.email})` : ''}</option>)}</select></label>
+                  <label><span>Price approved by <b>*</b></span><select required disabled={managementApproversLoading || managementApprovalSaving} value={managementApproval.approverId} onChange={(event) => setManagementApproval((current) => ({ ...current, approverId: event.target.value }))}><option value="">{managementApproversLoading ? 'Loading Super Admins...' : 'Select Super Admin'}</option>{managementApprovers.map((approver) => <option key={approver.id} value={approver.id}>{approver.name}{approver.email && approver.email !== approver.name ? ` (${approver.email})` : ''}</option>)}</select></label>
                   <label><span>Amount (₹)</span><div className="management-approval-amount"><i>₹</i><input readOnly aria-readonly="true" value={formatInr(Number(managementApproval.row.grandTotal) || 0).replace('₹', '').trim()} /></div><small>Auto-fetched from quotation</small></label>
                   <div className="management-source-field"><span>Approval Source <b>*</b></span><div className={`management-source-picker ${managementSourceOpen ? 'is-open' : ''}`}><button type="button" className="management-source-trigger" disabled={managementApprovalSaving} aria-haspopup="listbox" aria-expanded={managementSourceOpen} onClick={() => setManagementSourceOpen((open) => !open)}>{managementApproval.source ? <><i className={`management-source-icon is-${managementApproval.source.toLowerCase()}`}><ApprovalSourceIcon source={managementApproval.source} className="h-5 w-5" /></i><strong>{MANAGEMENT_APPROVAL_SOURCES.find((option) => option.value === managementApproval.source)?.label}</strong></> : <strong className="is-placeholder">Select Source</strong>}<ChevronDown className="ml-auto h-4 w-4" /></button>{managementSourceOpen && <div className="management-source-menu" role="listbox" aria-label="Approval Source">{MANAGEMENT_APPROVAL_SOURCES.map((option) => <button type="button" role="option" aria-selected={managementApproval.source === option.value} key={option.value} onClick={() => { setManagementApproval((current) => ({ ...current, source: option.value })); setManagementSourceOpen(false); }}><i className={`management-source-icon is-${option.value.toLowerCase()}`}><ApprovalSourceIcon source={option.value} className="h-5 w-5" /></i><span>{option.label}</span>{managementApproval.source === option.value && <Check className="ml-auto h-4 w-4 text-emerald-600" />}</button>)}</div>}</div></div>
                   <label><span>Note <em>(Optional)</em></span><textarea maxLength={500} rows={5} disabled={managementApprovalSaving} value={managementApproval.note} onChange={(event) => setManagementApproval((current) => ({ ...current, note: event.target.value }))} placeholder="Add any note (optional)..." /><small className="management-note-count">{managementApproval.note.length}/500</small></label>

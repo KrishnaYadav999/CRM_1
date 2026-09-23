@@ -2,8 +2,33 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { _test } = require('../src/controllers/leadController');
 
 const read = (relative) => fs.readFileSync(path.resolve(__dirname, relative), 'utf8');
+
+test('closing one service does not revalidate unchanged legacy approved PO rows', () => {
+  const legacyApproved = {
+    poStatus: 'received',
+    closureRequestedBy: 'manager-id',
+    poApprovalStatus: 'APPROVED',
+    poYearRows: [{
+      fy: '2026-27',
+      poNumber: 'AT/26-27/360',
+      poDate: '',
+      poAmount: 35000,
+      poFileUrl: 'https://example.com/legacy-po.pdf',
+      services: ['New Registration']
+    }]
+  };
+  const sanitized = _test.cleanBody({ assignments: [legacyApproved] }).assignments[0];
+
+  assert.equal(_test.poClosureSubmissionChanged(legacyApproved, sanitized), false);
+  assert.equal(_test.poClosureSubmissionChanged({}, sanitized), true);
+  assert.equal(_test.poClosureSubmissionChanged(legacyApproved, {
+    ...sanitized,
+    poYearRows: [{ ...sanitized.poYearRows[0], poNumber: 'UPDATED-PO' }]
+  }), true);
+});
 
 test('lead closure auto-fetches quotation fields and supports one or multiple POs', () => {
   const page = read('../../frontend/src/pages/LeadGeneration.jsx');

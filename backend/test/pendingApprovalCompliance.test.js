@@ -76,7 +76,7 @@ test('duplicate Client Master services open an applicant type chooser', () => {
   assert.match(page, /openDirectoryClientView/);
   assert.match(page, /getRelatedClientServices\(clients, selectedClient\)/);
   assert.match(page, /Which Client Master do you want to view/);
-  assert.match(page, /View \{applicantType\}/);
+  assert.match(page, /View Client Master/);
 });
 
 test('legacy purchase order approvals recover the lead id from their source key', () => {

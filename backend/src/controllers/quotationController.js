@@ -552,6 +552,8 @@ function mapQuotationPendingApprovalRow(quotation, approvalType = 'CREATE') {
     managementApproverName: quotation.managementApproval?.approverName || '',
     managementApprovalSource: quotation.managementApproval?.source || '',
     managementApprovalNote: quotation.managementApproval?.note || '',
+    managementApprovalRequestedBy: quotation.managementApproval?.requestedByName || '',
+    managementApprovalRequestedAt: quotation.managementApproval?.requestedAt || null,
     requestDate: parts.date,
     requestTime: parts.time
   };
@@ -874,9 +876,6 @@ exports.updateQuotationApproval = async (req, res) => {
   if (status === 'REJECTED' && !remarks) {
     return res.status(400).json({ error: 'Please enter a rejection reason.' });
   }
-  if (status === 'APPROVED' && isAdminReviewer && !proofUrl) {
-    return res.status(400).json({ error: 'Admin must upload approval proof before approving this quotation.' });
-  }
 
   const approvalRecordId = String(req.body.approvalRecordId || '').trim();
   const approvalRecord = require('mongoose').Types.ObjectId.isValid(approvalRecordId)
@@ -1126,11 +1125,6 @@ exports.finalizeManagementApproval = async (req, res) => {
   if (String(quotation.managementApproval?.adminApprovalStatus || '').toUpperCase() !== 'APPROVED') {
     return res.status(409).json({ error: 'Admin approval must be completed before final Super Admin approval.' });
   }
-  const assignedApproverId = String(quotation.managementApproval?.approverId || quotation.managementApproval?.approver || '');
-  if (assignedApproverId && assignedApproverId !== String(req.user?._id || '')) {
-    return res.status(403).json({ error: `This final approval is assigned to ${quotation.managementApproval?.approverName || 'another Super Admin'}.` });
-  }
-
   const actionAt = new Date();
   const approverName = req.user?.name || req.user?.email || 'Super Admin';
   const remarks = String(req.body.remarks || '').trim() || `Final approval completed by ${approverName}.`;
@@ -1226,8 +1220,7 @@ exports.approveAllPendingQuotations = async (req, res) => {
     type: 'quotation',
     approvalStatus: 'PENDING',
     'payload.managementApprovalStatus': 'PENDING',
-    'payload.adminApprovalStatus': 'APPROVED',
-    'payload.managementApproverId': String(req.user?._id || '')
+    'payload.adminApprovalStatus': 'APPROVED'
   });
   let approved = 0;
   const failures = [];

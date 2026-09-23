@@ -23,5 +23,5 @@ test('assignment-only closure keeps PO validation but bypasses unrelated submitt
   assert.match(source, /const assignmentOnlyUpdate = isAssignmentOnlyLeadUpdate\(req\.body\)/);
   assert.match(source, /validateClosureAssignments\(\{ \.\.\.lead\.toObject\(\), \.\.\.data \}, beforeLead\)/);
   assert.match(source, /data\.workflowStatus === 'submitted' && !assignmentOnlyUpdate/);
-  assert.match(source, /if \(!assignmentOnlyUpdate && \(\(!usesDirectApplicantType/);
+  assert.match(source, /if \(!assignmentOnlyUpdate && shouldValidatePiboSelection\(data, current\)\)/);
 });
