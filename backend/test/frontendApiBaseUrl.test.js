@@ -24,6 +24,6 @@ test('Vercel API proxy targets the active Render backend', () => {
   const apiRoute = frontendConfig.routes.find((route) => route.src === '/api/(.*)');
   const rootApiRewrite = rootConfig.rewrites.find((rewrite) => rewrite.source === '/api/(.*)');
 
-  assert.equal(apiRoute?.dest, 'https://crm-1-am0y.onrender.com/api/$1');
-  assert.equal(rootApiRewrite?.destination, 'https://crm-1-am0y.onrender.com/api/$1');
+  assert.equal(apiRoute?.dest, 'https://crm-1-53i4.onrender.com/api/$1');
+  assert.equal(rootApiRewrite?.destination, 'https://crm-1-53i4.onrender.com/api/$1');
 });
