@@ -100,6 +100,6 @@ QuotationSchema.index(
   { leadId: 1, quotationNumber: 1 },
   { unique: true, partialFilterExpression: { leadId: { $type: 'string' }, quotationNumber: { $type: 'string' } } }
 );
-QuotationSchema.index({ 'managementApproval.status': 1, updatedAt: -1 });
+QuotationSchema.index({ 'managementApproval.status': 1, status: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Quotation', QuotationSchema);

@@ -1917,7 +1917,7 @@ exports.requestDuplicateLeadApproval = async (req, res) => {
 };
 
 exports.listDuplicateLeadApprovals = async (req, res) => {
-  const admin = ['admin', 'superadmin'].includes(String(req.user?.role || '').toLowerCase());
+  const admin = userHasAnyRole(req.user, ADMIN_ROLES);
   if (!admin && req.user?._id) {
     const legacyServiceNotifications = await Notification.find({
       kind: 'lead_additional_services',
@@ -1990,7 +1990,17 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
       { 'payload.temporaryUserId': userId }
     ];
   }
-  const approvals = await PendingApproval.find(query).populate('actionBy', 'name email').sort({ createdAt: -1 }).lean();
+  const [activeApprovals, recentDecisions] = await Promise.all([
+    PendingApproval.find({
+      ...query,
+      approvalStatus: { $in: ['PENDING', 'PARTIALLY_APPROVED', 'REVISION_REQUIRED'] }
+    }).populate('actionBy', 'name email').sort({ createdAt: -1 }).limit(500).lean(),
+    PendingApproval.find({
+      ...query,
+      approvalStatus: { $in: ['APPROVED', 'REJECTED'] }
+    }).populate('actionBy', 'name email').sort({ actionAt: -1, createdAt: -1 }).limit(100).lean()
+  ]);
+  const approvals = [...activeApprovals, ...recentDecisions];
   const purchaseOrderApprovals = approvals.filter((approval) => approval.type === 'purchase_order');
   if (purchaseOrderApprovals.length) {
     const approvalLeadId = (approval) => {
@@ -2123,7 +2133,7 @@ exports.updateDuplicateLeadApproval = async (req, res) => {
   if (!['APPROVED', 'REJECTED'].includes(status)) return res.status(400).json({ error: 'Status must be APPROVED or REJECTED.' });
   const current = await PendingApproval.findOne({ _id: req.params.id, type: { $in: ['lead_duplicate', 'lead_royalty', 'lead_service'] } }).lean();
   if (!current) return res.status(404).json({ error: 'Lead approval request not found.' });
-  const isAdmin = ADMIN_ROLES.includes(String(req.user?.role || '').trim().toLowerCase());
+  const isAdmin = userHasAnyRole(req.user, ADMIN_ROLES);
   const userId = String(req.user?._id || req.user?.id || '');
   if (current.type !== 'lead_service' && !isAdmin) return res.status(403).json({ error: 'Admin access is required.' });
   if (current.type === 'lead_service') {

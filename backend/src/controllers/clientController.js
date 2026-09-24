@@ -988,9 +988,17 @@ async function syncPendingApprovalRows(rows, type = 'client') {
 }
 
 async function readStoredPendingApprovals() {
-  const [pendingRecords, recentDecisionRecords] = await Promise.all([
+  const [pendingClientRecords, pendingQuotationRecords, recentDecisionRecords] = await Promise.all([
     PendingApproval.find({
-      type: { $in: ['client', 'quotation'] },
+      type: 'client',
+      approvalStatus: { $in: ['PENDING', 'PARTIALLY_APPROVED', 'REVISION_REQUIRED'] }
+    })
+      .populate('actionBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean(),
+    PendingApproval.find({
+      type: 'quotation',
       approvalStatus: { $in: ['PENDING', 'PARTIALLY_APPROVED', 'REVISION_REQUIRED'] }
     })
       .populate('actionBy', 'name email')
@@ -1006,7 +1014,7 @@ async function readStoredPendingApprovals() {
       .limit(100)
       .lean()
   ]);
-  const records = [...pendingRecords, ...recentDecisionRecords];
+  const records = [...pendingClientRecords, ...pendingQuotationRecords, ...recentDecisionRecords];
 
   const clientRecords = records.filter((record) => record.type === 'client');
   const sourceClientIds = clientRecords.map((record) => record.sourceClientId).filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
@@ -1422,7 +1430,6 @@ exports.getAnnualReturnPoStatus = async (req, res) => {
 
 exports.listPendingApprovals = async (req, res) => {
   const startedAt = Date.now();
-  const storedFallback = await readStoredPendingApprovals();
   const isAdministrativeReviewer = userHasAnyRole(req.user, ['admin', 'superadmin']);
   const isClientReviewer = isAdministrativeReviewer || userHasAnyRole(req.user, ['compliance']);
 
@@ -1431,19 +1438,20 @@ exports.listPendingApprovals = async (req, res) => {
   // collection without having an index row. Reconcile only quotations here;
   // unlike the former full client + quotation scan, this indexed query stays
   // small and keeps the approval page responsive.
-  let liveQuotationRows = [];
-  if (isAdministrativeReviewer) {
-    try {
-      const liveQuotations = await Quotation.find({ 'managementApproval.status': 'PENDING', status: { $in: ['draft', 'submitted', 'sent', 'admin_approved'] } })
+  const storedApprovalsPromise = readStoredPendingApprovals();
+  const liveQuotationsPromise = isAdministrativeReviewer
+    ? Quotation.find({ 'managementApproval.status': 'PENDING', status: { $in: ['draft', 'submitted', 'sent', 'admin_approved'] } })
         .populate('createdBy', 'name email')
         .sort({ createdAt: -1 })
         .limit(500)
-        .lean();
-      liveQuotationRows = liveQuotations.map((quotation) => mapQuotationPendingApprovalRow(quotation, 'CREATE'));
-    } catch (error) {
-      console.error('Pending quotation reconciliation failed', error);
-    }
-  }
+        .lean()
+        .catch((error) => {
+          console.error('Pending quotation reconciliation failed', error);
+          return [];
+        })
+    : Promise.resolve([]);
+  const [storedFallback, liveQuotations] = await Promise.all([storedApprovalsPromise, liveQuotationsPromise]);
+  const liveQuotationRows = liveQuotations.map((quotation) => mapQuotationPendingApprovalRow(quotation, 'CREATE'));
 
   const storedQuotationIds = new Set(storedFallback.pendingQuotations.map((row) => String(
     row.quotationId || row.payload?.quotationId || row.sourceClientId || row.id || row._id || ''

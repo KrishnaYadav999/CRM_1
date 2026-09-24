@@ -13,17 +13,24 @@ import { uploadMedia } from '../services/mediaUpload';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 
 const rowsPerPage = 5;
-const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v6';
+const PENDING_APPROVAL_CACHE_KEY = 'crm.pendingApproval.cache.v7';
 const PENDING_APPROVAL_CACHE_TTL_MS = 5 * 60 * 1000;
 const PENDING_APPROVAL_AUTH_TIMEOUT_MS = 4500;
 const PENDING_APPROVAL_DATA_TIMEOUT_MS = 20000;
 
-function readPendingApprovalCache() {
+function approvalCacheUserId(user) {
+  return String(user?._id || user?.id || user?.email || '').trim().toLowerCase();
+}
+
+function readPendingApprovalCache(expectedUser) {
   try {
     const raw = sessionStorage.getItem(PENDING_APPROVAL_CACHE_KEY) || localStorage.getItem(PENDING_APPROVAL_CACHE_KEY) || 'null';
     const parsed = JSON.parse(raw);
     if (!parsed || Date.now() - Number(parsed.savedAt || 0) > PENDING_APPROVAL_CACHE_TTL_MS) return null;
-    return parsed.data || null;
+    const data = parsed.data || null;
+    const expectedUserId = approvalCacheUserId(expectedUser);
+    const cachedUserId = approvalCacheUserId(data?.currentUser);
+    return expectedUserId && cachedUserId === expectedUserId ? data : null;
   } catch {
     return null;
   }
@@ -624,7 +631,7 @@ export default function PendingApproval() {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   });
   const [profileOpen, setProfileOpen] = useState(false);
-  const cachedApprovalData = useMemo(() => readPendingApprovalCache(), []);
+  const cachedApprovalData = useMemo(() => readPendingApprovalCache(currentUser), []);
   const [pendingClients, setPendingClients] = useState(() => cachedApprovalData?.pendingClients || []);
   const [pendingQuotations, setPendingQuotations] = useState(() => cachedApprovalData?.pendingQuotations || []);
   const [duplicateLeadApprovals, setDuplicateLeadApprovals] = useState([]);
@@ -639,7 +646,7 @@ export default function PendingApproval() {
   const [poDecision, setPoDecision] = useState(null);
   const [quotationDecision, setQuotationDecision] = useState(null);
   const [approvalInputs, setApprovalInputs] = useState({});
-  const [loading, setLoading] = useState(() => !cachedApprovalData && !currentUser);
+  const [loading, setLoading] = useState(() => !cachedApprovalData);
   const [profileSaving, setProfileSaving] = useState(false);
   const [savingId, setSavingId] = useState('');
   const [error, setError] = useState('');
@@ -812,7 +819,7 @@ export default function PendingApproval() {
 
   async function loadPage(options = {}) {
     const requestId = ++loadRequestRef.current;
-    const cached = !options.force ? readPendingApprovalCache() : null;
+    const cached = !options.force ? readPendingApprovalCache(currentUser) : null;
     const authRequestConfig = { timeout: PENDING_APPROVAL_AUTH_TIMEOUT_MS };
     const dataRequestConfig = {
       timeout: PENDING_APPROVAL_DATA_TIMEOUT_MS,
@@ -827,22 +834,19 @@ export default function PendingApproval() {
         avatarUrl: cached.currentUser.avatarUrl || stored?.avatarUrl || stored?.avatar || stored?.profileImage || ''
       }));
       setLoading(false);
-    } else if (options.force || (!options.silent && !currentUser)) {
+    } else if (options.force || !options.silent) {
       setLoading(true);
     }
     setError('');
 
     try {
-      const [meResult, approvalsResult, duplicateResult] = await Promise.allSettled([
+      const [meResult, approvalsResult] = await Promise.allSettled([
         api.get(API_ENDPOINTS.auth.me, authRequestConfig),
-        api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig),
-        api.get(API_ENDPOINTS.leads.duplicateApprovals, dataRequestConfig)
+        api.get(API_ENDPOINTS.clients.pendingApprovals, dataRequestConfig)
       ]);
 
       const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
       const approvalsResponse = approvalsResult.status === 'fulfilled' ? approvalsResult.value : null;
-      const poStorage = duplicateResult.status === 'fulfilled' ? duplicateResult.value.data?.poStorage : null;
-      if (poStorage) console.info('[POProof:database:locations]', poStorage);
       const crmLeads = [];
 
       if (meResponse?.data?.user) {
@@ -863,6 +867,26 @@ export default function PendingApproval() {
       };
       setPendingClients(snapshot.pendingClients);
       setPendingQuotations(snapshot.pendingQuotations);
+      setDebugInfo(snapshot.debug);
+      console.info('[PendingApproval:loaded]', {
+        clients: snapshot.pendingClients.length,
+        quotations: snapshot.pendingQuotations.length,
+        debug: snapshot.debug
+      });
+      writePendingApprovalCache(snapshot);
+      setClientPage(1);
+      setQuotePage(1);
+      if (!options.silent || !cached) setLoading(false);
+
+      // Load the heavier special/PO approval feed after the primary client and
+      // quotation response is visible. A slow PO enrichment must not hold the
+      // whole Pending Approval screen at zero until the data timeout expires.
+      const [duplicateResult] = await Promise.allSettled([
+        api.get(API_ENDPOINTS.leads.duplicateApprovals, dataRequestConfig)
+      ]);
+      if (requestId !== loadRequestRef.current) return;
+      const poStorage = duplicateResult.status === 'fulfilled' ? duplicateResult.value.data?.poStorage : null;
+      if (poStorage) console.info('[POProof:database:locations]', poStorage);
       const leadApprovals = hydratePurchaseOrderApprovals(duplicateResult.status === 'fulfilled' ? (duplicateResult.value.data?.approvals || []) : [], crmLeads).map((approval) => {
         if (approval.type === 'lead_service') {
           const leadId = String(approval.payload?.leadId || '');
@@ -912,15 +936,6 @@ export default function PendingApproval() {
       const normalizedRows = normalizedPoApprovals.flatMap((approval) => approval.normalizedPoRows);
       console.table(normalizedRows.map((row) => ({ approvalId: row.approvalId, leadCode: row.leadCode, poNumber: row.poNumber, rowIndex: row.rowIndex, poFileUrl: row.poFileUrl, hasPoFileUrl: row.hasPoFileUrl })));
       console.groupEnd();
-      setDebugInfo(snapshot.debug);
-      console.info('[PendingApproval:loaded]', {
-        clients: snapshot.pendingClients.length,
-        quotations: snapshot.pendingQuotations.length,
-        debug: snapshot.debug
-      });
-      writePendingApprovalCache(snapshot);
-      setClientPage(1);
-      setQuotePage(1);
       setPoPage(1);
     } catch (err) {
       if (isSoftApprovalLoadError(err)) {

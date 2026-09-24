@@ -13,8 +13,15 @@ test('pending approval endpoint recovers quotations missing from the approval in
 });
 
 test('pending approval reads active rows separately from bounded decision history', () => {
-  assert.match(controllerSource, /const \[pendingRecords, recentDecisionRecords\] = await Promise\.all/);
+  assert.match(controllerSource, /const \[pendingClientRecords, pendingQuotationRecords, recentDecisionRecords\] = await Promise\.all/);
+  assert.match(controllerSource, /type: 'client',[\s\S]*?\.limit\(500\)/);
+  assert.match(controllerSource, /type: 'quotation',[\s\S]*?\.limit\(500\)/);
   assert.match(controllerSource, /approvalStatus: \{ \$in: \['PENDING', 'PARTIALLY_APPROVED', 'REVISION_REQUIRED'\] \}/);
   assert.match(controllerSource, /approvalStatus: \{ \$in: \['APPROVED', 'REJECTED'\] \}/);
   assert.match(controllerSource, /\.limit\(100\)/);
+});
+
+test('stored approvals and live quotation reconciliation run in parallel', () => {
+  assert.match(controllerSource, /const storedApprovalsPromise = readStoredPendingApprovals\(\)/);
+  assert.match(controllerSource, /const \[storedFallback, liveQuotations\] = await Promise\.all/);
 });
