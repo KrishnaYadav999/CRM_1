@@ -978,7 +978,11 @@ function validateServiceRemovalPermission(beforeLead = {}, incomingRows = [], us
     return false;
   });
   const userTokens = royaltyIdentityTokens(user._id, user.id, user.crmUserId, user.userId, user.email, user.name);
-  const leadOwnerTokens = royaltyIdentityTokens(beforeLead.createdBy, beforeLead.createdByCrmUserId, beforeLead.createdByEmail, beforeLead.createdByName, beforeLead.importedCreatedBy);
+  const leadOwnerTokens = royaltyIdentityTokens(
+    beforeLead.createdBy, beforeLead.createdByCrmUserId, beforeLead.createdByEmail, beforeLead.createdByName, beforeLead.importedCreatedBy,
+    beforeLead.generatedForUser, beforeLead.generatedForName, beforeLead.generatedForEmail,
+    beforeLead.createdOnBehalfOfUser, beforeLead.createdOnBehalfOfName, beforeLead.createdOnBehalfOfEmail
+  );
   const assignmentTokens = royaltyIdentityTokens(
     beforeLead.assignedTo, beforeLead.assignedToText, beforeLead.assignedToEmail,
     beforeLead.assignedStaff, beforeLead.assignedStaffText, beforeLead.assignedStaffEmail,

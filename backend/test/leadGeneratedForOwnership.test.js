@@ -42,3 +42,15 @@ test('actual creator and generated-for owner can both quote lead services', () =
   assert.match(quotationController, /'generatedForName', 'generatedForEmail'/);
   assert.match(quotationController, /'generatedForUser', 'assignedStaff'/);
 });
+
+test('allocated owner can edit the lead without ownership being overwritten', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  const controller = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
+  assert.match(page, /function canUserEditLead\(item = \{\}, currentUser = \{\}\)/);
+  assert.match(page, /item\.generatedForUser, item\.generatedForName, item\.generatedForEmail/);
+  assert.match(page, /canUserEditLead\(item, currentUser\)/);
+  assert.match(page, /canEdit=\{canUserEditLead\(viewLead, currentUser\)\}/);
+  assert.match(page, /setGeneratedForUserId\(String\(ownerId\)\)/);
+  assert.match(page, /setGeneratedForConfirmed\(true\)/);
+  assert.match(controller, /beforeLead\.generatedForUser, beforeLead\.generatedForName, beforeLead\.generatedForEmail/);
+});

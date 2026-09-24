@@ -2317,6 +2317,8 @@ export default function LeadGeneration() {
             }}
             onEdit={() => {
               const normalizedServices = normalizeLegacyServiceSelections(viewLead).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? viewLead.firstAnnualReturnYearApplicable : '') }));
+              const ownerId = viewLead.generatedForUser?._id || viewLead.generatedForUser?.id || viewLead.generatedForUser || viewLead.createdOnBehalfOfUser?._id || viewLead.createdOnBehalfOfUser || viewLead.createdBy?._id || viewLead.createdBy?.id || viewLead.createdBy || currentUser?._id || currentUser?.id || '';
+              const currentUserId = currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.userId || '';
               setLead({
                 ...emptyLead,
                 ...viewLead,
@@ -2326,13 +2328,16 @@ export default function LeadGeneration() {
                 assignedTo: viewLead.assignedTo?._id || viewLead.assignedTo?.id || viewLead.assignedTo || '',
                 closedBy: viewLead.closedBy?._id || viewLead.closedBy?.id || viewLead.closedBy || ''
               });
+              setGeneratedForUserId(String(ownerId));
+              setGeneratedForMode(String(ownerId) === String(currentUserId) ? 'self' : 'other');
+              setGeneratedForConfirmed(true);
               setEditingLeadId(viewLead._id || viewLead.id || '');
               setServiceOnlyMode(false);
               setViewLead(null);
               setActiveTab('basic');
               setViewMode('form');
             }}
-            canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
+            canEdit={canUserEditLead(viewLead, currentUser)}
           />
           {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={handleLogout} onSave={() => {}} onUpdatePassword={() => {}} />}
         </DashboardShell>
@@ -2352,7 +2357,12 @@ export default function LeadGeneration() {
           onView={setViewLead}
           onEdit={(item) => {
             const normalizedServices = normalizeLegacyServiceSelections(item).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? item.firstAnnualReturnYearApplicable : '') }));
+            const ownerId = item.generatedForUser?._id || item.generatedForUser?.id || item.generatedForUser || item.createdOnBehalfOfUser?._id || item.createdOnBehalfOfUser || item.createdBy?._id || item.createdBy?.id || item.createdBy || currentUser?._id || currentUser?.id || '';
+            const currentUserId = currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.userId || '';
             setLead({ ...emptyLead, ...item, serviceSelections: normalizedServices, applicableService: normalizedServices[0]?.applicableService || item.applicableService || '', addresses: item.addresses?.length ? item.addresses : [createAddressRow(item)], contacts: item.contacts?.length ? item.contacts : [createContactRow(item)], assignments: item.assignments?.length ? item.assignments : [createAssignmentRow(item)] });
+            setGeneratedForUserId(String(ownerId));
+            setGeneratedForMode(String(ownerId) === String(currentUserId) ? 'self' : 'other');
+            setGeneratedForConfirmed(true);
             setEditingLeadId(leadRecordId(item));
             setServiceOnlyMode(false);
             setActiveTab('basic');
@@ -3719,7 +3729,7 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
         {workspaceTab === 'temporary' ? (
           <TemporaryLeadsWorkspace onClose={() => setWorkspaceTab('leads')} onConverted={onRefresh} embedded />
         ) : workspaceTab === 'notified' ? (
-          <NotifiedLeadsTable rows={visibleNotifiedRows} loading={loading} onView={onView} onEdit={onEdit} canEdit={canEdit} />
+          <NotifiedLeadsTable rows={visibleNotifiedRows} loading={loading} onView={onView} onEdit={onEdit} canEdit={canEdit} currentUser={currentUser} />
         ) : <div className="lead-directory-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-950/5">
           <div className="lead-directory-scroll max-h-[680px] overflow-auto">
             <table className="crm-data-table lead-directory-table w-full min-w-[2050px] table-fixed text-left text-sm">
@@ -3755,7 +3765,7 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
-                        {canEdit && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit in CRM"><Edit3 className="h-4 w-4" /></button>}
+                        {(canEdit || canUserEditLead(item, currentUser)) && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit in CRM"><Edit3 className="h-4 w-4" /></button>}
                         {canEdit && <div className="relative">
                           <button type="button" onClick={() => setActionMenuId((value) => value === leadRecordId(item) ? '' : leadRecordId(item))} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="More actions"><EllipsisVertical className="h-4 w-4" /></button>
                           {actionMenuId === leadRecordId(item) && <div className="absolute bottom-full right-0 z-30 mb-2 w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
@@ -3800,7 +3810,7 @@ function LeadWorkspaceTabs({ activeTab, temporaryLeadCount, notifiedLeadCount, s
   );
 }
 
-function NotifiedLeadsTable({ rows, loading, onView, onEdit, canEdit }) {
+function NotifiedLeadsTable({ rows, loading, onView, onEdit, canEdit, currentUser }) {
   return (
     <div className="animate-[fadeIn_.25s_ease-out] overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm shadow-orange-950/5">
       <div className="border-b border-orange-100 bg-gradient-to-r from-orange-50 via-amber-50 to-white px-5 py-4">
@@ -3810,7 +3820,7 @@ function NotifiedLeadsTable({ rows, loading, onView, onEdit, canEdit }) {
         <table className="w-full min-w-[1250px] table-fixed text-left text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="w-[145px] px-4 py-4">Lead ID</th><th className="w-[220px] px-4 py-4">Company</th><th className="w-[190px] px-4 py-4">Service Category</th><th className="w-[170px] px-4 py-4">Assigned Manager</th><th className="w-[160px] px-4 py-4">Assigned By</th><th className="w-[170px] px-4 py-4">Manager Assigned to Staff</th><th className="w-[155px] px-4 py-4">Notified On</th><th className="w-[115px] px-4 py-4">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {rows.map((row) => <tr key={`${leadRecordId(row.lead)}-${row.rowIndex}`} className="transition hover:bg-orange-50/50"><td className="px-4 py-4 font-black text-blue-700">{displayLeadId(row.lead)}</td><td className="px-4 py-4 font-black uppercase text-slate-800"><span className="cell-clamp">{row.lead.company || '-'}</span></td><td className="px-4 py-4"><span className="lead-service-tag">{row.service.eprCategory || row.lead.eprCategory || '-'}</span></td><td className="px-4 py-4 font-black uppercase text-teal-700">{row.managerName}</td><td className="px-4 py-4 font-bold uppercase text-slate-600">{personLabel(row.assignedBy)}</td><td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-[10px] font-black uppercase text-orange-700"><Clock3 className="h-3.5 w-3.5" />Pending</span></td><td className="px-4 py-4 text-xs font-bold text-slate-500">{row.assignedAt ? new Date(row.assignedAt).toLocaleString('en-IN') : '-'}</td><td className="px-4 py-4"><div className="flex gap-2"><button type="button" onClick={() => onView(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View lead"><Eye className="h-4 w-4" /></button>{canEdit && <button type="button" onClick={() => onEdit(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Assign staff"><Edit3 className="h-4 w-4" /></button>}</div></td></tr>)}
+            {rows.map((row) => <tr key={`${leadRecordId(row.lead)}-${row.rowIndex}`} className="transition hover:bg-orange-50/50"><td className="px-4 py-4 font-black text-blue-700">{displayLeadId(row.lead)}</td><td className="px-4 py-4 font-black uppercase text-slate-800"><span className="cell-clamp">{row.lead.company || '-'}</span></td><td className="px-4 py-4"><span className="lead-service-tag">{row.service.eprCategory || row.lead.eprCategory || '-'}</span></td><td className="px-4 py-4 font-black uppercase text-teal-700">{row.managerName}</td><td className="px-4 py-4 font-bold uppercase text-slate-600">{personLabel(row.assignedBy)}</td><td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-[10px] font-black uppercase text-orange-700"><Clock3 className="h-3.5 w-3.5" />Pending</span></td><td className="px-4 py-4 text-xs font-bold text-slate-500">{row.assignedAt ? new Date(row.assignedAt).toLocaleString('en-IN') : '-'}</td><td className="px-4 py-4"><div className="flex gap-2"><button type="button" onClick={() => onView(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View lead"><Eye className="h-4 w-4" /></button>{(canEdit || canUserEditLead(row.lead, currentUser)) && <button type="button" onClick={() => onEdit(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Assign staff"><Edit3 className="h-4 w-4" /></button>}</div></td></tr>)}
             {!loading && rows.length === 0 && <tr><td colSpan="8" className="px-5 py-16 text-center"><BellRing className="mx-auto h-10 w-10 text-emerald-300"/><p className="mt-3 font-black text-slate-500">No notified leads are pending.</p><p className="mt-1 text-xs font-semibold text-slate-400">Every manager-assigned lead in your accessible list already has staff assigned.</p></td></tr>}
             {loading && <tr><td colSpan="8" className="px-5 py-16 text-center font-black text-slate-400">Loading notified leads...</td></tr>}
           </tbody>
@@ -5477,6 +5487,29 @@ function personIdentityTokens(...values) {
     }
     return [normalizePersonName(value)].filter(Boolean);
   }))];
+}
+
+function canUserEditLead(item = {}, currentUser = {}) {
+  if (adminRoles.includes(String(currentUser?.role || '').trim().toLowerCase())) return true;
+  const userTokens = personIdentityTokens(currentUser);
+  if (!userTokens.length) return false;
+  const ownerTokens = personIdentityTokens(
+    item.createdBy, item.createdByCrmUserId, item.createdByName, item.createdByEmail, item.importedCreatedBy,
+    item.generatedForUser, item.generatedForName, item.generatedForEmail,
+    item.createdOnBehalfOfUser, item.createdOnBehalfOfName, item.createdOnBehalfOfEmail,
+    item.assignedTo, item.assignedToText, item.assignedToEmail,
+    item.assignedStaff, item.assignedStaffText, item.assignedStaffEmail
+  );
+  (Array.isArray(item.assignments) ? item.assignments : []).forEach((assignment) => {
+    ownerTokens.push(...personIdentityTokens(
+      assignment.assignedTo, assignment.assignedToText, assignment.assignedToEmail,
+      assignment.assignedStaff, assignment.assignedStaffText, assignment.assignedStaffEmail
+    ));
+  });
+  (Array.isArray(item.serviceSelections) ? item.serviceSelections : []).forEach((service) => {
+    ownerTokens.push(...personIdentityTokens(service.createdByCrmUserId, service.createdByName, service.createdByEmail));
+  });
+  return ownerTokens.some((identity) => userTokens.includes(identity));
 }
 
 function leadStaffIdentityTokens(item = {}) {
