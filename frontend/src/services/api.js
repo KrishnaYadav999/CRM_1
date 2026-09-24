@@ -1,10 +1,9 @@
 import axios from 'axios'
 import { API_ENDPOINTS } from './apiEndpoints'
 
-const productionBaseURL = 'https://crm-1-am0y.onrender.com/api'
-const defaultBaseURL = import.meta.env.DEV ? '/api' : productionBaseURL
-// Production uses the active Render backend directly so a stale Vercel rewrite
-// cannot route requests to a suspended service. Local development keeps /api.
+// Keep browser requests on the current origin. Vercel proxies /api to Render,
+// which avoids cross-origin preflights and keeps one production API entrypoint.
+const defaultBaseURL = '/api'
 const configuredBaseURL = import.meta.env.DEV
   ? (import.meta.env.VITE_CRM_API_URL || import.meta.env.VITE_API_URL)
   : ''

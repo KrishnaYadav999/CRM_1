@@ -9,13 +9,13 @@ test('frontend appends the required API prefix to configured backend URLs', () =
   assert.match(source, /return `\$\{configured\}\/api`/);
 });
 
-test('production frontend uses the active Render API and local development keeps the proxy', () => {
+test('frontend uses the same-origin API proxy by default in every environment', () => {
   const source = fs.readFileSync(path.join(__dirname, '../../frontend/src/services/api.js'), 'utf8');
-  assert.match(source, /const productionBaseURL = 'https:\/\/crm-1-am0y\.onrender\.com\/api'/);
-  assert.match(source, /const defaultBaseURL = import\.meta\.env\.DEV \? '\/api' : productionBaseURL/);
+  assert.match(source, /const defaultBaseURL = '\/api'/);
   assert.match(source, /const configuredBaseURL = import\.meta\.env\.DEV/);
   assert.match(source, /\? \(import\.meta\.env\.VITE_CRM_API_URL \|\| import\.meta\.env\.VITE_API_URL\)/);
   assert.match(source, /: ''/);
+  assert.doesNotMatch(source, /const productionBaseURL/);
 });
 
 test('Vercel API proxy targets the active Render backend', () => {
