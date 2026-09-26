@@ -37,7 +37,11 @@ function pageBreakpoints(page) {
     }
     return { top: element.getBoundingClientRect().top - origin, bottom: bottom - origin };
   });
-  return protectedRanges.map(({ bottom }) => bottom + 4)
+  // Keep the breakpoint on the exact block boundary. Adding pixels here places
+  // a row's boundary inside the following row, so every table-row candidate is
+  // rejected by the protected-range check. The paginator then falls back to
+  // the address block and leaves most of page one blank.
+  return [...new Set(protectedRanges.map(({ bottom }) => bottom))]
     .filter((point) => !protectedRanges.some(({ top, bottom }) => point > top + 0.5 && point < bottom - 0.5));
 }
 
