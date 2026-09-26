@@ -769,7 +769,14 @@ async function upsertPurchaseOrderApprovals({ beforeLead = {}, lead, actor, subm
         status: 'PENDING',
         actionUrl: `${String(process.env.FRONTEND_URL || 'https://crmananttattva.vercel.app').replace(/\/$/, '')}/pending-approval`
       });
-      await Promise.allSettled(recipients.map((email) => sendMail(email, `New PO Approval - ${lead.company || lead.leadCode}`, emailHtml, { branded: false })));
+      // Approval persistence is the critical path. Mail providers can take up
+      // to their network timeout per request, so do not hold the closure HTTP
+      // response open (and risk a proxy 502) while notifications are delivered.
+      void Promise.allSettled(recipients.map((email) => sendMail(email, `New PO Approval - ${lead.company || lead.leadCode}`, emailHtml, { branded: false })))
+        .then((results) => {
+          const failed = results.filter((result) => result.status === 'rejected');
+          if (failed.length) console.error('Unable to send some new PO approval notifications', { failed: failed.length, recipients: recipients.length });
+        });
     } catch (error) {
       console.error('Unable to send new PO approval notifications', error.message);
     }

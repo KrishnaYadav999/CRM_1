@@ -653,27 +653,32 @@ exports.logout = async (req, res) => {
 };
 
 exports.activityHeartbeat = async (req, res) => {
-  // JWTs issued before session tracking was introduced do not contain `sid`.
-  // Heartbeat is optional telemetry and must never create repeated 400 errors.
-  if (!req.authSessionId) return res.json({ ok: true, tracking: false, reason: 'legacy-session' });
-  const now = new Date();
-  const requestedState = String(req.body?.state || 'active').toLowerCase() === 'away' ? 'away' : 'active';
-  const session = await UserSession.findOne({ sessionId: req.authSessionId, userId: req.user._id, logoutAt: null });
-  if (!session) return res.json({ ok: true, tracking: false, reason: 'session-not-found' });
-  const previous = session.lastHeartbeatAt || session.lastActivityAt || now;
-  const elapsed = Math.max(0, Math.min(30, Math.round((now.getTime() - new Date(previous).getTime()) / 1000)));
-  if (requestedState === 'active') session.activeSeconds = Math.max(0, Number(session.activeSeconds) || 0) + elapsed;
-  if (session.presenceState !== requestedState) {
-    session.presenceTimeline = [...(Array.isArray(session.presenceTimeline) ? session.presenceTimeline : []), {
-      state: requestedState, at: now, description: requestedState === 'away' ? 'Away from CRM (another tab or website)' : 'Returned to CRM and became active'
-    }].slice(-100);
+  try {
+    // JWTs issued before session tracking was introduced do not contain `sid`.
+    // Heartbeat is optional telemetry and must never affect business workflows.
+    if (!req.authSessionId) return res.json({ ok: true, tracking: false, reason: 'legacy-session' });
+    const now = new Date();
+    const requestedState = String(req.body?.state || 'active').toLowerCase() === 'away' ? 'away' : 'active';
+    const session = await UserSession.findOne({ sessionId: req.authSessionId, userId: req.user._id, logoutAt: null });
+    if (!session) return res.json({ ok: true, tracking: false, reason: 'session-not-found' });
+    const previous = session.lastHeartbeatAt || session.lastActivityAt || now;
+    const elapsed = Math.max(0, Math.min(30, Math.round((now.getTime() - new Date(previous).getTime()) / 1000)));
+    if (requestedState === 'active') session.activeSeconds = Math.max(0, Number(session.activeSeconds) || 0) + elapsed;
+    if (session.presenceState !== requestedState) {
+      session.presenceTimeline = [...(Array.isArray(session.presenceTimeline) ? session.presenceTimeline : []), {
+        state: requestedState, at: now, description: requestedState === 'away' ? 'Away from CRM (another tab or website)' : 'Returned to CRM and became active'
+      }].slice(-100);
+    }
+    session.presenceState = requestedState;
+    session.awaySince = requestedState === 'away' ? (session.awaySince || now) : null;
+    session.lastHeartbeatAt = now;
+    if (requestedState === 'active') session.lastActivityAt = now;
+    await session.save();
+    return res.json({ ok: true, activeSeconds: session.activeSeconds, presenceState: session.presenceState });
+  } catch (error) {
+    console.error('[activity-heartbeat] telemetry unavailable', { message: error.message, code: error.code || '' });
+    return res.json({ ok: true, tracking: false, reason: 'telemetry-unavailable' });
   }
-  session.presenceState = requestedState;
-  session.awaySince = requestedState === 'away' ? (session.awaySince || now) : null;
-  session.lastHeartbeatAt = now;
-  if (requestedState === 'active') session.lastActivityAt = now;
-  await session.save();
-  res.json({ ok: true, activeSeconds: session.activeSeconds, presenceState: session.presenceState });
 };
 
 exports.superAdminOverview = async (_req, res) => {
