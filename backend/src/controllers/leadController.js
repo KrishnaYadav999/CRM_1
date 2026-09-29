@@ -1202,6 +1202,7 @@ exports.listLeads = async (req, res) => {
   const status = String(req.query.status || '').trim();
   const serviceCategory = String(req.query.serviceCategory || '').trim();
   const staff = String(req.query.staff || '').trim();
+  const allocationOwner = String(req.query.allocationOwner || '').trim();
   const metric = String(req.query.metric || '').trim();
   const sortBy = ['leadCode', 'createdAt', 'updatedAt', 'company', 'status'].includes(String(req.query.sortBy))
     ? String(req.query.sortBy)
@@ -1233,6 +1234,19 @@ exports.listLeads = async (req, res) => {
       { 'assignments.assignedToText': staffExpression }, { 'assignments.assignedStaffText': staffExpression }
     ] });
   }
+  if (allocationOwner) {
+    if (allocationOwner === 'unassigned') {
+      filters.push({
+        $and: [
+          { $or: [{ generatedForUser: null }, { generatedForUser: { $exists: false } }] },
+          { $or: [{ createdBy: null }, { createdBy: { $exists: false } }] }
+        ]
+      });
+    } else if (mongoose.Types.ObjectId.isValid(allocationOwner)) {
+      const ownerIds = [allocationOwner, new mongoose.Types.ObjectId(allocationOwner)];
+      filters.push({ $or: [{ generatedForUser: { $in: ownerIds } }, { createdBy: { $in: ownerIds } }] });
+    }
+  }
   const filter = combineAccessFilters(...filters);
   const projection = [
     'leadCode', 'sourceLeadId', 'company', 'status', 'workflowStatus', 'recordStatus',
@@ -1243,6 +1257,11 @@ exports.listLeads = async (req, res) => {
     'generatedForEmail', 'createdOnBehalfOfUser', 'createdOnBehalfOfName', 'closedBy',
     'closedByText', 'closedOnBehalfOfName', 'closedAt', 'assignReachedAt', 'assignments',
     'serviceSelections', 'createdAt', 'updatedAt',
+    ...(req.query.dashboard === 'true' ? [
+      'industryType', 'applicantType', 'subApplicantType', 'servicesOffered', 'referredBy',
+      'source', 'leadDate', 'nextFollowUpDate', 'nextFollowUpTime', 'followUpRemarks',
+      'followUpPriority', 'followUpFlag', 'followUpHistory'
+    ] : []),
     ...(req.query.export === 'true' ? [
       'industryType', 'piboParent', 'piboCategoryParent', 'subApplicantType', 'servicesOffered',
       'designation', 'mobileNo2', 'website', 'emailsSentCount', 'lastEmailSent', 'referredBy',
@@ -1265,14 +1284,18 @@ exports.listLeads = async (req, res) => {
       { $group: {
         _id: null,
         total: { $sum: 1 },
-        existing: { $sum: { $cond: [{ $or: [{ $eq: ['$existingClient', 'Yes'] }, { $eq: ['$status', 'Existing Client'] }] }, 1, 0] } }
+        existing: { $sum: { $cond: [{ $or: [{ $eq: ['$existingClient', 'Yes'] }, { $eq: ['$status', 'Existing Client'] }] }, 1, 0] } },
+        allocated: { $sum: { $cond: [{ $or: [
+          { $ne: [{ $ifNull: ['$generatedForUser', null] }, null] },
+          { $ne: [{ $ifNull: ['$createdBy', null] }, null] }
+        ] }, 1, 0] } }
       } }
     ])
   ]);
   const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
   const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
   const totalPages = Math.max(1, Math.ceil(total / limit));
-  const summary = summaryRows[0] || { total: 0, existing: 0 };
+  const summary = summaryRows[0] || { total: 0, existing: 0, allocated: 0 };
   res.set('Server-Timing', `access;dur=${accessMs.toFixed(1)}, query;dur=${queryMs.toFixed(1)}, total;dur=${totalMs.toFixed(1)}`);
   return res.json({
     ok: true,
@@ -1282,7 +1305,14 @@ exports.listLeads = async (req, res) => {
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1
     },
-    summary: { total: summary.total, existing: summary.existing, converted: summary.existing, new: summary.total - summary.existing },
+    summary: {
+      total: summary.total,
+      existing: summary.existing,
+      converted: summary.existing,
+      new: summary.total - summary.existing,
+      allocated: summary.allocated,
+      unassigned: summary.total - summary.allocated
+    },
     timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
   });
 };

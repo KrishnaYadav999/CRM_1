@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, RefreshCw, Search, ShieldCheck, UserCheck, UserPlus, Users } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, RefreshCw, Search, ShieldCheck, UserCheck, UserPlus, Users } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import ProfileModal from '../components/dashboard/ProfileModal'
 import api, { API_ENDPOINTS } from '../services/api'
@@ -34,6 +34,9 @@ export default function LeadAllocate() {
   const [admins, setAdmins] = useState([])
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useState('all')
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 })
+  const [summary, setSummary] = useState({ total: 0, allocated: 0, unassigned: 0 })
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState('')
   const [message, setMessage] = useState(null)
@@ -43,11 +46,19 @@ export default function LeadAllocate() {
     try {
       const [meResult, leadResult, userResult] = await Promise.all([
         api.get(API_ENDPOINTS.auth.me),
-        api.get(API_ENDPOINTS.leads.list),
+        api.get(API_ENDPOINTS.leads.list, { params: {
+          paginated: true,
+          page,
+          limit: 25,
+          search: search.trim() || undefined,
+          allocationOwner: ownerFilter === 'all' ? undefined : ownerFilter
+        } }),
         api.get(API_ENDPOINTS.auth.users)
       ])
       setCurrentUser(meResult.data?.user || meResult.data)
       setLeads(leadResult.data?.leads || [])
+      setPagination(leadResult.data?.pagination || { page, total: 0, totalPages: 1 })
+      setSummary(leadResult.data?.summary || { total: 0, allocated: 0, unassigned: 0 })
       const users = userResult.data?.users || userResult.data || []
       setAdmins(users.filter((user) => user.isActive !== false))
     } catch (error) {
@@ -57,7 +68,10 @@ export default function LeadAllocate() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => load(), search.trim() ? 300 : 0)
+    return () => window.clearTimeout(timer)
+  }, [page, search, ownerFilter])
 
   const rows = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -72,10 +86,10 @@ export default function LeadAllocate() {
   }, [leads, ownerFilter, search])
 
   const counts = useMemo(() => ({
-    total: leads.length,
-    allocated: leads.filter((lead) => ownerId(lead)).length,
-    unassigned: leads.filter((lead) => !ownerId(lead)).length
-  }), [leads])
+    total: Number(summary.total || pagination.total || 0),
+    allocated: Number(summary.allocated || 0),
+    unassigned: Number(summary.unassigned || 0)
+  }), [pagination.total, summary])
 
   const allocate = async (lead, userId) => {
     if (!userId || savingId) return
@@ -129,14 +143,14 @@ export default function LeadAllocate() {
           {[[Users, 'Total leads', counts.total, 'from live database'], [UserCheck, 'Allocated', counts.allocated, 'admin owner assigned'], [UserPlus, 'Unassigned', counts.unassigned, 'needs an owner']].map(([Icon, label, value, hint]) => <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-indigo-600 shadow-sm"><Icon className="h-5 w-5" /></span><div><div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</div><div className="text-2xl font-black text-slate-950">{value}</div></div></div><div className="mt-2 text-xs font-semibold text-slate-400">{hint}</div></div>)}
         </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <label className="relative flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search lead code, company, contact or owner..." className="w-full rounded-2xl border border-slate-200 py-3 pl-11 pr-4 text-sm font-semibold outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100" /></label>
-          <select value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none"><option value="all">All owners</option><option value="unassigned">Unassigned</option>{admins.map((admin) => <option key={idOf(admin)} value={idOf(admin)}>{admin.name || admin.email}</option>)}</select>
+          <label className="relative flex-1"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Search lead code, company, contact or owner..." className="w-full rounded-2xl border border-slate-200 py-3 pl-11 pr-4 text-sm font-semibold outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100" /></label>
+          <select value={ownerFilter} onChange={(event) => { setOwnerFilter(event.target.value); setPage(1) }} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none"><option value="all">All owners</option><option value="unassigned">Unassigned</option>{admins.map((admin) => <option key={idOf(admin)} value={idOf(admin)}>{admin.name || admin.email}</option>)}</select>
         </div>
       </section>
 
       {message && <div className={`mx-auto mt-4 rounded-2xl border px-4 py-3 text-sm font-bold ${message.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>{message.text}</div>}
       <section className="mt-5 overflow-hidden rounded-[28px] border border-white bg-white shadow-[0_20px_70px_rgba(15,23,42,.08)]">
-        <div className="border-b border-slate-200 px-5 py-4 text-sm font-black text-slate-700">Showing {rows.length} of {leads.length} leads · {admins.length} active CRM users available</div>
+        <div className="border-b border-slate-200 px-5 py-4 text-sm font-black text-slate-700">Showing {rows.length} of {pagination.total} leads · {admins.length} active CRM users available</div>
         <div className="w-full overflow-x-auto">
           <table className="w-full min-w-[1180px] table-fixed text-sm">
             <thead className="bg-indigo-50 text-left text-[10px] font-black uppercase tracking-[.16em] text-indigo-900"><tr><th className="px-5 py-4">Lead / Company</th><th className="px-5 py-4">Contact</th><th className="px-5 py-4">Status</th><th className="px-5 py-4">Lead Owner / Created For</th><th className="px-5 py-4">Edit Created By</th><th className="px-5 py-4">Allocate Lead Owner</th></tr></thead>
@@ -147,13 +161,10 @@ export default function LeadAllocate() {
             </tbody>
           </table>
         </div>
-        <div className="hidden">
-        <div className="border-b border-slate-200 px-5 py-4 text-sm font-black text-slate-700">Showing {rows.length} of {leads.length} leads · {admins.length} active CRM users available</div>
-        <div className="w-full overflow-x-auto"><table className="w-full min-w-[1180px] table-fixed text-sm"><thead className="bg-indigo-50 text-left text-[10px] font-black uppercase tracking-[.16em] text-indigo-900"><tr><th className="px-5 py-4">Lead / Company</th><th className="px-5 py-4">Contact</th><th className="px-5 py-4">Status</th><th className="px-5 py-4">Lead Owner / Created For</th><th className="px-5 py-4">Edit Created By</th><th className="px-5 py-4">Allocate Lead Owner</th></tr></thead><tbody className="divide-y divide-slate-100">
-          {loading && <tr><td colSpan="6" className="px-5 py-16 text-center font-bold text-indigo-600"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Loading live leads...</td></tr>}
-          {!loading && !rows.length && <tr><td colSpan="6" className="px-5 py-16 text-center font-bold text-slate-500">No matching leads found.</td></tr>}
-          {!loading && rows.map((lead) => <tr key={idOf(lead)} className="hover:bg-slate-50"><td className="px-5 py-4"><div className="font-black text-slate-950">{lead.company || 'Unnamed company'}</div><div className="mt-1 text-xs font-bold text-indigo-600">{lead.leadCode || '-'}</div></td><td className="px-5 py-4"><div className="font-bold text-slate-700">{lead.contactPerson || '-'}</div><div className="text-xs text-slate-500">{lead.mobileNo1 || lead.emails || '-'}</div></td><td className="px-5 py-4"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">{lead.status || lead.workflowStatus || 'Open'}</span></td><td className="px-5 py-4"><span className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black ${ownerId(lead) ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' : 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'}`}>{ownerId(lead) && <CheckCircle2 className="h-3.5 w-3.5" />}{ownerName(lead)}</span></td><td className="px-5 py-4"><strong className="block text-xs text-slate-800">{creatorName(lead)}</strong><small className="mt-1 block text-[10px] font-bold uppercase tracking-wide text-slate-400">Original creator</small></td><td className="px-5 py-4"><select disabled={savingId === idOf(lead)} value={ownerId(lead)} onChange={(event) => allocate(lead, event.target.value)} className="min-w-[230px] rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-4 focus:ring-indigo-100"><option value="">Select active CRM user</option>{admins.map((admin) => <option key={idOf(admin)} value={idOf(admin)}>{admin.name || admin.email} · {String(admin.role).toUpperCase()}</option>)}</select></td></tr>)}
-        </tbody></table></div></div>
+        <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4 text-xs font-bold text-slate-500">
+          <span>Page {pagination.page || page} of {pagination.totalPages || 1}</span>
+          <div className="flex gap-2"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))} className="inline-flex items-center gap-1 rounded-xl border bg-white px-3 py-2 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /> Previous</button><button type="button" disabled={page >= (pagination.totalPages || 1) || loading} onClick={() => setPage((value) => value + 1)} className="inline-flex items-center gap-1 rounded-xl border bg-white px-3 py-2 disabled:opacity-40">Next <ChevronRight className="h-4 w-4" /></button></div>
+        </div>
       </section>
       {profileOpen && <ProfileModal user={currentUser} saving={false} onClose={() => setProfileOpen(false)} onLogout={logout} onSave={() => {}} onUpdatePassword={() => {}} />}
     </main>

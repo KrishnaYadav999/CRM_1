@@ -348,6 +348,18 @@ function filterSegmentsFor(acc) {
   ];
 }
 
+async function fetchAllAllocationClients() {
+  const params = { paginated: true, allocation: true, page: 1, limit: 100 };
+  const first = await api.get(API_ENDPOINTS.clients.list, { params });
+  const totalPages = Number(first.data?.pagination?.totalPages || 1);
+  const remaining = totalPages > 1
+    ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => (
+      api.get(API_ENDPOINTS.clients.list, { params: { ...params, page: index + 2 } })
+    )))
+    : [];
+  return [first, ...remaining].flatMap((response) => response.data?.clients || []);
+}
+
 export default function ClientMasterAllocate() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
@@ -375,11 +387,10 @@ export default function ClientMasterAllocate() {
     async function loadEverything() {
       try {
         setLoading(true);
-        const [cRes] = await Promise.all([
-          api.get(API_ENDPOINTS.clients.list).catch((e) => { console.warn('[CMAllocate] clients fetch fail', e); return { data: { clients: [] } }; }),
+        const [cl] = await Promise.all([
+          fetchAllAllocationClients().catch((e) => { console.warn('[CMAllocate] clients fetch fail', e); return []; }),
           fetchUsers()
         ]);
-        const cl = Array.isArray(cRes?.data?.clients) ? cRes.data.clients : (Array.isArray(cRes?.data) ? cRes.data : []);
         setClients(cl);
       } catch (e) { console.error('[CMAllocate] load fail', e); } finally { setLoading(false); }
     }
@@ -536,8 +547,7 @@ export default function ClientMasterAllocate() {
         }
         const results = await Promise.all(requests);
         const savedSlots = results.reduce((total, result) => total + Object.keys(result.allocations || {}).length, 0);
-        const refreshed = await api.get(API_ENDPOINTS.clients.list);
-        const refreshedClients = Array.isArray(refreshed?.data?.clients) ? refreshed.data.clients : (Array.isArray(refreshed?.data) ? refreshed.data : []);
+        const refreshedClients = await fetchAllAllocationClients();
         setClients(refreshedClients);
         showToast('success', 'Allocations saved', `${savedSlots} service allocation(s) saved across ${results.length} Client Master record(s).`);
         setModalClient(null);
@@ -594,11 +604,10 @@ export default function ClientMasterAllocate() {
   const refresh = async () => {
     try {
       setRefreshing(true);
-      const [cRes] = await Promise.all([
-        api.get(API_ENDPOINTS.clients.list),
+      const [cl] = await Promise.all([
+        fetchAllAllocationClients(),
         fetchUsers()
       ]);
-      const cl = Array.isArray(cRes?.data?.clients) ? cRes.data.clients : (Array.isArray(cRes?.data) ? cRes.data : []);
       setClients(cl);
       showToast('success', 'Refreshed', `${cl.length} clients · ${String(userList.length || 0)} users loaded`);
     } catch (e) { showToast('error', 'Refresh failed', e?.message || ''); } finally { setRefreshing(false); }

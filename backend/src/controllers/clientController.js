@@ -1158,6 +1158,15 @@ exports.listClients = async (req, res) => {
     'data.cpcb.status', 'data.importMeta.uniqueId', 'data.importMeta.leadNumber',
     'data.importMeta.companyName', 'data.importMeta.assignedTo', 'data.importMeta.createdBy',
     'data.importMeta.createdByEmail', 'data.companyOverview.companyName',
+    ...(req.query.allocation === 'true' ? [
+      'services', 'data.basic', 'data.importMeta', 'data.selectedLeadSnapshot',
+      'data.authorisedContact', 'data.authorizedContact'
+    ] : []),
+    ...(req.query.dashboard === 'true' ? [
+      'data.basic', 'data.importMeta', 'data.selectedLeadSnapshot', 'data.assignedServiceId',
+      'data.otp.mobile', 'data.otp.email', 'data.authorised.mobile', 'data.authorised.email',
+      'data.coordinating.mobile', 'data.coordinating.email', 'data.financials', 'data.validation'
+    ] : []),
     ...(req.query.export === 'true' ? [
       'data.basic.servicesOffered', 'data.basic.companyIndustry', 'data.basic.website',
       'data.registeredAddress', 'data.communicationAddress', 'data.otp',
@@ -1598,11 +1607,31 @@ exports.listPendingApprovals = async (req, res) => {
   const missingQuotationRows = liveQuotationRows.filter((row) => !storedQuotationIds.has(String(row.quotationId || row.id || '')));
   const responseQuotations = [...missingQuotationRows, ...storedFallback.pendingQuotations];
   if (missingQuotationRows.length) backgroundSyncPendingApprovals([], missingQuotationRows);
+  const compact = req.query.compact === 'true';
+  const compactRow = (row = {}) => ({
+    approvalRecordId: row.approvalRecordId,
+    id: row.id,
+    sourceClientId: row.sourceClientId,
+    quotationId: row.quotationId,
+    source: row.source,
+    uniqueId: row.uniqueId,
+    clientName: row.clientName,
+    companyName: row.companyName,
+    approvalStatus: row.approvalStatus,
+    managementApprovalStatus: row.managementApprovalStatus,
+    piboCategory: row.piboCategory,
+    eprCategory: row.eprCategory,
+    createdBy: row.createdBy,
+    requestDate: row.requestDate,
+    requestTime: row.requestTime,
+    decisionBy: row.decisionBy,
+    decisionAt: row.decisionAt
+  });
 
   res.json({
     ok: true,
-    pendingClients: isClientReviewer ? storedFallback.pendingClients : [],
-    pendingQuotations: isAdministrativeReviewer ? responseQuotations : [],
+    pendingClients: isClientReviewer ? (compact ? storedFallback.pendingClients.map(compactRow) : storedFallback.pendingClients) : [],
+    pendingQuotations: isAdministrativeReviewer ? (compact ? responseQuotations.map(compactRow) : responseQuotations) : [],
     debug: {
       source: missingQuotationRows.length ? 'indexed-with-live-reconciliation' : 'indexed-pending-approvals',
       ms: Date.now() - startedAt,

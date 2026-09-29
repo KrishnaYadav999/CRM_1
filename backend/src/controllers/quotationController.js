@@ -745,6 +745,9 @@ exports.listQuotations = async (req, res) => {
   const accessFilter = await quotationAccessFilter(req.user);
   const scopedFilter = combineFilters(filter, accessFilter);
   const query = Quotation.find(scopedFilter)
+    .select(req.query.compact === 'true'
+      ? 'quotationNumber leadId leadRef clientRef leadCode businessLeadCode companyName leadDetails quotationDate validUntil serviceState combinedBasicAmount items subtotal grandTotal status source createdByName preparedByName leadGeneratedBy assignedUserName managementApproval approvalDecision createdBy createdAt updatedAt'
+      : '')
     .populate('createdBy', 'name email')
     .populate('approvalDecision.actionBy', 'name email role')
     .sort({ quotationDate: -1, createdAt: -1 });

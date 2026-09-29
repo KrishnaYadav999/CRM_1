@@ -9,6 +9,7 @@ const Team = require('../models/Team');
 const ONLINE_WINDOW_MS = 15 * 60 * 1000;
 const REPORT_CACHE_TTL_MS = 60 * 1000;
 const productivityReportCache = new Map();
+const productivityReportInFlight = new Map();
 
 function entityId(value) {
   const id = value && typeof value === 'object' ? value._id || value.id || value : value;
@@ -216,43 +217,53 @@ async function getUserProductivityReport({ from, to, requester }) {
   const cacheKey = `${String(requesterId || 'anonymous')}:${requesterRole}:${period.from}:${period.to}`;
   const cached = productivityReportCache.get(cacheKey);
   if (cached && Date.now() - cached.createdAt < REPORT_CACHE_TTL_MS) return cached.report;
-  const operationTeams = await reportQuery('teams', isAdmin
-    ? Team.find().select('name manager operationHead members').sort({ name: 1 }).lean()
-    : Team.find({ $or: [{ manager: requesterId }, { operationHead: requesterId }] }).select('name manager operationHead members').sort({ name: 1 }).lean());
-  const scopedUserIds = isAdmin ? null : operationTeams.flatMap((team) => [entityId(team.manager), ...(team.members || []).map(entityId)]).filter(Boolean);
-  const userFilter = isAdmin ? {} : { _id: { $in: scopedUserIds } };
-  const activityUserFilter = isAdmin ? {} : { userId: { $in: scopedUserIds } };
-  const ownerFilter = isAdmin ? {} : { createdBy: { $in: scopedUserIds } };
-  const [users, sessions, activities, leads, clients, ticketStats] = await Promise.all([
-    reportQuery('users', User.find(userFilter).select('name email crmUserId role team teamId managerId operationHeadId isActive lastLogin').lean()),
-    reportQuery('sessions', UserSession.find({ ...activityUserFilter, loginAt: { $gte: period.start, $lte: period.end } })
-      .select('userId loginAt lastActivityAt logoutAt activeSeconds activityCount presenceState ipAddress userAgent').sort({ loginAt: -1 }).limit(5000).maxTimeMS(15000).lean()),
-    reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: { $gte: period.start, $lte: period.end } })
-      .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
-    reportQuery('leads', Lead.find(ownerFilter).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy generatedForUser generatedForName generatedForEmail status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
-    reportQuery('clients', Client.find({ ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } }).select('createdBy data workflowStatus adminControls.approvalStatus createdAt updatedAt selectedLead assignedServiceId').maxTimeMS(20000).lean()),
-    reportQuery('tickets', SupportTicket.aggregate([
-      { $match: { ...ownerFilter, createdAt: { $gte: period.start, $lte: period.end } } },
-      { $group: {
-        _id: '$createdBy', total: { $sum: 1 },
-        open: { $sum: { $cond: [{ $in: ['$status', ['Open', 'In Progress']] }, 1, 0] } },
-        resolved: { $sum: { $cond: [{ $in: ['$status', ['Resolved', 'Closed']] }, 1, 0] } }
-      } }
-    ]).option({ maxTimeMS: 15000 }))
-  ]);
-  const report = {
-    ...buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period }),
-    misAccess: {
-      isAdmin,
-      scope: isAdmin ? 'all' : (operationTeams.some((team) => String(entityId(team.operationHead) || '') === String(requesterId)) ? 'operation-head' : 'manager'),
-      showSales: isAdmin,
-      showQuotations: isAdmin,
-      operationTeams: operationTeams.map((team) => ({ id: entityId(team._id), name: String(team.name || 'Operations Team'), managerId: entityId(team.manager), operationHeadId: entityId(team.operationHead), memberIds: (team.members || []).map(entityId).filter(Boolean) }))
-    }
-  };
-  productivityReportCache.set(cacheKey, { createdAt: Date.now(), report });
-  if (productivityReportCache.size > 50) productivityReportCache.delete(productivityReportCache.keys().next().value);
-  return report;
+  if (productivityReportInFlight.has(cacheKey)) return productivityReportInFlight.get(cacheKey);
+  const reportPromise = (async () => {
+    const operationTeams = await reportQuery('teams', isAdmin
+      ? Team.find().select('name manager operationHead members').sort({ name: 1 }).lean()
+      : Team.find({ $or: [{ manager: requesterId }, { operationHead: requesterId }] }).select('name manager operationHead members').sort({ name: 1 }).lean());
+    const scopedUserIds = isAdmin ? null : operationTeams.flatMap((team) => [entityId(team.manager), ...(team.members || []).map(entityId)]).filter(Boolean);
+    const userFilter = isAdmin ? {} : { _id: { $in: scopedUserIds } };
+    const activityUserFilter = isAdmin ? {} : { userId: { $in: scopedUserIds } };
+    const ownerFilter = isAdmin ? {} : { createdBy: { $in: scopedUserIds } };
+    const createdAt = { $gte: period.start, $lte: period.end };
+    const [users, sessions, activities, leads, clients, ticketStats] = await Promise.all([
+      reportQuery('users', User.find(userFilter).select('name email crmUserId role team teamId managerId operationHeadId isActive lastLogin').lean()),
+      reportQuery('sessions', UserSession.find({ ...activityUserFilter, loginAt: createdAt })
+        .select('userId loginAt lastActivityAt logoutAt activeSeconds activityCount presenceState ipAddress userAgent').sort({ loginAt: -1 }).limit(5000).maxTimeMS(15000).lean()),
+      reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: createdAt })
+        .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
+      reportQuery('leads', Lead.find({ ...ownerFilter, createdAt }).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy generatedForUser generatedForName generatedForEmail status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
+      reportQuery('clients', Client.find({ ...ownerFilter, createdAt }).select('createdBy data workflowStatus adminControls.approvalStatus createdAt updatedAt selectedLead assignedServiceId').maxTimeMS(20000).lean()),
+      reportQuery('tickets', SupportTicket.aggregate([
+        { $match: { ...ownerFilter, createdAt } },
+        { $group: {
+          _id: '$createdBy', total: { $sum: 1 },
+          open: { $sum: { $cond: [{ $in: ['$status', ['Open', 'In Progress']] }, 1, 0] } },
+          resolved: { $sum: { $cond: [{ $in: ['$status', ['Resolved', 'Closed']] }, 1, 0] } }
+        } }
+      ]).option({ maxTimeMS: 15000 }))
+    ]);
+    return {
+      ...buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period }),
+      misAccess: {
+        isAdmin,
+        scope: isAdmin ? 'all' : (operationTeams.some((team) => String(entityId(team.operationHead) || '') === String(requesterId)) ? 'operation-head' : 'manager'),
+        showSales: isAdmin,
+        showQuotations: isAdmin,
+        operationTeams: operationTeams.map((team) => ({ id: entityId(team._id), name: String(team.name || 'Operations Team'), managerId: entityId(team.manager), operationHeadId: entityId(team.operationHead), memberIds: (team.members || []).map(entityId).filter(Boolean) }))
+      }
+    };
+  })();
+  productivityReportInFlight.set(cacheKey, reportPromise);
+  try {
+    const report = await reportPromise;
+    productivityReportCache.set(cacheKey, { createdAt: Date.now(), report });
+    if (productivityReportCache.size > 50) productivityReportCache.delete(productivityReportCache.keys().next().value);
+    return report;
+  } finally {
+    if (productivityReportInFlight.get(cacheKey) === reportPromise) productivityReportInFlight.delete(cacheKey);
+  }
 }
 
 function canViewUserWorkReport({ requester, targetUserId, operationTeams = [] }) {

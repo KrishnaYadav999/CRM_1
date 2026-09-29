@@ -104,6 +104,18 @@ function writeSessionCache(key, data) {
   }
 }
 
+async function fetchDashboardCollection(endpoint, key, requestConfig = {}, extraParams = {}) {
+  const params = { ...requestConfig.params, ...extraParams, paginated: true, page: 1, limit: 100 };
+  const first = await api.get(endpoint, { ...requestConfig, params });
+  const totalPages = Number(first.data?.pagination?.totalPages || first.data?.pagination?.pages || 1);
+  const remaining = totalPages > 1
+    ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => (
+      api.get(endpoint, { ...requestConfig, params: { ...params, page: index + 2 } })
+    )))
+    : [];
+  return { data: { ...first.data, [key]: [first, ...remaining].flatMap((response) => response.data?.[key] || []) } };
+}
+
 function readCalendarTodoItems() {
   const items = []
   const seen = new Set()
@@ -5350,11 +5362,11 @@ export default function AdminDashboard() {
       }
 
       const [clientsResult, leadsResult, quotationsResult, annualReturnsResult, approvalsResult, calendarItemsResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.clients.list, requestConfig),
-        api.get(API_ENDPOINTS.leads.list, requestConfig),
-        api.get(API_ENDPOINTS.quotations.list, requestConfig),
+        fetchDashboardCollection(API_ENDPOINTS.clients.list, 'clients', requestConfig, { dashboard: true }),
+        fetchDashboardCollection(API_ENDPOINTS.leads.list, 'leads', requestConfig, { dashboard: true }),
+        fetchDashboardCollection(API_ENDPOINTS.quotations.list, 'quotations', requestConfig, { compact: true }),
         api.get(API_ENDPOINTS.annualReturns.list, requestConfig),
-        api.get(API_ENDPOINTS.clients.pendingApprovals, requestConfig),
+        api.get(API_ENDPOINTS.clients.pendingApprovals, { ...requestConfig, params: { compact: true } }),
         api.get(API_ENDPOINTS.calendarItems.list, requestConfig)
       ])
 
