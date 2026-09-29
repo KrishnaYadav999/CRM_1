@@ -30,6 +30,7 @@ import SuperAdminDashboard from './pages/SuperAdminDashboard'
 import ActivityLogs from './pages/ActivityLogs'
 import SalesManagementDashboard from './pages/SalesManagementDashboard'
 import ClientDailyMIS from './pages/ClientDailyMIS'
+import Dummey from './pages/Dummey'
 import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
 import SupportTicketMilestoneCelebration from './components/SupportTicketMilestoneCelebration'
 
@@ -140,6 +141,7 @@ function App(){
         <Route path="/sales/quotations" element={<ProtectedRoute><Quotations/></ProtectedRoute>} />
         <Route path="/sales/proforma-invoices" element={<ProtectedRoute><ProformaInvoices/></ProtectedRoute>} />
         <Route path="/help-yourself" element={<ProtectedRoute><HelpYourself/></ProtectedRoute>} />
+        <Route path="/dummey" element={<ProtectedRoute><Dummey/></ProtectedRoute>} />
         <Route path="/support-tickets" element={<ProtectedRoute><SupportTickets/></ProtectedRoute>} />
         <Route path="/internal-tickets" element={<ProtectedRoute><InternalTickets/></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />

@@ -7,6 +7,7 @@ import {
   FileText,
   Gauge,
   Home,
+  LayoutTemplate,
   Megaphone,
   LifeBuoy,
   MessagesSquare,
@@ -120,6 +121,11 @@ export const navSections = [
         label: 'Help Yourself',
         icon: FileText,
         path: '/help-yourself'
+      },
+      {
+        label: 'Dummey',
+        icon: LayoutTemplate,
+        path: '/dummey'
       },
       {
         label: 'Tickets',
