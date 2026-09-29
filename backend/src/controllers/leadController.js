@@ -14,7 +14,7 @@ const { notifyNewFinancialYear } = require('../services/leadFinancialYearNotific
 const { notifyAdditionalLeadServices } = require('../services/leadServiceContributorNotifications');
 const { claimLeadRoyalty } = require('../services/leadRoyaltyNotifications');
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
-const { notifyNewProvisionalClosures, processExpiredProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
+const { notifyNewProvisionalClosures } = require('../services/provisionalLeadClosureWorkflow');
 const { resolvePoProof, resolveApprovalPoProof } = require('../services/poProofResolver');
 const { normalizeProvisionalClosure, permanentlyCloseProvisionalAssignments } = require('../utils/provisionalClosureDeadline');
 const LeadDropdownOption = require('../models/LeadDropdownOption');
@@ -1174,27 +1174,130 @@ exports.searchCompanies = async (req, res) => {
 };
 
 exports.listLeads = async (req, res) => {
-  await processExpiredProvisionalClosures();
-  const leads = await Lead.find(await leadAccessFilter(req.user))
+  const startedAt = process.hrtime.bigint();
+  const accessStartedAt = process.hrtime.bigint();
+  const accessFilter = await leadAccessFilter(req.user);
+  const accessMs = Number(process.hrtime.bigint() - accessStartedAt) / 1e6;
+  const paginated = req.query.page !== undefined || req.query.limit !== undefined || req.query.paginated === 'true';
+
+  // Preserve the historical response for non-directory consumers. The Lead
+  // Generation screen opts into the bounded list below with paginated=true.
+  if (!paginated) {
+    const queryStartedAt = process.hrtime.bigint();
+    const leads = await Lead.find(accessFilter)
     .populate('assignedTo', 'name email avatarUrl role')
     .populate('closedBy', 'name email avatarUrl role')
     .populate('createdBy', 'name email')
     .populate('generatedForUser', 'name email crmUserId')
-    .sort({ leadCode: 1, createdAt: 1 });
-  await Promise.all(leads.map(async (lead) => {
-    if (!Array.isArray(lead.serviceSelections)) return;
-    let changed = false;
-    lead.serviceSelections = lead.serviceSelections.map((row) => {
-      if (row?.assignedServiceId || row?.serviceAssignmentId) return row;
-      changed = true;
-      return { ...row, assignedServiceId: `service_assignment_${randomUUID()}` };
-    });
-    if (changed) {
-      lead.markModified('serviceSelections');
-      await lead.save();
-    }
-  }));
-  res.json({ ok: true, leads });
+      .sort({ leadCode: 1, createdAt: 1 })
+      .lean();
+    const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
+    res.set('Server-Timing', `access;dur=${accessMs.toFixed(1)}, query;dur=${queryMs.toFixed(1)}`);
+    return res.json({ ok: true, leads });
+  }
+
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 10));
+  const search = String(req.query.search || '').trim();
+  const status = String(req.query.status || '').trim();
+  const serviceCategory = String(req.query.serviceCategory || '').trim();
+  const staff = String(req.query.staff || '').trim();
+  const metric = String(req.query.metric || '').trim();
+  const sortBy = ['leadCode', 'createdAt', 'updatedAt', 'company', 'status'].includes(String(req.query.sortBy))
+    ? String(req.query.sortBy)
+    : 'leadCode';
+  const sortOrder = String(req.query.sortOrder).toLowerCase() === 'desc' ? -1 : 1;
+  const filters = [accessFilter];
+  if (search) {
+    const expression = new RegExp(escapeRegex(search.slice(0, 100)), 'i');
+    filters.push({ $or: [
+      { leadCode: expression }, { company: expression }, { addressLine1: expression },
+      { city: expression }, { pinCode: expression }, { piboCategory: expression },
+      { eprCategory: expression }, { state: expression }, { contactPerson: expression },
+      { mobileNo1: expression }, { emails: expression }, { status: expression }
+    ] });
+  }
+  if (status) filters.push({ status });
+  if (['converted', 'existing'].includes(metric)) filters.push({ $or: [{ existingClient: 'Yes' }, { status: 'Existing Client' }] });
+  if (metric === 'new') filters.push({ existingClient: { $ne: 'Yes' }, status: { $ne: 'Existing Client' } });
+  if (serviceCategory) filters.push({ $or: [{ eprCategory: serviceCategory }, { 'serviceSelections.eprCategory': serviceCategory }] });
+  if (staff) {
+    const staffValues = [staff];
+    if (mongoose.Types.ObjectId.isValid(staff)) staffValues.push(new mongoose.Types.ObjectId(staff));
+    const staffExpression = new RegExp(`^${escapeRegex(staff.replace(/^name:/, ''))}$`, 'i');
+    filters.push({ $or: [
+      { assignedTo: { $in: staffValues } }, { assignedStaff: { $in: staffValues } },
+      { generatedForUser: { $in: staffValues } }, { 'assignments.assignedTo': { $in: staffValues } },
+      { 'assignments.assignedStaff': { $in: staffValues } }, { assignedToText: staffExpression },
+      { assignedStaffText: staffExpression }, { generatedForName: staffExpression },
+      { 'assignments.assignedToText': staffExpression }, { 'assignments.assignedStaffText': staffExpression }
+    ] });
+  }
+  const filter = combineAccessFilters(...filters);
+  const projection = [
+    'leadCode', 'sourceLeadId', 'company', 'status', 'workflowStatus', 'recordStatus',
+    'eprCategory', 'piboCategory', 'existingClient', 'contactPerson', 'mobileNo1', 'emails',
+    'addressLine1', 'state', 'city', 'pinCode', 'assignedTo', 'assignedToText', 'assignedStaff',
+    'assignedStaffText', 'assignedStaffEmail', 'assignedBy', 'createdBy', 'createdByName',
+    'createdByEmail', 'importedCreatedBy', 'generatedForUser', 'generatedForName',
+    'generatedForEmail', 'createdOnBehalfOfUser', 'createdOnBehalfOfName', 'closedBy',
+    'closedByText', 'closedOnBehalfOfName', 'closedAt', 'assignReachedAt', 'assignments',
+    'serviceSelections', 'createdAt', 'updatedAt',
+    ...(req.query.export === 'true' ? [
+      'industryType', 'piboParent', 'piboCategoryParent', 'subApplicantType', 'servicesOffered',
+      'designation', 'mobileNo2', 'website', 'emailsSentCount', 'lastEmailSent', 'referredBy',
+      'source', 'notes', 'leadDate', 'nextFollowUpDate', 'nextFollowUpTime', 'followUpRemarks',
+      'importedCreatedAt', 'importedUpdatedAt', 'businessCardUrl'
+    ] : [])
+  ].join(' ');
+  const queryStartedAt = process.hrtime.bigint();
+  const [leads, total, summaryRows] = await Promise.all([
+    Lead.find(filter).select(projection)
+      .populate('assignedTo', 'name email avatarUrl role')
+      .populate('closedBy', 'name email avatarUrl role')
+      .populate('createdBy', 'name email')
+      .populate('generatedForUser', 'name email crmUserId')
+      .sort({ [sortBy]: sortOrder, ...(sortBy === 'leadCode' ? { createdAt: sortOrder } : { _id: sortOrder }) })
+      .skip((page - 1) * limit).limit(limit).lean(),
+    Lead.countDocuments(filter),
+    Lead.aggregate([
+      { $match: accessFilter },
+      { $group: {
+        _id: null,
+        total: { $sum: 1 },
+        existing: { $sum: { $cond: [{ $or: [{ $eq: ['$existingClient', 'Yes'] }, { $eq: ['$status', 'Existing Client'] }] }, 1, 0] } }
+      } }
+    ])
+  ]);
+  const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
+  const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const summary = summaryRows[0] || { total: 0, existing: 0 };
+  res.set('Server-Timing', `access;dur=${accessMs.toFixed(1)}, query;dur=${queryMs.toFixed(1)}, total;dur=${totalMs.toFixed(1)}`);
+  return res.json({
+    ok: true,
+    leads,
+    pagination: {
+      page, limit, total, totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1
+    },
+    summary: { total: summary.total, existing: summary.existing, converted: summary.existing, new: summary.total - summary.existing },
+    timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
+  });
+};
+
+exports.getLead = async (req, res) => {
+  const leadId = String(req.params.id || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(leadId)) return res.status(400).json({ error: 'Invalid Lead ID' });
+  const lead = await Lead.findOne(combineAccessFilters({ _id: leadId }, await leadAccessFilter(req.user)))
+    .populate('assignedTo', 'name email avatarUrl role')
+    .populate('closedBy', 'name email avatarUrl role')
+    .populate('createdBy', 'name email')
+    .populate('generatedForUser', 'name email crmUserId')
+    .lean();
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  return res.json({ ok: true, lead });
 };
 
 exports.createLead = async (req, res) => {

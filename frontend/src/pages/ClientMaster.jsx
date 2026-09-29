@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, Briefcase, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock3, Database, Download, Edit3, Eye, EyeOff, Factory, FileCheck2, FileText, FolderCheck, Images, KeyRound, MapPin, Package, Plus, RefreshCw, Save, Search, ShieldCheck, Sparkles, Tag, Trash2, Upload, UserRound, X } from 'lucide-react';
@@ -1325,6 +1325,8 @@ export default function ClientMaster() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [leads, setLeads] = useState([]);
   const [clients, setClients] = useState([]);
+  const [clientPagination, setClientPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [clientSummary, setClientSummary] = useState({ total: 0, annual: 0, processed: 0, pending: 0, progress: 0, rejected: 0, discontinued: 0 });
   const [clientMasterCatalog, setClientMasterCatalog] = useState([]);
   const [clientSearchLoading, setClientSearchLoading] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState('');
@@ -1359,6 +1361,7 @@ export default function ClientMaster() {
   const pendingApprovalLeadHandled = useRef('');
   const clientRecordRequestRef = useRef(0);
   const pageLoadRequestRef = useRef(0);
+  const directoryRequestRef = useRef(0);
   const saveRequestRef = useRef(false);
   const { clientKey: routeClientKey, annualYear: routeAnnualYear } = useParams();
   const routeAnnualYearLabel = routeAnnualYear ? decodeURIComponent(routeAnnualYear) : '';
@@ -1401,14 +1404,11 @@ export default function ClientMaster() {
     const timer = window.setTimeout(async () => {
       setClientSearchLoading(true);
       try {
-        const [response, leadsResponse] = await Promise.all([
-          api.get(API_ENDPOINTS.clients.discoverySearch, {
-            params: { q: query, limit: 20 },
-            signal: controller.signal
-          }),
-          api.get(API_ENDPOINTS.leads.list, { signal: controller.signal })
-        ]);
-        setRemoteClientOptions(filterClientMasterSearchItems(response.data.items || [], leadsResponse.data.leads || []));
+        const response = await api.get(API_ENDPOINTS.clients.discoverySearch, {
+          params: { q: query, limit: 20 },
+          signal: controller.signal
+        });
+        setRemoteClientOptions(filterClientMasterSearchItems(response.data.items || [], []));
       } catch (err) {
         if (err?.code !== 'ERR_CANCELED' && err?.name !== 'CanceledError') {
           setRemoteClientOptions([]);
@@ -1678,7 +1678,7 @@ export default function ClientMaster() {
     setError('');
     try {
       const meRequest = api.get(API_ENDPOINTS.auth.me);
-      const clientsRequest = api.get(API_ENDPOINTS.clients.list);
+      const clientsRequest = api.get(API_ENDPOINTS.clients.list, { params: { paginated: true, page: 1, limit: 10 } });
       const [meResult, crmClientsResult] = await Promise.allSettled([meRequest, clientsRequest]);
       if (meResult.status === 'rejected') throw meResult.reason;
       const meResponse = meResult.value;
@@ -1700,6 +1700,10 @@ export default function ClientMaster() {
       const visibleClients = enrichClientsFromLeads(directoryClients, []);
       setTotalClientCount(visibleClients.length);
       setClients(visibleClients);
+      const pagination = crmClientsResult.value.data.pagination || { page: 1, limit: 10, total: visibleClients.length, totalPages: 1 };
+      setClientPagination(pagination);
+      setClientSummary(crmClientsResult.value.data.summary || { total: pagination.total });
+      setTotalClientCount(pagination.total);
       setLoading(false);
 
       void api.get(API_ENDPOINTS.auth.users).then((usersResponse) => {
@@ -1737,6 +1741,38 @@ export default function ClientMaster() {
       if (pageLoadId === pageLoadRequestRef.current) setLoading(false);
     }
   }
+
+  const loadClientDirectory = useCallback(async (params = {}) => {
+    const requestId = ++directoryRequestRef.current;
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.get(API_ENDPOINTS.clients.list, {
+        params: { paginated: true, ...params }
+      });
+      if (requestId !== directoryRequestRef.current) return;
+      const rows = enrichClientsFromLeads(getClientMasterRows(response.data?.clients || [], []), []);
+      setClients(rows);
+      const pagination = response.data?.pagination || { page: 1, limit: 10, total: rows.length, totalPages: 1 };
+      setClientPagination(pagination);
+      setClientSummary(response.data?.summary || { total: pagination.total });
+      setTotalClientCount(pagination.total);
+    } catch (err) {
+      if (requestId !== directoryRequestRef.current || err?.code === 'ERR_CANCELED') return;
+      setError(err?.response?.data?.error || 'Unable to fetch Client Master records.');
+    } finally {
+      if (requestId === directoryRequestRef.current) setLoading(false);
+    }
+  }, []);
+
+  const loadAllClientsForExport = useCallback(async (params = {}) => {
+    const first = await api.get(API_ENDPOINTS.clients.list, { params: { paginated: true, export: true, ...params, page: 1, limit: 100 } });
+    const pages = Number(first.data?.pagination?.totalPages || 1);
+    const remaining = pages > 1
+      ? await Promise.all(Array.from({ length: pages - 1 }, (_, index) => api.get(API_ENDPOINTS.clients.list, { params: { paginated: true, export: true, ...params, page: index + 2, limit: 100 } })))
+      : [];
+    return [first, ...remaining].flatMap((response) => response.data?.clients || []);
+  }, []);
 
   function beginServiceOnboarding(pending, service) {
     if (!service?._clientMasterEligible) {
@@ -2874,12 +2910,16 @@ export default function ClientMaster() {
         ) : (
           <ClientDirectoryView
             clients={clients}
+            pagination={clientPagination}
+            summary={clientSummary}
             totalClientCount={totalClientCount}
             staff={staff}
             loading={loading}
             error={error}
             notice={notice}
             onRefresh={loadPage}
+            onDirectoryQueryChange={loadClientDirectory}
+            onExportAll={loadAllClientsForExport}
             onView={openDirectoryClientView}
             onEdit={openClientEdit}
             canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}

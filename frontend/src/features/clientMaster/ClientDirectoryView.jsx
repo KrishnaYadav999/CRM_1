@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Building2, CheckCircle2, ChevronDown, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Plus, RefreshCw, Search, UserCheck, X } from 'lucide-react';
 import ToastMessage from '../../components/ToastMessage';
@@ -130,66 +130,67 @@ function dedupeDirectoryClients(clients = []) {
   return [...grouped.values()].map(({ item }) => item);
 }
 
-function ClientDirectoryView({ clients, staff, loading, error, notice, onRefresh, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
+function ClientDirectoryView({ clients, pagination, summary, staff, loading, error, notice, onRefresh, onDirectoryQueryChange, onExportAll, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
   const [metricFilter, setMetricFilter] = useState('');
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [page, setPage] = useState(1);
-  const deferredQuery = useDeferredValue(query);
+  const directoryEffectReady = useRef(false);
+  const previousDirectoryFilterRef = useRef('');
 
   const directoryClients = useMemo(() => dedupeDirectoryClients(clients), [clients]);
-  const filteredClients = useMemo(() => {
-    const term = deferredQuery.trim();
-    return directoryClients.filter((item) => {
-      const data = readClientData(item);
-      const visibility = getVisibilityStatus(item);
-      const matchesSearch = clientMatchesSearch(item, term, staff);
-      const cpcbStatus = readClientData(item).cpcb?.status;
-      const matchesVisibility = !visibilityFilter || visibility === visibilityFilter;
-      const matchesStaff = matchesAssignedStaff(item, staff, staffFilter);
-      const matchesMetric =
-        !metricFilter ||
-        metricFilter === 'live' ||
-        (metricFilter === 'annual' && Boolean(getFirstAnnualReturnYear(item, data))) ||
-        (metricFilter === 'processed' && cpcbStatus === 'Approved') ||
-        (metricFilter === 'pending' && ['Not Started', 'Applied', 'Under Review'].includes(cpcbStatus)) ||
-        (metricFilter === 'progress' && cpcbStatus === 'Under Review') ||
-        (metricFilter === 'rejected' && cpcbStatus === 'Rejected') ||
-        (metricFilter === 'discontinued' && ['DISCONTINUED', 'SUSPENDED'].includes(visibility));
-      return matchesSearch && matchesVisibility && matchesStaff && matchesMetric;
-    });
-  }, [deferredQuery, directoryClients, metricFilter, staff, staffFilter, visibilityFilter]);
+  const filteredClients = directoryClients;
 
   useEffect(() => {
-    setPage(1);
-  }, [metricFilter, query, rowsPerPage, staffFilter, visibilityFilter]);
+    if (!directoryEffectReady.current) {
+      directoryEffectReady.current = true;
+      previousDirectoryFilterRef.current = JSON.stringify([metricFilter, query, rowsPerPage, staffFilter, visibilityFilter]);
+      return undefined;
+    }
+    const filterKey = JSON.stringify([metricFilter, query, rowsPerPage, staffFilter, visibilityFilter]);
+    if (filterKey !== previousDirectoryFilterRef.current) {
+      previousDirectoryFilterRef.current = filterKey;
+      if (page !== 1) {
+        setPage(1);
+        return undefined;
+      }
+    }
+    const timer = window.setTimeout(() => {
+      onDirectoryQueryChange({
+        page,
+        limit: rowsPerPage,
+        search: query.trim(),
+        visibilityStatus: visibilityFilter,
+        staff: staffFilter,
+        metric: metricFilter
+      });
+    }, query.trim() ? 400 : 0);
+    return () => window.clearTimeout(timer);
+  }, [metricFilter, onDirectoryQueryChange, page, query, rowsPerPage, staffFilter, visibilityFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredClients.length / rowsPerPage));
-  const visibleClients = filteredClients.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const totalPages = Math.max(1, Number(pagination?.totalPages || 1));
+  const visibleClients = filteredClients;
   const staffFilterOptions = useMemo(() => buildStaffFilterOptions(staff, directoryClients), [directoryClients, staff]);
   const metricStats = useMemo(() => {
-    const portalApproved = directoryClients.filter((item) => getCpcbStatus(readClientData(item)) === 'Approved').length;
-    const pending = directoryClients.filter((item) => ['Not Started', 'Applied', 'Under Review'].includes(getCpcbStatus(readClientData(item)))).length;
-    const inProgress = directoryClients.filter((item) => getCpcbStatus(readClientData(item)) === 'Under Review').length;
-    const rejected = directoryClients.filter((item) => getCpcbStatus(readClientData(item)) === 'Rejected').length;
-    const discontinued = directoryClients.filter((item) => ['DISCONTINUED', 'SUSPENDED'].includes(getVisibilityStatus(item))).length;
-    const annualReturn = directoryClients.filter((item) => getFirstAnnualReturnYear(item)).length;
     return [
-      { label: 'Live Applications', value: directoryClients.length, note: 'Unique client records', icon: Building2, tone: 'emerald', filter: 'live' },
-      { label: 'Annual Return', value: annualReturn, note: 'Return year mapped', icon: FileText, tone: 'violet', filter: 'annual' },
-      { label: 'Processed Apps', value: portalApproved, note: 'CPCB approved', icon: CheckCircle2, tone: 'teal', filter: 'processed' },
-      { label: 'Pending Apps', value: pending, note: 'ATPL pending', icon: FileCheck2, tone: 'amber', filter: 'pending' },
-      { label: 'In Progress', value: inProgress, note: 'Portal review', icon: RefreshCw, tone: 'sky', filter: 'progress' },
-      { label: 'Rejected', value: rejected, note: 'Portal rejected', icon: X, tone: 'rose', filter: 'rejected' },
-      { label: 'Discontinued', value: discontinued, note: 'Hidden or archived', icon: FolderCheck, tone: 'orange', filter: 'discontinued' }
+      { label: 'Live Applications', value: Number(summary?.total || totalClientCount || 0), note: 'Accessible client records', icon: Building2, tone: 'emerald', filter: 'live' },
+      { label: 'Annual Return', value: Number(summary?.annual || 0), note: 'Return year mapped', icon: FileText, tone: 'violet', filter: 'annual' },
+      { label: 'Processed Apps', value: Number(summary?.processed || 0), note: 'CPCB approved', icon: CheckCircle2, tone: 'teal', filter: 'processed' },
+      { label: 'Pending Apps', value: Number(summary?.pending || 0), note: 'ATPL pending', icon: FileCheck2, tone: 'amber', filter: 'pending' },
+      { label: 'In Progress', value: Number(summary?.progress || 0), note: 'Portal review', icon: RefreshCw, tone: 'sky', filter: 'progress' },
+      { label: 'Rejected', value: Number(summary?.rejected || 0), note: 'Portal rejected', icon: X, tone: 'rose', filter: 'rejected' },
+      { label: 'Discontinued', value: Number(summary?.discontinued || 0), note: 'Hidden or archived', icon: FolderCheck, tone: 'orange', filter: 'discontinued' }
     ];
-  }, [directoryClients]);
+  }, [summary, totalClientCount]);
   const selectedMetric = metricStats.find((stat) => stat.filter === metricFilter);
 
-  function exportExcel() {
-    const rows = filteredClients.map((item) => {
+  async function exportExcel() {
+    const exportClients = await onExportAll({
+      search: query.trim(), visibilityStatus: visibilityFilter, staff: staffFilter, metric: metricFilter
+    }).catch(() => filteredClients);
+    const rows = exportClients.map((item) => {
       const data = readClientData(item);
       return {
         'Unique ID': getClientUniqueId(item).replace(/^-$/, ''),
@@ -301,7 +302,7 @@ function ClientDirectoryView({ clients, staff, loading, error, notice, onRefresh
           </div>
         </div>
 
-        <DirectoryTableHeader showing={visibleClients.length} total={filteredClients.length} label="clients" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
+        <DirectoryTableHeader showing={visibleClients.length} total={Number(pagination?.total || totalClientCount || 0)} label="clients" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="client-directory-table-shell overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="hidden-scrollbar max-h-[520px] overflow-auto">
             <table className="crm-data-table w-full min-w-[1040px] table-fixed text-left text-sm">

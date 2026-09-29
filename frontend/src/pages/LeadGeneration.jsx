@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, BadgeIndianRupee, BellRing, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -550,6 +550,8 @@ export default function LeadGeneration() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [staff, setStaff] = useState([]);
   const [leads, setLeads] = useState([]);
+  const [leadPagination, setLeadPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [leadSummary, setLeadSummary] = useState({ total: 0, existing: 0, converted: 0, new: 0 });
   const [allCcpLeads, setAllCcpLeads] = useState([]);
   const [companySearchResults, setCompanySearchResults] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -569,6 +571,7 @@ export default function LeadGeneration() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
   const formStartedAtRef = useRef('');
+  const leadListRequestRef = useRef(0);
 
   useEffect(() => {
     if (viewMode !== 'form') return;
@@ -1578,7 +1581,7 @@ export default function LeadGeneration() {
       }
 
       const [crmLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult, serviceCatalogResult, dropdownOptionsResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.leads.list),
+        api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, page: 1, limit: 10 } }),
         api.get(API_ENDPOINTS.quotations.list),
         api.get(API_ENDPOINTS.quotations.piboCategories),
         api.get(API_ENDPOINTS.leads.duplicateApprovals),
@@ -1590,6 +1593,10 @@ export default function LeadGeneration() {
         : [];
       setAllCcpLeads(crmLeads);
       setLeads(crmLeads);
+      if (crmLeadsResult.status === 'fulfilled') {
+        setLeadPagination(crmLeadsResult.value.data.pagination || { page: 1, limit: 10, total: crmLeads.length, totalPages: 1 });
+        setLeadSummary(crmLeadsResult.value.data.summary || { total: crmLeads.length, existing: 0, converted: 0, new: crmLeads.length });
+      }
       if (crmLeadsResult.status === 'rejected') {
         setError(
           crmLeadsResult.reason?.response?.data?.detail
@@ -1612,6 +1619,58 @@ export default function LeadGeneration() {
       setLoading(false);
       setPiboCategoriesLoading(false);
     }
+  }
+
+  const loadLeadDirectory = useCallback(async (params = {}) => {
+    const requestId = ++leadListRequestRef.current;
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.get(API_ENDPOINTS.leads.list, {
+        params: { paginated: true, ...params }
+      });
+      if (requestId !== leadListRequestRef.current) return;
+      const rows = response.data?.leads || [];
+      setLeads(rows);
+      setAllCcpLeads(rows);
+      setLeadPagination(response.data?.pagination || { page: 1, limit: 10, total: rows.length, totalPages: 1 });
+      setLeadSummary(response.data?.summary || { total: rows.length, existing: 0, converted: 0, new: rows.length });
+    } catch (err) {
+      if (requestId !== leadListRequestRef.current || err?.code === 'ERR_CANCELED') return;
+      setError(err?.response?.data?.error || 'Unable to fetch leads from CRM. Please retry.');
+    } finally {
+      if (requestId === leadListRequestRef.current) setLoading(false);
+    }
+  }, []);
+
+  const loadAllLeadsForExport = useCallback(async (params = {}) => {
+    const first = await api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, export: true, ...params, page: 1, limit: 100 } });
+    const pages = Number(first.data?.pagination?.totalPages || 1);
+    const remaining = pages > 1
+      ? await Promise.all(Array.from({ length: pages - 1 }, (_, index) => api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, export: true, ...params, page: index + 2, limit: 100 } })))
+      : [];
+    return [first, ...remaining].flatMap((response) => response.data?.leads || []);
+  }, []);
+
+  async function fetchLeadDetail(item) {
+    const id = leadRecordId(item);
+    if (!id) return item;
+    const response = await api.get(API_ENDPOINTS.leads.detail(id));
+    return response.data?.lead || item;
+  }
+
+  function applyLeadEdit(item) {
+    const normalizedServices = normalizeLegacyServiceSelections(item).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? item.firstAnnualReturnYearApplicable : '') }));
+    const ownerId = item.generatedForUser?._id || item.generatedForUser?.id || item.generatedForUser || item.createdOnBehalfOfUser?._id || item.createdOnBehalfOfUser || item.createdBy?._id || item.createdBy?.id || item.createdBy || currentUser?._id || currentUser?.id || '';
+    const currentUserId = currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.userId || '';
+    setLead({ ...emptyLead, ...item, serviceSelections: normalizedServices, applicableService: normalizedServices[0]?.applicableService || item.applicableService || '', addresses: item.addresses?.length ? item.addresses : [createAddressRow(item)], contacts: item.contacts?.length ? item.contacts : [createContactRow(item)], assignments: item.assignments?.length ? item.assignments : [createAssignmentRow(item)] });
+    setGeneratedForUserId(String(ownerId));
+    setGeneratedForMode(String(ownerId) === String(currentUserId) ? 'self' : 'other');
+    setGeneratedForConfirmed(true);
+    setEditingLeadId(leadRecordId(item));
+    setServiceOnlyMode(false);
+    setActiveTab('basic');
+    setViewMode('form');
   }
 
   async function addPiboCategory(parent, name) {
@@ -2348,26 +2407,18 @@ export default function LeadGeneration() {
       <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
         <LeadDirectoryView
           leads={leads}
+          pagination={leadPagination}
+          summary={leadSummary}
           staff={staff}
           currentUser={currentUser}
           loading={loading}
           error={error}
           onRefresh={loadPage}
           initialWorkspace={['temporary', 'notified'].includes(new URLSearchParams(location.search).get('tab')) ? new URLSearchParams(location.search).get('tab') : 'leads'}
-          onView={setViewLead}
-          onEdit={(item) => {
-            const normalizedServices = normalizeLegacyServiceSelections(item).map((row, index) => ({ ...row, firstAnnualReturnYearApplicable: row.firstAnnualReturnYearApplicable || (index === 0 ? item.firstAnnualReturnYearApplicable : '') }));
-            const ownerId = item.generatedForUser?._id || item.generatedForUser?.id || item.generatedForUser || item.createdOnBehalfOfUser?._id || item.createdOnBehalfOfUser || item.createdBy?._id || item.createdBy?.id || item.createdBy || currentUser?._id || currentUser?.id || '';
-            const currentUserId = currentUser?._id || currentUser?.id || currentUser?.crmUserId || currentUser?.userId || '';
-            setLead({ ...emptyLead, ...item, serviceSelections: normalizedServices, applicableService: normalizedServices[0]?.applicableService || item.applicableService || '', addresses: item.addresses?.length ? item.addresses : [createAddressRow(item)], contacts: item.contacts?.length ? item.contacts : [createContactRow(item)], assignments: item.assignments?.length ? item.assignments : [createAssignmentRow(item)] });
-            setGeneratedForUserId(String(ownerId));
-            setGeneratedForMode(String(ownerId) === String(currentUserId) ? 'self' : 'other');
-            setGeneratedForConfirmed(true);
-            setEditingLeadId(leadRecordId(item));
-            setServiceOnlyMode(false);
-            setActiveTab('basic');
-            setViewMode('form');
-          }}
+          onDirectoryQueryChange={loadLeadDirectory}
+          onExportAll={loadAllLeadsForExport}
+          onView={async (item) => setViewLead(await fetchLeadDetail(item))}
+          onEdit={async (item) => applyLeadEdit(await fetchLeadDetail(item))}
           onToggleActive={async (item, recordStatus) => {
             const id = leadRecordId(item);
             const response = await api.put(API_ENDPOINTS.leads.detail(id), { ...item, recordStatus });
@@ -3517,7 +3568,7 @@ function pendingManagerAssignmentRows(leads = [], currentUser = {}) {
   });
 }
 
-function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefresh, onView, onCreate, onEdit, onToggleActive, initialWorkspace = 'leads', canEdit = false }) {
+function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loading, error, onRefresh, onDirectoryQueryChange, onExportAll, onView, onCreate, onEdit, onToggleActive, initialWorkspace = 'leads', canEdit = false }) {
   const currentRole = String(currentUser?.role || '').trim().toLowerCase();
   const canViewNotifiedLeads = ['manager', 'admin', 'superadmin'].includes(currentRole);
   const allowedInitialWorkspace = initialWorkspace === 'notified' && !canViewNotifiedLeads ? 'leads' : initialWorkspace;
@@ -3530,6 +3581,8 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
   const [actionMenuId, setActionMenuId] = useState('');
   const [temporaryLeadCount, setTemporaryLeadCount] = useState(0);
   const [workspaceTab, setWorkspaceTab] = useState(allowedInitialWorkspace);
+  const directoryEffectReady = useRef(false);
+  const previousDirectoryFilterRef = useRef('');
 
   useEffect(() => {
     api.get(API_ENDPOINTS.leads.temporaryLeads, { params: { page: 1, limit: 1 } })
@@ -3541,55 +3594,44 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
     setWorkspaceTab(initialWorkspace === 'notified' && !canViewNotifiedLeads ? 'leads' : initialWorkspace);
   }, [canViewNotifiedLeads, initialWorkspace]);
 
-  const filteredLeads = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    return leads.slice().sort(compareLeadCode).filter((item) => {
-      const isExisting = item.existingClient === 'Yes' || item.status === 'Existing Client';
-      const isNew = item.existingClient !== 'Yes' && item.status !== 'Existing Client';
-      const haystack = [
-        item.leadCode,
-        item.company,
-        item.addressLine1,
-        item.city,
-        item.pinCode,
-        item.piboCategory,
-        item.eprCategory,
-        item.state,
-        item.contactPerson,
-        item.mobileNo1,
-        item.emails,
-        item.status
-      ].filter(Boolean).join(' ').toLowerCase();
-      const matchesSearch = !term || haystack.includes(term);
-      const matchesStatus = !statusFilter || item.status === statusFilter;
-      const selectedStaff = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId]
-        .filter(Boolean).some((identity) => normalizePersonName(identity) === normalizePersonName(staffFilter)));
-      const selectedStaffTokens = selectedStaff
-        ? personIdentityTokens(selectedStaff)
-        : personIdentityTokens(String(staffFilter).startsWith('name:') ? String(staffFilter).slice(5) : staffFilter);
-      const leadStaffTokens = leadStaffIdentityTokens(item);
-      const matchesStaff = !staffFilter || selectedStaffTokens.some((identity) => leadStaffTokens.includes(identity));
-      const matchesMetric =
-        !metricFilter ||
-        metricFilter === 'all' ||
-        (metricFilter === 'converted' && isExisting) ||
-        (metricFilter === 'existing' && isExisting) ||
-        (metricFilter === 'new' && isNew);
-      return matchesSearch && matchesStatus && matchesStaff && matchesMetric;
-    });
-  }, [leads, metricFilter, query, staff, staffFilter, statusFilter]);
+  const filteredLeads = useMemo(() => leads.slice().sort(compareLeadCode), [leads]);
 
   const allNotifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(leads, currentUser) : [], [canViewNotifiedLeads, currentUser, leads]);
   const notifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(filteredLeads, currentUser) : [], [canViewNotifiedLeads, currentUser, filteredLeads]);
 
   useEffect(() => {
-    setPage(1);
-  }, [metricFilter, query, rowsPerPage, staffFilter, statusFilter, workspaceTab]);
+    if (!directoryEffectReady.current) {
+      directoryEffectReady.current = true;
+      previousDirectoryFilterRef.current = JSON.stringify([metricFilter, query, rowsPerPage, staffFilter, statusFilter, workspaceTab]);
+      return undefined;
+    }
+    if (workspaceTab === 'temporary') return undefined;
+    const filterKey = JSON.stringify([metricFilter, query, rowsPerPage, staffFilter, statusFilter, workspaceTab]);
+    if (filterKey !== previousDirectoryFilterRef.current) {
+      previousDirectoryFilterRef.current = filterKey;
+      if (page !== 1) {
+        setPage(1);
+        return undefined;
+      }
+    }
+    const timer = window.setTimeout(() => {
+      onDirectoryQueryChange({
+        page,
+        limit: rowsPerPage,
+        search: query.trim(),
+        status: statusFilter,
+        staff: staffFilter,
+        metric: metricFilter,
+        workspace: workspaceTab
+      });
+    }, query.trim() ? 400 : 0);
+    return () => window.clearTimeout(timer);
+  }, [metricFilter, onDirectoryQueryChange, page, query, rowsPerPage, staffFilter, statusFilter, workspaceTab]);
 
-  const activeTotal = workspaceTab === 'notified' ? notifiedRows.length : filteredLeads.length;
-  const totalPages = Math.max(1, Math.ceil(activeTotal / rowsPerPage));
-  const visibleLeads = filteredLeads.slice((page - 1) * rowsPerPage, page * rowsPerPage);
-  const visibleNotifiedRows = notifiedRows.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const activeTotal = Number(pagination?.total || 0);
+  const totalPages = Math.max(1, Number(pagination?.totalPages || 1));
+  const visibleLeads = filteredLeads;
+  const visibleNotifiedRows = notifiedRows;
   const staffFilterOptions = useMemo(() => {
     const optionsMap = new Map();
     staff.forEach((user) => {
@@ -3603,11 +3645,11 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
     });
     return [...optionsMap.values()].sort((a, b) => a.label.localeCompare(b.label));
   }, [leads, staff]);
-  const existingClients = leads.filter((item) => item.existingClient === 'Yes' || item.status === 'Existing Client').length;
-  const newLeads = leads.filter((item) => item.existingClient !== 'Yes' && item.status !== 'Existing Client').length;
-  const converted = existingClients;
+  const existingClients = Number(summary?.existing || 0);
+  const newLeads = Number(summary?.new || 0);
+  const converted = Number(summary?.converted || existingClients);
   const metricStats = [
-    { label: 'Total Leads', value: leads.length, note: 'Complete lead universe', icon: UsersRound, tone: 'emerald', filter: 'all' },
+    { label: 'Total Leads', value: Number(summary?.total || pagination?.total || 0), note: 'Complete lead universe', icon: UsersRound, tone: 'emerald', filter: 'all' },
     { label: 'Converted to Sales', value: converted, note: 'Sales-ready conversions', icon: TrendingUp, tone: 'sky', filter: 'converted' },
     { label: 'Existing Clients', value: existingClients, note: 'Existing or converted clients', icon: CheckCircle2, tone: 'teal', filter: 'existing' },
     { label: 'New Leads', value: newLeads, note: 'Fresh non-client records', icon: UserPlus, tone: 'violet', filter: 'new' }
@@ -3632,8 +3674,11 @@ function LeadDirectoryView({ leads, staff, currentUser, loading, error, onRefres
     };
   }
 
-  function exportExcel() {
-    const rows = filteredLeads.map((item) => {
+  async function exportExcel() {
+    const exportLeads = await onExportAll({
+      search: query.trim(), status: statusFilter, staff: staffFilter, metric: metricFilter, workspace: workspaceTab
+    }).catch(() => filteredLeads);
+    const rows = exportLeads.map((item) => {
       const closure = leadClosureDetails(item);
       return ({
       'Lead ID': displayLeadId(item),

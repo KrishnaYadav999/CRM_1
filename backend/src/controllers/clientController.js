@@ -1049,10 +1049,21 @@ function backgroundSyncPendingApprovals(clientRows = [], quotationRows = []) {
 }
 
 exports.listClients = async (req, res) => {
-  const clients = await Client.find(combineAccessFilters(
+  const startedAt = process.hrtime.bigint();
+  const accessStartedAt = process.hrtime.bigint();
+  const accessFilter = await clientAccessFilter(req.user);
+  const accessMs = Number(process.hrtime.bigint() - accessStartedAt) / 1e6;
+  const baseFilter = combineAccessFilters(
     { 'data.importMeta.approvalOverride': { $ne: true } },
-    await clientAccessFilter(req.user)
-  ))
+    accessFilter
+  );
+  const paginated = req.query.page !== undefined || req.query.limit !== undefined || req.query.paginated === 'true';
+
+  // Other CRM screens still consume the legacy full response. Client Master
+  // explicitly requests this bounded directory representation.
+  if (!paginated) {
+    const queryStartedAt = process.hrtime.bigint();
+    const clients = await Client.find(baseFilter)
     .select([
       '-data.companyOverview.productImage',
       '-data.cpcbScreenshots', '-data.processDiagrams',
@@ -1071,7 +1082,135 @@ exports.listClients = async (req, res) => {
     .populate('adminControls.assignedTo', 'name email role avatarUrl')
     .sort({ createdAt: -1 })
     .lean();
-  res.json({ ok: true, clients });
+    const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
+    res.set('Server-Timing', `access;dur=${accessMs.toFixed(1)}, query;dur=${queryMs.toFixed(1)}`);
+    return res.json({ ok: true, clients });
+  }
+
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 10));
+  const search = String(req.query.search || '').trim();
+  const visibilityStatus = String(req.query.visibilityStatus || '').trim();
+  const staff = String(req.query.staff || '').trim();
+  const metric = String(req.query.metric || '').trim();
+  const sortBy = ['createdAt', 'updatedAt', 'workflowStatus'].includes(String(req.query.sortBy))
+    ? String(req.query.sortBy)
+    : 'createdAt';
+  const sortOrder = String(req.query.sortOrder).toLowerCase() === 'asc' ? 1 : -1;
+  const filters = [baseFilter];
+  if (search) {
+    const expression = new RegExp(escapeSearchRegex(search.slice(0, 100)), 'i');
+    filters.push({ $or: [
+      { companyIdentity: expression }, { 'data.importMeta.uniqueId': expression },
+      { 'data.importMeta.leadNumber': expression }, { 'data.importMeta.companyName': expression },
+      { 'data.basic.clientLegalName': expression }, { 'data.basic.tradeName': expression },
+      { 'data.registeredAddress.city': expression }, { 'data.registeredAddress.state': expression },
+      { 'data.registeredAddress.pincode': expression }, { 'data.basic.eprCategory': expression },
+      { 'data.basic.piboCategory': expression }, { 'data.cpcb.status': expression },
+      { 'data.otp.mobile': expression }, { 'data.otp.personName': expression },
+      { 'data.importMeta.createdBy': expression }, { 'data.importMeta.createdByEmail': expression }
+    ] });
+  }
+  if (visibilityStatus) filters.push({ 'adminControls.visibilityStatus': visibilityStatus });
+  if (staff) {
+    const staffValues = [staff];
+    if (mongoose.Types.ObjectId.isValid(staff)) staffValues.push(new mongoose.Types.ObjectId(staff));
+    const staffExpression = new RegExp(`^${escapeSearchRegex(staff.replace(/^name:/, ''))}$`, 'i');
+    const linkedLeadIds = await Lead.find(combineAccessFilters(
+      await leadAccessFilter(req.user),
+      { $or: [
+        { assignedTo: { $in: staffValues } }, { assignedStaff: { $in: staffValues } },
+        { 'assignments.assignedTo': { $in: staffValues } }, { 'assignments.assignedStaff': { $in: staffValues } },
+        { assignedToText: staffExpression }, { assignedStaffText: staffExpression },
+        { 'assignments.assignedToText': staffExpression }, { 'assignments.assignedStaffText': staffExpression }
+      ] }
+    )).distinct('_id');
+    const linkedLeadValues = linkedLeadIds.flatMap((id) => [id, String(id)]);
+    filters.push({ $or: [
+      { 'adminControls.assignedTo': { $in: staffValues } },
+      { 'data.importMeta.assignedTo': staffExpression },
+      ...(linkedLeadValues.length ? [
+        { selectedLead: { $in: linkedLeadIds } },
+        { 'data.selectedLead': { $in: linkedLeadValues } },
+        { 'data.selectedLeadSnapshot.id': { $in: linkedLeadValues } }
+      ] : [])
+    ] });
+  }
+  if (metric === 'annual') filters.push({ $or: [
+    { 'data.basic.firstAnnualReturnYear': { $exists: true, $nin: ['', null] } },
+    { 'data.firstAnnualReturnYearApplicable': { $exists: true, $nin: ['', null] } }
+  ] });
+  if (metric === 'processed') filters.push({ 'data.cpcb.status': 'Approved' });
+  if (metric === 'pending') filters.push({ 'data.cpcb.status': { $in: ['Not Started', 'Applied', 'Under Review'] } });
+  if (metric === 'progress') filters.push({ 'data.cpcb.status': 'Under Review' });
+  if (metric === 'rejected') filters.push({ 'data.cpcb.status': 'Rejected' });
+  if (metric === 'discontinued') filters.push({ 'adminControls.visibilityStatus': { $in: ['DISCONTINUED', 'SUSPENDED'] } });
+  const filter = combineAccessFilters(...filters);
+  const projection = [
+    '_id', 'selectedLead', 'assignedServiceId', 'companyIdentity', 'adminControls',
+    'workflowStatus', 'createdBy', 'createdAt', 'updatedAt', 'serviceAllocations',
+    'data.selectedLead', 'data.assignedServiceId', 'data.selectedLeadSnapshot',
+    'data.basic.clientLegalName', 'data.basic.tradeName', 'data.basic.eprCategory',
+    'data.basic.piboCategory', 'data.basic.firstAnnualReturnYear',
+    'data.registeredAddress.state',
+    'data.msmeRows.label', 'data.msmeRows.classificationYear', 'data.msmeRows.status',
+    'data.msmeRows.majorActivity', 'data.msmeRows.udyamNumber', 'data.msmeRows.turnover', 'data.msmeRows.value',
+    'data.cpcb.status', 'data.importMeta.uniqueId', 'data.importMeta.leadNumber',
+    'data.importMeta.companyName', 'data.importMeta.assignedTo', 'data.importMeta.createdBy',
+    'data.importMeta.createdByEmail', 'data.companyOverview.companyName',
+    ...(req.query.export === 'true' ? [
+      'data.basic.servicesOffered', 'data.basic.companyIndustry', 'data.basic.website',
+      'data.registeredAddress', 'data.communicationAddress', 'data.otp',
+      'data.authorised.name', 'data.authorised.designation', 'data.authorised.mobile', 'data.authorised.email',
+      'data.coordinating.name', 'data.coordinating.designation', 'data.coordinating.mobile', 'data.coordinating.email',
+      'data.compliance.gst', 'data.compliance.gstDate', 'data.compliance.cin', 'data.compliance.cinDate',
+      'data.compliance.pan', 'data.compliance.panDate', 'data.compliance.factoryLicense',
+      'data.compliance.factoryLicenseDate', 'data.compliance.factoryLicenseApplicability',
+      'data.compliance.brandOwnerProductionFacility', 'data.compliance.eprCertificate'
+    ] : [])
+  ].join(' ');
+  const queryStartedAt = process.hrtime.bigint();
+  const [clients, total, summaryRows] = await Promise.all([
+    Client.find(filter).select(projection)
+      .populate('selectedLead', 'leadCode company status eprCategory applicantType subApplicantType piboParent assignedTo assignedToText assignedStaff assignedStaffText assignedStaffEmail assignments')
+      .populate('createdBy', 'name email role avatarUrl')
+      .populate('adminControls.assignedTo', 'name email role avatarUrl')
+      .sort({ [sortBy]: sortOrder, _id: sortOrder })
+      .skip((page - 1) * limit).limit(limit).lean(),
+    Client.countDocuments(filter),
+    Client.aggregate([
+      { $match: baseFilter },
+      { $group: {
+        _id: null,
+        total: { $sum: 1 },
+        annual: { $sum: { $cond: [{ $or: [
+          { $gt: [{ $ifNull: ['$data.basic.firstAnnualReturnYear', ''] }, ''] },
+          { $gt: [{ $ifNull: ['$data.firstAnnualReturnYearApplicable', ''] }, ''] }
+        ] }, 1, 0] } },
+        processed: { $sum: { $cond: [{ $eq: ['$data.cpcb.status', 'Approved'] }, 1, 0] } },
+        pending: { $sum: { $cond: [{ $in: ['$data.cpcb.status', ['Not Started', 'Applied', 'Under Review']] }, 1, 0] } },
+        progress: { $sum: { $cond: [{ $eq: ['$data.cpcb.status', 'Under Review'] }, 1, 0] } },
+        rejected: { $sum: { $cond: [{ $eq: ['$data.cpcb.status', 'Rejected'] }, 1, 0] } },
+        discontinued: { $sum: { $cond: [{ $in: ['$adminControls.visibilityStatus', ['DISCONTINUED', 'SUSPENDED']] }, 1, 0] } }
+      } }
+    ])
+  ]);
+  const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
+  const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const summary = summaryRows[0] || { total: 0, annual: 0, processed: 0, pending: 0, progress: 0, rejected: 0, discontinued: 0 };
+  res.set('Server-Timing', `access;dur=${accessMs.toFixed(1)}, query;dur=${queryMs.toFixed(1)}, total;dur=${totalMs.toFixed(1)}`);
+  return res.json({
+    ok: true,
+    clients,
+    pagination: {
+      page, limit, total, totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1
+    },
+    summary,
+    timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
+  });
 };
 
 exports.listClientMasterCatalog = async (req, res) => {
