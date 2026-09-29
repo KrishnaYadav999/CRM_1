@@ -13,9 +13,11 @@ DigitalOcean workflow's release verification job completes successfully.
 - Public URL: `https://crmananttattva.com`
 
 The deployment script refuses to overwrite tracked server changes or deploy a
-non-fast-forward commit. It builds the frontend in a temporary directory, swaps it
-into place only after a successful build, restarts PM2, validates Nginx, and checks
-both the local and public health endpoints.
+non-fast-forward commit. GitHub Actions builds the frontend with a 4 GB Node heap,
+packages `frontend/dist`, and transfers that verified artifact over SSH. The Droplet
+only extracts the pre-built files into a temporary directory and atomically swaps
+that directory into the Nginx document root. It never installs frontend dependencies
+or runs the Vite build on the 2 GB server.
 
 ## Required GitHub Actions secrets
 
@@ -68,13 +70,26 @@ After verifying the fingerprint, put the `ssh-keyscan` output into the
 
 1. Push a commit to `main`.
 2. `DigitalOcean Deploy` installs locked dependencies, checks every backend source
-   file, runs the paginated directory API tests, and builds the complete frontend.
+   file, runs the paginated directory API tests, and builds the complete frontend on
+   the GitHub-hosted runner with `NODE_OPTIONS=--max-old-space-size=4096`.
 3. Production deployment starts only after those required checks succeed.
-4. The workflow connects through SSH and deploys that exact commit SHA.
-5. The server installs locked dependencies and builds the frontend separately from
-   the live `dist` directory.
-6. PM2 restarts `crm-backend`, Nginx configuration is validated and reloaded, and
-   `/api/health` is checked locally and through the production domain.
+4. The workflow packages `frontend/dist`, stores it as a short-lived Actions
+   artifact, and securely copies the archive to `/tmp` on the Droplet.
+5. The server verifies the archive checksum and extracts it beside the live
+   `/var/www/CRMANANTTATTVA/frontend/dist` directory. The existing `dist` remains
+   live until the new artifact has passed validation.
+6. The server fast-forwards the repository to the exact verified commit. If files
+   under `backend/` changed, it restarts `crm-backend`. Production dependencies are
+   installed only when the backend package manifest or lockfile changed;
+   frontend-only deployments do not restart PM2.
+7. The frontend directories are swapped atomically, PM2 and the local backend health
+   endpoint are checked, Nginx is validated, and both the public API and frontend
+   must return a successful response.
+
+If any post-swap check fails, the previous `dist` directory is restored. The Git
+worktree is reset to the previous commit, previous backend dependencies are restored
+when necessary, and PM2 is restarted back onto the previous backend only if the new
+backend had already touched PM2. Ignored `.env` files are never removed or replaced.
 
 The workflow can also be re-run manually from **GitHub > Actions > DigitalOcean
 Deploy > Run workflow**.
@@ -92,6 +107,7 @@ git log -1 --oneline
 pm2 status
 curl --fail http://127.0.0.1:4000/api/health
 curl --fail https://crmananttattva.com/api/health
+curl --fail https://crmananttattva.com/
 sudo nginx -t
 ```
 
