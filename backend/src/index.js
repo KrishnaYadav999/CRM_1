@@ -115,6 +115,12 @@ app.use('/api', async (req, res, next) => {
   return next();
 });
 
+app.get('/api/health', (req, res) => res.json({
+  ok: true,
+  database: mongoose.connection.readyState === 1 ? 'connected' : 'unavailable',
+  release: String(process.env.DEPLOY_COMMIT || process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || undefined
+}));
+
 app.get('/api/internal/client-onboarding-reminders', async (req, res) => {
   const cronSecret = String(process.env.CRON_SECRET || '').trim();
   const authorization = String(req.get('authorization') || '').trim();

@@ -1,0 +1,125 @@
+name: DigitalOcean Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: digitalocean-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install locked dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend
+
+      - name: Check backend syntax
+        shell: bash
+        run: find backend/src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Test paginated directory APIs
+        working-directory: backend
+        run: node --test test/directoryServerPagination.test.js
+
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+  deploy:
+    name: Deploy production
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      DEPLOY_SHA: ${{ github.sha }}
+      DO_HOST: ${{ secrets.DO_HOST }}
+      DO_USER: ${{ secrets.DO_USER }}
+      DO_PORT: ${{ secrets.DO_PORT }}
+      DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+      DO_SSH_KNOWN_HOSTS: ${{ secrets.DO_SSH_KNOWN_HOSTS }}
+      APP_DIR: ${{ vars.DO_APP_DIR }}
+      PM2_APP_NAME: ${{ vars.DO_PM2_APP_NAME }}
+      PUBLIC_URL: ${{ vars.DO_PUBLIC_URL }}
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          missing=()
+          for name in DO_HOST DO_USER DO_SSH_PRIVATE_KEY DO_SSH_KNOWN_HOSTS; do
+            if [[ -z "${!name:-}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Missing GitHub Actions secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DO_SSH_PRIVATE_KEY" > "$HOME/.ssh/digitalocean_deploy"
+          chmod 600 "$HOME/.ssh/digitalocean_deploy"
+          printf '%s\n' "$DO_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Deploy verified commit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          port="${DO_PORT:-22}"
+          app_dir="${APP_DIR:-/var/www/CRMANANTTATTVA}"
+          pm2_app="${PM2_APP_NAME:-crm-backend}"
+          public_url="${PUBLIC_URL:-https://crmananttattva.com}"
+
+          printf -v remote_command \
+            'cd %q && git fetch --prune origin main && git show %q:scripts/deploy-production.sh | bash -s -- %q %q %q' \
+            "$app_dir" "$DEPLOY_SHA" "$DEPLOY_SHA" "$pm2_app" "$public_url"
+
+          ssh \
+            -i "$HOME/.ssh/digitalocean_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$port" \
+            "$DO_USER@$DO_HOST" \
+            "$remote_command"
+
+      - name: Publish deployment summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### DigitalOcean production deployment"
+            echo ""
+            echo "- Commit: \`${DEPLOY_SHA:0:12}\`"
+            echo "- Host: \`${DO_HOST}\`"
+            echo "- App directory: \`${APP_DIR:-/var/www/CRMANANTTATTVA}\`"
+            echo "- PM2 process: \`${PM2_APP_NAME:-crm-backend}\`"
+            echo "- URL: ${PUBLIC_URL:-https://crmananttattva.com}"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
