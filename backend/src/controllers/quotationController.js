@@ -740,9 +740,6 @@ exports.listQuotations = async (req, res) => {
       { 'leadDetails.companyName': regex }, { 'leadDetails.contactPerson': regex }
     ];
   }
-  const now = new Date();
-  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = req.query.limit ? Math.min(100, Math.max(1, Number(req.query.limit) || 20)) : 0;
   const accessFilter = await quotationAccessFilter(req.user);
@@ -757,9 +754,6 @@ exports.listQuotations = async (req, res) => {
 };
 
 exports.getQuotation = async (req, res) => {
-  const now = new Date();
-  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const quotation = await Quotation.findOne(combineFilters({ _id: req.params.id }, await quotationAccessFilter(req.user)))
     .populate('createdBy', 'name email').populate('approvalDecision.actionBy', 'name email role').lean();
   if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
@@ -767,9 +761,6 @@ exports.getQuotation = async (req, res) => {
 };
 
 exports.listLeadQuotations = async (req, res) => {
-  const now = new Date();
-  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  await ensureRenumberedFinancialYear(`${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`);
   const leadId = cleanString(req.params.leadId);
   const quotations = await Quotation.find(combineFilters({ leadId }, await quotationAccessFilter(req.user)))
     .populate('createdBy', 'name email').populate('approvalDecision.actionBy', 'name email role').sort({ quotationDate: -1, createdAt: -1 }).lean();

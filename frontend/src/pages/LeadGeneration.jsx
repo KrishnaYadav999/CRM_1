@@ -1580,36 +1580,27 @@ export default function LeadGeneration() {
         setStaff(staffList);
       }
 
-      const [crmLeadsResult, quotationsResult, piboCategoriesResult, duplicateApprovalsResult, serviceCatalogResult, dropdownOptionsResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, page: 1, limit: 10 } }),
+      void Promise.allSettled([
         api.get(API_ENDPOINTS.quotations.list),
         api.get(API_ENDPOINTS.quotations.piboCategories),
         api.get(API_ENDPOINTS.leads.duplicateApprovals),
         api.get(API_ENDPOINTS.leads.serviceCatalog),
         api.get(API_ENDPOINTS.leads.dropdownOptions)
-      ]);
-      const crmLeads = crmLeadsResult.status === 'fulfilled'
-        ? (crmLeadsResult.value.data.leads || [])
-        : [];
+      ]).then(([quotationsResult, piboCategoriesResult, duplicateApprovalsResult, serviceCatalogResult, dropdownOptionsResult]) => {
+        setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
+        setPiboCategories(piboCategoriesResult.status === 'fulfilled' ? (piboCategoriesResult.value.data.categories || []) : []);
+        setDuplicateLeadApprovals(duplicateApprovalsResult.status === 'fulfilled' ? (duplicateApprovalsResult.value.data.approvals || []) : []);
+        setServiceCatalog(serviceCatalogResult.status === 'fulfilled' ? (serviceCatalogResult.value.data.catalog || []) : []);
+        setCustomDropdownOptions(dropdownOptionsResult.status === 'fulfilled' ? (dropdownOptionsResult.value.data.options || {}) : {});
+        setPiboCategoriesLoading(false);
+      }).catch(() => setPiboCategoriesLoading(false));
+
+      const crmLeadsResponse = await api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, page: 1, limit: 10 } });
+      const crmLeads = crmLeadsResponse.data.leads || [];
       setAllCcpLeads(crmLeads);
       setLeads(crmLeads);
-      if (crmLeadsResult.status === 'fulfilled') {
-        setLeadPagination(crmLeadsResult.value.data.pagination || { page: 1, limit: 10, total: crmLeads.length, totalPages: 1 });
-        setLeadSummary(crmLeadsResult.value.data.summary || { total: crmLeads.length, existing: 0, converted: 0, new: crmLeads.length });
-      }
-      if (crmLeadsResult.status === 'rejected') {
-        setError(
-          crmLeadsResult.reason?.response?.data?.detail
-          || crmLeadsResult.reason?.response?.data?.error
-          || 'Unable to fetch leads from CRM. Please retry.'
-        );
-      }
-      setQuotations(quotationsResult.status === 'fulfilled' ? (quotationsResult.value.data.quotations || []) : []);
-      setPiboCategories(piboCategoriesResult.status === 'fulfilled' ? (piboCategoriesResult.value.data.categories || []) : []);
-      setDuplicateLeadApprovals(duplicateApprovalsResult.status === 'fulfilled' ? (duplicateApprovalsResult.value.data.approvals || []) : []);
-      setServiceCatalog(serviceCatalogResult.status === 'fulfilled' ? (serviceCatalogResult.value.data.catalog || []) : []);
-      setCustomDropdownOptions(dropdownOptionsResult.status === 'fulfilled' ? (dropdownOptionsResult.value.data.options || {}) : {});
-      setPiboCategoriesLoading(false);
+      setLeadPagination(crmLeadsResponse.data.pagination || { page: 1, limit: 10, total: crmLeads.length, totalPages: 1 });
+      setLeadSummary(crmLeadsResponse.data.summary || { total: crmLeads.length, existing: 0, converted: 0, new: crmLeads.length });
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to fetch lead data.');
       setLeads([]);

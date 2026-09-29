@@ -304,12 +304,6 @@ exports.listCalendarItems = async (req, res) => {
   const items = await CalendarItem.find(calendarScopeFilter(await getVisibleUserScope(req.user)))
     .sort({ scheduledDate: 1, scheduledTime: 1, createdAt: -1 })
     .lean();
-  // Idempotently repair follow-ups completed before lead/calendar syncing was
-  // introduced. This makes historical completed cards move to Previous on the
-  // next calendar refresh without requiring a database migration.
-  await Promise.all(items
-    .filter((item) => String(item.status || '').toLowerCase() === 'completed' && isFollowUpItem(item))
-    .map((item) => closeLinkedLeadFollowUp(item, req.user).catch(() => null)));
   res.json({ ok: true, items: items.map(mapItem) });
 };
 

@@ -2217,17 +2217,6 @@ exports.listDuplicateLeadApprovals = async (req, res) => {
         leadCreatorEmail: payload.leadCreatorEmail || lead.createdBy?.email || lead.createdByEmail || ''
       };
     });
-    console.info('[PendingApproval:po-debug]', purchaseOrderApprovals.map((approval) => ({
-      approvalId: String(approval._id),
-      clientName: approval.clientName,
-      rows: (approval.payload?.poYearRows || []).map((row) => ({
-        poAmount: row.poAmount ?? null,
-        hasPoProof: Boolean(row.hasPoFileUrl && row.poFileUrl),
-        quotationItems: Array.isArray(row.quotationItems) ? row.quotationItems.length : 0,
-        quotationBasicAmount: row.quotationBasicAmount ?? null
-      })),
-      ...approval.poDebug
-    })));
   }
   res.json({ ok: true, approvals, poStorage: {
     binaryStore: 'Cloudinary: crm/leads/purchase-orders',

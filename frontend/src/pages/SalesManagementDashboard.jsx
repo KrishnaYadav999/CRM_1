@@ -250,15 +250,15 @@ export default function SalesManagementDashboard() {
     quiet ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
-      const [salesResult, operationResult, quotationResult] = await Promise.allSettled([
-        api.get(API_ENDPOINTS.salesMis.managementDashboard, { params: filters, timeout: 60000 }),
+      void Promise.allSettled([
         api.get(API_ENDPOINTS.auth.userProductivityReport, { params: { from: filters.dateFrom, to: filters.dateTo }, timeout: 60000 }),
         api.get(API_ENDPOINTS.quotations.list, { timeout: 60000 })
-      ])
-      if (salesResult.status === 'rejected') throw salesResult.reason
-      setData(salesResult.value.data || EMPTY_DATA)
-      if (operationResult.status === 'fulfilled') setOperations(operationResult.value.data || operationResult.value || EMPTY_OPERATIONS)
-      if (quotationResult.status === 'fulfilled') setQuotations(quotationResult.value.data?.quotations || [])
+      ]).then(([operationResult, quotationResult]) => {
+        if (operationResult.status === 'fulfilled') setOperations(operationResult.value.data || operationResult.value || EMPTY_OPERATIONS)
+        if (quotationResult.status === 'fulfilled') setQuotations(quotationResult.value.data?.quotations || [])
+      })
+      const salesResult = await api.get(API_ENDPOINTS.salesMis.managementDashboard, { params: filters, timeout: 60000 })
+      setData(salesResult.data || EMPTY_DATA)
       setLastUpdated(new Date())
     } catch (requestError) {
       setError(requestError?.response?.data?.error || 'Unable to load the sales management dashboard.')
