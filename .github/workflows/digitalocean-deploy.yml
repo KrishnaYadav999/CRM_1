@@ -142,7 +142,7 @@ jobs:
           public_url="${PUBLIC_URL:-https://crmananttattva.com}"
 
           printf -v remote_command \
-            'cd %q && git fetch --prune origin main && git show %q:scripts/deploy-production.sh | bash -s -- %q %q %q %q %q' \
+            'cd %q && git fetch --prune origin && git show %q:scripts/deploy-production.sh | bash -s -- %q %q %q %q %q' \
             "$app_dir" "$DEPLOY_SHA" "$DEPLOY_SHA" "$pm2_app" "$public_url" \
             "$REMOTE_FRONTEND_ARTIFACT" "$FRONTEND_ARTIFACT_SHA256"
 

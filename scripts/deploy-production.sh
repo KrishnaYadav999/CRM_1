@@ -48,7 +48,7 @@ rollback_deployment() {
   cleanup_build_directory
 
   if [[ "$CODE_UPDATED" == true ]]; then
-    git reset --hard "$PREVIOUS_SHA"
+    git checkout --detach "$PREVIOUS_SHA"
     if [[ "$BACKEND_DEPS_CHANGED" == true ]]; then
       npm ci --prefix backend --omit=dev || true
     fi
@@ -67,8 +67,8 @@ if [[ "$(git rev-parse --is-inside-work-tree)" != "true" ]]; then
   exit 1
 fi
 
-if [[ "$(git branch --show-current)" != "main" ]]; then
-  echo "Production worktree must be on the main branch."
+if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Expected commit must be a full 40-character Git SHA."
   exit 1
 fi
 
@@ -78,21 +78,10 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-git fetch --prune origin main
+git fetch --prune origin
 
 if ! git cat-file -e "${EXPECTED_SHA}^{commit}" 2>/dev/null; then
   echo "Expected commit does not exist on the server: $EXPECTED_SHA"
-  exit 1
-fi
-
-REMOTE_SHA="$(git rev-parse origin/main)"
-if [[ "$REMOTE_SHA" != "$EXPECTED_SHA" ]]; then
-  echo "origin/main is $REMOTE_SHA but the workflow requested $EXPECTED_SHA."
-  exit 1
-fi
-
-if ! git merge-base --is-ancestor "$PREVIOUS_SHA" "$EXPECTED_SHA"; then
-  echo "Deployment is not a fast-forward from the current production commit."
   exit 1
 fi
 
@@ -127,8 +116,13 @@ if ! git diff --quiet "$PREVIOUS_SHA" "$EXPECTED_SHA" -- backend/package.json ba
   BACKEND_DEPS_CHANGED=true
 fi
 
-git merge --ff-only "$EXPECTED_SHA"
+git checkout --detach "$EXPECTED_SHA"
 CODE_UPDATED=true
+
+if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
+  echo "Production worktree did not switch to the requested commit."
+  false
+fi
 
 if [[ "$BACKEND_CHANGED" == true ]]; then
   if [[ "$BACKEND_DEPS_CHANGED" == true ]]; then
