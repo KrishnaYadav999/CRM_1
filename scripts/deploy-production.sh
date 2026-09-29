@@ -7,6 +7,7 @@ PM2_APP_NAME="${2:-crm-backend}"
 PUBLIC_URL="${3:-https://crmananttattva.com}"
 FRONTEND_ARTIFACT="${4:?Frontend artifact path is required}"
 FRONTEND_ARTIFACT_SHA256="${5:?Frontend artifact SHA-256 is required}"
+DEPLOY_DRIVER_PATH="${6:-}"
 APP_DIR="$(pwd -P)"
 LOCK_FILE="/tmp/crmananttattva-production-deploy.lock"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
@@ -31,6 +32,9 @@ cleanup_build_directory() {
   fi
   if [[ -n "${FRONTEND_ARTIFACT:-}" && -f "$FRONTEND_ARTIFACT" ]]; then
     rm -f -- "$FRONTEND_ARTIFACT"
+  fi
+  if [[ "$DEPLOY_DRIVER_PATH" =~ ^/tmp/crm-deploy-[0-9]+-[0-9]+\.sh$ && -f "$DEPLOY_DRIVER_PATH" ]]; then
+    rm -f -- "$DEPLOY_DRIVER_PATH"
   fi
 }
 
@@ -174,6 +178,9 @@ CODE_UPDATED=false
 trap - ERR
 
 rm -f -- "$FRONTEND_ARTIFACT" || echo "Warning: could not remove transferred frontend artifact."
+if [[ "$DEPLOY_DRIVER_PATH" =~ ^/tmp/crm-deploy-[0-9]+-[0-9]+\.sh$ ]]; then
+  rm -f -- "$DEPLOY_DRIVER_PATH" || echo "Warning: could not remove transferred deployment driver."
+fi
 if [[ -n "$BACKUP_DIST" && -d "$BACKUP_DIST" ]]; then
   rm -rf -- "$BACKUP_DIST" || echo "Warning: could not remove previous frontend backup."
 fi

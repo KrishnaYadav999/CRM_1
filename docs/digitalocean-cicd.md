@@ -19,6 +19,11 @@ only extracts the pre-built files into a temporary directory and atomically swap
 that directory into the Nginx document root. It never installs frontend dependencies
 or runs the Vite build on the 2 GB server.
 
+The workflow also transfers the deployment driver from its own checked-out release.
+It does not execute whichever deployment script happens to be present in the
+Droplet's current worktree, so a server already left in detached-HEAD mode remains
+safe and deployable.
+
 ## Required GitHub Actions secrets
 
 Create these under **Repository Settings > Secrets and variables > Actions**:

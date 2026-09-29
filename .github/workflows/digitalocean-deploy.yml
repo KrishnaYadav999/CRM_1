@@ -61,7 +61,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist-${{ github.sha }}
-          path: frontend-dist.tgz
+          path: |
+            frontend-dist.tgz
+            scripts/deploy-production.sh
           if-no-files-found: error
           retention-days: 1
 
@@ -101,6 +103,7 @@ jobs:
             exit 1
           fi
           test -s deployment-artifact/frontend-dist.tgz
+          test -s deployment-artifact/scripts/deploy-production.sh
 
       - name: Configure SSH
         shell: bash
@@ -118,6 +121,7 @@ jobs:
           set -Eeuo pipefail
           port="${DO_PORT:-22}"
           remote_artifact="/tmp/crm-frontend-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tgz"
+          remote_deploy_script="/tmp/crm-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"
           artifact_sha="$(sha256sum deployment-artifact/frontend-dist.tgz | awk '{print $1}')"
 
           scp \
@@ -129,7 +133,17 @@ jobs:
             deployment-artifact/frontend-dist.tgz \
             "$DO_USER@$DO_HOST:$remote_artifact"
 
+          scp \
+            -i "$HOME/.ssh/digitalocean_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -P "$port" \
+            deployment-artifact/scripts/deploy-production.sh \
+            "$DO_USER@$DO_HOST:$remote_deploy_script"
+
           echo "REMOTE_FRONTEND_ARTIFACT=$remote_artifact" >> "$GITHUB_ENV"
+          echo "REMOTE_DEPLOY_SCRIPT=$remote_deploy_script" >> "$GITHUB_ENV"
           echo "FRONTEND_ARTIFACT_SHA256=$artifact_sha" >> "$GITHUB_ENV"
 
       - name: Deploy verified commit and frontend artifact
@@ -142,9 +156,9 @@ jobs:
           public_url="${PUBLIC_URL:-https://crmananttattva.com}"
 
           printf -v remote_command \
-            'cd %q && git fetch --prune origin && git show %q:scripts/deploy-production.sh | bash -s -- %q %q %q %q %q' \
-            "$app_dir" "$DEPLOY_SHA" "$DEPLOY_SHA" "$pm2_app" "$public_url" \
-            "$REMOTE_FRONTEND_ARTIFACT" "$FRONTEND_ARTIFACT_SHA256"
+            'cd %q && bash %q %q %q %q %q %q %q' \
+            "$app_dir" "$REMOTE_DEPLOY_SCRIPT" "$DEPLOY_SHA" "$pm2_app" "$public_url" \
+            "$REMOTE_FRONTEND_ARTIFACT" "$FRONTEND_ARTIFACT_SHA256" "$REMOTE_DEPLOY_SCRIPT"
 
           ssh \
             -i "$HOME/.ssh/digitalocean_deploy" \
