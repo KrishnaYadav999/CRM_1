@@ -33,6 +33,7 @@ import {
   FileCheck2,
   FileClock,
   FileText,
+  Factory,
   Download,
   Gauge,
   Eye,
@@ -3622,6 +3623,64 @@ function UserWisePoStatus({ rows = [], leads = [], users = [], onRefresh, onOpen
   )
 }
 
+function buildKpiApplicantGroups(counts = new Map()) {
+  const value = (name) => Number(counts.get(name) || 0)
+  const groups = [
+    { label: 'Producer', note: 'Producer applicants', value: value('Producer'), tone: 'orange', icon: Factory },
+    { label: 'Importer / PWP', note: 'Importer and PWP', value: value('Importer') + value('PWP'), tone: 'green', icon: Factory },
+    { label: 'Recycler / SIMP', note: 'Recycler and SIMP', value: value('Recycler') + value('SIMP'), tone: 'blue', icon: Factory },
+    { label: 'Brand Owner', note: value('Other') ? `Other applicants ${value('Other')}` : 'Brand owner applicants', value: value('Brand Owner') + value('Other'), tone: 'purple', icon: FileText }
+  ]
+  return { total: groups.reduce((sum, group) => sum + group.value, 0), groups }
+}
+
+function KpiFlowPanel({ title, total = 0, groups = [], delay = 0 }) {
+  return (
+    <motion.section
+      className="epr-kpi-flow-panel"
+      initial={{ opacity: 0, y: 24, scale: .985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: .55, delay, ease: [0.22, 1, 0.36, 1] }}
+      aria-label={`${title} KPI hierarchy`}
+    >
+      <div className="epr-kpi-glow" aria-hidden="true" />
+      <motion.header className="epr-kpi-banner" whileHover={{ y: -2, scale: 1.01 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+        <Target aria-hidden="true" />
+        <span><strong>KPI</strong><small>Key Performance Indicator</small></span>
+      </motion.header>
+      <motion.i className="epr-kpi-arrow epr-kpi-arrow-one" aria-hidden="true" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} transition={{ delay: delay + .28, duration: .35 }} />
+      <motion.div className="epr-kpi-stage" initial={{ opacity: 0, scale: .94 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: delay + .22, duration: .36 }}>
+        <RefreshCw aria-hidden="true" />
+        <strong>{title}</strong>
+      </motion.div>
+      <motion.i className="epr-kpi-arrow epr-kpi-arrow-two" aria-hidden="true" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} transition={{ delay: delay + .42, duration: .35 }} />
+      <motion.div className="epr-kpi-total" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: delay + .36, duration: .42 }}>
+        <span><BarChart3 aria-hidden="true" /></span>
+        <div><small>Total</small><motion.strong key={total} initial={{ opacity: 0, scale: .65 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 230, damping: 15, delay: delay + .48 }}>{total.toLocaleString('en-IN')}</motion.strong><p>{title} (Total)</p></div>
+      </motion.div>
+      <div className="epr-kpi-branches" aria-hidden="true"><span /><i /><i /><i /><i /></div>
+      <div className="epr-kpi-group-grid">
+        {groups.map(({ label, note, value, tone, icon: Icon }, index) => (
+          <motion.article
+            key={label}
+            className={`epr-kpi-group epr-kpi-group-${tone}`}
+            initial={{ opacity: 0, y: 20, scale: .94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ delay: delay + .55 + (index * .07), duration: .42, ease: [0.22, 1, 0.36, 1] }}
+            whileHover={{ y: -5, scale: 1.018 }}
+          >
+            <span><Icon aria-hidden="true" /></span>
+            <h3>{label}</h3>
+            <p>{note}</p>
+            <motion.strong key={value} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: delay + .68 + (index * .07) }}>{value.toLocaleString('en-IN')}</motion.strong>
+            <i aria-hidden="true" />
+          </motion.article>
+        ))}
+      </div>
+    </motion.section>
+  )
+}
+
 function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh }) {
   const leadPoRows = useMemo(() => buildLeadPoRows(leads, users), [leads, users])
   const dashboardRows = leadPoRows.length ? leadPoRows : rows
@@ -3671,6 +3730,33 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
     })
     return { categories: categories.map((item) => ({ ...item, applicants: [...item.applicants.entries()].sort((a, b) => b[1] - a[1]) })), applicants: PO_APPLICANT_BUCKETS.map((name) => ({ name, count: applicantMap.get(name) || 0 })) }
   }, [selectedRows])
+  const registrationKpi = useMemo(() => {
+    const counts = new Map(PO_APPLICANT_BUCKETS.map((name) => [name, 0]))
+    selectedRows.forEach((row) => {
+      const applicant = getPoApplicantBucket(row)
+      counts.set(applicant, (counts.get(applicant) || 0) + 1)
+    })
+    return buildKpiApplicantGroups(counts)
+  }, [selectedRows])
+  const annualReturnKpi = useMemo(() => {
+    const visibleClients = new Set(selectedRows.flatMap((row) => [row.atplCode, normalizeKey(row.companyName)]).filter(Boolean))
+    const counts = new Map(PO_APPLICANT_BUCKETS.map((name) => [name, 0]))
+    const filings = new Set()
+    rows.forEach((row) => {
+      const rowKeys = [row.atplCode, normalizeKey(row.companyName)].filter(Boolean)
+      if (!rowKeys.some((key) => visibleClients.has(key))) return
+      ;(row.annualReturns || []).forEach((filing, index) => {
+        const filingYear = filing.annualYear || filing.financialYear || filing.year || row.annualYear || row.firstAnnualReturnYear
+        if (financialYearStart(filingYear) !== financialYearStart(financialYear)) return
+        const filingKey = filing._id || filing.annualReturnId || `${row.id || row.clientKey || row.companyName}:${filingYear}:${index}`
+        if (filings.has(filingKey)) return
+        filings.add(filingKey)
+        const applicant = getPoApplicantBucket(row)
+        counts.set(applicant, (counts.get(applicant) || 0) + 1)
+      })
+    })
+    return buildKpiApplicantGroups(counts)
+  }, [financialYear, rows, selectedRows])
   const categoryColors = ['#10b981', '#1687e8', '#fb8500', '#7c3aed']
   const categoryChartData = analytics.categories.filter((item) => item.total)
   const chartData = categoryChartData.length ? categoryChartData : [{ name: 'No data', total: 1 }]
@@ -3688,6 +3774,10 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
       <button type="button" className="epr-clear-filter" onClick={resetFilters}>Clear</button>
     </div>
     <div className="epr-category-grid">{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
+    <div className="epr-kpi-flow-grid">
+      <KpiFlowPanel title="Annual Return" total={annualReturnKpi.total} groups={annualReturnKpi.groups} delay={0.08} />
+      <KpiFlowPanel title="Registration" total={registrationKpi.total} groups={registrationKpi.groups} delay={0.18} />
+    </div>
     <div className="epr-chart-grid">
       <article className="epr-chart-card"><header><div><h2>Leads by EPR Category</h2><p>Filtered category distribution</p></div><b>{selectedRows.length} total</b></header><div className="epr-donut-body"><div className="epr-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={chartData} dataKey="total" nameKey="name" innerRadius={62} outerRadius={86} paddingAngle={3} stroke="none">{chartData.map((entry, index) => <Cell key={entry.name} fill={categoryChartData.length ? categoryColors[index] : '#e5e7eb'} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><span><strong>{selectedRows.length}</strong>Total</span></div><div className="epr-chart-legend">{analytics.categories.map((item, index) => <div key={item.name}><i style={{ background: categoryColors[index] }} /><span>{item.name}</span><strong>{item.total}</strong><small>{selectedRows.length ? `${((item.total / selectedRows.length) * 100).toFixed(1)}%` : '0%'}</small></div>)}</div></div></article>
       <article className="epr-chart-card"><header><div><h2>Applicant / Sub-applicant Mix</h2><p>Live distribution by applicant type</p></div></header><div className="epr-bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={analytics.applicants} margin={{ top: 24, right: 10, left: -20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8edf3" /><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><Tooltip cursor={{ fill: '#f8fafc' }} /><Bar dataKey="count" radius={[7, 7, 0, 0]} maxBarSize={54}>{analytics.applicants.map((item, index) => <Cell key={item.name} fill={['#fb923c', '#34d399', '#8b5cf6', '#0ea5e9', '#f43f5e', '#94a3b8', '#fbbf24'][index]} />)}</Bar></BarChart></ResponsiveContainer></div></article>
