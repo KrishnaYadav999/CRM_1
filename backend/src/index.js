@@ -21,6 +21,7 @@ const purchaseOrderRoutes = require('./routes/purchaseOrders');
 const purchaseProofRoutes = require('./routes/purchaseProofs');
 const healthReportAssignmentRoutes = require('./routes/healthReportAssignments');
 const salesMisRoutes = require('./routes/salesMis');
+const dashboardInsightsRoutes = require('./routes/dashboardInsights');
 const { startPendingApprovalReminderScheduler } = require('./services/pendingApprovalNotifications');
 const { runWeeklyPendingQuotationDigest } = require('./services/weeklyPendingQuotationDigest');
 const { runClientComplianceCorrectionReminders, startClientComplianceCorrectionReminderScheduler } = require('./services/clientComplianceCorrectionReminders');
@@ -31,6 +32,7 @@ const { startLeadServiceApprovalReminderScheduler, runLeadServiceApprovalReminde
 const { startProvisionalLeadClosureScheduler } = require('./services/provisionalLeadClosureWorkflow');
 const { startTemporaryAssignmentReminderScheduler } = require('./services/temporaryLeadAssignmentReminders');
 const { applyKnownDataCorrections } = require('./services/knownDataCorrections');
+const { pauseExistingPendingClientApprovalTimers } = require('./services/clientReviewReminderLifecycle');
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception', err);
@@ -76,6 +78,7 @@ const isServerlessRuntime = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA
 function connectAndStartServices() {
   dbReady = connectDB().then(async () => {
     await applyKnownDataCorrections().catch((error) => console.error('Known CRM data correction failed', error));
+    await pauseExistingPendingClientApprovalTimers().catch((error) => console.error('Pending client reminder reconciliation failed', error));
     // Run once on every deployment/startup so legacy RED records immediately
     // receive their fresh 24-hour recovery window and email notification.
     await runClientComplianceCorrectionReminders().catch((error) => console.error('Compliance correction startup scan failed', error));
@@ -174,6 +177,7 @@ app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/purchase-proofs', purchaseProofRoutes);
 app.use('/api/health-report-assignments', healthReportAssignmentRoutes);
 app.use('/api/sales-mis', salesMisRoutes);
+app.use('/api/dashboard-insights', dashboardInsightsRoutes);
 
 app.get('/', (req, res) => res.send({
   ok: true,

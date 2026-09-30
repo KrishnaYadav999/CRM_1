@@ -1,0 +1,127 @@
+const Client = require('../models/Client');
+const Lead = require('../models/Lead');
+const PurchaseData = require('../models/PurchaseData');
+const Quotation = require('../models/Quotation');
+const SalesData = require('../models/SalesData');
+const User = require('../models/User');
+const { loadPurchaseOrders } = require('./purchaseOrderController');
+const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+
+const text = (value) => String(value?._id || value?.id || value || '').trim();
+
+function countBy(rows, key) {
+  const totals = new Map();
+  rows.forEach((row) => {
+    const value = String(row[key] || 'Not specified').trim() || 'Not specified';
+    totals.set(value, (totals.get(value) || 0) + 1);
+  });
+  return [...totals.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+async function visibleUsers(scope, requester) {
+  const filter = scope === null ? { isActive: { $ne: false } } : { _id: { $in: scope.ids }, isActive: { $ne: false } };
+  const users = await User.find(filter).select('_id name email role managerId').sort({ name: 1 }).lean();
+  if (!users.length && requester?._id) return [{ _id: requester._id, name: requester.name, email: requester.email, role: requester.role }];
+  return users;
+}
+
+exports.purchaseOrders = async (req, res) => {
+  const scope = await getVisibleUserScope(req.user);
+  const leadFilter = ownerFilter(scope, 'createdBy', 'assignedTo', [
+    'createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedToText',
+    'assignedStaffText', 'assignedStaffEmail', 'assignments.assignedToText',
+    'assignments.assignedToEmail', 'serviceSelections.createdByCrmUserId',
+    'serviceSelections.createdByEmail', 'serviceSelections.createdByName'
+  ], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+  const [loadedRecords, users] = await Promise.all([
+    loadPurchaseOrders({ Lead, Client, Quotation }, leadFilter),
+    visibleUsers(scope, req.user)
+  ]);
+  const allowedIds = new Set((scope?.ids || []).map(text));
+  const allowedIdentities = new Set((scope?.identities || []).map((value) => String(value).trim().toLowerCase()));
+  const records = scope === null ? loadedRecords : loadedRecords.filter((record) => (
+    allowedIds.has(text(record.ownerId)) || allowedIdentities.has(String(record.ownerName || '').trim().toLowerCase())
+  ));
+  const userMap = new Map(users.map((user) => [text(user), user]));
+  const grouped = new Map(users.map((user) => [text(user), { userId: text(user), userName: user.name || user.email, role: user.role || '', clientIds: new Set(), total: 0, open: 0, closed: 0, amount: 0 }]));
+  records.forEach((record) => {
+    const ownerId = text(record.ownerId);
+    if (!grouped.has(ownerId)) grouped.set(ownerId || 'unassigned', { userId: ownerId, userName: record.ownerName || 'Unassigned', role: userMap.get(ownerId)?.role || '', clientIds: new Set(), total: 0, open: 0, closed: 0, amount: 0 });
+    const row = grouped.get(ownerId || 'unassigned');
+    row.clientIds.add(record.clientId || record.leadId);
+    row.total += 1;
+    row.amount += Number(record.poAmount) || 0;
+    if (record.approvalStatus === 'APPROVED') row.closed += 1;
+    else row.open += 1;
+  });
+  const userRows = [...grouped.values()].map(({ clientIds, ...row }) => ({ ...row, clients: clientIds.size })).filter((row) => row.total || row.clients);
+  return res.json({
+    ok: true,
+    scope: scope === null ? 'all' : 'role-scoped',
+    summary: {
+      total: records.length,
+      open: records.filter((row) => row.approvalStatus !== 'APPROVED').length,
+      closed: records.filter((row) => row.approvalStatus === 'APPROVED').length,
+      clients: new Set(records.map((row) => row.clientId || row.leadId)).size,
+      amount: records.reduce((sum, row) => sum + (Number(row.poAmount) || 0), 0)
+    },
+    applicantTypes: countBy(records, 'applicantType'),
+    subApplicantTypes: countBy(records, 'subApplicantType'),
+    users: userRows.sort((a, b) => b.total - a.total || a.userName.localeCompare(b.userName)),
+    records: records.sort((a, b) => new Date(b.poReceivedDate || 0) - new Date(a.poReceivedDate || 0))
+  });
+};
+
+exports.purchaseSales = async (req, res) => {
+  const scope = await getVisibleUserScope(req.user);
+  const clientFilter = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
+    'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
+    'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
+  ]);
+  const [clients, users] = await Promise.all([
+    Client.find(clientFilter).select('_id createdBy adminControls.assignedTo data.basic.clientLegalName data.basic.tradeName data.importMeta.companyName').lean(),
+    visibleUsers(scope, req.user)
+  ]);
+  const clientIds = clients.map((client) => client._id);
+  const [purchases, sales] = await Promise.all([
+    PurchaseData.find({ clientId: { $in: clientIds } }).select('clientId financialYear calculatedStatus managerVerificationStatus complianceVerificationStatus submittedBy createdBy updatedAt').lean(),
+    SalesData.find({ clientId: { $in: clientIds } }).select('clientId financialYear calculatedStatus managerVerificationStatus complianceVerificationStatus submittedBy createdBy updatedAt').lean()
+  ]);
+  const purchaseByClient = new Map();
+  const salesByClient = new Map();
+  purchases.forEach((row) => purchaseByClient.set(text(row.clientId), [...(purchaseByClient.get(text(row.clientId)) || []), row]));
+  sales.forEach((row) => salesByClient.set(text(row.clientId), [...(salesByClient.get(text(row.clientId)) || []), row]));
+  const details = clients.map((client) => {
+    const clientId = text(client);
+    const purchaseRows = purchaseByClient.get(clientId) || [];
+    const salesRows = salesByClient.get(clientId) || [];
+    const ownerId = text(client.adminControls?.assignedTo || client.createdBy);
+    return {
+      clientId,
+      clientName: client.data?.basic?.clientLegalName || client.data?.basic?.tradeName || client.data?.importMeta?.companyName || 'Untitled client',
+      ownerId,
+      purchaseCount: purchaseRows.length,
+      salesCount: salesRows.length,
+      purchaseStatus: purchaseRows[0]?.calculatedStatus || 'Not started',
+      salesStatus: salesRows[0]?.calculatedStatus || 'Not started',
+      financialYears: [...new Set([...purchaseRows, ...salesRows].map((row) => row.financialYear).filter(Boolean))]
+    };
+  });
+  const userMap = new Map(users.map((user) => [text(user), user]));
+  const grouped = new Map(users.map((user) => [text(user), { userId: text(user), userName: user.name || user.email, role: user.role || '', clients: 0, purchased: 0, sales: 0, complete: 0 }]));
+  details.forEach((detail) => {
+    if (!grouped.has(detail.ownerId)) grouped.set(detail.ownerId || 'unassigned', { userId: detail.ownerId, userName: userMap.get(detail.ownerId)?.name || 'Unassigned', role: userMap.get(detail.ownerId)?.role || '', clients: 0, purchased: 0, sales: 0, complete: 0 });
+    const row = grouped.get(detail.ownerId || 'unassigned');
+    row.clients += 1;
+    row.purchased += detail.purchaseCount;
+    row.sales += detail.salesCount;
+    if (detail.purchaseCount && detail.salesCount) row.complete += 1;
+  });
+  return res.json({
+    ok: true,
+    scope: scope === null ? 'all' : 'role-scoped',
+    summary: { clients: clients.length, purchased: purchases.length, sales: sales.length, complete: details.filter((row) => row.purchaseCount && row.salesCount).length },
+    users: [...grouped.values()].filter((row) => row.clients || row.purchased || row.sales).sort((a, b) => b.clients - a.clients || a.userName.localeCompare(b.userName)),
+    clients: details
+  });
+};

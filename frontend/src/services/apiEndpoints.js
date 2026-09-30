@@ -125,6 +125,10 @@ const API_ENDPOINTS = {
   salesMis: {
     managementDashboard: '/sales-mis/management-dashboard'
   },
+  dashboardInsights: {
+    purchaseOrders: '/dashboard-insights/purchase-orders',
+    purchaseSales: '/dashboard-insights/purchase-sales'
+  },
   notifications: {
     list: '/notifications',
     create: '/notifications',

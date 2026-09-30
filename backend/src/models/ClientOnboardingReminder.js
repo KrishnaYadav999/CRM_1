@@ -15,6 +15,8 @@ const ClientOnboardingReminderSchema = new mongoose.Schema({
   missingFields: [{ type: String }],
   completed: { type: Boolean, default: false, index: true },
   remindedAt: { type: Date, index: true },
+  reviewStatus: { type: String, enum: ['ACTIVE', 'PENDING_COMPLIANCE', 'APPROVED'], default: 'ACTIVE', index: true },
+  reviewPausedAt: { type: Date },
   source: { type: String, default: 'manual-lead-conversion' }
 }, { timestamps: true });
 

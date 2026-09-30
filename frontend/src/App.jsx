@@ -31,6 +31,8 @@ import ActivityLogs from './pages/ActivityLogs'
 import SalesManagementDashboard from './pages/SalesManagementDashboard'
 import ClientDailyMIS from './pages/ClientDailyMIS'
 import Dummey from './pages/Dummey'
+import PurchaseOrderDashboard from './pages/PurchaseOrderDashboard'
+import PurchaseSalesDashboard from './pages/PurchaseSalesDashboard'
 import api, { API_ENDPOINTS, hasStoredAuthToken } from './services/api'
 import SupportTicketMilestoneCelebration from './components/SupportTicketMilestoneCelebration'
 
@@ -118,6 +120,8 @@ function App(){
         <Route path="/mis/client-daily" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'manager', 'operation head', 'operations head']}><ClientDailyMIS /></ProtectedRoute>} />
         <Route path="/mis/sales-management" element={<Navigate to="/mis" replace />} />
         <Route path="/dashboard/activity-logs" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><ActivityLogs/></ProtectedRoute>} />
+        <Route path="/po-dashboard" element={<ProtectedRoute><PurchaseOrderDashboard/></ProtectedRoute>} />
+        <Route path="/purchase-sales-dashboard" element={<ProtectedRoute><PurchaseSalesDashboard/></ProtectedRoute>} />
         <Route path="/pending-approval" element={<ProtectedRoute><PendingApproval/></ProtectedRoute>} />
         <Route path="/pending-approval/clients/:clientId/review" element={<ProtectedRoute allowedRoles={['admin', 'superadmin', 'compliance']}><ClientComplianceReview/></ProtectedRoute>} />
         <Route path="/pending-leads" element={<Navigate to="/pending-leads/open" replace />} />

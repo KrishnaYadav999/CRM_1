@@ -70,7 +70,7 @@ async function notifyRecipient(recipient, rows, audienceLabel) {
 }
 
 async function runClientOnboardingReminders(now = new Date()) {
-  const candidates = await ClientOnboardingReminder.find({ completed: false, remindedAt: { $exists: false }, firstBasicInfoAt: { $lte: new Date(now.getTime() - 7 * DAY_MS) } }).lean();
+  const candidates = await ClientOnboardingReminder.find({ completed: false, reviewStatus: { $nin: ['PENDING_COMPLIANCE', 'APPROVED'] }, remindedAt: { $exists: false }, firstBasicInfoAt: { $lte: new Date(now.getTime() - 7 * DAY_MS) } }).lean();
   const due = [];
   for (const row of candidates) {
     const notRegistered = mongooseId(row.sourceLeadId) && await Client.exists({

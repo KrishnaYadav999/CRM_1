@@ -56,8 +56,16 @@ function resolveQuotation(row, lead, quotations) {
 }
 
 async function loadPurchaseOrders(models, leadFilter = {}) {
-  const [leads, clients, quotations] = await Promise.all([
-    leanFind(models.Lead, leadFilter), leanFind(models.Client, {}), leanFind(models.Quotation, {})
+  const leads = await leanFind(models.Lead, leadFilter);
+  const leadIds = (leads || []).map(idText).filter(Boolean);
+  const leadCodes = (leads || []).map((lead) => text(lead.leadCode)).filter(Boolean);
+  if (!leadIds.length && !leadCodes.length) return [];
+  const quotationLookup = [];
+  if (leadIds.length) quotationLookup.push({ leadRef: { $in: leadIds } }, { leadId: { $in: leadIds } });
+  if (leadCodes.length) quotationLookup.push({ leadCode: { $in: leadCodes } }, { businessLeadCode: { $in: leadCodes } });
+  const [clients, quotations] = await Promise.all([
+    leanFind(models.Client, { selectedLead: { $in: leadIds } }),
+    leanFind(models.Quotation, { $or: quotationLookup })
   ]);
   const clientByLead = new Map();
   for (const client of clients || []) {
@@ -75,6 +83,7 @@ async function loadPurchaseOrders(models, leadFilter = {}) {
         const services = (Array.isArray(row.services) ? row.services : [])
           .map(serviceObject).filter((service) => service.name);
         const firstService = services[0] || null;
+        const leadService = lead.serviceSelections?.[assignmentIndex] || {};
         const poAmount = Number(row.poAmount);
         const fallbackAmount = Number(quotation?.grandTotal);
         const createdAt = asIso(row.createdAt || lead.createdAt);
@@ -91,6 +100,12 @@ async function loadPurchaseOrders(models, leadFilter = {}) {
           poAmount: Number.isFinite(poAmount) && poAmount > 0 ? poAmount : (Number.isFinite(fallbackAmount) ? fallbackAmount : null),
           currency: text(row.currency) || 'INR',
           financialYear: text(row.fy) || null,
+          clientName: text(lead.company || lead.companyName) || 'Untitled client',
+          applicantType: text(leadService.applicantType || leadService.piboParent || lead.applicantType) || 'Not specified',
+          subApplicantType: text(leadService.subApplicantType || leadService.piboCategory || lead.subApplicantType || lead.piboCategory) || 'Not specified',
+          ownerId: idText(assignment.closedBy || assignment.closureRequestedBy || assignment.assignedTo || assignment.assignedStaff || lead.createdBy) || null,
+          ownerName: text(assignment.closedByText || assignment.closureRequestedByText || assignment.assignedToText || assignment.assignedStaffText || lead.createdByName) || 'Unassigned',
+          approvalStatus: text(assignment.poApprovalStatus).toUpperCase() || 'PENDING',
           services,
           service: firstService,
           poProof: text(row.poFileUrl) ? {

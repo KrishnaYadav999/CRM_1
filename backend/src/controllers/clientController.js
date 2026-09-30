@@ -9,7 +9,6 @@ const PendingApproval = require('../models/PendingApproval');
 const ClientComplianceReview = require('../models/ClientComplianceReview');
 const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
 const { notifyPoSpecialApproval } = require('../services/poApprovalNotifications');
-const { queuePendingClientReminder } = require('../services/pendingApprovalNotifications');
 const { notifyClientApprovalDecision } = require('../services/clientApprovalDecisionNotifications');
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
@@ -19,6 +18,7 @@ const { normalizeClientMaster, resolveClientMasterData } = require('../services/
 const { normalizeCompanyIdentity } = require('../services/crmRecordPersistence');
 const { normalizeFinancialYear, resolveAnnualReturnPO } = require('../services/annualReturnPoResolver');
 const { syncStaffOnboardingCpcbStatus } = require('../services/staffOnboardingWorkflow');
+const { syncClientReviewReminderState } = require('../services/clientReviewReminderLifecycle');
 const { sendMail } = require('../utils/mailer');
 const Notification = require('../models/Notification');
 const {
@@ -914,6 +914,7 @@ async function applyClientApprovalStatus(record, status, userId, remarks = '') {
     };
     client.markModified('data');
     await client.save();
+    await syncClientReviewReminderState({ client, status });
     return client;
   }
 
@@ -973,8 +974,8 @@ function mapClientPendingApprovalRow(client, createdByLabel = 'CRM User') {
 
 async function queueCreatedClientApproval(client, user) {
   const createdByLabel = user?.name || user?.email || 'CRM User';
-  const record = await upsertPendingApproval(mapClientPendingApprovalRow(client, createdByLabel), 'client');
-  await queuePendingClientReminder(record);
+  await upsertPendingApproval(mapClientPendingApprovalRow(client, createdByLabel), 'client');
+  await syncClientReviewReminderState({ client, status: 'PENDING' });
 }
 
 async function syncPendingApprovalRows(rows, type = 'client') {
@@ -1900,6 +1901,7 @@ exports.updateClient = async (req, res) => {
         remarks: 'Status updated from Client Master'
       }
     );
+    await syncClientReviewReminderState({ client, status: requestedApprovalStatus });
   }
 
   res.json({ ok: true, client });
@@ -2209,6 +2211,7 @@ exports.updateClientApproval = async (req, res) => {
         console.error('Client approval decision email failed', error);
         return { sent: false, reason: error.message || 'email_failed' };
       });
+    await syncClientReviewReminderState({ client: createdClient, status });
     return res.json({ ok: true, client: createdClient, notification });
   }
 
@@ -2230,6 +2233,7 @@ exports.updateClientApproval = async (req, res) => {
 
   client.markModified('data');
   await client.save();
+  await syncClientReviewReminderState({ client, status });
 
   if (approvalRecord) {
     await PendingApproval.findByIdAndUpdate(approvalRecord._id, {

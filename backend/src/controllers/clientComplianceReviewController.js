@@ -6,6 +6,7 @@ const { notifyClientApprovalDecision } = require('../services/clientApprovalDeci
 const { getAssignedServiceId, resolveClientMasterData } = require('../services/clientMasterResolver');
 const { analyzeClientMasterData } = require('../services/userProductivityReport');
 const { CLIENT_CORRECTION_DEADLINE_POLICY, addClientCorrectionHours } = require('../utils/clientCorrectionDeadline');
+const { syncClientReviewReminderState } = require('../services/clientReviewReminderLifecycle');
 
 const REVIEW_SECTIONS = [
   ['companyOverview', 'Company Overview'], ['basic', 'Client Basic Info'], ['addressDetails', 'Address Details'],
@@ -108,6 +109,7 @@ exports.completeReview = async (req, res) => {
   client.adminControls = { ...(client.adminControls || {}), approvalStatus };
   client.data = { ...(client.data || {}), approvalMeta: { status: approvalStatus, actionBy: req.user._id, actionAt: new Date(), remarks, complianceReviewId: review._id } };
   client.markModified('data'); await client.save();
+  await syncClientReviewReminderState({ client, status: approvalStatus });
   await client.populate('selectedLead', 'applicantType piboParent piboCategoryParent subApplicantType piboCategory serviceSelections');
   const decidedAt = new Date();
   const existingPendingRecord = await PendingApproval.findOne({ sourceClientId: String(client._id), type: 'client' }).lean();

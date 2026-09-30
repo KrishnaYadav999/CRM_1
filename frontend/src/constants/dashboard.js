@@ -69,6 +69,8 @@ export const navSections = [
           { label: 'Dashboard', icon: Gauge, path: '/dashboard', roles: adminRoles },
           { label: 'Super Admin Dashboard', icon: Gauge, path: '/superadmin-dashboard', roles: adminRoles },
           { label: 'Sales Management MIS', icon: TrendingUp, path: '/mis', roles: [...adminRoles, 'manager', 'operation head', 'operations head'] },
+          { label: 'PO Dashboard', icon: ClipboardList, path: '/po-dashboard' },
+          { label: 'Purchase & Sales', icon: TrendingUp, path: '/purchase-sales-dashboard' },
           {
             label: 'Complete MIS',
             icon: BarChart3,
