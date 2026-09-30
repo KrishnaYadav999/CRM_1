@@ -1260,7 +1260,15 @@ export default function LeadGeneration() {
       if (!savedLead || !Array.isArray(savedLead.assignments)) throw new Error('CRM did not return saved PO details.');
       const savedAssignment = savedLead.assignments[closureDialog.index] || {};
       console.info('[POProof:closure:saved]', { poDebugId, leadCode: savedLead.leadCode || '', assignmentIndex: closureDialog.index, rows: (savedAssignment.poYearRows || []).map((row, rowIndex) => ({ rowIndex, poNumber: row.poNumber, hasPoFileUrl: Boolean(row.poFileUrl), poFileName: row.poFileName || '' })) });
-      setLead((current) => ({ ...current, ...savedLead, assignments: savedLead.assignments }));
+      // This endpoint intentionally submits assignment/PO workflow state only.
+      // Keep the already-loaded service profile authoritative so a partial API
+      // response cannot blank Business Category or Services Offered rows.
+      setLead((current) => ({
+        ...current,
+        assignments: savedLead.assignments,
+        workflowStatus: savedLead.workflowStatus || current.workflowStatus,
+        updatedAt: savedLead.updatedAt || current.updatedAt
+      }));
       setClosureDialog(null);
       showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database after admin approval. Approval is pending.', 'success');
     } catch (saveError) {

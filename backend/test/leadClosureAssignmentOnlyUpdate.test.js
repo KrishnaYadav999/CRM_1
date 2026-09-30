@@ -20,8 +20,19 @@ test('closure submits only assignment workflow data instead of revalidating the 
 
 test('assignment-only closure keeps PO validation but bypasses unrelated submitted-profile and PIBO validation', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../src/controllers/leadController.js'), 'utf8');
+  const cleaned = controller._test.cleanBody({
+    assignments: [{ assignedServiceId: 'service-1', poStatus: 'received' }],
+    workflowStatus: 'submitted'
+  });
+  assert.deepEqual(Object.keys(cleaned).sort(), ['assignments', 'workflowStatus']);
   assert.match(source, /const assignmentOnlyUpdate = isAssignmentOnlyLeadUpdate\(req\.body\)/);
   assert.match(source, /validateClosureAssignments\(\{ \.\.\.lead\.toObject\(\), \.\.\.data \}, beforeLead\)/);
   assert.match(source, /data\.workflowStatus === 'submitted' && !assignmentOnlyUpdate/);
   assert.match(source, /if \(!assignmentOnlyUpdate && shouldValidatePiboSelection\(data, current\)\)/);
+});
+
+test('assignment-only closure response cannot replace populated service profile rows', () => {
+  const closureBlock = leadPage.slice(leadPage.indexOf('async function confirmLeadClosure'), leadPage.indexOf('function requestStaffAssignment'));
+  assert.match(closureBlock, /setLead\(\(current\) => \(\{[\s\S]*assignments: savedLead\.assignments/);
+  assert.doesNotMatch(closureBlock, /\.\.\.current, \.\.\.savedLead/);
 });

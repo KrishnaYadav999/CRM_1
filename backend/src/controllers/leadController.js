@@ -400,34 +400,43 @@ function cleanBody(body) {
       if (key === 'followUpHistory') data[key] = Array.isArray(value) ? value : [];
     }
   });
-  const primaryService = Array.isArray(data.serviceSelections) ? data.serviceSelections[0] : null;
-  if (primaryService) {
-    data.industryType = primaryService.industryType || data.industryType;
-    data.eprCategory = primaryService.eprCategory || data.eprCategory;
-    data.businessCategory = primaryService.businessCategory || data.businessCategory;
-    data.applicantType = primaryService.applicantType || data.applicantType;
-    data.subApplicantType = primaryService.subApplicantType || data.subApplicantType || data.piboCategory;
-    data.servicesOffered = primaryService.servicesOffered || data.servicesOffered;
-    data.firstAnnualReturnYearApplicable = primaryService.firstAnnualReturnYearApplicable || data.firstAnnualReturnYearApplicable;
+  const serviceProfileFields = [
+    'serviceSelections', 'industryType', 'eprCategory', 'businessCategory',
+    'applicantType', 'piboParent', 'piboCategoryParent', 'piboCategory',
+    'subApplicantType', 'servicesOffered', 'applicableService',
+    'firstAnnualReturnYearApplicable'
+  ];
+  const updatesServiceProfile = serviceProfileFields.some((field) => Object.prototype.hasOwnProperty.call(body, field));
+  if (updatesServiceProfile) {
+    const primaryService = Array.isArray(data.serviceSelections) ? data.serviceSelections[0] : null;
+    if (primaryService) {
+      data.industryType = primaryService.industryType || data.industryType;
+      data.eprCategory = primaryService.eprCategory || data.eprCategory;
+      data.businessCategory = primaryService.businessCategory || data.businessCategory;
+      data.applicantType = primaryService.applicantType || data.applicantType;
+      data.subApplicantType = primaryService.subApplicantType || data.subApplicantType || data.piboCategory;
+      data.servicesOffered = primaryService.servicesOffered || data.servicesOffered;
+      data.firstAnnualReturnYearApplicable = primaryService.firstAnnualReturnYearApplicable || data.firstAnnualReturnYearApplicable;
+    }
+    data.subApplicantType = String(data.subApplicantType || data.piboCategory || '').trim();
+    data.piboParent = normalizeParent(data.piboParent || data.piboCategoryParent) || inferPiboParent(data.subApplicantType) || undefined;
+    if (/\btyre\b/i.test(String(data.eprCategory || '')) && ['Producer', 'Recycler', 'Retreader'].includes(data.applicantType)) {
+      const compatibility = data.applicantType === 'Producer'
+        ? { piboParent: 'PIBO', subApplicantType: 'Producer' }
+        : data.applicantType === 'Recycler'
+          ? { piboParent: 'PWP', subApplicantType: 'Recycler' }
+          : { piboParent: 'PWP', subApplicantType: 'PWP' };
+      Object.assign(data, compatibility);
+    } else if (usesDirectApplicantType(data.eprCategory)) {
+      // Direct-applicant services (for example Solid Waste Management) do not
+      // use PIBO/SIMP/PWP. Clear stale values inherited from legacy or previously
+      // selected service categories before submitted-lead validation runs.
+      data.piboParent = undefined;
+      data.subApplicantType = '';
+    }
+    delete data.piboCategoryParent;
+    delete data.piboCategory;
   }
-  data.subApplicantType = String(data.subApplicantType || data.piboCategory || '').trim();
-  data.piboParent = normalizeParent(data.piboParent || data.piboCategoryParent) || inferPiboParent(data.subApplicantType) || undefined;
-  if (/\btyre\b/i.test(String(data.eprCategory || '')) && ['Producer', 'Recycler', 'Retreader'].includes(data.applicantType)) {
-    const compatibility = data.applicantType === 'Producer'
-      ? { piboParent: 'PIBO', subApplicantType: 'Producer' }
-      : data.applicantType === 'Recycler'
-        ? { piboParent: 'PWP', subApplicantType: 'Recycler' }
-        : { piboParent: 'PWP', subApplicantType: 'PWP' };
-    Object.assign(data, compatibility);
-  } else if (usesDirectApplicantType(data.eprCategory)) {
-    // Direct-applicant services (for example Solid Waste Management) do not
-    // use PIBO/SIMP/PWP. Clear stale values inherited from legacy or previously
-    // selected service categories before submitted-lead validation runs.
-    data.piboParent = undefined;
-    data.subApplicantType = '';
-  }
-  delete data.piboCategoryParent;
-  delete data.piboCategory;
   return data;
 }
 
