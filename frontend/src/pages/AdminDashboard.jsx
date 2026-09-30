@@ -40,6 +40,7 @@ import {
   FolderOpen,
   ListChecks,
   Mail,
+  MoreVertical,
   PieChart,
   Plus,
   RefreshCw,
@@ -3681,6 +3682,86 @@ function KpiFlowPanel({ title, total = 0, groups = [], delay = 0 }) {
   )
 }
 
+const OPERATIONS_PROGRESS_MILESTONES = [48, 72, 96]
+
+function OperationsProgressValue({ done = 0, total = 0, tone = 'green', label }) {
+  const percentage = total ? Math.round((done / total) * 100) : 0
+  return <div className={`operations-user-progress operations-user-progress-${tone}`}>
+    <strong>{label || `${done} / ${total}`}</strong>
+    <span><motion.i initial={{ width: 0 }} animate={{ width: `${Math.min(100, percentage)}%` }} transition={{ duration: .72, ease: [0.22, 1, 0.36, 1] }} /></span>
+    <small>{percentage}%</small>
+  </div>
+}
+
+function OperationsUserProgressTable({ rows = [] }) {
+  const [expandedUser, setExpandedUser] = useState('')
+  const initialized = useRef(false)
+  const groups = useMemo(() => {
+    const grouped = new Map()
+    rows.forEach((row) => {
+      const id = getUserId(row.user) || normalizeKey(row.userName) || 'unassigned'
+      const current = grouped.get(id) || { id, name: row.userName || getUserName(row.user) || 'Unassigned', rows: [] }
+      const profile = getClientDataCompleteness(row.client || {})
+      current.rows.push({ ...row, profilePercent: profile.percent })
+      grouped.set(id, current)
+    })
+    return [...grouped.values()].map((group) => {
+      const total = group.rows.length
+      const complianceDone = group.rows.filter((row) => !row.compliancePending).length
+      const poDone = group.rows.filter((row) => row.hasPo).length
+      const milestones = Object.fromEntries(OPERATIONS_PROGRESS_MILESTONES.map((milestone) => [milestone, group.rows.filter((row) => row.profilePercent >= milestone).length]))
+      return { ...group, total, complianceDone, poDone, milestones }
+    }).sort((left, right) => right.total - left.total || left.name.localeCompare(right.name))
+  }, [rows])
+  useEffect(() => {
+    if (initialized.current || !groups.length) return
+    initialized.current = true
+    setExpandedUser(groups[0].id)
+  }, [groups])
+  const totals = useMemo(() => groups.reduce((result, group) => ({
+    clients: result.clients + group.total,
+    compliance: result.compliance + group.complianceDone,
+    po: result.po + group.poDone,
+    48: result[48] + group.milestones[48],
+    72: result[72] + group.milestones[72],
+    96: result[96] + group.milestones[96]
+  }), { clients: 0, compliance: 0, po: 0, 48: 0, 72: 0, 96: 0 }), [groups])
+  const tones = ['orange', 'red', 'violet', 'blue', 'green']
+
+  return <section className="operations-user-status-card" aria-label="User-wise operations status">
+    <header className="operations-user-status-heading">
+      <div><span>User performance</span><h2>User-wise Compliance &amp; SLA Progress</h2><p>Compliance, purchase-order and client-data milestone completion by owner.</p></div>
+      <b><Users aria-hidden="true" />{groups.length} users</b>
+    </header>
+    <div className="operations-user-status-scroll">
+      <table className="operations-user-status-table">
+        <thead><tr><th>User</th><th>Total Clients</th><th>Compliance Status<small>Completed / Total</small></th><th>PO Status<small>Completed / Total</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}<small>Completion milestone</small></th>)}<th aria-label="Action">Action</th></tr></thead>
+        <tbody>
+          {groups.map((group, groupIndex) => {
+            const open = expandedUser === group.id
+            const initials = group.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U'
+            return <React.Fragment key={group.id}>
+              <motion.tr className={`operations-user-summary-row ${open ? 'is-open' : ''}`} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: groupIndex * .045 }}>
+                <td><button type="button" className="operations-user-toggle" aria-expanded={open} onClick={() => setExpandedUser(open ? '' : group.id)}><ChevronRight aria-hidden="true" /><i className={`avatar-${tones[groupIndex % tones.length]}`}>{initials}</i><strong>{group.name}</strong></button></td>
+                <td><b>{group.total}</b></td>
+                <td><OperationsProgressValue done={group.complianceDone} total={group.total} tone={group.complianceDone === group.total ? 'green' : 'red'} /></td>
+                <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td>
+                <td><OperationsProgressValue done={group.milestones[48]} total={group.total} tone="green" /></td>
+                <td><OperationsProgressValue done={group.milestones[72]} total={group.total} tone="blue" /></td>
+                <td><OperationsProgressValue done={group.milestones[96]} total={group.total} tone="purple" /></td>
+                <td><MoreVertical aria-hidden="true" /></td>
+              </motion.tr>
+              <AnimatePresence initial={false}>{open && <motion.tr className="operations-user-detail-row" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><td colSpan={8}><motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: .28, ease: 'easeOut' }}><table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone} <small>(Done / Target)</small></th>)}</tr></thead><tbody>{group.rows.map((row) => <tr key={row.id}><td><FileText aria-hidden="true" /><span><strong>{row.companyName}</strong><small>{row.atplCode}</small></span></td><td><em className={row.compliancePending ? 'status-partial' : 'status-applicable'}>{row.compliancePending ? 'Partially Applicable' : 'Applicable'}</em></td><td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Not Received'}</em></td>{OPERATIONS_PROGRESS_MILESTONES.map((milestone, index) => { const done = Math.min(row.profilePercent, milestone); return <td key={milestone}><OperationsProgressValue done={done} total={milestone} tone={['green', 'blue', 'purple'][index]} label={row.profilePercent ? `${done} / ${milestone}` : '-'} /></td> })}</tr>)}</tbody></table></motion.div></td></motion.tr>}</AnimatePresence>
+            </React.Fragment>
+          })}
+        </tbody>
+        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (All Users)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="blue" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="purple" /></td><td /></tr></tfoot>
+      </table>
+    </div>
+    {!groups.length && <div className="operations-user-status-empty"><Users aria-hidden="true" /><strong>No assigned client records found</strong></div>}
+  </section>
+}
+
 function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh }) {
   const leadPoRows = useMemo(() => buildLeadPoRows(leads, users), [leads, users])
   const dashboardRows = leadPoRows.length ? leadPoRows : rows
@@ -3778,6 +3859,7 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
       <KpiFlowPanel title="Annual Return" total={annualReturnKpi.total} groups={annualReturnKpi.groups} delay={0.08} />
       <KpiFlowPanel title="Registration" total={registrationKpi.total} groups={registrationKpi.groups} delay={0.18} />
     </div>
+    <OperationsUserProgressTable rows={rows} />
     <div className="epr-chart-grid">
       <article className="epr-chart-card"><header><div><h2>Leads by EPR Category</h2><p>Filtered category distribution</p></div><b>{selectedRows.length} total</b></header><div className="epr-donut-body"><div className="epr-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={chartData} dataKey="total" nameKey="name" innerRadius={62} outerRadius={86} paddingAngle={3} stroke="none">{chartData.map((entry, index) => <Cell key={entry.name} fill={categoryChartData.length ? categoryColors[index] : '#e5e7eb'} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><span><strong>{selectedRows.length}</strong>Total</span></div><div className="epr-chart-legend">{analytics.categories.map((item, index) => <div key={item.name}><i style={{ background: categoryColors[index] }} /><span>{item.name}</span><strong>{item.total}</strong><small>{selectedRows.length ? `${((item.total / selectedRows.length) * 100).toFixed(1)}%` : '0%'}</small></div>)}</div></div></article>
       <article className="epr-chart-card"><header><div><h2>Applicant / Sub-applicant Mix</h2><p>Live distribution by applicant type</p></div></header><div className="epr-bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={analytics.applicants} margin={{ top: 24, right: 10, left: -20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8edf3" /><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><Tooltip cursor={{ fill: '#f8fafc' }} /><Bar dataKey="count" radius={[7, 7, 0, 0]} maxBarSize={54}>{analytics.applicants.map((item, index) => <Cell key={item.name} fill={['#fb923c', '#34d399', '#8b5cf6', '#0ea5e9', '#f43f5e', '#94a3b8', '#fbbf24'][index]} />)}</Bar></BarChart></ResponsiveContainer></div></article>
