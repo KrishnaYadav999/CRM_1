@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, BadgeIndianRupee, BellRing, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -1118,13 +1119,13 @@ export default function LeadGeneration() {
     }));
   }
 
-  function requestLeadClosure(index, value) {
+  function requestLeadClosure(index, value, sourceLead = lead) {
     if (!value) return updateAssignmentRow(index, 'closedBy', '');
-    const matchingService = serviceRows[index] || {};
-    const reviewMode = assignmentRows[index]?.poStatus === 'provisional';
-    const matchingAssignment = assignmentRows[index] || {};
+    const matchingService = normalizeLegacyServiceSelections(sourceLead)[index] || {};
+    const reviewMode = (sourceLead.assignments || [])[index]?.poStatus === 'provisional';
+    const matchingAssignment = (sourceLead.assignments || [])[index] || {};
     const relevantQuotations = quotations.filter((quote) => {
-      const leadMatch = [quote.leadId, quote.leadCode, quote.businessLeadCode].filter(Boolean).some((id) => [editingLeadId, lead._id, lead.id, lead.leadCode].filter(Boolean).map(String).includes(String(id)));
+      const leadMatch = [quote.leadId, quote.leadCode, quote.businessLeadCode].filter(Boolean).some((id) => [sourceLead._id, sourceLead.id, sourceLead.sourceLeadId, sourceLead.leadCode].filter(Boolean).map(String).includes(String(id?._id || id?.id || id)));
       return leadMatch && !['rejected'].includes(String(quote.status || '').toLowerCase());
     }).sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0));
     const quotationSelection = selectLeadClosureQuotation(relevantQuotations, {
@@ -1154,7 +1155,7 @@ export default function LeadGeneration() {
     const hydratedPoRows = fetchedPoRows.map((row, rowIndex) => ({ ...row, ...(savedPoRows[rowIndex] || {}) }));
     const poYearRows = [...hydratedPoRows, ...savedPoRows.slice(fetchedPoRows.length)];
     const actorId = String(currentUser?._id || currentUser?.id || '');
-    const leadOwner = primaryLeadOwner(lead, staff, currentUser);
+    const leadOwner = primaryLeadOwner(sourceLead, staff, currentUser);
     setClosureDialog({ index, value: actorId || value, behalfMode: 'lead-owner', behalfUserId: leadOwner.id, leadOwnerName: leadOwner.name, leadOwnerEmail: leadOwner.email, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
   }
 
@@ -1277,6 +1278,11 @@ export default function LeadGeneration() {
         workflowStatus: savedLead.workflowStatus || current.workflowStatus,
         updatedAt: savedLead.updatedAt || current.updatedAt
       }));
+      if (closureDialog.poEditor) {
+        const updated = { ...lead, assignments: savedLead.assignments, updatedAt: savedLead.updatedAt };
+        setViewLead(updated);
+        setLeads((current) => current.map((item) => String(item._id || item.id) === String(updated._id || updated.id) ? updated : item));
+      }
       setClosureDialog(null);
       showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database after admin approval. Approval is pending.', 'success');
     } catch (saveError) {
@@ -2218,12 +2224,44 @@ export default function LeadGeneration() {
     );
   }
 
+  function openLeadPoDetails(sourceLead, index = Math.max(0, (sourceLead.assignments || []).findIndex((row) => row.poYearRows?.length))) {
+    const normalized = { ...emptyLead, ...sourceLead, serviceSelections: normalizeLegacyServiceSelections(sourceLead) };
+    setLead(normalized);
+    setEditingLeadId(sourceLead._id || sourceLead.id || '');
+    requestLeadClosure(index, String(currentUser?._id || currentUser?.id || ''), normalized);
+    const assignment = sourceLead.assignments?.[index] || {};
+    setClosureDialog((current) => ({ ...current, poEditor: true, reviewMode: false, choice: 'yes', quotationSent: assignment.quotationSent || (current.quotation ? 'yes' : 'no'), earlierQuotationProofUrl: assignment.earlierQuotationProofUrl || assignment.poYearRows?.[0]?.earlierQuotationProofUrl || '', earlierQuotationProofName: assignment.earlierQuotationProofName || assignment.poYearRows?.[0]?.earlierQuotationProofName || '' }));
+  }
+
+  const renderClosureDialog = () => (closureDialog && createPortal((
+        <div className="fixed inset-0 z-[12000] bg-slate-50" role="dialog" aria-modal="true">
+          <section className="flex h-screen w-full flex-col overflow-hidden bg-white">
+            <header className="flex flex-col gap-4 border-b bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Closure Verification</p><h2 className="mt-1 text-2xl font-black">Have you received the Purchase Order?</h2><p className="mt-1 text-sm font-bold text-slate-500">PO or Super Admin approval proof is required before closing this service.</p></div><div className="flex items-start gap-3">{closureDialog.quotationSent === 'yes' && String(closureDialog.quotation?.approvalDecision?.status || closureDialog.quotation?.status || '').toLowerCase() === 'approved' && (() => { const decision = closureDialog.quotation.approvalDecision || {}; const reviewer = decision.actionBy || {}; const role = String(reviewer.role || decision.reviewerRole || 'Admin').replace(/[_-]+/g, ' '); return <div className="min-w-[310px] rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-800">Quotation Approved</span><span className="text-xs font-black text-slate-500">{closureDialog.quotation.leadCode || closureDialog.quotation.businessLeadCode || lead.leadCode || '-'}</span></div><p className="mt-3 text-sm font-black text-slate-900">Approved by {reviewer.name || reviewer.email || role}</p><p className="mt-1 text-xs font-bold capitalize text-slate-500">{role}{decision.actionAt ? ` • ${new Date(decision.actionAt).toLocaleString('en-IN')}` : ''}</p>{decision.proofUrl ? <a href={decision.proofUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800"><Eye className="h-4 w-4" />View approval proof{decision.proofName ? ` • ${decision.proofName}` : ''}</a> : <p className="mt-3 text-xs font-bold text-slate-400">Direct approval — no proof uploaded.</p>}</div> })()}<button type="button" onClick={() => setClosureDialog(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border bg-white"><X className="h-5 w-5" /></button></div></header>
+            <div className="flex-1 overflow-y-auto p-6 lg:px-10">{closureDialog.poEditor && <label className="mb-5 block text-sm font-bold text-slate-700">Service<select aria-label="Select PO service" className="form-input mt-2 max-w-2xl" value={closureDialog.index} disabled={closureSaving || closureUploading} onChange={(event) => openLeadPoDetails(lead, Number(event.target.value))}>{normalizeLegacyServiceSelections(lead).map((service, index) => <option key={index} value={index}>{index + 1}. {service.servicesOffered || service.applicableService || service.eprCategory || 'Service'} · {service.subApplicantType || service.piboCategory || ''}</option>)}</select></label>}
+              <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+                <h3 className="font-black text-indigo-950">Primary Lead Owner</h3>
+                <p className="mt-1 text-sm font-bold text-indigo-700">The closure credit remains with the main lead owner. You remain recorded separately as the actual Closed By user.</p>
+                <div className="mt-4 flex items-center gap-3 rounded-xl border-2 border-indigo-400 bg-white p-4 text-indigo-900"><span className="grid h-11 w-11 place-items-center rounded-full bg-indigo-100 font-black">{String(closureDialog.leadOwnerName || 'LO').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><span><strong className="block text-base font-black">{closureDialog.leadOwnerName}</strong>{closureDialog.leadOwnerEmail && <small className="mt-1 block font-bold text-slate-500">{closureDialog.leadOwnerEmail}</small>}</span></div>
+              </section>
+              {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes', poModeConfirmed: true, poMode: 'quotation' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter PO details against every quotation service.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
+              {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 7-business-day deadline to keep it closed.</p></div>}
+              {closureDialog.choice === 'yes' && <div className="mt-6 space-y-5"><section className="rounded-2xl border border-blue-200 bg-blue-50 p-5"><h3 className="font-black text-blue-950">Was a quotation sent to the customer?</h3><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => selectClosureQuotationMode('yes')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-white bg-white text-slate-700'}`}>Yes — Quotation Sent</button><button type="button" onClick={() => selectClosureQuotationMode('no')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'no' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-white bg-white text-slate-700'}`}>No — Use Earlier Quotation Proof</button></div>{closureDialog.quotationSent === 'no' && <div className="mt-4"><p className="mb-3 text-sm font-bold text-amber-900">Upload proof of the earlier quotation. No CRM quotation will be linked; enter the PO details manually for Admin approval.</p><label className="flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.earlierQuotationProofName || 'Upload Earlier Quotation Proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'quotation')} /></label></div>}</section>{closureDialog.quotationSent === 'yes' && <QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}{closureDialog.quotationSent === 'no' && closureDialog.earlierQuotationProofUrl && <EarlierQuotationPoDetails poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}</div>}
+              {closureDialog.choice === 'no' && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Close under special approval</h3><p className="mt-2 text-sm font-bold leading-6 text-amber-900">This service will be closed provisionally and the user and Super Admin will be notified by email. The PO must be uploaded within 7 business days (Monday?Friday, excluding weekends). If it is still missing after the deadline, only this service will reopen automatically; services with received POs will remain closed.</p><label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.approvalProofName || 'Upload Super Admin approval proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'approval')} /></label><p className="mt-2 text-xs font-bold text-amber-700">Accepted formats: image or PDF.</p></div>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" disabled={closureSaving} onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black disabled:opacity-50">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading || closureSaving} onClick={confirmLeadClosure} className="rounded-xl bg-[#0f5d46] px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : closureSaving ? 'Saving PO...' : 'Confirm & Save Closure'}</button></footer>
+          </section>
+        </div>
+      ), document.body));
+
   if (viewMode === 'list') {
     if (viewLead) {
       return (
         <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
+          {renderClosureDialog()}
+          {toast && <div className="fixed right-5 top-24 z-[13000] w-[min(430px,calc(100vw-40px))]"><ToastMessage type={toast.type} actionLabel="Close" onAction={() => setToast(null)}>{toast.message}</ToastMessage></div>}
           <LeadDetailView
             lead={viewLead}
+            onModifyPo={openLeadPoDetails}
             quotations={quotations}
             staff={staff}
             currentUser={currentUser}
@@ -2444,7 +2482,7 @@ export default function LeadGeneration() {
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
       {toast && (
-        <div className="fixed right-5 top-24 z-[70] w-[min(430px,calc(100vw-40px))]">
+        <div className="fixed right-5 top-24 z-[13000] w-[min(430px,calc(100vw-40px))]">
           <ToastMessage type={toast.type} actionLabel="Close" onAction={() => setToast(null)}>{toast.message}</ToastMessage>
         </div>
       )}
@@ -2851,25 +2889,7 @@ export default function LeadGeneration() {
           </section>
         </div>
       )}
-      {closureDialog && (
-        <div className="fixed inset-0 z-[125] bg-slate-50" role="dialog" aria-modal="true">
-          <section className="flex h-screen w-full flex-col overflow-hidden bg-white">
-            <header className="flex flex-col gap-4 border-b bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Closure Verification</p><h2 className="mt-1 text-2xl font-black">Have you received the Purchase Order?</h2><p className="mt-1 text-sm font-bold text-slate-500">PO or Super Admin approval proof is required before closing this service.</p></div><div className="flex items-start gap-3">{closureDialog.quotationSent === 'yes' && String(closureDialog.quotation?.approvalDecision?.status || closureDialog.quotation?.status || '').toLowerCase() === 'approved' && (() => { const decision = closureDialog.quotation.approvalDecision || {}; const reviewer = decision.actionBy || {}; const role = String(reviewer.role || decision.reviewerRole || 'Admin').replace(/[_-]+/g, ' '); return <div className="min-w-[310px] rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-800">Quotation Approved</span><span className="text-xs font-black text-slate-500">{closureDialog.quotation.leadCode || closureDialog.quotation.businessLeadCode || lead.leadCode || '-'}</span></div><p className="mt-3 text-sm font-black text-slate-900">Approved by {reviewer.name || reviewer.email || role}</p><p className="mt-1 text-xs font-bold capitalize text-slate-500">{role}{decision.actionAt ? ` • ${new Date(decision.actionAt).toLocaleString('en-IN')}` : ''}</p>{decision.proofUrl ? <a href={decision.proofUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800"><Eye className="h-4 w-4" />View approval proof{decision.proofName ? ` • ${decision.proofName}` : ''}</a> : <p className="mt-3 text-xs font-bold text-slate-400">Direct approval — no proof uploaded.</p>}</div> })()}<button type="button" onClick={() => setClosureDialog(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border bg-white"><X className="h-5 w-5" /></button></div></header>
-            <div className="flex-1 overflow-y-auto p-6 lg:px-10">
-              <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
-                <h3 className="font-black text-indigo-950">Primary Lead Owner</h3>
-                <p className="mt-1 text-sm font-bold text-indigo-700">The closure credit remains with the main lead owner. You remain recorded separately as the actual Closed By user.</p>
-                <div className="mt-4 flex items-center gap-3 rounded-xl border-2 border-indigo-400 bg-white p-4 text-indigo-900"><span className="grid h-11 w-11 place-items-center rounded-full bg-indigo-100 font-black">{String(closureDialog.leadOwnerName || 'LO').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><span><strong className="block text-base font-black">{closureDialog.leadOwnerName}</strong>{closureDialog.leadOwnerEmail && <small className="mt-1 block font-bold text-slate-500">{closureDialog.leadOwnerEmail}</small>}</span></div>
-              </section>
-              {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes', poModeConfirmed: true, poMode: 'quotation' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter PO details against every quotation service.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
-              {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 7-business-day deadline to keep it closed.</p></div>}
-              {closureDialog.choice === 'yes' && <div className="mt-6 space-y-5"><section className="rounded-2xl border border-blue-200 bg-blue-50 p-5"><h3 className="font-black text-blue-950">Was a quotation sent to the customer?</h3><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => selectClosureQuotationMode('yes')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-white bg-white text-slate-700'}`}>Yes — Quotation Sent</button><button type="button" onClick={() => selectClosureQuotationMode('no')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'no' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-white bg-white text-slate-700'}`}>No — Use Earlier Quotation Proof</button></div>{closureDialog.quotationSent === 'no' && <div className="mt-4"><p className="mb-3 text-sm font-bold text-amber-900">Upload proof of the earlier quotation. No CRM quotation will be linked; enter the PO details manually for Admin approval.</p><label className="flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.earlierQuotationProofName || 'Upload Earlier Quotation Proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'quotation')} /></label></div>}</section>{closureDialog.quotationSent === 'yes' && <QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}{closureDialog.quotationSent === 'no' && closureDialog.earlierQuotationProofUrl && <EarlierQuotationPoDetails poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}</div>}
-              {closureDialog.choice === 'no' && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Close under special approval</h3><p className="mt-2 text-sm font-bold leading-6 text-amber-900">This service will be closed provisionally and the user and Super Admin will be notified by email. The PO must be uploaded within 7 business days (Monday?Friday, excluding weekends). If it is still missing after the deadline, only this service will reopen automatically; services with received POs will remain closed.</p><label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.approvalProofName || 'Upload Super Admin approval proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'approval')} /></label><p className="mt-2 text-xs font-bold text-amber-700">Accepted formats: image or PDF.</p></div>}
-            </div>
-            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" disabled={closureSaving} onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black disabled:opacity-50">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading || closureSaving} onClick={confirmLeadClosure} className="rounded-xl bg-[#0f5d46] px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : closureSaving ? 'Saving PO...' : 'Confirm & Save Closure'}</button></footer>
-          </section>
-        </div>
-      )}
+      {renderClosureDialog()}
       {catalogDialog && (
         <div className="fixed inset-0 z-[115] grid place-items-center bg-slate-950/50 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="catalog-title">
           <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl shadow-slate-950/25">
@@ -4316,66 +4336,9 @@ function SavedLeadPoDetails({ assignments = [], services = [] }) {
   return <section className="overflow-hidden rounded-xl border border-emerald-200 bg-white"><header className="border-b border-emerald-100 bg-emerald-50 px-5 py-4"><h3 className="font-black text-slate-900">Purchase Order Details</h3><p className="mt-1 text-xs text-slate-500">Saved PO dates, financial year and payment terms</p></header><div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Service', 'PO Number', 'PO Date', 'PO End Date', 'PO Financial Year', 'Payment Term', 'Amount (INR)', 'Proof'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead><tbody>{rows.map((po, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-4 font-bold">{po.serviceLabel}</td><td className="px-4 py-4 font-black text-emerald-800">{po.poNumber || '-'}</td><td className="whitespace-nowrap px-4 py-4">{formatDisplayDate(po.poDate)}</td><td className="whitespace-nowrap px-4 py-4">{formatDisplayDate(po.poEndDate)}</td><td className="px-4 py-4"><span className="rounded-lg bg-indigo-50 px-3 py-1 font-bold text-indigo-700">{po.poFinancialYear || '-'}</span></td><td className="max-w-xs whitespace-pre-wrap break-words px-4 py-4">{po.paymentTerm || '-'}</td><td className="whitespace-nowrap px-4 py-4 font-bold">{Number(po.poAmount || 0).toLocaleString('en-IN')}</td><td className="px-4 py-4">{po.poFileUrl ? <a href={po.poFileUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-emerald-700">View PO</a> : '-'}</td></tr>)}</tbody></table></div></section>;
 }
 
-function ModifyLeadPoDialog({ lead, quotations, onClose, onSaved }) {
-  const services = normalizeLegacyServiceSelections(lead);
-  const firstIndex = Math.max(0, (lead.assignments || []).findIndex((assignment) => assignment.poYearRows?.length));
-  const [serviceIndex, setServiceIndex] = useState(firstIndex);
-  const [dialog, setDialog] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    const assignment = lead.assignments?.[serviceIndex] || {};
-    const service = services[serviceIndex] || {};
-    const selection = selectLeadClosureQuotation(quotations, { service, assignment, serviceIndex });
-    const existing = assignment.poYearRows || [];
-    const quote = selection.quotation;
-    const poYearRows = existing.length ? existing.map((row) => ({ ...row })) : [{ fy: service.servicesForYear || service.financialYear || service.firstAnnualReturnYearApplicable || '', poNumber: '', poDate: '', poEndDate: '', poFinancialYear: '', paymentTerm: quote?.paymentTerm || '', poAmount: '', poFileUrl: '', services: [service.servicesOffered || service.applicableService || 'General service'] }];
-    const quotationSent = assignment.quotationSent || (poYearRows.some((row) => row.quotationId) ? 'yes' : 'no');
-    setDialog({ quotationSent, poYearRows, quotation: quote || (quotationSent === 'yes' ? { quotationNumber: poYearRows[0]?.quotationNumber, items: poYearRows[0]?.quotationItems || [] } : null), quotationItems: selection.items.length ? selection.items : poYearRows[0]?.quotationItems || [] });
-    setError('');
-  }, [serviceIndex, lead]);
-  async function uploadPo(event, type, rowIndex) {
-    const file = event.target.files?.[0]; event.target.value = '';
-    if (!file) return;
-    setUploading(true); setError('');
-    try {
-      const uploaded = await uploadMedia(file, 'crm/leads/purchase-orders');
-      setDialog((current) => ({ ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, poFileUrl: uploaded.secureUrl, poFileName: uploaded.name || file.name, poFileMimeType: uploaded.type || file.type, poFileSize: uploaded.bytes || file.size, poReceivedDate: row.poReceivedDate || new Date().toISOString() } : row) }));
-    } catch (failure) { setError(failure.message || 'PO upload failed.'); }
-    finally { setUploading(false); }
-  }
-  async function save(event) {
-    event.preventDefault();
-    if (!dialog || uploading || saving) return;
-    const validation = dialog.poYearRows.map(poCommercialError).find(Boolean);
-    if (validation) return setError(validation);
-    const poYearRows = dialog.poYearRows.map((row) => ({ ...row, fy: row.fy || row.poFinancialYear }));
-    if (poYearRows.some((row) => !row.poNumber?.trim() || !row.poDate || !(Number(row.poAmount) > 0) || !row.poFileUrl)) return setError('Complete PO Number, PO Date, Amount and PO Proof for every row.');
-    const assignments = Array.from({ length: Math.max(services.length, lead.assignments?.length || 0) }, (_, index) => ({ ...(lead.assignments?.[index] || {}), assignedServiceId: lead.assignments?.[index]?.assignedServiceId || services[index]?.assignedServiceId || '' }));
-    assignments[serviceIndex] = { ...assignments[serviceIndex], poStatus: assignments[serviceIndex].poStatus || 'received', quotationSent: dialog.quotationSent, poYearRows };
-    setSaving(true); setError('');
-    try {
-      const response = await api.put(API_ENDPOINTS.leads.detail(lead._id || lead.id), { assignments, workflowStatus: lead.workflowStatus || 'submitted' });
-      if (!response.data?.lead?.assignments) throw new Error('CRM did not return saved PO details.');
-      onSaved({ ...lead, assignments: response.data.lead.assignments, updatedAt: response.data.lead.updatedAt });
-      onClose();
-    } catch (failure) { setError(failure.response?.data?.error || failure.message || 'Unable to save PO details.'); }
-    finally { setSaving(false); }
-  }
-  return <div className="fixed inset-0 z-[12000] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-md"><form role="dialog" aria-modal="true" aria-labelledby="modify-po-title" onSubmit={save} className="flex max-h-[92vh] w-full max-w-[1700px] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-    <header className="flex items-start justify-between gap-4 border-b bg-emerald-50 px-6 py-5"><div><p className="text-xs font-black uppercase tracking-widest text-emerald-700">Purchase Order</p><h2 id="modify-po-title" className="mt-1 text-2xl font-black text-slate-950">Modify PO Details</h2><p className="mt-2 text-sm text-slate-600">{lead.company} · Update PO details directly.</p></div><button type="button" disabled={saving || uploading} onClick={onClose} aria-label="Close PO details" className="rounded-xl p-3 text-slate-600 hover:bg-white"><X className="h-5 w-5" /></button></header>
-    <div className="space-y-5 overflow-y-auto p-6"><label className="block text-sm font-bold text-slate-700">Service<select aria-label="Select PO service" disabled={saving || uploading} value={serviceIndex} onChange={(event) => setServiceIndex(Number(event.target.value))} className="form-input mt-2 max-w-xl">{services.map((service, index) => <option key={service.assignedServiceId || index} value={index}>{index + 1}. {service.servicesOffered || service.applicableService || service.eprCategory || 'Service'} · {service.subApplicantType || service.piboCategory || ''}</option>)}</select></label>
-      {dialog && (dialog.quotationSent === 'yes' ? <QuotationClosureSummary quotation={dialog.quotation} items={dialog.quotationItems} poRows={dialog.poYearRows} setClosureDialog={setDialog} uploadClosureFile={uploadPo} /> : <EarlierQuotationPoDetails poRows={dialog.poYearRows} setClosureDialog={setDialog} uploadClosureFile={uploadPo} />)}
-      {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
-    </div><footer className="flex items-center justify-end gap-3 border-t bg-slate-50 px-6 py-5"><button type="button" disabled={saving || uploading} onClick={onClose} className="rounded-xl border bg-white px-5 py-3 font-bold text-slate-600">Cancel</button><button type="submit" disabled={saving || uploading || !dialog} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white disabled:opacity-50">{uploading ? 'Uploading…' : saving ? 'Saving…' : 'Save PO Details'}</button></footer>
-  </form></div>;
-}
-
-function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null, onBack, onEdit, onQuotationAction, onProformaAction, onLeadUpdated, canEdit = false }) {
+function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null, onBack, onEdit, onQuotationAction, onProformaAction, onLeadUpdated, onModifyPo, canEdit = false }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [detailLead, setDetailLead] = useState(lead);
-  const [modifyPoOpen, setModifyPoOpen] = useState(false);
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
   const [followUpEditing, setFollowUpEditing] = useState(false);
   const [followUpCloseMode, setFollowUpCloseMode] = useState(false);
@@ -4992,8 +4955,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         <div className="flex flex-wrap gap-3">
           {hasProvisionalClosure && <button type="button" onClick={() => { setPermanentCloseError(''); setOriginalPoRows(buildOriginalPoRows()); setPermanentCloseStep('confirm'); }} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-amber-500 px-5 text-sm font-black text-white shadow-lg shadow-amber-500/20"><CheckCircle2 className="h-4 w-4" />Original PO Received?</button>}
           {showCurrentUserServiceActions && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
-          {showCurrentUserServiceActions && <button type="button" onClick={() => setModifyPoOpen(true)} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-5 text-sm font-black text-white shadow-lg shadow-teal-700/20"><FileText className="h-4 w-4" />Modify PO Details</button>}
-          {modifyPoOpen && <ModifyLeadPoDialog lead={activeLead} quotations={leadQuotations.filter((quote) => String(quote.status || "").toLowerCase() !== "rejected")} onClose={() => setModifyPoOpen(false)} onSaved={(updated) => { setDetailLead(updated); onLeadUpdated?.(updated); setDetailToast({ id: Date.now(), message: 'PO details saved successfully.', type: 'success' }); }} />}
+          {showCurrentUserServiceActions && <button type="button" onClick={() => onModifyPo?.(activeLead)} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-5 text-sm font-black text-white shadow-lg shadow-teal-700/20"><FileText className="h-4 w-4" />Modify PO Details</button>}
           {showCurrentUserServiceActions && (
             <>
               <LeadToolbarMenu

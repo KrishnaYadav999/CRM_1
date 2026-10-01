@@ -15,13 +15,13 @@ export function reportPageRanges(height, pageHeight, protectedBlocks = []) {
   return pages
 }
 
-export async function downloadOperationsReportPdf(element, onProgress = () => {}) {
+export async function downloadOperationsReportPdf(element, onProgress = () => {}, options = {}) {
   if (!element) throw new Error('The report is not ready. Please try again.')
   onProgress('Loading PDF tools…')
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
-  const width = 1440
+  const width = options.width || 1800
   const frame = document.createElement('iframe')
-  frame.title = 'Operations report PDF'
+  frame.title = options.title || 'Operations report PDF'
   frame.setAttribute('aria-hidden', 'true')
   frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${width}px;height:1000px;border:0;pointer-events:none;zoom:1`
   try {
@@ -62,7 +62,7 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
     await new Promise((resolve) => setTimeout(resolve, 0))
     // html2canvas replaces SVGs with images in its clone, which can shrink table
     // rows. Freeze measured cell/block heights before calculating page breaks.
-    root.querySelectorAll('th,td,.operations-user-status-heading,.operations-report-meta,.operations-client-details>header').forEach((block) => {
+    root.querySelectorAll('th,td,.operations-user-status-heading,.operations-report-meta,.operations-client-details>header,.compliance-kpi-root,.compliance-kpi-branch>header,.compliance-kpi-waste-row').forEach((block) => {
       const height = block.getBoundingClientRect().height
       block.style.boxSizing = 'border-box'
       block.style.height = `${height}px`
@@ -87,14 +87,14 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
       pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, printableWidth, (end - start) * printableWidth / width, undefined, 'FAST')
       pdf.setFontSize(9)
       pdf.setTextColor(100, 116, 139)
-      pdf.text('Operations · Client Ownership & Red Flags', 10, 289)
+      pdf.text(options.title || 'Operations - Client Ownership & Red Flags', 10, 289)
       pdf.text(`${index + 1} / ${ranges.length}`, 410, 289, { align: 'right' })
       canvas.width = 0
       canvas.height = 0
     }
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
     onProgress('Saving PDF…')
-    pdf.save(`Operations-Client-Report-${day}.pdf`)
+    pdf.save(`${options.filename || "Operations-Client-Report"}-${day}.pdf`)
   } finally {
     frame.remove()
   }
