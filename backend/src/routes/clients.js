@@ -12,6 +12,7 @@ const emailProofUpload = multer({ storage: multer.memoryStorage(), limits: { fil
 const receiveEmailProof = (req, res, next) => emailProofUpload(req, res, (error) => error ? res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, message: error.code === 'LIMIT_FILE_SIZE' ? 'Email proof exceeds the configured size limit.' : 'Invalid email proof upload.', code: error.code || 'MULTIPART_UPLOAD_FAILED' }) : next());
 
 router.get('/', requireAuth, clientCtrl.listClients);
+router.get('/dashboard/compliance-records', requireAuth, clientCtrl.listDashboardComplianceRecords);
 router.get('/discovery/search', requireAuth, clientCtrl.searchClientMasterCompanies);
 router.get('/discovery/services', requireAuth, clientCtrl.listClientMasterServices);
 router.get('/discovery/catalog', requireAuth, clientCtrl.listClientMasterCatalog);

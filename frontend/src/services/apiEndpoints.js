@@ -55,6 +55,7 @@ const API_ENDPOINTS = {
   },
   clients: {
     list: '/clients',
+    dashboardComplianceRecords: '/clients/dashboard/compliance-records',
     catalog: '/clients/discovery/catalog',
     discoverySearch: '/clients/discovery/search',
     discoveryServices: '/clients/discovery/services',

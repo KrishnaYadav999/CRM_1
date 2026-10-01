@@ -70,7 +70,7 @@ import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v7'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v8'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
@@ -3962,7 +3962,7 @@ function OperationsUserProgressTable({ rows = [] }) {
   </section>
 }
 
-function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh }) {
+function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], users = [], onRefresh }) {
   const leadPoRows = useMemo(() => buildLeadPoRows(leads, users), [leads, users])
   const dashboardRows = leadPoRows.length ? leadPoRows : rows
   const availableYears = useMemo(() => {
@@ -4003,8 +4003,8 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
     })
   }, [dateFrom, dateTo, eprCategory, financialYearRows, poStatus, search])
   const complianceKpi = useMemo(
-    () => buildComplianceKpi(rows, financialYear),
-    [financialYear, rows]
+    () => buildComplianceKpi(complianceRows.length ? complianceRows : rows, financialYear),
+    [complianceRows, financialYear, rows]
   )
   const analytics = useMemo(() => {
     const categories = ['Plastic', 'E-Waste', 'Battery Waste', 'Other EPR'].map((name) => ({ name, total: 0, received: 0, applicants: new Map() }))
@@ -5318,6 +5318,7 @@ export default function AdminDashboard() {
   const [teams, setTeams] = useState([])
   const [availableRoles, setAvailableRoles] = useState(() => defaultRoles.map((name) => ({ name, label: roleLabels[name] || name })))
   const [clients, setClients] = useState([])
+  const [complianceClients, setComplianceClients] = useState([])
   const [leads, setLeads] = useState([])
   const [calendarItems, setCalendarItems] = useState([])
   const [quotations, setQuotations] = useState([])
@@ -5459,6 +5460,14 @@ export default function AdminDashboard() {
     leads: isSalesDashboardView ? [] : leads,
     currentUser
   }), [annualReturns, clients, currentUser, isSalesDashboardView, leads, pendingClients, quotations, users])
+  const complianceOperationsRows = useMemo(() => buildOperationsRows({
+    clients: isSalesDashboardView ? [] : complianceClients,
+    annualReturns: isSalesDashboardView ? [] : annualReturns,
+    quotations: [],
+    pendingClients: [],
+    users,
+    leads: []
+  }), [annualReturns, complianceClients, isSalesDashboardView, users])
   const scopedOperationsRows = useMemo(
     () => getScopedOperationsRows(allOperationsRows, users, currentUser),
     [allOperationsRows, currentUser, users]
@@ -5633,6 +5642,7 @@ export default function AdminDashboard() {
     setUsers(snapshot.users || [])
     setTeams(snapshot.teams || [])
     setClients(asRecordList(snapshot.clients))
+    setComplianceClients(asRecordList(snapshot.complianceClients))
     setLeads(snapshot.leads || [])
     setCalendarItems(snapshot.calendarItems || [])
     setQuotations(snapshot.quotations || [])
@@ -5712,8 +5722,9 @@ export default function AdminDashboard() {
         return
       }
 
-      const [clientsResult, leadsResult, quotationsResult, annualReturnsResult, approvalsResult, calendarItemsResult] = await Promise.allSettled([
+      const [clientsResult, complianceClientsResult, leadsResult, quotationsResult, annualReturnsResult, approvalsResult, calendarItemsResult] = await Promise.allSettled([
         fetchDashboardCollection(API_ENDPOINTS.clients.list, 'clients', requestConfig, { dashboard: true }),
+        api.get(API_ENDPOINTS.clients.dashboardComplianceRecords, { ...requestConfig, timeout: 60000 }),
         fetchDashboardCollection(API_ENDPOINTS.leads.list, 'leads', requestConfig, { dashboard: true }),
         fetchDashboardCollection(API_ENDPOINTS.quotations.list, 'quotations', requestConfig, { compact: true }),
         api.get(API_ENDPOINTS.annualReturns.list, requestConfig),
@@ -5722,6 +5733,19 @@ export default function AdminDashboard() {
       ])
 
       const crmClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
+      const kpiClients = complianceClientsResult.status === 'fulfilled' ? (complianceClientsResult.value.data.clients || []) : []
+      console.groupCollapsed('[Dashboard KPI API] Lightweight Client Master fetch')
+      if (complianceClientsResult.status === 'fulfilled') console.info('[Dashboard KPI API] Request succeeded', {
+        recordsFetched: kpiClients.length,
+        serverMs: complianceClientsResult.value.data.debug?.ms,
+        source: complianceClientsResult.value.data.debug?.source
+      })
+      else console.error('[Dashboard KPI API] Request failed', {
+        message: complianceClientsResult.reason?.message || 'Unknown request error',
+        status: complianceClientsResult.reason?.response?.status,
+        apiError: complianceClientsResult.reason?.response?.data?.error || complianceClientsResult.reason?.response?.data?.message
+      })
+      console.groupEnd()
       console.groupCollapsed('[Dashboard API] Client Master fetch')
       if (clientsResult.status === 'fulfilled') {
         console.info('[Dashboard API] Client Master request succeeded', { recordsFetched: crmClients.length })
@@ -5750,6 +5774,10 @@ export default function AdminDashboard() {
       const nextClients = retainStableList(
         asRecordList(clientRequestsSucceeded ? crmClients : retained.clients),
         retained.clients
+      )
+      const nextComplianceClients = retainStableList(
+        complianceClientsResult.status === 'fulfilled' ? kpiClients : retained.complianceClients,
+        retained.complianceClients
       )
       const freshLeads = mergeLeadSources(
         leadsResult.status === 'fulfilled' ? (leadsResult.value.data.leads || []) : [],
@@ -5791,6 +5819,7 @@ export default function AdminDashboard() {
         users: nextUsers,
         teams: nextTeams,
         clients: nextClients,
+        complianceClients: nextComplianceClients,
         leads: nextLeads,
         quotations: nextQuotations,
         annualReturns: nextAnnualReturns,
@@ -6080,6 +6109,7 @@ export default function AdminDashboard() {
               </section>
               <EprAnalyticsDashboard
                 rows={scopedOperationsRows}
+                complianceRows={complianceOperationsRows}
                 leads={leads}
                 users={users}
                 onRefresh={() => loadDashboard({ force: true })}

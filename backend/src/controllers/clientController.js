@@ -1248,6 +1248,31 @@ exports.listClientMasterCatalog = async (req, res) => {
   return res.json({ ok: true, clientMasters });
 };
 
+exports.listDashboardComplianceRecords = async (req, res) => {
+  const startedAt = Date.now();
+  const records = await Client.find(await clientAccessFilter(req.user))
+    .select([
+      '_id', 'selectedLead', 'assignedServiceId', 'workflowStatus',
+      'data.assignedServiceId', 'data.selectedLeadSnapshot',
+      'data.basic.eprCategory', 'data.basic.piboCategory',
+      'data.basic.applicantType', 'data.basic.subApplicantType',
+      'data.basic.servicesOffered', 'data.basic.applicableService',
+      'data.basic.firstAnnualReturnYear', 'data.basic.servicesForYear',
+      'data.basic.registrationYear', 'data.firstAnnualReturnYearApplicable',
+      'eprCategory', 'serviceCategory', 'applicantType', 'subApplicantType',
+      'piboParent', 'piboCategory', 'servicesOffered', 'applicableService',
+      'firstAnnualReturnYear', 'servicesForYear', 'financialYear', 'registrationYear'
+    ].join(' '))
+    .populate('selectedLead', 'leadCode company serviceSelections')
+    .sort({ updatedAt: -1 })
+    .lean();
+  return res.json({
+    ok: true,
+    clients: records,
+    debug: { source: 'client-master-only', records: records.length, ms: Date.now() - startedAt }
+  });
+};
+
 function escapeSearchRegex(value = '') {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
