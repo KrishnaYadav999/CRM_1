@@ -1669,6 +1669,11 @@ export default function LeadGeneration() {
     } catch (err) {
       if (requestId !== leadListRequestRef.current || err?.code === 'ERR_CANCELED') return;
       if (isNotifiedRequest) console.error('[Lead Notifications] fetch failed', { durationMs: Math.round(window.performance.now() - requestStartedAt), message: err?.message, status: err?.response?.status, apiError: err?.response?.data?.error });
+      if (isNotifiedRequest) {
+        setLeads([]);
+        setAllCcpLeads([]);
+        setLeadPagination({ page: 1, limit: Number(params.limit || 10), total: 0, totalPages: 1 });
+      }
       setError(err?.response?.data?.error || 'Unable to fetch leads from CRM. Please retry.');
     } finally {
       if (requestId === leadListRequestRef.current) setLoading(false);

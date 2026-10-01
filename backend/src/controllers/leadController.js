@@ -65,70 +65,26 @@ function combineAccessFilters(...filters) {
   return active.length > 1 ? { $and: active } : active[0] || {};
 }
 
-function fieldHasValue(field) {
-  return { [field]: { $exists: true, $nin: [null, ''] } };
+function identityTokens(...values) {
+  return [...new Set(values.flatMap((value) => value && typeof value === 'object'
+    ? [value._id, value.id, value.crmUserId, value.userId, value.email, value.name]
+    : [value]).map(stableUserIdentity).filter(Boolean))];
 }
 
-function fieldHasNoValue(field) {
-  return { $or: [{ [field]: { $exists: false } }, { [field]: null }, { [field]: '' }] };
-}
+function hasPendingClosedManagerAssignment(lead = {}, user = {}) {
+  const savedAssignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const assignmentsHaveManager = savedAssignments.some((row) => identityTokens(row?.assignedTo, row?.assignedToText, row?.assignedToEmail).length);
+  const assignments = savedAssignments.length && assignmentsHaveManager ? savedAssignments : [lead];
+  const restrictToManager = userHasAnyRole(user, ['manager']) && !userHasAnyRole(user, ADMIN_ROLES);
+  const userTokens = identityTokens(user._id, user.id, user.crmUserId, user.userId, user.email, user.name);
 
-function managerIdentityFilter(user = {}, prefix = '') {
-  if (!userHasAnyRole(user, ['manager']) || userHasAnyRole(user, ADMIN_ROLES)) return null;
-  const clauses = [];
-  const rawId = String(user._id || user.id || '').trim();
-  if (rawId) {
-    const ids = [rawId];
-    if (mongoose.Types.ObjectId.isValid(rawId)) ids.push(new mongoose.Types.ObjectId(rawId));
-    clauses.push({ [`${prefix}assignedTo`]: { $in: ids } });
-  }
-  const name = String(user.name || '').trim();
-  const email = String(user.email || '').trim();
-  if (name) clauses.push({ [`${prefix}assignedToText`]: new RegExp(`^${escapeRegex(name)}$`, 'i') });
-  if (email) clauses.push({ [`${prefix}assignedToEmail`]: new RegExp(`^${escapeRegex(email)}$`, 'i') });
-  return clauses.length ? { $or: clauses } : null;
-}
-
-function pendingManagerAssignmentFilter(user = {}) {
-  const assignmentHasManager = { $or: [
-    fieldHasValue('assignedTo'), fieldHasValue('assignedToText'), fieldHasValue('assignedToEmail')
-  ] };
-  const assignmentIsClosed = { $or: [
-    fieldHasValue('closedBy'), fieldHasValue('closedByText'), fieldHasValue('closedByEmail'), fieldHasValue('closedAt')
-  ] };
-  const assignmentIdentity = managerIdentityFilter(user);
-  const assignmentPending = { $and: [
-    assignmentIsClosed,
-    assignmentHasManager,
-    ...(assignmentIdentity ? [assignmentIdentity] : []),
-    fieldHasNoValue('assignedStaff'),
-    fieldHasNoValue('assignedStaffText'),
-    fieldHasNoValue('assignedStaffEmail')
-  ] };
-
-  const rootHasManager = { $or: [
-    fieldHasValue('assignedTo'), fieldHasValue('assignedToText'), fieldHasValue('assignedToEmail')
-  ] };
-  const rootIsClosed = { $or: [
-    fieldHasValue('closedBy'), fieldHasValue('closedByText'), fieldHasValue('closedByEmail'), fieldHasValue('closedAt')
-  ] };
-  const rootIdentity = managerIdentityFilter(user);
-  const rootPending = { $and: [
-    rootIsClosed,
-    rootHasManager,
-    ...(rootIdentity ? [rootIdentity] : []),
-    fieldHasNoValue('assignedStaff'),
-    fieldHasNoValue('assignedStaffText'),
-    fieldHasNoValue('assignedStaffEmail'),
-    // Root assignment fields are a legacy fallback. When row assignments exist,
-    // the row state is authoritative and avoids showing a stale root assignment.
-    { $nor: [{ assignments: { $elemMatch: assignmentHasManager } }] }
-  ] };
-
-  return { $or: [
-    { assignments: { $elemMatch: assignmentPending } },
-    rootPending
-  ] };
+  return assignments.some((row) => {
+    const isClosed = identityTokens(row?.closedBy, row?.closedByText, row?.closedByEmail).length > 0 || Boolean(row?.closedAt);
+    const managerTokens = identityTokens(row?.assignedTo, row?.assignedToText, row?.assignedToEmail);
+    const hasStaff = identityTokens(row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail).length > 0;
+    if (!isClosed || !managerTokens.length || hasStaff) return false;
+    return !restrictToManager || managerTokens.some((token) => userTokens.includes(token));
+  });
 }
 
 function stableUserIdentity(value) {
@@ -1330,17 +1286,15 @@ exports.listLeads = async (req, res) => {
       filters.push({ $or: [{ generatedForUser: { $in: ownerIds } }, { createdBy: { $in: ownerIds } }] });
     }
   }
-  const notifiedFilter = pendingManagerAssignmentFilter(req.user);
-  if (workspace === 'notified') filters.push(notifiedFilter);
   const filter = combineAccessFilters(...filters);
   const projection = [
     'leadCode', 'sourceLeadId', 'company', 'status', 'workflowStatus', 'recordStatus',
     'eprCategory', 'piboCategory', 'existingClient', 'contactPerson', 'mobileNo1', 'emails',
-    'addressLine1', 'state', 'city', 'pinCode', 'assignedTo', 'assignedToText', 'assignedStaff',
+    'addressLine1', 'state', 'city', 'pinCode', 'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedStaff',
     'assignedStaffText', 'assignedStaffEmail', 'assignedBy', 'createdBy', 'createdByName',
     'createdByEmail', 'importedCreatedBy', 'generatedForUser', 'generatedForName',
     'generatedForEmail', 'createdOnBehalfOfUser', 'createdOnBehalfOfName', 'closedBy',
-    'closedByText', 'closedOnBehalfOfName', 'closedAt', 'assignReachedAt', 'assignments',
+    'closedByText', 'closedByEmail', 'closedOnBehalfOfName', 'closedAt', 'assignReachedAt', 'assignments',
     'serviceSelections', 'createdAt', 'updatedAt',
     ...(req.query.dashboard === 'true' ? [
       'industryType', 'applicantType', 'subApplicantType', 'servicesOffered', 'referredBy',
@@ -1355,6 +1309,42 @@ exports.listLeads = async (req, res) => {
     ] : [])
   ].join(' ');
   const queryStartedAt = process.hrtime.bigint();
+  if (workspace === 'notified') {
+    // Avoid the nested MongoDB array/count query that can exceed the gateway
+    // timeout. Classify the user's already-scoped directory in Node, then page.
+    const candidates = await Lead.find(filter).select(projection)
+      .sort({ [sortBy]: sortOrder, ...(sortBy === 'leadCode' ? { createdAt: sortOrder } : { _id: sortOrder }) })
+      .lean();
+    const matched = candidates.filter((lead) => hasPendingClosedManagerAssignment(lead, req.user));
+    const total = matched.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const safePage = Math.min(page, totalPages);
+    const pageRows = matched.slice((safePage - 1) * limit, safePage * limit);
+    const leads = await Lead.populate(pageRows, [
+      { path: 'assignedTo', select: 'name email avatarUrl role' },
+      { path: 'closedBy', select: 'name email avatarUrl role' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'generatedForUser', select: 'name email crmUserId' }
+    ]);
+    const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
+    const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    const existing = matched.filter((lead) => lead.existingClient === 'Yes' || lead.status === 'Existing Client').length;
+    res.set('Server-Timing', `access;dur=${accessMs.toFixed(1)}, query;dur=${queryMs.toFixed(1)}, total;dur=${totalMs.toFixed(1)}`);
+    return res.json({
+      ok: true,
+      leads,
+      pagination: {
+        page: safePage, limit, total, totalPages,
+        hasNextPage: safePage < totalPages,
+        hasPreviousPage: safePage > 1
+      },
+      summary: {
+        total, existing, converted: existing, new: total - existing,
+        allocated: total, unassigned: 0, notifiedPending: total
+      },
+      timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
+    });
+  }
   const [leads, total, summaryRows] = await Promise.all([
     Lead.find(filter).select(projection)
       .populate('assignedTo', 'name email avatarUrl role')

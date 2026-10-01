@@ -41,10 +41,10 @@ test('Notified Leads contains closed manager assignments that are still waiting 
   assert.match(page, /workspace: initialWorkspace/);
   assert.match(page, /\[Lead Notifications\] fetch complete/);
   assert.match(page, /onDirectoryQueryChange\(currentDirectoryRequest\(\)\)/);
-  assert.match(controller, /function pendingManagerAssignmentFilter/);
-  assert.match(controller, /assignmentIsClosed/);
-  assert.match(controller, /rootIsClosed/);
-  assert.match(controller, /if \(workspace === 'notified'\) filters\.push\(notifiedFilter\)/);
+  assert.match(controller, /function hasPendingClosedManagerAssignment/);
+  assert.match(controller, /if \(workspace === 'notified'\)/);
+  assert.match(controller, /candidates\.filter\(\(lead\) => hasPendingClosedManagerAssignment\(lead, req\.user\)\)/);
+  assert.doesNotMatch(controller, /filters\.push\(notifiedFilter\)/);
   assert.match(controller, /notifiedPending: workspace === 'notified' \? total : undefined/);
 });
 
