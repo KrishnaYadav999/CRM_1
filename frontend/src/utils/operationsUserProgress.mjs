@@ -3,6 +3,21 @@ const identity = (value) => value && typeof value === 'object'
   ? [value._id, value.id, value.userId, value.email, value.name].map(key).filter(Boolean)
   : [key(value)].filter(Boolean)
 
+export function getOperationsStatusDates(row = {}) {
+  const client = row.client || {}
+  const approval = client.operationsSla || row.approval || {}
+  const status = key(approval.approvalStatus || client.adminControls?.approvalStatus)
+  const decisionAt = approval.actionAt || approval.decisionAt || approval.correctionStartedAt
+  const submittedAt = client.submittedAt || approval.createdAt
+  return {
+    compliance: decisionAt && status !== 'pending'
+      ? { label: 'Reviewed', value: decisionAt }
+      : submittedAt ? { label: 'Submitted', value: submittedAt }
+        : { label: 'Created', value: client.createdAt || null },
+    po: { label: 'PO date', value: row.hasPo ? row.poDetails?.poDate || null : null }
+  }
+}
+
 export function isOperationsStaff(user = {}) {
   return /^(operation|operations|operations executive|operation executive)$/.test(key(user.role))
     || /\boperations?\b/.test(key(user.team?.name || user.team || user.department))

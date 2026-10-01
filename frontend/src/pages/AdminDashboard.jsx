@@ -68,10 +68,11 @@ import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
-import { allocationOwnerKeys, buildOperationsProgressGroups } from '../utils/operationsUserProgress.mjs'
+import { allocationOwnerKeys, buildOperationsProgressGroups, getOperationsStatusDates } from '../utils/operationsUserProgress.mjs'
+import { downloadOperationsReportPdf } from '../utils/operationsReportPdf.mjs'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v9'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v10'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
@@ -3900,14 +3901,25 @@ function OperationsProgressValue({ done = 0, total = 0, tone = 'green', label })
   </div>
 }
 
-function OperationsUserProgressTable({ rows = [], users = [] }) {
+function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, reportTime }) {
   const [expandedUser, setExpandedUser] = useState('')
   const [search, setSearch] = useState('')
-  const [now, setNow] = useState(Date.now)
+  const [now, setNow] = useState(() => reportTime || Date.now())
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
+  const [pdfProgress, setPdfProgress] = useState('Preparing PDF…')
+  const pdfRef = useRef(null)
   useEffect(() => {
+    if (pdfMode) return
     const timer = setInterval(() => setNow(Date.now()), 60000)
     return () => clearInterval(timer)
-  }, [])
+  }, [pdfMode])
+  useEffect(() => {
+    if (!exporting || !pdfRef.current) return
+    downloadOperationsReportPdf(pdfRef.current.firstElementChild, setPdfProgress)
+      .catch((error) => setExportError(error.message || 'PDF download failed. Please try again.'))
+      .finally(() => setExporting(false))
+  }, [exporting])
   const groups = useMemo(() => buildOperationsProgressGroups(rows, users, getAssignedUserKeysFromClient, now), [rows, users, now])
   const visibleGroups = groups.filter((group) => [group.name, ...group.rows.flatMap((row) => [row.companyName, row.atplCode])].some((value) => normalizeKey(value).includes(normalizeKey(search))))
   const totals = useMemo(() => groups.reduce((result, group) => ({
@@ -3923,15 +3935,17 @@ function OperationsUserProgressTable({ rows = [], users = [] }) {
   return <section className="operations-user-status-card" aria-label="User-wise operations status">
     <header className="operations-user-status-heading">
       <div><span>Operations performance</span><h2>Client Ownership &amp; Red Flags</h2><p>Assigned clients, approved compliance and overdue correction deadlines. Red flags are cumulative: 96h also counts in 72h and 48h.</p></div>
-      <b><Users aria-hidden="true" />{groups.length} Operations users</b>
+      <div className="operations-report-actions"><b><Users aria-hidden="true" />{groups.length} Operations users</b>{!pdfMode && <button type="button" className="operations-report-download" disabled={exporting || !groups.length} onClick={() => { setExportError(''); setPdfProgress('Preparing PDF…'); setExporting(true) }}><Download aria-hidden="true" />{exporting ? pdfProgress : 'Download full PDF'}</button>}</div>
     </header>
-    <div className="operations-user-toolbar"><label><Search aria-hidden="true" /><input aria-label="Search Operations users or clients" placeholder="Search user, client or ATPL code" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span>{new Set(groups.flatMap((group) => group.rows.map((row) => row.id))).size} assigned clients · {totals[48]} overdue assignments</span></div>
+    <div className="operations-report-meta"><span><CalendarDays aria-hidden="true" />Updated {formatDisplayDateTime(now)} IST</span><span>Full PDF includes every Operations user and all assigned client details.</span></div>
+    {exportError && <p className="operations-export-error" role="alert">{exportError}</p>}
+    {!pdfMode && <div className="operations-user-toolbar"><label><Search aria-hidden="true" /><input aria-label="Search Operations users or clients" placeholder="Search user, client or ATPL code" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span>{new Set(groups.flatMap((group) => group.rows.map((row) => row.id))).size} assigned clients · {totals[48]} overdue assignments</span></div>}
     <div className="operations-user-status-scroll">
       <table className="operations-user-status-table">
         <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th aria-label="Action">View</th></tr></thead>
         <tbody>
           {visibleGroups.map((group, groupIndex) => {
-            const open = expandedUser === group.id
+            const open = pdfMode || expandedUser === group.id
             const initials = group.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U'
             return <React.Fragment key={group.id}>
               <motion.tr className={`operations-user-summary-row ${open ? 'is-open' : ''}`} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: groupIndex * .045 }}>
@@ -3947,9 +3961,10 @@ function OperationsUserProgressTable({ rows = [], users = [] }) {
                 {group.rows.length ? <table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th>{OPERATIONS_PROGRESS_MILESTONES.map((hours) => <th key={hours}>{hours}h+ Red Flag</th>)}</tr></thead>
                   <tbody>{group.rows.map((row) => {
                     const approval = row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || 'PENDING'
+                    const statusDates = getOperationsStatusDates(row)
                     return <tr key={row.id}><td><div className="operations-client-name"><FileText aria-hidden="true" /><span><strong title={row.companyName}>{row.companyName}</strong><small>{row.atplCode}</small></span></div></td>
-                      <td><em className={approval === 'APPROVED' ? 'status-applicable' : 'status-partial'}>{String(approval).replace(/_/g, ' ')}</em></td>
-                      <td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Pending'}</em></td>
+                      <td><em className={approval === 'APPROVED' ? 'status-applicable' : 'status-partial'}>{String(approval).replace(/_/g, ' ')}</em><small className="operations-status-date"><CalendarDays aria-hidden="true" />{statusDates.compliance.value ? `${statusDates.compliance.label} ${formatDisplayDateTime(statusDates.compliance.value)}` : 'Status date not recorded'}</small></td>
+                      <td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Pending'}</em><small className="operations-status-date"><CalendarDays aria-hidden="true" />{statusDates.po.value ? `PO date ${formatDisplayDate(statusDates.po.value)}` : row.hasPo ? 'PO date not recorded' : 'Awaiting PO'}</small>{row.poDetails?.poNo && <small className="operations-po-number">PO #{row.poDetails.poNo}</small>}</td>
                       {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><em className={row.sla[hours].breached ? 'status-missing' : row.sla[hours].known ? 'status-received' : 'status-neutral'}>{row.sla[hours].breached ? 'Red flag' : row.sla[hours].known ? 'Clear' : 'No correction deadline'}</em>{row.sla[hours].due && <small className="operations-sla-date">Due {formatDisplayDateTime(row.sla[hours].due)}</small>}</td>)}
                     </tr>
                   })}</tbody></table> : <p className="operations-client-empty">No clients allocated to this Operations user.</p>}
@@ -3961,6 +3976,7 @@ function OperationsUserProgressTable({ rows = [], users = [] }) {
       </table>
     </div>
     {!groups.length && <div className="operations-user-status-empty"><Users aria-hidden="true" /><strong>No assigned client records found</strong></div>}
+    {!pdfMode && exporting && <div ref={pdfRef} className="operations-pdf-source" aria-hidden="true"><OperationsUserProgressTable rows={rows} users={users} pdfMode reportTime={now} /></div>}
   </section>
 }
 

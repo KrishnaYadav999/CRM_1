@@ -1150,7 +1150,7 @@ exports.listClients = async (req, res) => {
   const filter = combineAccessFilters(...filters);
   const projection = inclusionProjection([
     '_id', 'selectedLead', 'assignedServiceId', 'companyIdentity', 'adminControls',
-    'workflowStatus', 'createdBy', 'createdAt', 'updatedAt', 'serviceAllocations',
+    'workflowStatus', 'createdBy', 'createdAt', 'updatedAt', 'submittedAt', 'serviceAllocations',
     'data.selectedLead', 'data.assignedServiceId', 'data.selectedLeadSnapshot',
     'data.basic.clientLegalName', 'data.basic.tradeName', 'data.basic.eprCategory',
     'data.basic.piboCategory', 'data.basic.firstAnnualReturnYear',
@@ -1209,7 +1209,7 @@ exports.listClients = async (req, res) => {
   if (req.query.dashboard === 'true' && clients.length) {
     const approvals = await PendingApproval.find({
       type: 'client', source: 'crm', sourceClientId: { $in: clients.map((client) => String(client._id)) }
-    }).select('sourceClientId approvalStatus reminderFlag redFlagAt greenFlagDeadline correctionStatus correctionStartedAt correctionDueAt correctionBreachedAt correctionDeadlinePolicy').lean();
+    }).select('sourceClientId approvalStatus actionAt createdAt reminderFlag redFlagAt greenFlagDeadline correctionStatus correctionStartedAt correctionDueAt correctionBreachedAt correctionDeadlinePolicy').lean();
     const approvalByClient = new Map(approvals.map((approval) => [String(approval.sourceClientId), approval]));
     clients.forEach((client) => { client.operationsSla = approvalByClient.get(String(client._id)) || null; });
   }

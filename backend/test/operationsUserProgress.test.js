@@ -2,6 +2,33 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const helpers = import('../../frontend/src/utils/operationsUserProgress.mjs');
 
+test('status dates use the real review timestamp and PO date', async () => {
+  const { getOperationsStatusDates } = await helpers;
+  const dates = getOperationsStatusDates({ hasPo: true, poDetails: { poDate: '2026-09-25' },
+    client: { createdAt: '2026-01-01', submittedAt: '2026-09-20', operationsSla: {
+      approvalStatus: 'APPROVED', actionAt: '2026-09-24T06:30:00Z'
+    } } });
+  assert.deepEqual(dates.compliance, { label: 'Reviewed', value: '2026-09-24T06:30:00Z' });
+  assert.equal(dates.po.value, '2026-09-25');
+});
+
+test('pending compliance shows submission date, and missing PO dates are never fabricated', async () => {
+  const { getOperationsStatusDates } = await helpers;
+  const dates = getOperationsStatusDates({ hasPo: true, client: { submittedAt: '2026-09-20',
+    operationsSla: { approvalStatus: 'PENDING' } } });
+  assert.equal(dates.compliance.label, 'Submitted');
+  assert.equal(dates.po.value, null);
+  assert.equal(getOperationsStatusDates({ hasPo: false, poDetails: { poDate: '2026-01-01' } }).po.value, null);
+});
+
+test('report pagination keeps rows whole and covers every pixel without gaps', async () => {
+  const { reportPageRanges } = await import('../../frontend/src/utils/operationsReportPdf.mjs');
+  const pages = reportPageRanges(250, 100, [{ top: 90, bottom: 120 }, { top: 180, bottom: 210 }]);
+  assert.deepEqual(pages, [{ start: 0, end: 90 }, { start: 90, end: 180 }, { start: 180, end: 250 }]);
+  assert.deepEqual(reportPageRanges(250, 100, [{ top: 0, bottom: 220 }]),
+    [{ start: 0, end: 100 }, { start: 100, end: 200 }, { start: 200, end: 250 }]);
+});
+
 const users = [{ _id: 'sonal', name: 'SONAL MORE', role: 'operation' },
   { _id: 'sales', name: 'Sales', role: 'sales' }, { _id: 'admin', name: 'Admin', role: 'admin' },
   { _id: 'other', name: 'Other', role: 'operation' }];
