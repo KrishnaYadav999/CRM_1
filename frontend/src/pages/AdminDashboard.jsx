@@ -68,9 +68,10 @@ import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
+import { allocationOwnerKeys, buildOperationsProgressGroups } from '../utils/operationsUserProgress.mjs'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v8'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v9'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
@@ -1428,6 +1429,7 @@ function getAssignedUserKeysFromClient(client = {}) {
   const serviceId = String(safeClient.assignedServiceId || data.assignedServiceId || '')
   const assignments = (Array.isArray(lead.assignments) ? lead.assignments : []).filter((assignment) => !serviceId || String(assignment.assignedServiceId || assignment.serviceAssignmentId || '') === serviceId)
   return [
+    ...allocationOwnerKeys(safeClient),
     admin.assignedTo,
     assigned._id,
     assigned.id,
@@ -1951,6 +1953,7 @@ function buildOperationsRows({ clients = [], annualReturns = [], quotations = []
       annualYear,
       firstAnnualReturnYear,
       compliancePending,
+      approval: pendingClient,
       user,
       userName: user ? getUserName(user) : (getAssignedUserKeysFromClient(client)[0] || 'Unassigned'),
       assignedKeys: getAssignedUserKeysFromClient(client)
@@ -3899,33 +3902,14 @@ function OperationsProgressValue({ done = 0, total = 0, tone = 'green', label })
 
 function OperationsUserProgressTable({ rows = [], users = [] }) {
   const [expandedUser, setExpandedUser] = useState('')
-  const initialized = useRef(false)
-  const groups = useMemo(() => {
-    const grouped = new Map()
-    users.forEach((user) => {
-      const id = getUserId(user)
-      if (id) grouped.set(id, { id, name: getUserName(user), rows: [] })
-    })
-    rows.forEach((row) => {
-      const id = getUserId(row.user) || normalizeKey(row.userName) || 'unassigned'
-      const current = grouped.get(id) || { id, name: row.userName || getUserName(row.user) || 'Unassigned', rows: [] }
-      const profile = getClientDataCompleteness(row.client || {})
-      current.rows.push({ ...row, profilePercent: profile.percent })
-      grouped.set(id, current)
-    })
-    return [...grouped.values()].map((group) => {
-      const total = group.rows.length
-      const complianceDone = group.rows.filter((row) => !row.compliancePending).length
-      const poDone = group.rows.filter((row) => row.hasPo).length
-      const milestones = Object.fromEntries(OPERATIONS_PROGRESS_MILESTONES.map((milestone) => [milestone, group.rows.filter((row) => row.profilePercent >= milestone).length]))
-      return { ...group, total, complianceDone, poDone, milestones }
-    }).sort((left, right) => right.total - left.total || left.name.localeCompare(right.name))
-  }, [rows, users])
+  const [search, setSearch] = useState('')
+  const [now, setNow] = useState(Date.now)
   useEffect(() => {
-    if (initialized.current || !groups.length) return
-    initialized.current = true
-    setExpandedUser(groups[0].id)
-  }, [groups])
+    const timer = setInterval(() => setNow(Date.now()), 60000)
+    return () => clearInterval(timer)
+  }, [])
+  const groups = useMemo(() => buildOperationsProgressGroups(rows, users, getAssignedUserKeysFromClient, now), [rows, users, now])
+  const visibleGroups = groups.filter((group) => [group.name, ...group.rows.flatMap((row) => [row.companyName, row.atplCode])].some((value) => normalizeKey(value).includes(normalizeKey(search))))
   const totals = useMemo(() => groups.reduce((result, group) => ({
     clients: result.clients + group.total,
     compliance: result.compliance + group.complianceDone,
@@ -3938,14 +3922,15 @@ function OperationsUserProgressTable({ rows = [], users = [] }) {
 
   return <section className="operations-user-status-card" aria-label="User-wise operations status">
     <header className="operations-user-status-heading">
-      <div><span>User performance</span><h2>User-wise Compliance &amp; SLA Progress</h2><p>Compliance, purchase-order and client-data milestone completion by owner.</p></div>
-      <b><Users aria-hidden="true" />{groups.length} users</b>
+      <div><span>Operations performance</span><h2>Client Ownership &amp; Red Flags</h2><p>Assigned clients, approved compliance and overdue correction deadlines. Red flags are cumulative: 96h also counts in 72h and 48h.</p></div>
+      <b><Users aria-hidden="true" />{groups.length} Operations users</b>
     </header>
+    <div className="operations-user-toolbar"><label><Search aria-hidden="true" /><input aria-label="Search Operations users or clients" placeholder="Search user, client or ATPL code" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span>{new Set(groups.flatMap((group) => group.rows.map((row) => row.id))).size} assigned clients · {totals[48]} overdue assignments</span></div>
     <div className="operations-user-status-scroll">
       <table className="operations-user-status-table">
-        <thead><tr><th>User</th><th>Total Clients</th><th>Compliance Status<small>Completed / Total</small></th><th>PO Status<small>Completed / Total</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}<small>Completion milestone</small></th>)}<th aria-label="Action">Action</th></tr></thead>
+        <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th aria-label="Action">View</th></tr></thead>
         <tbody>
-          {groups.map((group, groupIndex) => {
+          {visibleGroups.map((group, groupIndex) => {
             const open = expandedUser === group.id
             const initials = group.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U'
             return <React.Fragment key={group.id}>
@@ -3954,16 +3939,25 @@ function OperationsUserProgressTable({ rows = [], users = [] }) {
                 <td><b>{group.total}</b></td>
                 <td><OperationsProgressValue done={group.complianceDone} total={group.total} tone={group.complianceDone === group.total ? 'green' : 'red'} /></td>
                 <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td>
-                <td><OperationsProgressValue done={group.milestones[48]} total={group.total} tone="green" /></td>
-                <td><OperationsProgressValue done={group.milestones[72]} total={group.total} tone="blue" /></td>
-                <td><OperationsProgressValue done={group.milestones[96]} total={group.total} tone="purple" /></td>
-                <td><MoreVertical aria-hidden="true" /></td>
+                {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><OperationsProgressValue done={group.milestones[hours]} total={group.total} tone={group.milestones[hours] ? 'red' : 'green'} /></td>)}
+                <td><button type="button" className="operations-user-view" aria-label={`${open ? 'Hide' : 'View'} ${group.name} clients`} onClick={() => setExpandedUser(open ? '' : group.id)}><Eye aria-hidden="true" /></button></td>
               </motion.tr>
-              <AnimatePresence initial={false}>{open && <motion.tr className="operations-user-detail-row" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><td colSpan={8}><motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: .28, ease: 'easeOut' }}><table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone} <small>(Done / Target)</small></th>)}</tr></thead><tbody>{group.rows.map((row) => <tr key={row.id}><td><FileText aria-hidden="true" /><span><strong>{row.companyName}</strong><small>{row.atplCode}</small></span></td><td><em className={row.compliancePending ? 'status-partial' : 'status-applicable'}>{row.compliancePending ? 'Partially Applicable' : 'Applicable'}</em></td><td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Not Received'}</em></td>{OPERATIONS_PROGRESS_MILESTONES.map((milestone, index) => { const done = Math.min(row.profilePercent, milestone); return <td key={milestone}><OperationsProgressValue done={done} total={milestone} tone={['green', 'blue', 'purple'][index]} label={row.profilePercent ? `${done} / ${milestone}` : '-'} /></td> })}</tr>)}</tbody></table></motion.div></td></motion.tr>}</AnimatePresence>
+              {open && <tr className="operations-user-detail-row"><td colSpan={8}><div className="operations-client-details">
+                <header><strong>{group.name} · Assigned clients</strong><span>{group.total} client records</span></header>
+                {group.rows.length ? <table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th>{OPERATIONS_PROGRESS_MILESTONES.map((hours) => <th key={hours}>{hours}h+ Red Flag</th>)}</tr></thead>
+                  <tbody>{group.rows.map((row) => {
+                    const approval = row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || 'PENDING'
+                    return <tr key={row.id}><td><div className="operations-client-name"><FileText aria-hidden="true" /><span><strong title={row.companyName}>{row.companyName}</strong><small>{row.atplCode}</small></span></div></td>
+                      <td><em className={approval === 'APPROVED' ? 'status-applicable' : 'status-partial'}>{String(approval).replace(/_/g, ' ')}</em></td>
+                      <td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Pending'}</em></td>
+                      {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><em className={row.sla[hours].breached ? 'status-missing' : row.sla[hours].known ? 'status-received' : 'status-neutral'}>{row.sla[hours].breached ? 'Red flag' : row.sla[hours].known ? 'Clear' : 'No correction deadline'}</em>{row.sla[hours].due && <small className="operations-sla-date">Due {formatDisplayDateTime(row.sla[hours].due)}</small>}</td>)}
+                    </tr>
+                  })}</tbody></table> : <p className="operations-client-empty">No clients allocated to this Operations user.</p>}
+              </div></td></tr>}
             </React.Fragment>
           })}
         </tbody>
-        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (All Users)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="blue" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="purple" /></td><td /></tr></tfoot>
+        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td /></tr></tfoot>
       </table>
     </div>
     {!groups.length && <div className="operations-user-status-empty"><Users aria-hidden="true" /><strong>No assigned client records found</strong></div>}

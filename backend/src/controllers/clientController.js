@@ -1206,6 +1206,13 @@ exports.listClients = async (req, res) => {
       } }
     ])
   ]);
+  if (req.query.dashboard === 'true' && clients.length) {
+    const approvals = await PendingApproval.find({
+      type: 'client', source: 'crm', sourceClientId: { $in: clients.map((client) => String(client._id)) }
+    }).select('sourceClientId approvalStatus reminderFlag redFlagAt greenFlagDeadline correctionStatus correctionStartedAt correctionDueAt correctionBreachedAt correctionDeadlinePolicy').lean();
+    const approvalByClient = new Map(approvals.map((approval) => [String(approval.sourceClientId), approval]));
+    clients.forEach((client) => { client.operationsSla = approvalByClient.get(String(client._id)) || null; });
+  }
   const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
   const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
   const totalPages = Math.max(1, Math.ceil(total / limit));

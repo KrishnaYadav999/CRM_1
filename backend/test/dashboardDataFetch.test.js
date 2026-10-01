@@ -20,11 +20,13 @@ test('client list projections avoid MongoDB parent/child collisions for every re
   }
 });
 
-test('client ownership resolves the linked lead service assignee without matching another service', () => {
+test('client ownership resolves the linked lead service assignee without matching another service', async () => {
+  const { allocationOwnerKeys } = await import('../../frontend/src/utils/operationsUserProgress.mjs');
   const source = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/AdminDashboard.jsx'), 'utf8');
   const start = source.indexOf('function getAssignedUserKeysFromClient(');
   const end = source.indexOf('function resolveAssignedUser(', start);
   const keys = vm.runInNewContext(`${source.slice(start, end)} getAssignedUserKeysFromClient(client)`, {
+    allocationOwnerKeys,
     asRecord: (value) => value && typeof value === 'object' ? value : {},
     readClientData: (value) => value.data || {},
     normalizeKey: (value) => String(value?._id || value || '').trim().toLowerCase(),

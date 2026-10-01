@@ -1,0 +1,66 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const helpers = import('../../frontend/src/utils/operationsUserProgress.mjs');
+
+const users = [{ _id: 'sonal', name: 'SONAL MORE', role: 'operation' },
+  { _id: 'sales', name: 'Sales', role: 'sales' }, { _id: 'admin', name: 'Admin', role: 'admin' },
+  { _id: 'other', name: 'Other', role: 'operation' }];
+
+test('Operations client counts use service allocations and exclude admin/sales/creator', async () => {
+  const { buildOperationsProgressGroups } = await helpers;
+  const rows = [{ id: 'client1', hasPo: true, client: { serviceAllocations: {
+    registration: { userId: 'sonal' }, annual: { userId: 'sonal' }
+  }, adminControls: { assignedTo: 'admin', approvalStatus: 'PENDING' } } }];
+  const groups = buildOperationsProgressGroups(rows, users, () => ['admin']);
+  assert.equal(groups.length, 2);
+  assert.equal(groups.find((group) => group.id === 'sonal').total, 1);
+  assert.equal(groups.find((group) => group.id === 'sonal').complianceDone, 0);
+  assert.equal(groups.find((group) => group.id === 'sonal').poDone, 1);
+});
+
+test('multiple allocated owners receive one client each; duplicate source rows do not inflate totals', async () => {
+  const { buildOperationsProgressGroups } = await helpers;
+  const row = { id: 'shared', client: { serviceAllocations: { a: 'sonal', b: { assignedUserId: 'other' } } } };
+  const groups = buildOperationsProgressGroups([row, row], users, () => []);
+  assert.deepEqual(groups.map((group) => group.total), [1, 1]);
+});
+
+test('legacy assignment names work when no service allocations exist', async () => {
+  const { buildOperationsProgressGroups } = await helpers;
+  const groups = buildOperationsProgressGroups([{ id: 'legacy', client: {} }], users, () => ['sonal more']);
+  assert.equal(groups.find((group) => group.id === 'sonal').total, 1);
+});
+
+test('48/72/96 count actual overdue deadlines cumulatively at their boundaries', async () => {
+  const { getOperationsSla } = await helpers;
+  const due = Date.parse('2026-09-28T00:00:00Z');
+  const record = { correctionDueAt: new Date(due).toISOString() };
+  for (const [offset, expected] of [[-1, [false, false, false]], [0, [true, false, false]],
+    [24, [true, true, false]], [48, [true, true, true]]]) {
+    assert.deepEqual(Object.values(getOperationsSla(record, due + offset * 3600000)).map((item) => item.breached), expected);
+  }
+});
+
+test('approved and recovered flags clear while permanent red flags persist', async () => {
+  const { getOperationsSla } = await helpers;
+  const base = { redFlagAt: '2026-01-01T00:00:00Z' };
+  assert.equal(getOperationsSla({ ...base, approvalStatus: 'APPROVED' })[48].breached, false);
+  assert.equal(getOperationsSla({ ...base, correctionStatus: 'RESOLVED' })[96].breached, false);
+  assert.equal(getOperationsSla({ ...base, approvalStatus: 'APPROVED', reminderFlag: 'PERMANENT_RED' })[96].breached, true);
+});
+
+test('missing deadlines do not fabricate flags from client profile percentage or creation date', async () => {
+  const { getOperationsSla } = await helpers;
+  const sla = getOperationsSla({ createdAt: '2020-01-01', profilePercent: 96 });
+  assert.equal(sla[48].known, false);
+  assert.equal(sla[96].breached, false);
+});
+
+test('correction hours skip first and third Saturdays in IST and respect saved final deadline', async () => {
+  const { addCorrectionHours, getOperationsSla } = await helpers;
+  const { addClientCorrectionHours } = require('../src/utils/clientCorrectionDeadline');
+  const start = '2026-10-02T06:00:00Z';
+  assert.equal(addCorrectionHours(start, 96), addClientCorrectionHours(start, 96).getTime());
+  const final = '2026-10-08T06:00:00Z';
+  assert.equal(getOperationsSla({ correctionStartedAt: start, greenFlagDeadline: final })[96].due, Date.parse(final));
+});
