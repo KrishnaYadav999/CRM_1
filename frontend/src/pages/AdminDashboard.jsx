@@ -33,7 +33,6 @@ import {
   FileCheck2,
   FileClock,
   FileText,
-  Factory,
   Download,
   Gauge,
   Eye,
@@ -72,7 +71,7 @@ import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v4'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v5'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
@@ -3433,12 +3432,7 @@ function getPoApplicantBucket(row = {}) {
 }
 
 const COMPLIANCE_WASTE_TYPES = ['Plastic Waste', 'Battery Waste', 'E-Waste', 'Used Oil', 'Other Waste']
-const COMPLIANCE_APPLICANT_GROUPS = [
-  { key: 'producer', label: 'Producer', note: 'Producer applicants', icon: Building2 },
-  { key: 'importer', label: 'Importer / PWP', note: 'Importer and PWP', icon: BriefcaseBusiness },
-  { key: 'recycler', label: 'Recycler / SIMP', note: 'Recycler and SIMP', icon: RefreshCw },
-  { key: 'brand-owner', label: 'Brand Owner', note: 'Other applicants', icon: FileText }
-]
+const COMPLIANCE_DEFAULT_APPLICANTS = ['Producer', 'Importer', 'Brand Owner', 'Recycler', 'SIMP', 'PWP']
 
 function complianceText(...values) {
   return values.flat(Infinity).map((value) => {
@@ -3456,23 +3450,22 @@ function getComplianceWasteType(source = {}) {
   return 'Other Waste'
 }
 
+function formatComplianceApplicant(value = '') {
+  const clean = String(value || '').trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
+  if (!clean) return 'Other'
+  const upper = clean.toUpperCase()
+  if (['PIBO', 'SIMP', 'PWP'].includes(upper)) return upper
+  if (upper === 'BRANDOWNER' || upper === 'BRAND OWNER') return 'Brand Owner'
+  return clean.replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
 function getComplianceApplicantGroup(source = {}, wasteType = getComplianceWasteType(source)) {
   // Plastic registrations use the sub-applicant type. Other EPR streams use
   // their direct applicant/application type, as used by the source portal.
-  const preferred = wasteType === 'Plastic Waste'
+  const applicantType = wasteType === 'Plastic Waste'
     ? complianceText(source.subApplicantType, source.piboCategory)
     : complianceText(source.applicantType, source.applicationType, source.category, source.piboParent)
-  const fallback = wasteType === 'Plastic Waste'
-    ? complianceText(source.applicantType, source.applicationType, source.category, source.piboParent)
-    : complianceText(source.subApplicantType, source.piboCategory)
-  const classify = (value) => {
-    if (value.includes('brand owner') || value.includes('brandowner')) return 'brand-owner'
-    if (value.includes('recycler') || value.includes('simp') || value.includes('seller')) return 'recycler'
-    if (value.includes('importer') || value.includes('pwp') || value.includes('refurbisher') || value.includes('retreader')) return 'importer'
-    if (value.includes('producer')) return 'producer'
-    return ''
-  }
-  return classify(preferred) || classify(fallback) || 'brand-owner'
+  return formatComplianceApplicant(applicantType)
 }
 
 function getComplianceServiceKinds(source = {}, fallbackKind = '') {
@@ -3504,10 +3497,12 @@ function getComplianceRecordYears(source = {}) {
 }
 
 function complianceRecordAppliesToYear(record, financialYear) {
+  if (record.source.clientMasterService && record.kind === 'registration') return true
   const selectedStart = financialYearStart(financialYear)
+  const firstStart = financialYearStart(record.source.firstAnnualReturnYearApplicable || record.source.firstAnnualReturnYear)
+  if (record.source.clientMasterService && record.kind === 'annual' && firstStart) return selectedStart >= firstStart
   const exactYears = getComplianceRecordYears(record.source)
   if (exactYears.length) return exactYears.some((year) => financialYearStart(year) === selectedStart)
-  const firstStart = financialYearStart(record.source.firstAnnualReturnYearApplicable || record.source.firstAnnualReturnYear)
   if (record.kind === 'annual' && firstStart) return selectedStart >= firstStart
   return true
 }
@@ -3529,7 +3524,7 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
       eprCategory: clientData.basic?.eprCategory || snapshot.eprCategory || row.eprCategory,
       applicantType: clientData.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || row.category,
       subApplicantType: clientData.basic?.subApplicantType || clientData.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || row.subApplicantType,
-      firstAnnualReturnYear: row.firstAnnualReturnYear
+      firstAnnualReturnYear: clientData.basic?.firstAnnualReturnYear || snapshot.firstAnnualReturnYearApplicable || row.firstAnnualReturnYear
     }
     ;(row.annualReturns || []).forEach((filing, filingIndex) => {
       const filingData = filing.data && typeof filing.data === 'object' ? filing.data : {}
@@ -3549,16 +3544,20 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
 
     const clientServiceSource = {
       ...common,
+      clientMasterService: true,
       servicesOffered: clientData.basic?.servicesOffered || snapshot.servicesOffered,
       applicableService: snapshot.applicableService,
       servicesForYear: clientData.basic?.servicesForYear || snapshot.servicesForYear || snapshot.financialYear,
       registrationYear: clientData.basic?.registrationYear || snapshot.registrationYear
     }
-    // Registration is counted from the converted Client Master service only.
-    // Annual Return is counted above from an actual saved Annual Return form.
-    if (getComplianceServiceKinds(clientServiceSource).includes('registration')) {
-      addRecord(clientServiceSource, clientRecordId, 'registration', `${clientRecordId}:client-registration`)
-    }
+    // Both service totals come only from converted Client Master records. An
+    // actual saved Annual Return form is also included above and deduplicated.
+    getComplianceServiceKinds(clientServiceSource).forEach((kind) => addRecord(
+      clientServiceSource,
+      clientRecordId,
+      kind,
+      `${clientRecordId}:client-${kind}`
+    ))
   })
 
   const uniqueRecords = new Map()
@@ -3569,15 +3568,27 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
     if (!uniqueRecords.has(key)) uniqueRecords.set(key, record)
   })
 
-  const groups = COMPLIANCE_APPLICANT_GROUPS.map((group) => ({
-    ...group,
+  const applicantLabels = [...new Set([...uniqueRecords.values()].map((record) => record.applicant).filter(Boolean))]
+  const visibleApplicantLabels = applicantLabels.length ? applicantLabels : COMPLIANCE_DEFAULT_APPLICANTS
+  const applicantOrder = new Map(COMPLIANCE_DEFAULT_APPLICANTS.map((label, index) => [normalizeKey(label), index]))
+  visibleApplicantLabels.sort((left, right) => {
+    const leftOrder = applicantOrder.get(normalizeKey(left)) ?? 999
+    const rightOrder = applicantOrder.get(normalizeKey(right)) ?? 999
+    return leftOrder - rightOrder || left.localeCompare(right)
+  })
+  const applicantIcons = [Building2, BriefcaseBusiness, FileText, RefreshCw]
+  const groups = visibleApplicantLabels.map((label, index) => ({
+    key: normalizeKey(label).replace(/\s+/g, '-'),
+    label,
+    note: 'Applicant type',
+    icon: applicantIcons[index % applicantIcons.length],
     annual: 0,
     registration: 0,
     waste: COMPLIANCE_WASTE_TYPES.map((name) => ({ name, annual: 0, registration: 0 }))
   }))
   const groupMap = new Map(groups.map((group) => [group.key, group]))
   uniqueRecords.forEach((record) => {
-    const group = groupMap.get(record.applicant)
+    const group = groupMap.get(normalizeKey(record.applicant).replace(/\s+/g, '-'))
     const waste = group?.waste.find((item) => item.name === record.waste)
     if (!group || !waste) return
     group[record.kind] += 1
@@ -3591,15 +3602,17 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
 }
 
 function AnnualRegistrationKpi({ data }) {
+  const groupCount = Math.max(1, data.groups.length)
+  const branchEdge = `calc(${50 / groupCount}% - ${(groupCount - 1) * 28 / (2 * groupCount)}px)`
   return <section className="compliance-kpi-tree" aria-label="Annual Return and Registration KPI">
     <header className="compliance-kpi-root">
       <span className="compliance-kpi-root-icon"><BarChart3 aria-hidden="true" /></span>
       <div><h2>Annual Return &amp; Registration</h2><p><span>Annual Return: <b>{data.annual.toLocaleString('en-IN')}</b></span><i /><span>Registration: <b>{data.registration.toLocaleString('en-IN')}</b></span></p></div>
     </header>
-    <div className="compliance-kpi-branches">
+    <div className="compliance-kpi-branches" style={{ '--applicant-count': groupCount, '--branch-edge': branchEdge }}>
       {data.groups.map((group, index) => {
         const Icon = group.icon
-        return <article key={group.key} className={`compliance-kpi-branch compliance-kpi-branch-${index + 1}`}>
+        return <article key={group.key} className={`compliance-kpi-branch compliance-kpi-branch-${(index % 6) + 1}`}>
           <header><span><Icon aria-hidden="true" /></span><div><h3>{group.label}</h3><p>{group.note}</p></div><dl><div><dt>AR</dt><dd>{group.annual}</dd></div><i /><div><dt>Reg</dt><dd>{group.registration}</dd></div></dl></header>
           <div className="compliance-kpi-waste-list">
             {group.waste.map((waste) => <div key={waste.name} className="compliance-kpi-waste-row"><span><FileText aria-hidden="true" /></span><div><strong>{waste.name}</strong><p>AR: <b>{waste.annual}</b><i />Reg: <b>{waste.registration}</b></p></div></div>)}
@@ -3802,64 +3815,6 @@ function UserWisePoStatus({ rows = [], leads = [], users = [], onRefresh, onOpen
   )
 }
 
-function buildKpiApplicantGroups(counts = new Map()) {
-  const value = (name) => Number(counts.get(name) || 0)
-  const groups = [
-    { label: 'Producer', note: 'Producer applicants', value: value('Producer'), tone: 'orange', icon: Factory },
-    { label: 'Importer / PWP', note: 'Importer and PWP', value: value('Importer') + value('PWP'), tone: 'green', icon: Factory },
-    { label: 'Recycler / SIMP', note: 'Recycler and SIMP', value: value('Recycler') + value('SIMP'), tone: 'blue', icon: Factory },
-    { label: 'Brand Owner', note: value('Other') ? `Other applicants ${value('Other')}` : 'Brand owner applicants', value: value('Brand Owner') + value('Other'), tone: 'purple', icon: FileText }
-  ]
-  return { total: groups.reduce((sum, group) => sum + group.value, 0), groups }
-}
-
-function KpiFlowPanel({ title, total = 0, groups = [], delay = 0 }) {
-  return (
-    <motion.section
-      className="epr-kpi-flow-panel"
-      initial={{ opacity: 0, y: 24, scale: .985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: .55, delay, ease: [0.22, 1, 0.36, 1] }}
-      aria-label={`${title} KPI hierarchy`}
-    >
-      <div className="epr-kpi-glow" aria-hidden="true" />
-      <motion.header className="epr-kpi-banner" whileHover={{ y: -2, scale: 1.01 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
-        <Target aria-hidden="true" />
-        <span><strong>KPI</strong><small>Key Performance Indicator</small></span>
-      </motion.header>
-      <motion.i className="epr-kpi-arrow epr-kpi-arrow-one" aria-hidden="true" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} transition={{ delay: delay + .28, duration: .35 }} />
-      <motion.div className="epr-kpi-stage" initial={{ opacity: 0, scale: .94 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: delay + .22, duration: .36 }}>
-        <RefreshCw aria-hidden="true" />
-        <strong>{title}</strong>
-      </motion.div>
-      <motion.i className="epr-kpi-arrow epr-kpi-arrow-two" aria-hidden="true" initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} transition={{ delay: delay + .42, duration: .35 }} />
-      <motion.div className="epr-kpi-total" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: delay + .36, duration: .42 }}>
-        <span><BarChart3 aria-hidden="true" /></span>
-        <div><small>Total</small><motion.strong key={total} initial={{ opacity: 0, scale: .65 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 230, damping: 15, delay: delay + .48 }}>{total.toLocaleString('en-IN')}</motion.strong><p>{title} (Total)</p></div>
-      </motion.div>
-      <div className="epr-kpi-branches" aria-hidden="true"><span /><i /><i /><i /><i /></div>
-      <div className="epr-kpi-group-grid">
-        {groups.map(({ label, note, value, tone, icon: Icon }, index) => (
-          <motion.article
-            key={label}
-            className={`epr-kpi-group epr-kpi-group-${tone}`}
-            initial={{ opacity: 0, y: 20, scale: .94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ delay: delay + .55 + (index * .07), duration: .42, ease: [0.22, 1, 0.36, 1] }}
-            whileHover={{ y: -5, scale: 1.018 }}
-          >
-            <span><Icon aria-hidden="true" /></span>
-            <h3>{label}</h3>
-            <p>{note}</p>
-            <motion.strong key={value} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: delay + .68 + (index * .07) }}>{value.toLocaleString('en-IN')}</motion.strong>
-            <i aria-hidden="true" />
-          </motion.article>
-        ))}
-      </div>
-    </motion.section>
-  )
-}
-
 const OPERATIONS_PROGRESS_MILESTONES = [48, 72, 96]
 
 function OperationsProgressValue({ done = 0, total = 0, tone = 'green', label }) {
@@ -3998,33 +3953,6 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
     })
     return { categories: categories.map((item) => ({ ...item, applicants: [...item.applicants.entries()].sort((a, b) => b[1] - a[1]) })), applicants: PO_APPLICANT_BUCKETS.map((name) => ({ name, count: applicantMap.get(name) || 0 })) }
   }, [selectedRows])
-  const registrationKpi = useMemo(() => {
-    const counts = new Map(PO_APPLICANT_BUCKETS.map((name) => [name, 0]))
-    selectedRows.forEach((row) => {
-      const applicant = getPoApplicantBucket(row)
-      counts.set(applicant, (counts.get(applicant) || 0) + 1)
-    })
-    return buildKpiApplicantGroups(counts)
-  }, [selectedRows])
-  const annualReturnKpi = useMemo(() => {
-    const visibleClients = new Set(selectedRows.flatMap((row) => [row.atplCode, normalizeKey(row.companyName)]).filter(Boolean))
-    const counts = new Map(PO_APPLICANT_BUCKETS.map((name) => [name, 0]))
-    const filings = new Set()
-    rows.forEach((row) => {
-      const rowKeys = [row.atplCode, normalizeKey(row.companyName)].filter(Boolean)
-      if (!rowKeys.some((key) => visibleClients.has(key))) return
-      ;(row.annualReturns || []).forEach((filing, index) => {
-        const filingYear = filing.annualYear || filing.financialYear || filing.year || row.annualYear || row.firstAnnualReturnYear
-        if (financialYearStart(filingYear) !== financialYearStart(financialYear)) return
-        const filingKey = filing._id || filing.annualReturnId || `${row.id || row.clientKey || row.companyName}:${filingYear}:${index}`
-        if (filings.has(filingKey)) return
-        filings.add(filingKey)
-        const applicant = getPoApplicantBucket(row)
-        counts.set(applicant, (counts.get(applicant) || 0) + 1)
-      })
-    })
-    return buildKpiApplicantGroups(counts)
-  }, [financialYear, rows, selectedRows])
   const categoryColors = ['#10b981', '#1687e8', '#fb8500', '#7c3aed']
   const categoryChartData = analytics.categories.filter((item) => item.total)
   const chartData = categoryChartData.length ? categoryChartData : [{ name: 'No data', total: 1 }]
@@ -4043,10 +3971,6 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
     </div>
     <AnnualRegistrationKpi data={complianceKpi} />
     <div className="epr-category-grid">{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
-    <div className="epr-kpi-flow-grid">
-      <KpiFlowPanel title="Annual Return" total={annualReturnKpi.total} groups={annualReturnKpi.groups} delay={0.08} />
-      <KpiFlowPanel title="Registration" total={registrationKpi.total} groups={registrationKpi.groups} delay={0.18} />
-    </div>
     <OperationsUserProgressTable rows={rows} />
     <div className="epr-chart-grid">
       <article className="epr-chart-card"><header><div><h2>Leads by EPR Category</h2><p>Filtered category distribution</p></div><b>{selectedRows.length} total</b></header><div className="epr-donut-body"><div className="epr-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={chartData} dataKey="total" nameKey="name" innerRadius={62} outerRadius={86} paddingAngle={3} stroke="none">{chartData.map((entry, index) => <Cell key={entry.name} fill={categoryChartData.length ? categoryColors[index] : '#e5e7eb'} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><span><strong>{selectedRows.length}</strong>Total</span></div><div className="epr-chart-legend">{analytics.categories.map((item, index) => <div key={item.name}><i style={{ background: categoryColors[index] }} /><span>{item.name}</span><strong>{item.total}</strong><small>{selectedRows.length ? `${((item.total / selectedRows.length) * 100).toFixed(1)}%` : '0%'}</small></div>)}</div></div></article>
