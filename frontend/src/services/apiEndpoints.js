@@ -131,6 +131,8 @@ const API_ENDPOINTS = {
     purchaseSales: '/dashboard-insights/purchase-sales'
   },
   notifications: {
+    unreadAnnouncements: '/notifications/unread-announcements',
+    markRead: (id) => `/notifications/${encodePathValue(id)}/read`,
     list: '/notifications',
     create: '/notifications',
     detail: (id) => `/notifications/${encodePathValue(id)}`,

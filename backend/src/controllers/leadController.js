@@ -1,4 +1,5 @@
 const Lead = require('../models/Lead');
+const { cleanPoCommercialDetails, validatePoCommercialDetails } = require('../utils/poCommercialDetails');
 const mongoose = require('mongoose');
 const { randomUUID } = require('crypto');
 const LeadActivity = require('../models/LeadActivity');
@@ -360,6 +361,7 @@ function cleanBody(body) {
           poYearRows: Array.isArray(row?.poYearRows) ? row.poYearRows.slice(0, 25).map((po) => ({
             fy: String(po?.fy || '').trim(), poNumber: String(po?.poNumber || '').trim(),
             poDate: String(po?.poDate || '').trim(),
+            ...cleanPoCommercialDetails(po),
             poAmount: Math.max(0, Number(po?.poAmount) || 0),
             poFileUrl: resolvePoProof(po).url, poFileName: resolvePoProof(po).name,
             poFileMimeType: String(po?.poFileMimeType || '').trim(),
@@ -601,6 +603,9 @@ function normalizedPoClosureRows(assignment = {}) {
     fy: String(po?.fy || '').trim(),
     poNumber: String(po?.poNumber || '').trim(),
     poDate: String(po?.poDate || '').trim(),
+    poEndDate: String(po?.poEndDate || '').trim(),
+    poFinancialYear: String(po?.poFinancialYear || '').trim(),
+    paymentTerm: String(po?.paymentTerm || '').trim(),
     poAmount: Math.max(0, Number(po?.poAmount) || 0),
     poFileUrl: resolvePoProof(po).url,
     services: (Array.isArray(po?.services) ? po.services : [])
@@ -812,6 +817,8 @@ async function getNextLeadCode() {
 
 async function createLeadRecord(rawBody, user) {
   const data = setProvisionalClosureDeadlines(cleanBody(rawBody));
+  const commercialError = (data.assignments || []).flatMap((row) => row.poYearRows || []).map(validatePoCommercialDetails).find(Boolean);
+  if (commercialError) { const error = new Error(commercialError); error.statusCode = 400; throw error; }
   const duplicateServiceError = validateDuplicateServiceSelections(data);
   if (duplicateServiceError) {
     const validationError = new Error(duplicateServiceError);
@@ -1544,6 +1551,8 @@ exports.updateLead = async (req, res) => {
       data.subApplicantType = selection.piboCategory;
     }
 
+    const poCommercialError = (data.assignments || []).flatMap((row) => row.poYearRows || []).map(validatePoCommercialDetails).find(Boolean);
+    if (poCommercialError) return res.status(400).json({ error: poCommercialError });
     if (Array.isArray(data.assignments)) {
       const invalidPoDate = data.assignments.some((row, index) => {
         const beforeAssignment = beforeLead.assignments?.[index] || {};
@@ -1738,6 +1747,7 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
         fy: String(submitted.fy || serviceRow.firstAnnualReturnYearApplicable || '').trim().slice(0, 30),
         poNumber: String(submitted.poNumber || '').trim().slice(0, 100),
         poDate: String(submitted.poDate || '').trim(),
+        ...cleanPoCommercialDetails(submitted),
         poAmount: Math.max(0, Number(submitted.poAmount) || 0),
         service: String(serviceRow.servicesOffered || serviceRow.applicableService || serviceRow.eprCategory || submitted.service || '').trim().slice(0, 255),
         poFileUrl: String(submitted.poFileUrl || '').trim().slice(0, 2000),
@@ -1748,6 +1758,8 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
         poUploadedAt: String(submitted.poUploadedAt || '').trim()
       };
     });
+    const commercialError = originalPoRows.map(validatePoCommercialDetails).find(Boolean);
+    if (commercialError) return res.status(400).json({ error: commercialError });
     const invalidPoRow = originalPoRows.find((row) => !row.fy || !row.poNumber || !/^\d{4}-\d{2}-\d{2}$/.test(row.poDate)
       || Number.isNaN(new Date(`${row.poDate}T00:00:00`).getTime()) || !(row.poAmount > 0) || !row.service
       || !/^https:\/\//i.test(row.poFileUrl) || !row.poFileName

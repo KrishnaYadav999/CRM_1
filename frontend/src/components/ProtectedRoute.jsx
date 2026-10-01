@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import BrandLoader from './BrandLoader'
+import AnnouncementGate from './AnnouncementGate'
 import api, { clearStoredSession, hasStoredAuthToken, storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { hasAnyRole } from '../constants/dashboard'
@@ -53,6 +54,6 @@ export default function ProtectedRoute({ children, allowedRoles }) {
     return <BrandLoader message="Checking secure access" />
   }
 
-  if (state.allowed) return children
+  if (state.allowed) return <AnnouncementGate>{children}</AnnouncementGate>
   return <Navigate to={state.authenticated ? '/dashboard' : '/login'} replace />
 }
