@@ -3512,7 +3512,7 @@ function complianceRecordAppliesToYear(record, financialYear) {
   return true
 }
 
-function buildComplianceKpi(leads = [], clientRows = [], financialYear = currentFinancialYear()) {
+function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYear()) {
   const records = []
   const addRecord = (source, owner, kind, sourceId) => {
     const waste = getComplianceWasteType(source)
@@ -3521,32 +3521,14 @@ function buildComplianceKpi(leads = [], clientRows = [], financialYear = current
     if (complianceRecordAppliesToYear(record, financialYear)) records.push(record)
   }
 
-  leads.forEach((lead, leadIndex) => {
-    const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead]
-    services.forEach((service, serviceIndex) => {
-      const source = {
-        ...lead,
-        ...service,
-        eprCategory: service.eprCategory || service.serviceCategory || lead.eprCategory,
-        applicantType: service.applicantType || service.piboParent || lead.applicantType || lead.piboParent,
-        subApplicantType: service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory,
-        firstAnnualReturnYearApplicable: service.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable
-      }
-      getComplianceServiceKinds(source).forEach((kind) => addRecord(
-        source,
-        lead.company || lead.companyName || '',
-        kind,
-        `${lead._id || lead.id || lead.leadCode || leadIndex}:${service.assignedServiceId || serviceIndex}`
-      ))
-    })
-  })
-
   clientRows.forEach((row, rowIndex) => {
     const clientData = readClientData(row.client || {})
+    const snapshot = clientData.selectedLeadSnapshot || {}
+    const clientRecordId = row.id || row.clientKey || rowIndex
     const common = {
-      eprCategory: row.eprCategory,
-      applicantType: row.category,
-      subApplicantType: row.subApplicantType,
+      eprCategory: clientData.basic?.eprCategory || snapshot.eprCategory || row.eprCategory,
+      applicantType: clientData.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || row.category,
+      subApplicantType: clientData.basic?.subApplicantType || clientData.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || row.subApplicantType,
       firstAnnualReturnYear: row.firstAnnualReturnYear
     }
     ;(row.annualReturns || []).forEach((filing, filingIndex) => {
@@ -3559,7 +3541,7 @@ function buildComplianceKpi(leads = [], clientRows = [], financialYear = current
           applicantType: filing.applicantType || filingData.basic?.applicantType || common.applicantType,
           subApplicantType: filing.subApplicantType || filing.piboCategory || filingData.basic?.piboCategory || common.subApplicantType
         },
-        row.companyName,
+        clientRecordId,
         'annual',
         filing._id || filing.annualReturnId || `${row.id || rowIndex}:annual:${filingIndex}`
       )
@@ -3567,16 +3549,16 @@ function buildComplianceKpi(leads = [], clientRows = [], financialYear = current
 
     const clientServiceSource = {
       ...common,
-      servicesOffered: clientData.basic?.servicesOffered,
-      applicableService: clientData.selectedLeadSnapshot?.applicableService,
-      annualYear: row.annualYear
+      servicesOffered: clientData.basic?.servicesOffered || snapshot.servicesOffered,
+      applicableService: snapshot.applicableService,
+      servicesForYear: clientData.basic?.servicesForYear || snapshot.servicesForYear || snapshot.financialYear,
+      registrationYear: clientData.basic?.registrationYear || snapshot.registrationYear
     }
-    getComplianceServiceKinds(clientServiceSource).forEach((kind) => addRecord(
-      clientServiceSource,
-      row.companyName,
-      kind,
-      `${row.id || rowIndex}:client-service`
-    ))
+    // Registration is counted from the converted Client Master service only.
+    // Annual Return is counted above from an actual saved Annual Return form.
+    if (getComplianceServiceKinds(clientServiceSource).includes('registration')) {
+      addRecord(clientServiceSource, clientRecordId, 'registration', `${clientRecordId}:client-registration`)
+    }
   })
 
   const uniqueRecords = new Map()
@@ -3999,8 +3981,8 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
     })
   }, [dateFrom, dateTo, eprCategory, financialYearRows, poStatus, search])
   const complianceKpi = useMemo(
-    () => buildComplianceKpi(leads, rows, financialYear),
-    [financialYear, leads, rows]
+    () => buildComplianceKpi(rows, financialYear),
+    [financialYear, rows]
   )
   const analytics = useMemo(() => {
     const categories = ['Plastic', 'E-Waste', 'Battery Waste', 'Other EPR'].map((name) => ({ name, total: 0, received: 0, applicants: new Map() }))
