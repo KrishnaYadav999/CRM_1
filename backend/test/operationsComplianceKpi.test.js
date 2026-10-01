@@ -9,6 +9,9 @@ test('operations compliance KPI counts converted Client Master rows instead of L
   assert.match(dashboard, /function buildComplianceKpi\(clientRows = \[\]/);
   assert.doesNotMatch(dashboard, /function buildComplianceKpi\(leads/);
   assert.match(dashboard, /getComplianceServiceKinds\(clientServiceSource\)\.forEach/);
+  assert.match(dashboard, /Array\.isArray\(client\.services\)/);
+  assert.doesNotMatch(dashboard, /mergeClientSources\(crmClients, \[\]\)/);
+  assert.match(dashboard, /if \(recordId\) return `record:/);
 });
 
 test('operations compliance KPI keeps applicant types separate', () => {

@@ -1164,7 +1164,7 @@ exports.listClients = async (req, res) => {
       'data.authorisedContact', 'data.authorizedContact'
     ] : []),
     ...(req.query.dashboard === 'true' ? [
-      'data.basic', 'data.importMeta', 'data.selectedLeadSnapshot', 'data.assignedServiceId',
+      'services', 'data.basic', 'data.importMeta', 'data.selectedLeadSnapshot', 'data.assignedServiceId',
       'data.otp.mobile', 'data.otp.email', 'data.authorised.mobile', 'data.authorised.email',
       'data.coordinating.mobile', 'data.coordinating.email', 'data.financials', 'data.validation'
     ] : []),

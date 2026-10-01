@@ -66,12 +66,11 @@ import ToastMessage from '../components/ToastMessage'
 import { adminRoles, defaultUserForm, getUserRoles, hasAnyRole, roleLabels, roles as defaultRoles } from '../constants/dashboard'
 import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
-import { mergeClientSources } from '../features/clientMaster/clientMaster.utils'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v5'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v6'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
@@ -1405,8 +1404,13 @@ function getClientMatchKeys(client = {}) {
 function getClientDedupeKey(client = {}) {
   const safeClient = asRecord(client)
   const data = readClientData(safeClient)
+  const recordId = normalizeKey(safeClient._id || safeClient.id || safeClient.clientMasterId)
+  const assignedServiceId = normalizeKey(safeClient.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId)
+  // A Client Master document represents one converted service. Preserve that
+  // identity instead of collapsing every service belonging to the same lead.
+  if (recordId) return `record:${recordId}${assignedServiceId ? `:service:${assignedServiceId}` : ''}`
   const strongCode = normalizeKey(data.importMeta?.uniqueId || data.importMeta?.leadNumber || safeClient.clientCode || safeClient.code || '')
-  if (strongCode) return `client:${strongCode}`
+  if (strongCode) return `client:${strongCode}${assignedServiceId ? `:service:${assignedServiceId}` : ''}`
   const company = normalizeKey(getClientName(safeClient))
   const category = normalizeKey(getClientCategory(safeClient))
   const assigned = getAssignedUserKeysFromClient(safeClient).join('|')
@@ -3477,8 +3481,9 @@ function getComplianceServiceKinds(source = {}, fallbackKind = '') {
     source.serviceName,
     source.scope
   )
+  const compactValue = value.replace(/\s+/g, '')
   const kinds = []
-  if (value.includes('annual return') || value.includes('annual filing')) kinds.push('annual')
+  if (value.includes('annual return') || value.includes('annual filing') || compactValue.includes('annualreturn')) kinds.push('annual')
   if (value.includes('registration')) kinds.push('registration')
   if (!kinds.length && fallbackKind) kinds.push(fallbackKind)
   return kinds
@@ -3517,14 +3522,15 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
   }
 
   clientRows.forEach((row, rowIndex) => {
-    const clientData = readClientData(row.client || {})
+    const client = row.client || {}
+    const clientData = readClientData(client)
     const snapshot = clientData.selectedLeadSnapshot || {}
     const clientRecordId = row.id || row.clientKey || rowIndex
     const common = {
-      eprCategory: clientData.basic?.eprCategory || snapshot.eprCategory || row.eprCategory,
-      applicantType: clientData.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || row.category,
-      subApplicantType: clientData.basic?.subApplicantType || clientData.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || row.subApplicantType,
-      firstAnnualReturnYear: clientData.basic?.firstAnnualReturnYear || snapshot.firstAnnualReturnYearApplicable || row.firstAnnualReturnYear
+      eprCategory: clientData.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || client.eprCategory || client.serviceCategory || row.eprCategory,
+      applicantType: clientData.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || client.applicantType || client.piboParent || row.category,
+      subApplicantType: clientData.basic?.subApplicantType || clientData.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || client.subApplicantType || client.piboCategory || row.subApplicantType,
+      firstAnnualReturnYear: clientData.basic?.firstAnnualReturnYear || clientData.firstAnnualReturnYearApplicable || snapshot.firstAnnualReturnYearApplicable || client.firstAnnualReturnYear || row.firstAnnualReturnYear
     }
     ;(row.annualReturns || []).forEach((filing, filingIndex) => {
       const filingData = filing.data && typeof filing.data === 'object' ? filing.data : {}
@@ -3545,10 +3551,11 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
     const clientServiceSource = {
       ...common,
       clientMasterService: true,
-      servicesOffered: clientData.basic?.servicesOffered || snapshot.servicesOffered,
-      applicableService: snapshot.applicableService,
-      servicesForYear: clientData.basic?.servicesForYear || snapshot.servicesForYear || snapshot.financialYear,
-      registrationYear: clientData.basic?.registrationYear || snapshot.registrationYear
+      servicesOffered: clientData.basic?.servicesOffered || snapshot.servicesOffered || client.servicesOffered,
+      applicableService: clientData.basic?.applicableService || snapshot.applicableService || client.applicableService,
+      service: snapshot.service || snapshot.serviceName || client.service || client.serviceName,
+      servicesForYear: clientData.basic?.servicesForYear || snapshot.servicesForYear || snapshot.financialYear || client.servicesForYear || client.financialYear,
+      registrationYear: clientData.basic?.registrationYear || snapshot.registrationYear || client.registrationYear
     }
     // Both service totals come only from converted Client Master records. An
     // actual saved Annual Return form is also included above and deduplicated.
@@ -3558,6 +3565,15 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
       kind,
       `${clientRecordId}:client-${kind}`
     ))
+    ;(Array.isArray(client.services) ? client.services : []).forEach((service, serviceIndex) => {
+      const serviceSource = { ...common, ...service, clientMasterService: true }
+      getComplianceServiceKinds(serviceSource).forEach((kind) => addRecord(
+        serviceSource,
+        clientRecordId,
+        kind,
+        `${clientRecordId}:service-${service.assignedServiceId || serviceIndex}-${kind}`
+      ))
+    })
   })
 
   const uniqueRecords = new Map()
@@ -5655,10 +5671,9 @@ export default function AdminDashboard() {
       ])
 
       const crmClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
-      const mergedClients = mergeClientSources(crmClients, [])
       const clientRequestsSucceeded = clientsResult.status === 'fulfilled'
       const nextClients = retainStableList(
-        asRecordList(clientRequestsSucceeded ? mergedClients : retained.clients),
+        asRecordList(clientRequestsSucceeded ? crmClients : retained.clients),
         retained.clients
       )
       const freshLeads = mergeLeadSources(
