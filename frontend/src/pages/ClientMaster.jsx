@@ -949,6 +949,10 @@ function filterClientMasterSearchItems(items = [], leads = []) {
   });
   return (Array.isArray(items) ? items : []).filter((item) => {
     if (item.clientMasterId) return true;
+    // Remote discovery already applies the authenticated visibility filter and
+    // returns closure totals. Keep eligible closed leads even when they are not
+    // present in the page's small local lead cache yet.
+    if (Number(item.closedServiceCount) > 0) return true;
     const lead = [item.leadId, item.selectionKey, item.leadCode]
       .map(normalizeClientMasterSearchValue).filter(Boolean)
       .map((identity) => leadByIdentity.get(identity)).find(Boolean);
