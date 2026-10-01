@@ -93,8 +93,12 @@ function pendingManagerAssignmentFilter(user = {}) {
   const assignmentHasManager = { $or: [
     fieldHasValue('assignedTo'), fieldHasValue('assignedToText'), fieldHasValue('assignedToEmail')
   ] };
+  const assignmentIsClosed = { $or: [
+    fieldHasValue('closedBy'), fieldHasValue('closedByText'), fieldHasValue('closedByEmail'), fieldHasValue('closedAt')
+  ] };
   const assignmentIdentity = managerIdentityFilter(user);
   const assignmentPending = { $and: [
+    assignmentIsClosed,
     assignmentHasManager,
     ...(assignmentIdentity ? [assignmentIdentity] : []),
     fieldHasNoValue('assignedStaff'),
@@ -105,8 +109,12 @@ function pendingManagerAssignmentFilter(user = {}) {
   const rootHasManager = { $or: [
     fieldHasValue('assignedTo'), fieldHasValue('assignedToText'), fieldHasValue('assignedToEmail')
   ] };
+  const rootIsClosed = { $or: [
+    fieldHasValue('closedBy'), fieldHasValue('closedByText'), fieldHasValue('closedByEmail'), fieldHasValue('closedAt')
+  ] };
   const rootIdentity = managerIdentityFilter(user);
   const rootPending = { $and: [
+    rootIsClosed,
     rootHasManager,
     ...(rootIdentity ? [rootIdentity] : []),
     fieldHasNoValue('assignedStaff'),

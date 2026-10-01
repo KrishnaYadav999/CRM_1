@@ -23,7 +23,7 @@ test('Lead Generation uses inline tabs for temporary and notified leads', () => 
   assert.match(app, /lead-generation\/temporary.*Navigate to="\/sales\/lead-generation\?tab=temporary"/);
 });
 
-test('Notified Leads contains manager assignments that are still waiting for staff', () => {
+test('Notified Leads contains closed manager assignments that are still waiting for staff', () => {
   const page = read('frontend/src/pages/LeadGeneration.jsx');
   const controller = read('backend/src/controllers/leadController.js');
 
@@ -32,7 +32,7 @@ test('Notified Leads contains manager assignments that are still waiting for sta
   assert.match(page, /showNotified=\{canViewNotifiedLeads\}/);
   assert.match(page, /\.\.\.\(showNotified \? \[\{ id: 'notified'/);
   assert.match(page, /function pendingManagerAssignmentRows/);
-  assert.match(page, /if \(!hasManager \|\| hasStaff\) return \[\]/);
+  assert.match(page, /if \(!isClosed \|\| !hasManager \|\| hasStaff\) return \[\]/);
   assert.match(page, /service\.managerAssignedStaffName/);
   assert.match(page, /Manager Assigned to Staff/);
   assert.match(page, /Manager action pending/);
@@ -42,6 +42,8 @@ test('Notified Leads contains manager assignments that are still waiting for sta
   assert.match(page, /\[Lead Notifications\] fetch complete/);
   assert.match(page, /onDirectoryQueryChange\(currentDirectoryRequest\(\)\)/);
   assert.match(controller, /function pendingManagerAssignmentFilter/);
+  assert.match(controller, /assignmentIsClosed/);
+  assert.match(controller, /rootIsClosed/);
   assert.match(controller, /if \(workspace === 'notified'\) filters\.push\(notifiedFilter\)/);
   assert.match(controller, /notifiedPending: workspace === 'notified' \? total : undefined/);
 });

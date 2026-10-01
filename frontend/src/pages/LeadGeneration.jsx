@@ -3596,10 +3596,11 @@ function pendingManagerAssignmentRows(leads = [], currentUser = {}) {
     const assignments = savedAssignments.length && assignmentsHaveManager ? savedAssignments : [lead];
     return assignments.flatMap((assignment, index) => {
       const service = services.find((row) => assignment?.assignedServiceId && row?.assignedServiceId === assignment.assignedServiceId) || services[index] || {};
+      const isClosed = personIdentityTokens(assignment?.closedBy, assignment?.closedByText, assignment?.closedByEmail).length > 0 || Boolean(assignment?.closedAt);
       const managerTokens = personIdentityTokens(assignment?.assignedTo, assignment?.assignedToText, assignment?.assignedToEmail, service.assignedManagerName, service.assignedManagerEmail);
       const hasManager = managerTokens.length > 0;
       const hasStaff = personIdentityTokens(assignment?.assignedStaff, assignment?.assignedStaffText, assignment?.assignedStaffEmail, service.managerAssignedStaffName, service.managerAssignedStaffEmail).length > 0;
-      if (!hasManager || hasStaff) return [];
+      if (!isClosed || !hasManager || hasStaff) return [];
       if (restrictToCurrentManager && !managerTokens.some((token) => currentUserTokens.includes(token))) return [];
       return [{
         lead,
@@ -3913,14 +3914,14 @@ function NotifiedLeadsTable({ rows, loading, onView, onEdit, canEdit, currentUse
   return (
     <div className="animate-[fadeIn_.25s_ease-out] overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm shadow-orange-950/5">
       <div className="border-b border-orange-100 bg-gradient-to-r from-orange-50 via-amber-50 to-white px-5 py-4">
-        <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-700"><BellRing className="h-5 w-5" /></span><div><h3 className="font-black text-slate-900">Manager action pending</h3><p className="mt-0.5 text-xs font-semibold text-slate-500">Sales has assigned these leads to a Manager. They remain here until Manager Assigned to Staff is completed.</p></div></div>
+        <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-700"><BellRing className="h-5 w-5" /></span><div><h3 className="font-black text-slate-900">Manager action pending</h3><p className="mt-0.5 text-xs font-semibold text-slate-500">Only closed leads assigned to a Manager are shown here. They remain until Manager Assigned to Staff is completed.</p></div></div>
       </div>
       <div className="max-h-[680px] overflow-auto">
         <table className="w-full min-w-[1250px] table-fixed text-left text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="w-[145px] px-4 py-4">Lead ID</th><th className="w-[220px] px-4 py-4">Company</th><th className="w-[190px] px-4 py-4">Service Category</th><th className="w-[170px] px-4 py-4">Assigned Manager</th><th className="w-[160px] px-4 py-4">Assigned By</th><th className="w-[170px] px-4 py-4">Manager Assigned to Staff</th><th className="w-[155px] px-4 py-4">Notified On</th><th className="w-[115px] px-4 py-4">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => <tr key={`${leadRecordId(row.lead)}-${row.rowIndex}`} className="transition hover:bg-orange-50/50"><td className="px-4 py-4 font-black text-blue-700">{displayLeadId(row.lead)}</td><td className="px-4 py-4 font-black uppercase text-slate-800"><span className="cell-clamp">{row.lead.company || '-'}</span></td><td className="px-4 py-4"><span className="lead-service-tag">{row.service.eprCategory || row.lead.eprCategory || '-'}</span></td><td className="px-4 py-4 font-black uppercase text-teal-700">{row.managerName}</td><td className="px-4 py-4 font-bold uppercase text-slate-600">{personLabel(row.assignedBy)}</td><td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-[10px] font-black uppercase text-orange-700"><Clock3 className="h-3.5 w-3.5" />Pending</span></td><td className="px-4 py-4 text-xs font-bold text-slate-500">{row.assignedAt ? new Date(row.assignedAt).toLocaleString('en-IN') : '-'}</td><td className="px-4 py-4"><div className="flex gap-2"><button type="button" onClick={() => onView(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View lead"><Eye className="h-4 w-4" /></button>{(canEdit || canUserEditLead(row.lead, currentUser)) && <button type="button" onClick={() => onEdit(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Assign staff"><Edit3 className="h-4 w-4" /></button>}</div></td></tr>)}
-            {!loading && rows.length === 0 && <tr><td colSpan="8" className="px-5 py-16 text-center"><BellRing className="mx-auto h-10 w-10 text-emerald-300"/><p className="mt-3 font-black text-slate-500">No notified leads are pending.</p><p className="mt-1 text-xs font-semibold text-slate-400">Every manager-assigned lead in your accessible list already has staff assigned.</p></td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan="8" className="px-5 py-16 text-center"><BellRing className="mx-auto h-10 w-10 text-emerald-300"/><p className="mt-3 font-black text-slate-500">No notified leads are pending.</p><p className="mt-1 text-xs font-semibold text-slate-400">No closed, manager-assigned lead is currently waiting for staff assignment.</p></td></tr>}
             {loading && <tr><td colSpan="8" className="px-5 py-16 text-center font-black text-slate-400">Loading notified leads...</td></tr>}
           </tbody>
         </table>
