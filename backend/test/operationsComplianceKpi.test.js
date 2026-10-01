@@ -8,10 +8,11 @@ const dashboard = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pa
 test('operations compliance KPI counts converted Client Master rows instead of Leads', () => {
   assert.match(dashboard, /function buildComplianceKpi\(clientRows = \[\]/);
   assert.doesNotMatch(dashboard, /function buildComplianceKpi\(leads/);
-  assert.match(dashboard, /getComplianceServiceKinds\(clientServiceSource\)\.forEach/);
+  assert.match(dashboard, /const clientKinds = getComplianceServiceKinds\(clientServiceSource\)/);
   assert.match(dashboard, /Array\.isArray\(client\.services\)/);
   assert.doesNotMatch(dashboard, /mergeClientSources\(crmClients, \[\]\)/);
   assert.match(dashboard, /if \(recordId\) return `record:/);
+  assert.match(dashboard, /linkedLead\.serviceSelections/);
 });
 
 test('operations compliance KPI keeps applicant types separate', () => {

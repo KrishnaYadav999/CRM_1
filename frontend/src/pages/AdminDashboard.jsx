@@ -70,7 +70,7 @@ import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
-const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v6'
+const DASHBOARD_CACHE_KEY = 'crm.dashboard.cache.v7'
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_REQUEST_TIMEOUT_MS = 30000
 
@@ -3514,65 +3514,101 @@ function complianceRecordAppliesToYear(record, financialYear) {
 
 function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYear()) {
   const records = []
+  const diagnostics = []
   const addRecord = (source, owner, kind, sourceId) => {
     const waste = getComplianceWasteType(source)
     const applicant = getComplianceApplicantGroup(source, waste)
     const record = { source, owner, kind, waste, applicant, sourceId }
-    if (complianceRecordAppliesToYear(record, financialYear)) records.push(record)
+    if (!complianceRecordAppliesToYear(record, financialYear)) return false
+    records.push(record)
+    return true
   }
 
   clientRows.forEach((row, rowIndex) => {
     const client = row.client || {}
     const clientData = readClientData(client)
     const snapshot = clientData.selectedLeadSnapshot || {}
+    const linkedLead = client.selectedLead && typeof client.selectedLead === 'object' ? client.selectedLead : {}
+    const assignedServiceId = String(client.assignedServiceId || clientData.assignedServiceId || snapshot.assignedServiceId || '').trim()
+    const linkedServices = Array.isArray(linkedLead.serviceSelections) ? linkedLead.serviceSelections : []
+    const linkedService = linkedServices.find((service) => String(
+      service?.assignedServiceId || service?._id || service?.id || ''
+    ).trim() === assignedServiceId) || (linkedServices.length === 1 ? linkedServices[0] : {})
     const clientRecordId = row.id || row.clientKey || rowIndex
     const common = {
-      eprCategory: clientData.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || client.eprCategory || client.serviceCategory || row.eprCategory,
-      applicantType: clientData.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || client.applicantType || client.piboParent || row.category,
-      subApplicantType: clientData.basic?.subApplicantType || clientData.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || client.subApplicantType || client.piboCategory || row.subApplicantType,
-      firstAnnualReturnYear: clientData.basic?.firstAnnualReturnYear || clientData.firstAnnualReturnYearApplicable || snapshot.firstAnnualReturnYearApplicable || client.firstAnnualReturnYear || row.firstAnnualReturnYear
+      eprCategory: clientData.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || client.eprCategory || client.serviceCategory || linkedService.eprCategory || linkedService.serviceCategory || row.eprCategory,
+      applicantType: clientData.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || client.applicantType || client.piboParent || linkedService.applicantType || linkedService.piboParent || row.category,
+      subApplicantType: clientData.basic?.subApplicantType || clientData.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || client.subApplicantType || client.piboCategory || linkedService.subApplicantType || linkedService.piboCategory || row.subApplicantType,
+      firstAnnualReturnYear: clientData.basic?.firstAnnualReturnYear || clientData.firstAnnualReturnYearApplicable || snapshot.firstAnnualReturnYearApplicable || client.firstAnnualReturnYear || linkedService.firstAnnualReturnYearApplicable || row.firstAnnualReturnYear
     }
     ;(row.annualReturns || []).forEach((filing, filingIndex) => {
       const filingData = filing.data && typeof filing.data === 'object' ? filing.data : {}
-      addRecord(
-        {
-          ...common,
-          ...filing,
-          eprCategory: filing.eprCategory || filingData.basic?.eprCategory || common.eprCategory,
-          applicantType: filing.applicantType || filingData.basic?.applicantType || common.applicantType,
-          subApplicantType: filing.subApplicantType || filing.piboCategory || filingData.basic?.piboCategory || common.subApplicantType
-        },
+      const filingSource = {
+        ...common,
+        ...filing,
+        eprCategory: filing.eprCategory || filingData.basic?.eprCategory || common.eprCategory,
+        applicantType: filing.applicantType || filingData.basic?.applicantType || common.applicantType,
+        subApplicantType: filing.subApplicantType || filing.piboCategory || filingData.basic?.piboCategory || common.subApplicantType
+      }
+      const counted = addRecord(
+        filingSource,
         clientRecordId,
         'annual',
         filing._id || filing.annualReturnId || `${row.id || rowIndex}:annual:${filingIndex}`
       )
+      diagnostics.push({
+        clientMasterId: String(clientRecordId),
+        source: 'Saved Annual Return form',
+        service: 'Annual Return',
+        waste: getComplianceWasteType(filingSource),
+        applicant: getComplianceApplicantGroup(filingSource, getComplianceWasteType(filingSource)),
+        result: counted ? 'COUNTED' : `SKIPPED: outside ${financialYear}`
+      })
     })
 
     const clientServiceSource = {
       ...common,
       clientMasterService: true,
-      servicesOffered: clientData.basic?.servicesOffered || snapshot.servicesOffered || client.servicesOffered,
-      applicableService: clientData.basic?.applicableService || snapshot.applicableService || client.applicableService,
-      service: snapshot.service || snapshot.serviceName || client.service || client.serviceName,
-      servicesForYear: clientData.basic?.servicesForYear || snapshot.servicesForYear || snapshot.financialYear || client.servicesForYear || client.financialYear,
+      servicesOffered: clientData.basic?.servicesOffered || snapshot.servicesOffered || client.servicesOffered || linkedService.servicesOffered,
+      applicableService: clientData.basic?.applicableService || snapshot.applicableService || client.applicableService || linkedService.applicableService,
+      service: snapshot.service || snapshot.serviceName || client.service || client.serviceName || linkedService.service || linkedService.serviceName,
+      servicesForYear: clientData.basic?.servicesForYear || snapshot.servicesForYear || snapshot.financialYear || client.servicesForYear || client.financialYear || linkedService.servicesForYear || linkedService.financialYear,
       registrationYear: clientData.basic?.registrationYear || snapshot.registrationYear || client.registrationYear
     }
     // Both service totals come only from converted Client Master records. An
     // actual saved Annual Return form is also included above and deduplicated.
-    getComplianceServiceKinds(clientServiceSource).forEach((kind) => addRecord(
-      clientServiceSource,
-      clientRecordId,
+    const clientKinds = getComplianceServiceKinds(clientServiceSource)
+    const clientResults = clientKinds.map((kind) => ({
       kind,
-      `${clientRecordId}:client-${kind}`
-    ))
+      counted: addRecord(clientServiceSource, clientRecordId, kind, `${clientRecordId}:client-${kind}`)
+    }))
+    diagnostics.push({
+      clientMasterId: String(clientRecordId),
+      source: 'Client Master snapshot',
+      service: complianceText(clientServiceSource.servicesOffered, clientServiceSource.applicableService, clientServiceSource.service) || '(empty)',
+      waste: getComplianceWasteType(clientServiceSource),
+      applicant: getComplianceApplicantGroup(clientServiceSource, getComplianceWasteType(clientServiceSource)),
+      result: !clientKinds.length
+        ? 'SKIPPED: service is not Annual Return or Registration'
+        : clientResults.map(({ kind, counted }) => `${kind}: ${counted ? 'COUNTED' : `outside ${financialYear}`}`).join(', ')
+    })
     ;(Array.isArray(client.services) ? client.services : []).forEach((service, serviceIndex) => {
       const serviceSource = { ...common, ...service, clientMasterService: true }
-      getComplianceServiceKinds(serviceSource).forEach((kind) => addRecord(
-        serviceSource,
-        clientRecordId,
+      const serviceKinds = getComplianceServiceKinds(serviceSource)
+      const serviceResults = serviceKinds.map((kind) => ({
         kind,
-        `${clientRecordId}:service-${service.assignedServiceId || serviceIndex}-${kind}`
-      ))
+        counted: addRecord(serviceSource, clientRecordId, kind, `${clientRecordId}:service-${service.assignedServiceId || serviceIndex}-${kind}`)
+      }))
+      diagnostics.push({
+        clientMasterId: String(clientRecordId),
+        source: `Client Master services[${serviceIndex}]`,
+        service: complianceText(serviceSource.servicesOffered, serviceSource.applicableService, serviceSource.service, serviceSource.serviceName) || '(empty)',
+        waste: getComplianceWasteType(serviceSource),
+        applicant: getComplianceApplicantGroup(serviceSource, getComplianceWasteType(serviceSource)),
+        result: !serviceKinds.length
+          ? 'SKIPPED: service is not Annual Return or Registration'
+          : serviceResults.map(({ kind, counted }) => `${kind}: ${counted ? 'COUNTED' : `outside ${financialYear}`}`).join(', ')
+      })
     })
   })
 
@@ -3610,11 +3646,26 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
     group[record.kind] += 1
     waste[record.kind] += 1
   })
-  return {
+  const result = {
     annual: groups.reduce((sum, group) => sum + group.annual, 0),
     registration: groups.reduce((sum, group) => sum + group.registration, 0),
     groups
   }
+  console.groupCollapsed(`[Operations KPI] Client Master classification · ${financialYear}`)
+  console.info('[Operations KPI] Fetch-to-KPI summary', {
+    clientMasterRowsReceived: clientRows.length,
+    candidatesInspected: diagnostics.length,
+    recordsBeforeDeduplication: records.length,
+    recordsAfterDeduplication: uniqueRecords.size,
+    annualReturnTotal: result.annual,
+    registrationTotal: result.registration
+  })
+  if (diagnostics.length) console.table(diagnostics.slice(0, 200))
+  if (!clientRows.length) console.error('[Operations KPI] No Client Master rows reached the KPI. Check the [Dashboard API] log and user visibility scope.')
+  else if (!uniqueRecords.size) console.warn('[Operations KPI] Client Master rows were fetched, but none had a recognized Annual Return/Registration service for the selected year. See the Result column above.')
+  console.info('[Operations KPI] Final applicant groups', groups.map(({ label, annual, registration, waste }) => ({ label, annual, registration, waste })))
+  console.groupEnd()
+  return result
 }
 
 function AnnualRegistrationKpi({ data }) {
@@ -5671,6 +5722,30 @@ export default function AdminDashboard() {
       ])
 
       const crmClients = clientsResult.status === 'fulfilled' ? (clientsResult.value.data.clients || []) : []
+      console.groupCollapsed('[Dashboard API] Client Master fetch')
+      if (clientsResult.status === 'fulfilled') {
+        console.info('[Dashboard API] Client Master request succeeded', { recordsFetched: crmClients.length })
+        console.table(crmClients.slice(0, 100).map((client) => {
+          const data = readClientData(client)
+          const snapshot = data.selectedLeadSnapshot || {}
+          return {
+            clientMasterId: String(client._id || client.id || ''),
+            assignedServiceId: String(client.assignedServiceId || data.assignedServiceId || snapshot.assignedServiceId || ''),
+            service: complianceText(data.basic?.servicesOffered, snapshot.servicesOffered, snapshot.applicableService, client.servicesOffered) || '(empty)',
+            eprCategory: data.basic?.eprCategory || snapshot.eprCategory || client.eprCategory || '(empty)',
+            applicantType: data.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || client.applicantType || '(empty)',
+            subApplicantType: data.basic?.subApplicantType || data.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || client.subApplicantType || client.piboCategory || '(empty)',
+            nestedServices: Array.isArray(client.services) ? client.services.length : 0
+          }
+        }))
+      } else {
+        console.error('[Dashboard API] Client Master request failed', {
+          message: clientsResult.reason?.message || 'Unknown request error',
+          status: clientsResult.reason?.response?.status,
+          apiError: clientsResult.reason?.response?.data?.error || clientsResult.reason?.response?.data?.message
+        })
+      }
+      console.groupEnd()
       const clientRequestsSucceeded = clientsResult.status === 'fulfilled'
       const nextClients = retainStableList(
         asRecordList(clientRequestsSucceeded ? crmClients : retained.clients),

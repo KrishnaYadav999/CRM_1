@@ -1182,7 +1182,7 @@ exports.listClients = async (req, res) => {
   const queryStartedAt = process.hrtime.bigint();
   const [clients, total, summaryRows] = await Promise.all([
     Client.find(filter).select(projection)
-      .populate('selectedLead', 'leadCode company status eprCategory applicantType subApplicantType piboParent assignedTo assignedToText assignedStaff assignedStaffText assignedStaffEmail assignments')
+      .populate('selectedLead', 'leadCode company status eprCategory applicantType subApplicantType piboParent serviceSelections assignedTo assignedToText assignedStaff assignedStaffText assignedStaffEmail assignments')
       .populate('createdBy', 'name email role avatarUrl')
       .populate('adminControls.assignedTo', 'name email role avatarUrl')
       .sort({ [sortBy]: sortOrder, _id: sortOrder })
