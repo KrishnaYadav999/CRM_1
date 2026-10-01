@@ -65,6 +65,64 @@ function combineAccessFilters(...filters) {
   return active.length > 1 ? { $and: active } : active[0] || {};
 }
 
+function fieldHasValue(field) {
+  return { [field]: { $exists: true, $nin: [null, ''] } };
+}
+
+function fieldHasNoValue(field) {
+  return { $or: [{ [field]: { $exists: false } }, { [field]: null }, { [field]: '' }] };
+}
+
+function managerIdentityFilter(user = {}, prefix = '') {
+  if (!userHasAnyRole(user, ['manager']) || userHasAnyRole(user, ADMIN_ROLES)) return null;
+  const clauses = [];
+  const rawId = String(user._id || user.id || '').trim();
+  if (rawId) {
+    const ids = [rawId];
+    if (mongoose.Types.ObjectId.isValid(rawId)) ids.push(new mongoose.Types.ObjectId(rawId));
+    clauses.push({ [`${prefix}assignedTo`]: { $in: ids } });
+  }
+  const name = String(user.name || '').trim();
+  const email = String(user.email || '').trim();
+  if (name) clauses.push({ [`${prefix}assignedToText`]: new RegExp(`^${escapeRegex(name)}$`, 'i') });
+  if (email) clauses.push({ [`${prefix}assignedToEmail`]: new RegExp(`^${escapeRegex(email)}$`, 'i') });
+  return clauses.length ? { $or: clauses } : null;
+}
+
+function pendingManagerAssignmentFilter(user = {}) {
+  const assignmentHasManager = { $or: [
+    fieldHasValue('assignedTo'), fieldHasValue('assignedToText'), fieldHasValue('assignedToEmail')
+  ] };
+  const assignmentIdentity = managerIdentityFilter(user);
+  const assignmentPending = { $and: [
+    assignmentHasManager,
+    ...(assignmentIdentity ? [assignmentIdentity] : []),
+    fieldHasNoValue('assignedStaff'),
+    fieldHasNoValue('assignedStaffText'),
+    fieldHasNoValue('assignedStaffEmail')
+  ] };
+
+  const rootHasManager = { $or: [
+    fieldHasValue('assignedTo'), fieldHasValue('assignedToText'), fieldHasValue('assignedToEmail')
+  ] };
+  const rootIdentity = managerIdentityFilter(user);
+  const rootPending = { $and: [
+    rootHasManager,
+    ...(rootIdentity ? [rootIdentity] : []),
+    fieldHasNoValue('assignedStaff'),
+    fieldHasNoValue('assignedStaffText'),
+    fieldHasNoValue('assignedStaffEmail'),
+    // Root assignment fields are a legacy fallback. When row assignments exist,
+    // the row state is authoritative and avoids showing a stale root assignment.
+    { $nor: [{ assignments: { $elemMatch: assignmentHasManager } }] }
+  ] };
+
+  return { $or: [
+    { assignments: { $elemMatch: assignmentPending } },
+    rootPending
+  ] };
+}
+
 function stableUserIdentity(value) {
   if (value && typeof value === 'object') {
     const nestedIdentity = value._id || value.id || value.crmUserId || value.userId || value.email;
@@ -1220,6 +1278,7 @@ exports.listLeads = async (req, res) => {
   const staff = String(req.query.staff || '').trim();
   const allocationOwner = String(req.query.allocationOwner || '').trim();
   const metric = String(req.query.metric || '').trim();
+  const workspace = String(req.query.workspace || '').trim().toLowerCase();
   const sortBy = ['leadCode', 'createdAt', 'updatedAt', 'company', 'status'].includes(String(req.query.sortBy))
     ? String(req.query.sortBy)
     : 'leadCode';
@@ -1263,6 +1322,8 @@ exports.listLeads = async (req, res) => {
       filters.push({ $or: [{ generatedForUser: { $in: ownerIds } }, { createdBy: { $in: ownerIds } }] });
     }
   }
+  const notifiedFilter = pendingManagerAssignmentFilter(req.user);
+  if (workspace === 'notified') filters.push(notifiedFilter);
   const filter = combineAccessFilters(...filters);
   const projection = [
     'leadCode', 'sourceLeadId', 'company', 'status', 'workflowStatus', 'recordStatus',
@@ -1286,7 +1347,7 @@ exports.listLeads = async (req, res) => {
     ] : [])
   ].join(' ');
   const queryStartedAt = process.hrtime.bigint();
-  const [leads, total, summaryRows] = await Promise.all([
+  const [leads, total, summaryRows, notifiedPending] = await Promise.all([
     Lead.find(filter).select(projection)
       .populate('assignedTo', 'name email avatarUrl role')
       .populate('closedBy', 'name email avatarUrl role')
@@ -1306,7 +1367,8 @@ exports.listLeads = async (req, res) => {
           { $ne: [{ $ifNull: ['$createdBy', null] }, null] }
         ] }, 1, 0] } }
       } }
-    ])
+    ]),
+    Lead.countDocuments(combineAccessFilters(accessFilter, notifiedFilter))
   ]);
   const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
   const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
@@ -1327,7 +1389,8 @@ exports.listLeads = async (req, res) => {
       converted: summary.existing,
       new: summary.total - summary.existing,
       allocated: summary.allocated,
-      unassigned: summary.total - summary.allocated
+      unassigned: summary.total - summary.allocated,
+      notifiedPending
     },
     timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
   });

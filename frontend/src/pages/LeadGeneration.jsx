@@ -3624,7 +3624,6 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
 
   const filteredLeads = useMemo(() => leads.slice().sort(compareLeadCode), [leads]);
 
-  const allNotifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(leads, currentUser) : [], [canViewNotifiedLeads, currentUser, leads]);
   const notifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(filteredLeads, currentUser) : [], [canViewNotifiedLeads, currentUser, filteredLeads]);
 
   useEffect(() => {
@@ -3793,7 +3792,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
         <LeadWorkspaceTabs
           activeTab={workspaceTab}
           temporaryLeadCount={temporaryLeadCount}
-          notifiedLeadCount={allNotifiedRows.length}
+          notifiedLeadCount={workspaceTab === 'notified' ? activeTotal : Number(summary?.notifiedPending || 0)}
           showNotified={canViewNotifiedLeads}
           onChange={setWorkspaceTab}
         />

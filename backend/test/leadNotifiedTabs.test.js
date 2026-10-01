@@ -25,6 +25,7 @@ test('Lead Generation uses inline tabs for temporary and notified leads', () => 
 
 test('Notified Leads contains manager assignments that are still waiting for staff', () => {
   const page = read('frontend/src/pages/LeadGeneration.jsx');
+  const controller = read('backend/src/controllers/leadController.js');
 
   assert.match(page, /\['manager', 'admin', 'superadmin'\]\.includes\(currentRole\)/);
   assert.match(page, /initialWorkspace === 'notified' && !canViewNotifiedLeads \? 'leads'/);
@@ -36,6 +37,10 @@ test('Notified Leads contains manager assignments that are still waiting for sta
   assert.match(page, /Manager Assigned to Staff/);
   assert.match(page, /Manager action pending/);
   assert.match(page, /No notified leads are pending/);
+  assert.match(page, /workspaceTab === 'notified' \? activeTotal : Number\(summary\?\.notifiedPending \|\| 0\)/);
+  assert.match(controller, /function pendingManagerAssignmentFilter/);
+  assert.match(controller, /if \(workspace === 'notified'\) filters\.push\(notifiedFilter\)/);
+  assert.match(controller, /notifiedPending/);
 });
 
 test('manager assignment email links to and explains the Notified Leads tab', () => {
