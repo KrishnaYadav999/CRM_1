@@ -89,3 +89,21 @@ export function buildOperationsProgressGroups(rows, users, getLegacyKeys, now = 
     milestones: Object.fromEntries([48, 72, 96].map((hours) => [hours, group.rows.filter((row) => row.sla[hours].breached).length]))
   })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
+
+export function getOperationsFinalFlag(sla = {}) {
+  return [48, 72, 96].every((hours) => sla[hours]?.breached === true) ? 'red' : 'green'
+}
+
+export function getPoFinancialYear(row = {}) {
+  return String(row.poDetails?.poFinancialYear || row.poFinancialYear || '').trim()
+}
+
+export function selectRowsForPoFinancialYear(rows = [], selected = 'all') {
+  if (selected === 'all') return rows
+  return rows.flatMap((row) => {
+    const details = row.poDetails || {}
+    const records = details.records?.length ? details.records : [{ ...details, poFinancialYear: getPoFinancialYear(row) }]
+    const matches = records.filter((po) => selected === 'unrecorded' ? !String(po.poFinancialYear || '').trim() : String(po.poFinancialYear || '').trim() === selected)
+    return matches.length ? [{ ...row, poFinancialYear: matches[0].poFinancialYear || '', poDetails: { ...details, ...matches[0], records: matches } }] : []
+  })
+}

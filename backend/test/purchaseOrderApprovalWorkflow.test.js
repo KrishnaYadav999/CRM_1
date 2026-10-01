@@ -115,35 +115,23 @@ test('PO approval is persisted and restricted to Admin and Super Admin', () => {
   assert.match(controller, /leadByCompany/);
 });
 
-test('Pending Approval exposes PO approve reject and revision actions', () => {
+test('Pending Approval exposes review details before approve reject and revision actions', () => {
   const page = read('../../frontend/src/pages/PendingApproval.jsx');
   assert.match(page, /label: 'PO Approval'/);
   assert.match(page, /Purchase Order Approvals/);
-  assert.match(page, /REVISION_REQUIRED/);
-  assert.doesNotMatch(page, /Upload correction screenshot \(required\)/);
-  assert.match(page, /No image or document is required/);
-  assert.match(page, /purchaseOrderApprovalDecision/);
-  assert.match(page, /View PO Proof/);
-  assert.match(page, /function getPoProofUrl/);
-  assert.match(page, /const mergedPoRows = livePoRows\.map/);
-  assert.match(page, /getPoProofUrl\(liveRow\) \|\| getPoProofUrl\(snapshot\)/);
-  assert.match(page, /function getApprovalPoRows/);
+  for (const status of ['APPROVED', 'REJECTED', 'REVISION_REQUIRED']) {
+    assert.ok(page.includes(`openPoDecision(row, '${status}')`));
+  }
+  assert.match(page, /function SubmittedPoReview/);
+  for (const heading of ['EPR / Service Period', 'PO Number', 'PO Date', 'PO End Date', 'PO Financial Year', 'Payment Term', 'PO Amount (INR)', 'PO Proof', 'Service']) assert.ok(page.includes(`'${heading}'`));
+  assert.match(page, /api\.get\(API_ENDPOINTS\.leads\.purchaseOrderApprovalDecision/);
+  assert.match(page, /loadingDetails/);
+  assert.match(page, /loadError/);
+  assert.match(page, /target="_blank"/);
+  assert.match(page, /payload\.poProofManifest/);
   assert.match(page, /payload\.poRows/);
   assert.match(page, /payload\.purchaseOrders/);
-  assert.match(page, /if \(!item\.hasPoFileUrl \|\| !item\.poFileUrl\) return/);
-  assert.match(page, /target="_blank"/);
-  assert.match(page, /console\.table\(normalizedRows\.map/);
-  assert.match(page, /console\.log\('\[POProof:render\]'/);
-  assert.match(page, /const renderKey = `\$\{id\}-\$\{poRows\[0\]\?\.rowIndex/);
-  assert.match(page, /purchaseOrderApprovalProof/);
-  assert.match(page, /payload\.poProofManifest/);
-  assert.match(page, /Download ·/);
-  assert.match(page, /FY \/ Service Period/);
-  assert.match(page, /Business Category/);
-  assert.match(page, /Basic Amount/);
-  assert.match(page, /hydratePurchaseOrderApprovals/);
-  assert.match(page, /'PO Proof'/);
-  assert.match(page, /Array\.isArray\(children\) && children\.some\(\(child\) => React\.isValidElement\(child\)\)/);
+  assert.doesNotMatch(page, /Upload correction screenshot \(required\)/);
 });
 
 test('PO proof resolver preserves canonical, legacy, nested, and approval-level uploads', () => {

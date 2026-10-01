@@ -484,3 +484,12 @@
 .compliance-kpi-export{display:flex;justify-content:flex-end;margin-bottom:12px}
 
 .compliance-kpi-branch>header h3{overflow:visible;white-space:normal;line-height:1.5}
+
+.operations-final-flag{display:inline-flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:800}
+.operations-final-flag>svg{width:21px;height:21px}.operations-final-flag.is-green{color:#059669}.operations-final-flag.is-red{color:#dc2626}.operations-final-flag>small{font-size:10px;color:#64748b}
+.operations-po-proof-link{display:inline-flex;align-items:center;gap:5px;margin-top:7px;color:#047857;font-size:10px;font-weight:800}.operations-po-proof-link svg{width:14px;height:14px}
+.operations-user-status-table{min-width:1650px}.operations-client-details>table{min-width:1500px}
+.pending-po-review-modal{width:min(1460px,calc(100vw - 40px))!important;max-height:calc(100dvh - 40px);overflow-y:auto!important}
+.pending-po-submitted{margin-top:18px;border:1px solid #dbe7e5;border-radius:14px;overflow:hidden;background:#fff}.pending-po-submitted>header{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;background:#ecfdf5;color:#065f46;font-size:13px}.pending-po-submitted>header span{font-size:11px}.pending-po-submitted-scroll{overflow:auto}.pending-po-submitted table{width:100%;min-width:1220px;border-collapse:collapse;text-align:left}.pending-po-submitted th{padding:13px 12px;background:#f1f5f9;color:#475569;font-size:11px;white-space:nowrap}.pending-po-submitted td{padding:16px 12px;border-top:1px solid #e2e8f0;font-size:12px;vertical-align:top;color:#334155;white-space:nowrap}.pending-po-submitted td.pending-po-payment{white-space:pre-wrap;overflow-wrap:anywhere;min-width:160px;max-width:240px}.pending-po-earlier-proof{display:inline-block;margin:12px 16px;font-size:12px;font-weight:800;color:#047857}.pending-po-review-loading{margin-top:18px;padding:18px;background:#f1f5f9;border-radius:12px;color:#64748b}.pending-po-review-error{margin-top:18px;padding:18px;background:#fef2f2;color:#b91c1c;border-radius:12px}.pending-po-review-error button{margin-left:12px;text-decoration:underline;font-weight:800}
+
+.pending-po-review-modal .pending-decision-field textarea{min-height:90px;height:110px}

@@ -2510,3 +2510,15 @@ exports.uploadPurchaseOrderProof = async (req, res) => {
 // follows the exact same lead-code and ownership rules as Add Lead.
 exports.createLeadRecordInternal = createLeadRecord;
 exports.buildAppendOnlyServicePatchInternal = buildAppendOnlyServicePatch;
+
+// Review the persisted submission snapshot before an administrator decides a PO.
+exports.getPurchaseOrderApproval = async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid PO approval ID.' });
+  try {
+    const approval = await PendingApproval.findOne({ _id: req.params.id, type: 'purchase_order' }).lean();
+    if (!approval) return res.status(404).json({ error: 'PO approval not found.' });
+    return res.json({ ok: true, approval });
+  } catch (error) {
+    return res.status(500).json({ error: 'Unable to load submitted PO details. Please retry.' });
+  }
+};
