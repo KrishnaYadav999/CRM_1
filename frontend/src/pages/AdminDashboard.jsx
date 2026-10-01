@@ -3432,6 +3432,202 @@ function getPoApplicantBucket(row = {}) {
   return 'Other'
 }
 
+const COMPLIANCE_WASTE_TYPES = ['Plastic Waste', 'Battery Waste', 'E-Waste', 'Used Oil', 'Other Waste']
+const COMPLIANCE_APPLICANT_GROUPS = [
+  { key: 'producer', label: 'Producer', note: 'Producer applicants', icon: Building2 },
+  { key: 'importer', label: 'Importer / PWP', note: 'Importer and PWP', icon: BriefcaseBusiness },
+  { key: 'recycler', label: 'Recycler / SIMP', note: 'Recycler and SIMP', icon: RefreshCw },
+  { key: 'brand-owner', label: 'Brand Owner', note: 'Other applicants', icon: FileText }
+]
+
+function complianceText(...values) {
+  return values.flat(Infinity).map((value) => {
+    if (value && typeof value === 'object') return value.name || value.label || value.value || ''
+    return String(value || '')
+  }).join(' ').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function getComplianceWasteType(source = {}) {
+  const value = complianceText(source.eprCategory, source.serviceCategory, source.wasteCategory, source.categoryName)
+  if (value.includes('plastic')) return 'Plastic Waste'
+  if (value.includes('battery')) return 'Battery Waste'
+  if (value.includes('e waste') || value.includes('electronic')) return 'E-Waste'
+  if (value.includes('used oil') || value.includes('waste oil')) return 'Used Oil'
+  return 'Other Waste'
+}
+
+function getComplianceApplicantGroup(source = {}, wasteType = getComplianceWasteType(source)) {
+  // Plastic registrations use the sub-applicant type. Other EPR streams use
+  // their direct applicant/application type, as used by the source portal.
+  const preferred = wasteType === 'Plastic Waste'
+    ? complianceText(source.subApplicantType, source.piboCategory)
+    : complianceText(source.applicantType, source.applicationType, source.category, source.piboParent)
+  const fallback = wasteType === 'Plastic Waste'
+    ? complianceText(source.applicantType, source.applicationType, source.category, source.piboParent)
+    : complianceText(source.subApplicantType, source.piboCategory)
+  const classify = (value) => {
+    if (value.includes('brand owner') || value.includes('brandowner')) return 'brand-owner'
+    if (value.includes('recycler') || value.includes('simp') || value.includes('seller')) return 'recycler'
+    if (value.includes('importer') || value.includes('pwp') || value.includes('refurbisher') || value.includes('retreader')) return 'importer'
+    if (value.includes('producer')) return 'producer'
+    return ''
+  }
+  return classify(preferred) || classify(fallback) || 'brand-owner'
+}
+
+function getComplianceServiceKinds(source = {}, fallbackKind = '') {
+  const value = complianceText(
+    source.servicesOffered,
+    source.serviceOffered,
+    source.applicableService,
+    source.service,
+    source.serviceName,
+    source.scope
+  )
+  const kinds = []
+  if (value.includes('annual return') || value.includes('annual filing')) kinds.push('annual')
+  if (value.includes('registration')) kinds.push('registration')
+  if (!kinds.length && fallbackKind) kinds.push(fallbackKind)
+  return kinds
+}
+
+function getComplianceRecordYears(source = {}) {
+  return [
+    source.annualYear,
+    source.financialYear,
+    source.year,
+    source.servicesForYear,
+    source.registrationYear,
+    ...(Array.isArray(source.annualReturnYears) ? source.annualReturnYears : []),
+    ...(Array.isArray(source.financialYears) ? source.financialYears : [])
+  ].filter(Boolean)
+}
+
+function complianceRecordAppliesToYear(record, financialYear) {
+  const selectedStart = financialYearStart(financialYear)
+  const exactYears = getComplianceRecordYears(record.source)
+  if (exactYears.length) return exactYears.some((year) => financialYearStart(year) === selectedStart)
+  const firstStart = financialYearStart(record.source.firstAnnualReturnYearApplicable || record.source.firstAnnualReturnYear)
+  if (record.kind === 'annual' && firstStart) return selectedStart >= firstStart
+  return true
+}
+
+function buildComplianceKpi(leads = [], clientRows = [], financialYear = currentFinancialYear()) {
+  const records = []
+  const addRecord = (source, owner, kind, sourceId) => {
+    const waste = getComplianceWasteType(source)
+    const applicant = getComplianceApplicantGroup(source, waste)
+    const record = { source, owner, kind, waste, applicant, sourceId }
+    if (complianceRecordAppliesToYear(record, financialYear)) records.push(record)
+  }
+
+  leads.forEach((lead, leadIndex) => {
+    const services = Array.isArray(lead.serviceSelections) && lead.serviceSelections.length ? lead.serviceSelections : [lead]
+    services.forEach((service, serviceIndex) => {
+      const source = {
+        ...lead,
+        ...service,
+        eprCategory: service.eprCategory || service.serviceCategory || lead.eprCategory,
+        applicantType: service.applicantType || service.piboParent || lead.applicantType || lead.piboParent,
+        subApplicantType: service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory,
+        firstAnnualReturnYearApplicable: service.firstAnnualReturnYearApplicable || lead.firstAnnualReturnYearApplicable
+      }
+      getComplianceServiceKinds(source).forEach((kind) => addRecord(
+        source,
+        lead.company || lead.companyName || '',
+        kind,
+        `${lead._id || lead.id || lead.leadCode || leadIndex}:${service.assignedServiceId || serviceIndex}`
+      ))
+    })
+  })
+
+  clientRows.forEach((row, rowIndex) => {
+    const clientData = readClientData(row.client || {})
+    const common = {
+      eprCategory: row.eprCategory,
+      applicantType: row.category,
+      subApplicantType: row.subApplicantType,
+      firstAnnualReturnYear: row.firstAnnualReturnYear
+    }
+    ;(row.annualReturns || []).forEach((filing, filingIndex) => {
+      const filingData = filing.data && typeof filing.data === 'object' ? filing.data : {}
+      addRecord(
+        {
+          ...common,
+          ...filing,
+          eprCategory: filing.eprCategory || filingData.basic?.eprCategory || common.eprCategory,
+          applicantType: filing.applicantType || filingData.basic?.applicantType || common.applicantType,
+          subApplicantType: filing.subApplicantType || filing.piboCategory || filingData.basic?.piboCategory || common.subApplicantType
+        },
+        row.companyName,
+        'annual',
+        filing._id || filing.annualReturnId || `${row.id || rowIndex}:annual:${filingIndex}`
+      )
+    })
+
+    const clientServiceSource = {
+      ...common,
+      servicesOffered: clientData.basic?.servicesOffered,
+      applicableService: clientData.selectedLeadSnapshot?.applicableService,
+      annualYear: row.annualYear
+    }
+    getComplianceServiceKinds(clientServiceSource).forEach((kind) => addRecord(
+      clientServiceSource,
+      row.companyName,
+      kind,
+      `${row.id || rowIndex}:client-service`
+    ))
+  })
+
+  const uniqueRecords = new Map()
+  records.forEach((record) => {
+    const owner = normalizeBusinessKey(record.owner) || normalizeKey(record.sourceId)
+    const year = getComplianceRecordYears(record.source).map(financialYearStart).find(Boolean) || financialYearStart(financialYear)
+    const key = [record.kind, owner, record.waste, record.applicant, year].join('|')
+    if (!uniqueRecords.has(key)) uniqueRecords.set(key, record)
+  })
+
+  const groups = COMPLIANCE_APPLICANT_GROUPS.map((group) => ({
+    ...group,
+    annual: 0,
+    registration: 0,
+    waste: COMPLIANCE_WASTE_TYPES.map((name) => ({ name, annual: 0, registration: 0 }))
+  }))
+  const groupMap = new Map(groups.map((group) => [group.key, group]))
+  uniqueRecords.forEach((record) => {
+    const group = groupMap.get(record.applicant)
+    const waste = group?.waste.find((item) => item.name === record.waste)
+    if (!group || !waste) return
+    group[record.kind] += 1
+    waste[record.kind] += 1
+  })
+  return {
+    annual: groups.reduce((sum, group) => sum + group.annual, 0),
+    registration: groups.reduce((sum, group) => sum + group.registration, 0),
+    groups
+  }
+}
+
+function AnnualRegistrationKpi({ data }) {
+  return <section className="compliance-kpi-tree" aria-label="Annual Return and Registration KPI">
+    <header className="compliance-kpi-root">
+      <span className="compliance-kpi-root-icon"><BarChart3 aria-hidden="true" /></span>
+      <div><h2>Annual Return &amp; Registration</h2><p><span>Annual Return: <b>{data.annual.toLocaleString('en-IN')}</b></span><i /><span>Registration: <b>{data.registration.toLocaleString('en-IN')}</b></span></p></div>
+    </header>
+    <div className="compliance-kpi-branches">
+      {data.groups.map((group, index) => {
+        const Icon = group.icon
+        return <article key={group.key} className={`compliance-kpi-branch compliance-kpi-branch-${index + 1}`}>
+          <header><span><Icon aria-hidden="true" /></span><div><h3>{group.label}</h3><p>{group.note}</p></div><dl><div><dt>AR</dt><dd>{group.annual}</dd></div><i /><div><dt>Reg</dt><dd>{group.registration}</dd></div></dl></header>
+          <div className="compliance-kpi-waste-list">
+            {group.waste.map((waste) => <div key={waste.name} className="compliance-kpi-waste-row"><span><FileText aria-hidden="true" /></span><div><strong>{waste.name}</strong><p>AR: <b>{waste.annual}</b><i />Reg: <b>{waste.registration}</b></p></div></div>)}
+          </div>
+        </article>
+      })}
+    </div>
+  </section>
+}
+
 function buildLeadPoRows(leads = [], users = []) {
   const userByKey = new Map()
   users.forEach((user) => getUserMatchKeys(user).forEach((key) => userByKey.set(key, user)))
@@ -3767,12 +3963,17 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
   const dashboardRows = leadPoRows.length ? leadPoRows : rows
   const availableYears = useMemo(() => {
     const years = new Set([currentFinancialYear()])
-    dashboardRows.forEach((row) => [row.poFinancialYear, row.annualYear, row.firstAnnualReturnYear].filter(Boolean).forEach((year) => {
+    ;[...dashboardRows, ...rows].forEach((row) => [
+      row.poFinancialYear,
+      row.annualYear,
+      row.firstAnnualReturnYear,
+      ...(row.annualReturns || []).flatMap((filing) => [filing.annualYear, filing.financialYear, filing.year])
+    ].filter(Boolean).forEach((year) => {
       const start = financialYearStart(year)
       if (start) years.add(`${start}-${String(start + 1).slice(-2)}`)
     }))
     return [...years].sort((a, b) => financialYearStart(b) - financialYearStart(a))
-  }, [dashboardRows])
+  }, [dashboardRows, rows])
   const [financialYear, setFinancialYear] = useState(currentFinancialYear())
   const [search, setSearch] = useState('')
   const [poStatus, setPoStatus] = useState('all')
@@ -3797,6 +3998,10 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
       return !needle || [row.companyName, row.atplCode, row.poDetails?.poNo, row.eprCategory, row.category, row.subApplicantType, row.userName].some((value) => String(value || '').toLowerCase().includes(needle))
     })
   }, [dateFrom, dateTo, eprCategory, financialYearRows, poStatus, search])
+  const complianceKpi = useMemo(
+    () => buildComplianceKpi(leads, rows, financialYear),
+    [financialYear, leads, rows]
+  )
   const analytics = useMemo(() => {
     const categories = ['Plastic', 'E-Waste', 'Battery Waste', 'Other EPR'].map((name) => ({ name, total: 0, received: 0, applicants: new Map() }))
     const categoryMap = new Map(categories.map((item) => [item.name, item]))
@@ -3854,6 +4059,7 @@ function EprAnalyticsDashboard({ rows = [], leads = [], users = [], onRefresh })
       <label className="epr-date-filter"><span>To</span><input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
       <button type="button" className="epr-clear-filter" onClick={resetFilters}>Clear</button>
     </div>
+    <AnnualRegistrationKpi data={complianceKpi} />
     <div className="epr-category-grid">{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
     <div className="epr-kpi-flow-grid">
       <KpiFlowPanel title="Annual Return" total={annualReturnKpi.total} groups={annualReturnKpi.groups} delay={0.08} />

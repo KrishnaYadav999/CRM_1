@@ -237,3 +237,12 @@ aside nav p {
   table th { font-size: var(--text-xs) !important; }
   table td { font-size: var(--text-sm) !important; }
 }
+
+/* This compact KPI hierarchy intentionally uses denser type than page copy. */
+.compliance-kpi-root h2{font-size:22px!important;font-weight:950!important;line-height:1.15!important}
+.compliance-kpi-root p{font-size:12px!important;font-weight:850!important;line-height:1.2!important}
+.compliance-kpi-branch>header h3{font-size:15px!important;font-weight:950!important;line-height:1.2!important}
+.compliance-kpi-branch>header p{font-size:8px!important;font-weight:800!important;line-height:1.2!important}
+.compliance-kpi-waste-row strong{font-size:11px!important;font-weight:950!important;line-height:1.2!important}
+.compliance-kpi-waste-row p{font-size:9px!important;font-weight:800!important;line-height:1.2!important}
+@media(max-width:640px){.compliance-kpi-root h2{font-size:17px!important}}
