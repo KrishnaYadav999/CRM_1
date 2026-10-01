@@ -1424,6 +1424,9 @@ function getAssignedUserKeysFromClient(client = {}) {
   const admin = safeClient.adminControls || data.adminControls || {}
   const importMeta = data.importMeta || {}
   const assigned = asRecord(admin.assignedTo)
+  const lead = asRecord(safeClient.selectedLead || data.selectedLeadSnapshot)
+  const serviceId = String(safeClient.assignedServiceId || data.assignedServiceId || '')
+  const assignments = (Array.isArray(lead.assignments) ? lead.assignments : []).filter((assignment) => !serviceId || String(assignment.assignedServiceId || assignment.serviceAssignmentId || '') === serviceId)
   return [
     admin.assignedTo,
     assigned._id,
@@ -1442,7 +1445,8 @@ function getAssignedUserKeysFromClient(client = {}) {
     safeClient.userName,
     safeClient.user?.name,
     safeClient.user?.email,
-    safeClient.user?._id
+    safeClient.user?._id,
+    ...[lead, ...assignments].flatMap((owner) => [owner.assignedTo, owner.assignedTo?._id, owner.assignedTo?.email, owner.assignedToText, owner.assignedStaff, owner.assignedStaffText, owner.assignedStaffEmail])
   ].map(normalizeKey).filter(Boolean)
 }
 
@@ -3893,11 +3897,15 @@ function OperationsProgressValue({ done = 0, total = 0, tone = 'green', label })
   </div>
 }
 
-function OperationsUserProgressTable({ rows = [] }) {
+function OperationsUserProgressTable({ rows = [], users = [] }) {
   const [expandedUser, setExpandedUser] = useState('')
   const initialized = useRef(false)
   const groups = useMemo(() => {
     const grouped = new Map()
+    users.forEach((user) => {
+      const id = getUserId(user)
+      if (id) grouped.set(id, { id, name: getUserName(user), rows: [] })
+    })
     rows.forEach((row) => {
       const id = getUserId(row.user) || normalizeKey(row.userName) || 'unassigned'
       const current = grouped.get(id) || { id, name: row.userName || getUserName(row.user) || 'Unassigned', rows: [] }
@@ -3912,7 +3920,7 @@ function OperationsUserProgressTable({ rows = [] }) {
       const milestones = Object.fromEntries(OPERATIONS_PROGRESS_MILESTONES.map((milestone) => [milestone, group.rows.filter((row) => row.profilePercent >= milestone).length]))
       return { ...group, total, complianceDone, poDone, milestones }
     }).sort((left, right) => right.total - left.total || left.name.localeCompare(right.name))
-  }, [rows])
+  }, [rows, users])
   useEffect(() => {
     if (initialized.current || !groups.length) return
     initialized.current = true
@@ -4037,8 +4045,8 @@ function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], use
       <button type="button" className="epr-clear-filter" onClick={resetFilters}>Clear</button>
     </div>
     <AnnualRegistrationKpi data={complianceKpi} />
-    <div className="epr-category-grid">{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
-    <OperationsUserProgressTable rows={rows} />
+    <div className="epr-category-grid" hidden style={{ display: 'none' }}>{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
+    <OperationsUserProgressTable rows={rows} users={users} />
     <div className="epr-chart-grid">
       <article className="epr-chart-card"><header><div><h2>Leads by EPR Category</h2><p>Filtered category distribution</p></div><b>{selectedRows.length} total</b></header><div className="epr-donut-body"><div className="epr-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={chartData} dataKey="total" nameKey="name" innerRadius={62} outerRadius={86} paddingAngle={3} stroke="none">{chartData.map((entry, index) => <Cell key={entry.name} fill={categoryChartData.length ? categoryColors[index] : '#e5e7eb'} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><span><strong>{selectedRows.length}</strong>Total</span></div><div className="epr-chart-legend">{analytics.categories.map((item, index) => <div key={item.name}><i style={{ background: categoryColors[index] }} /><span>{item.name}</span><strong>{item.total}</strong><small>{selectedRows.length ? `${((item.total / selectedRows.length) * 100).toFixed(1)}%` : '0%'}</small></div>)}</div></div></article>
       <article className="epr-chart-card"><header><div><h2>Applicant / Sub-applicant Mix</h2><p>Live distribution by applicant type</p></div></header><div className="epr-bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={analytics.applicants} margin={{ top: 24, right: 10, left: -20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8edf3" /><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><Tooltip cursor={{ fill: '#f8fafc' }} /><Bar dataKey="count" radius={[7, 7, 0, 0]} maxBarSize={54}>{analytics.applicants.map((item, index) => <Cell key={item.name} fill={['#fb923c', '#34d399', '#8b5cf6', '#0ea5e9', '#f43f5e', '#94a3b8', '#fbbf24'][index]} />)}</Bar></BarChart></ResponsiveContainer></div></article>
@@ -5680,8 +5688,10 @@ export default function AdminDashboard() {
 
       const authenticatedRole = normalizeKey(user.role)
       if (adminRoles.includes(authenticatedRole)) {
-        const rolesResponse = await api.get(API_ENDPOINTS.auth.roles, requestConfig)
-        setAvailableRoles(rolesResponse.data.roles || [])
+        try {
+          const rolesResponse = await api.get(API_ENDPOINTS.auth.roles, requestConfig)
+          setAvailableRoles(rolesResponse.data.roles || [])
+        } catch { setAvailableRoles(defaultRoles) }
       }
 
       if (isUserManagementView) {
@@ -5800,20 +5810,21 @@ export default function AdminDashboard() {
         retained.calendarItems
       )
 
-      let nextUsers = []
-      let nextTeams = []
-      if (adminRoles.includes(authenticatedRole)) {
-        const [usersResponse, teamsResponse] = await Promise.all([
-          api.get(API_ENDPOINTS.auth.adminUsers, requestConfig),
-          api.get(API_ENDPOINTS.teams.list, requestConfig)
-        ])
-        nextUsers = retainStableList(usersResponse.data.users, retained.users)
-        nextTeams = retainStableList(teamsResponse.data.teams, retained.teams)
-      } else {
-        const usersResponse = await api.get(API_ENDPOINTS.auth.users, requestConfig)
-        nextUsers = retainStableList(usersResponse.data.users || [user], retained.users)
-        nextTeams = []
+      const [usersResult, teamsResult] = await Promise.allSettled([
+        api.get(adminRoles.includes(authenticatedRole) ? API_ENDPOINTS.auth.adminUsers : API_ENDPOINTS.auth.users, requestConfig),
+        adminRoles.includes(authenticatedRole) ? api.get(API_ENDPOINTS.teams.list, requestConfig) : Promise.resolve({ data: { teams: [] } })
+      ])
+      let usersResponse = usersResult.status === 'fulfilled' ? usersResult.value : null
+      if (!usersResponse && adminRoles.includes(authenticatedRole)) {
+        try { usersResponse = await api.get(API_ENDPOINTS.auth.users, requestConfig) } catch { /* Keep loaded records and report the failure below. */ }
       }
+      const nextUsers = retainStableList(usersResponse?.data?.users, retained.users || [user])
+      const nextTeams = retainStableList(teamsResult.status === 'fulfilled' ? teamsResult.value.data.teams : null, retained.teams)
+      const failedSections = [
+        clientsResult.status === 'rejected' && 'clients',
+        !usersResponse && 'users'
+      ].filter(Boolean)
+      if (failedSections.length) setError(`Unable to refresh ${failedSections.join(' and ')}. Please retry using Refresh data.`)
       const snapshot = {
         currentUser: user,
         users: nextUsers,

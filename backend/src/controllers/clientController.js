@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { inclusionProjection } = require('../utils/inclusionProjection');
 const Client = require('../models/Client');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
@@ -1147,7 +1148,7 @@ exports.listClients = async (req, res) => {
   if (metric === 'rejected') filters.push({ 'data.cpcb.status': 'Rejected' });
   if (metric === 'discontinued') filters.push({ 'adminControls.visibilityStatus': { $in: ['DISCONTINUED', 'SUSPENDED'] } });
   const filter = combineAccessFilters(...filters);
-  const projection = [
+  const projection = inclusionProjection([
     '_id', 'selectedLead', 'assignedServiceId', 'companyIdentity', 'adminControls',
     'workflowStatus', 'createdBy', 'createdAt', 'updatedAt', 'serviceAllocations',
     'data.selectedLead', 'data.assignedServiceId', 'data.selectedLeadSnapshot',
@@ -1178,7 +1179,7 @@ exports.listClients = async (req, res) => {
       'data.compliance.factoryLicenseDate', 'data.compliance.factoryLicenseApplicability',
       'data.compliance.brandOwnerProductionFacility', 'data.compliance.eprCertificate'
     ] : [])
-  ].join(' ');
+  ]);
   const queryStartedAt = process.hrtime.bigint();
   const [clients, total, summaryRows] = await Promise.all([
     Client.find(filter).select(projection)
