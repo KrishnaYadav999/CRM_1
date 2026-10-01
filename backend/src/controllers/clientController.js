@@ -11,6 +11,7 @@ const ClientComplianceReview = require('../models/ClientComplianceReview');
 const { notifyManagerAnnualSubmitted } = require('../services/annualReviewNotifications');
 const { notifyPoSpecialApproval } = require('../services/poApprovalNotifications');
 const { notifyClientApprovalDecision } = require('../services/clientApprovalDecisionNotifications');
+const { notifyComplianceClientSubmission } = require('../services/clientComplianceSubmissionNotifications');
 const { mapQuotationPendingApprovalRow } = require('./quotationController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { CLIENT_APPROVAL_ROLES } = require('../constants/roles');
@@ -973,10 +974,27 @@ function mapClientPendingApprovalRow(client, createdByLabel = 'CRM User') {
   };
 }
 
-async function queueCreatedClientApproval(client, user) {
+async function queueCreatedClientApproval(client, user, { resubmission = false, previousStatus = '' } = {}) {
   const createdByLabel = user?.name || user?.email || 'CRM User';
+  if (resubmission) {
+    await PendingApproval.findOneAndUpdate(
+      { type: 'client', source: 'crm', sourceClientId: String(client._id) },
+      { $set: { approvalStatus: 'PENDING', actionBy: null, actionAt: null, remarks: 'Corrected Client Master resubmitted for compliance review', nextReminderAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } }
+    );
+    const review = await ClientComplianceReview.findOne({ client: client._id });
+    if (review) {
+      review.status = 'PENDING';
+      review.history.push({ action: 'RESUBMITTED', remarks: `Corrected after ${previousStatus || 'compliance review'}`, actionBy: user?._id });
+      await review.save();
+    }
+  }
   await upsertPendingApproval(mapClientPendingApprovalRow(client, createdByLabel), 'client');
   await syncClientReviewReminderState({ client, status: 'PENDING' });
+  const notification = await notifyComplianceClientSubmission({ client, submitter: user, resubmission, previousStatus }).catch((error) => {
+    console.error('[client-master:compliance-notification]', error.message);
+    return { sent: false, reason: error.message };
+  });
+  return notification;
 }
 
 async function syncPendingApprovalRows(rows, type = 'client') {
@@ -1878,7 +1896,8 @@ exports.updateClient = async (req, res) => {
   const canApproveClient = CLIENT_APPROVAL_ROLES.includes(String(req.user?.role || '').trim().toLowerCase());
   const existingApprovalStatus = normalizeApprovalStatus(client.adminControls?.approvalStatus) || 'PENDING';
   const requestedApprovalStatus = normalizeApprovalStatus(adminControls.approvalStatus) || existingApprovalStatus;
-  adminControls.approvalStatus = canApproveClient ? requestedApprovalStatus : existingApprovalStatus;
+  const complianceResubmission = workflowStatus === 'submitted' && ['PARTIALLY_APPROVED', 'REJECTED'].includes(existingApprovalStatus);
+  adminControls.approvalStatus = complianceResubmission ? 'PENDING' : (canApproveClient ? requestedApprovalStatus : existingApprovalStatus);
 
   const safeData = readCpcbOnboarding(resolvedExistingData).registered === false
     ? preserveRestrictedCpcbSections(existingData, data)
@@ -1907,7 +1926,9 @@ exports.updateClient = async (req, res) => {
       return res.json({ ok: true, client: currentClient, alreadySubmitted: currentClient.workflowStatus === 'submitted' });
     }
     client = transitionedClient;
-    await queueCreatedClientApproval(client, req.user);
+    await queueCreatedClientApproval(client, req.user, complianceResubmission
+      ? { resubmission: true, previousStatus: existingApprovalStatus }
+      : undefined);
   } else {
     if (selectedLead) client.selectedLead = selectedLead;
     if (effectiveAssignedServiceId) client.assignedServiceId = effectiveAssignedServiceId;
@@ -1916,6 +1937,10 @@ exports.updateClient = async (req, res) => {
     client.workflowStatus = workflowStatus;
     client.markModified('data');
     await client.save();
+  }
+
+  if (complianceResubmission && !transition.becameSubmitted) {
+    await queueCreatedClientApproval(client, req.user, { resubmission: true, previousStatus: existingApprovalStatus });
   }
 
   if (canApproveClient && requestedApprovalStatus !== 'PENDING' && requestedApprovalStatus !== existingApprovalStatus) {
