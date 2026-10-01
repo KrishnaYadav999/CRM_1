@@ -37,10 +37,13 @@ test('Notified Leads contains manager assignments that are still waiting for sta
   assert.match(page, /Manager Assigned to Staff/);
   assert.match(page, /Manager action pending/);
   assert.match(page, /No notified leads are pending/);
-  assert.match(page, /workspaceTab === 'notified' \? activeTotal : Number\(summary\?\.notifiedPending \|\| 0\)/);
+  assert.match(page, /workspaceTab === 'notified' \? activeTotal : null/);
+  assert.match(page, /workspace: initialWorkspace/);
+  assert.match(page, /\[Lead Notifications\] fetch complete/);
+  assert.match(page, /onDirectoryQueryChange\(currentDirectoryRequest\(\)\)/);
   assert.match(controller, /function pendingManagerAssignmentFilter/);
   assert.match(controller, /if \(workspace === 'notified'\) filters\.push\(notifiedFilter\)/);
-  assert.match(controller, /notifiedPending/);
+  assert.match(controller, /notifiedPending: workspace === 'notified' \? total : undefined/);
 });
 
 test('manager assignment email links to and explains the Notified Leads tab', () => {

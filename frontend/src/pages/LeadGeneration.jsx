@@ -1618,7 +1618,8 @@ export default function LeadGeneration() {
         setPiboCategoriesLoading(false);
       }).catch(() => setPiboCategoriesLoading(false));
 
-      const crmLeadsResponse = await api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, page: 1, limit: 10 } });
+      const initialWorkspace = new URLSearchParams(location.search).get('tab') === 'notified' ? 'notified' : 'leads';
+      const crmLeadsResponse = await api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, page: 1, limit: 10, workspace: initialWorkspace } });
       const crmLeads = crmLeadsResponse.data.leads || [];
       setAllCcpLeads(crmLeads);
       setLeads(crmLeads);
@@ -1637,6 +1638,9 @@ export default function LeadGeneration() {
 
   const loadLeadDirectory = useCallback(async (params = {}) => {
     const requestId = ++leadListRequestRef.current;
+    const requestStartedAt = window.performance.now();
+    const isNotifiedRequest = String(params.workspace || '').toLowerCase() === 'notified';
+    if (isNotifiedRequest) console.info('[Lead Notifications] fetch started', { page: params.page || 1, limit: params.limit || 10, search: params.search || '', status: params.status || '', staff: params.staff || '' });
     setLoading(true);
     setError('');
     try {
@@ -1645,12 +1649,26 @@ export default function LeadGeneration() {
       });
       if (requestId !== leadListRequestRef.current) return;
       const rows = response.data?.leads || [];
+      if (isNotifiedRequest) {
+        const pendingRows = pendingManagerAssignmentRows(rows, currentUser);
+        console.info('[Lead Notifications] fetch complete', {
+          durationMs: Math.round(window.performance.now() - requestStartedAt),
+          rowsReceived: rows.length,
+          pendingRowsOnPage: pendingRows.length,
+          totalPendingLeads: Number(response.data?.pagination?.total || 0),
+          page: Number(response.data?.pagination?.page || 1),
+          totalPages: Number(response.data?.pagination?.totalPages || 1),
+          serverTiming: response.headers?.['server-timing'] || 'not provided'
+        });
+        if (!rows.length) console.warn('[Lead Notifications] No manager-assigned, staff-pending leads matched the current user visibility scope and filters.');
+      }
       setLeads(rows);
       setAllCcpLeads(rows);
       setLeadPagination(response.data?.pagination || { page: 1, limit: 10, total: rows.length, totalPages: 1 });
       setLeadSummary(response.data?.summary || { total: rows.length, existing: 0, converted: 0, new: rows.length });
     } catch (err) {
       if (requestId !== leadListRequestRef.current || err?.code === 'ERR_CANCELED') return;
+      if (isNotifiedRequest) console.error('[Lead Notifications] fetch failed', { durationMs: Math.round(window.performance.now() - requestStartedAt), message: err?.message, status: err?.response?.status, apiError: err?.response?.data?.error });
       setError(err?.response?.data?.error || 'Unable to fetch leads from CRM. Please retry.');
     } finally {
       if (requestId === leadListRequestRef.current) setLoading(false);
@@ -3659,6 +3677,15 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
   const totalPages = Math.max(1, Number(pagination?.totalPages || 1));
   const visibleLeads = filteredLeads;
   const visibleNotifiedRows = notifiedRows;
+  const currentDirectoryRequest = () => ({
+    page,
+    limit: rowsPerPage,
+    search: query.trim(),
+    status: statusFilter,
+    staff: staffFilter,
+    metric: metricFilter,
+    workspace: workspaceTab
+  });
   const staffFilterOptions = useMemo(() => {
     const optionsMap = new Map();
     staff.forEach((user) => {
@@ -3781,7 +3808,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
             <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Lead</button>
             <button type="button" onClick={() => setWorkspaceTab('temporary')} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-black text-violet-700 hover:bg-violet-100"><Clock3 className="h-4 w-4" />Temp Lead</button>
             <button type="button" onClick={() => { setQuery(''); setStatusFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
-            <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
+            <button type="button" onClick={() => onDirectoryQueryChange(currentDirectoryRequest())} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
           </div>
         </div>
@@ -3792,7 +3819,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
         <LeadWorkspaceTabs
           activeTab={workspaceTab}
           temporaryLeadCount={temporaryLeadCount}
-          notifiedLeadCount={workspaceTab === 'notified' ? activeTotal : Number(summary?.notifiedPending || 0)}
+          notifiedLeadCount={workspaceTab === 'notified' ? activeTotal : null}
           showNotified={canViewNotifiedLeads}
           onChange={setWorkspaceTab}
         />
@@ -3863,7 +3890,7 @@ function LeadWorkspaceTabs({ activeTab, temporaryLeadCount, notifiedLeadCount, s
   const tabs = [
     { id: 'leads', label: 'All Leads', note: 'Complete lead table', icon: FileText, tone: 'emerald' },
     { id: 'temporary', label: 'Temporary Leads', note: `${temporaryLeadCount.toLocaleString('en-IN')} captured`, icon: Clock3, tone: 'violet' },
-    ...(showNotified ? [{ id: 'notified', label: 'Notified Leads', note: `${notifiedLeadCount.toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }] : [])
+    ...(showNotified ? [{ id: 'notified', label: 'Notified Leads', note: notifiedLeadCount === null ? 'Open to load' : `${Number(notifiedLeadCount || 0).toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }] : [])
   ];
   return (
     <div className="flex justify-start" role="tablist" aria-label="Lead workspaces">

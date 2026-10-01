@@ -1347,7 +1347,7 @@ exports.listLeads = async (req, res) => {
     ] : [])
   ].join(' ');
   const queryStartedAt = process.hrtime.bigint();
-  const [leads, total, summaryRows, notifiedPending] = await Promise.all([
+  const [leads, total, summaryRows] = await Promise.all([
     Lead.find(filter).select(projection)
       .populate('assignedTo', 'name email avatarUrl role')
       .populate('closedBy', 'name email avatarUrl role')
@@ -1367,8 +1367,7 @@ exports.listLeads = async (req, res) => {
           { $ne: [{ $ifNull: ['$createdBy', null] }, null] }
         ] }, 1, 0] } }
       } }
-    ]),
-    Lead.countDocuments(combineAccessFilters(accessFilter, notifiedFilter))
+    ])
   ]);
   const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
   const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
@@ -1390,7 +1389,9 @@ exports.listLeads = async (req, res) => {
       new: summary.total - summary.existing,
       allocated: summary.allocated,
       unassigned: summary.total - summary.allocated,
-      notifiedPending
+      // The notified workspace is already filtered, so its total is the exact
+      // pending lead count without another collection-wide count query.
+      notifiedPending: workspace === 'notified' ? total : undefined
     },
     timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
   });
