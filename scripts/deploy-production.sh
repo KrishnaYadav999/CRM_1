@@ -139,7 +139,7 @@ if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
 fi
 
 if [[ "$SERVER_BUILD" == true ]]; then
-  NODE_OPTIONS=--max-old-space-size=2048 npm run build --prefix frontend -- --outDir "$NEXT_DIST"
+  CRM_FRONTEND_OUT_DIR="$NEXT_DIST" NODE_OPTIONS=--max-old-space-size=2048 npm run build --prefix frontend
   test -s "$NEXT_DIST/index.html"
 fi
 
