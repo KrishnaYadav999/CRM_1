@@ -48,8 +48,10 @@ function chart(doc, rows, { x, y, width, height, title, kind }) {
   doc.setFillColor(245, 158, 11); doc.circle(x + 53, y + height - 7, 1, 'F'); doc.text('Inactive clients', x + 56, y + height - 6)
 }
 
-export async function createOverallDashboardPdf(data, { generatedAt = new Date(), onProgress = () => {} } = {}) {
+export async function createOverallDashboardPdf(data, { generatedAt = new Date(), onProgress = () => {}, view = 'overall' } = {}) {
   if (!data?.yearSections?.length) throw new Error('Dashboard data is not ready. Please retry.')
+  if (!['overall', 'users'].includes(view)) throw new Error('Please choose a dashboard to export.')
+  if (view === 'users' && data.canViewUsers !== true) throw new Error('User-wise export is available only to Admin, Super Admin and Manager.')
   onProgress('Preparing PDF…')
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
@@ -70,27 +72,12 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
     alternateRowStyles: { fillColor: [248, 250, 252] },
     rowPageBreak: 'avoid', showHead: 'everyPage'
   }
-  heading('Overall Dashboard', `${scopeLabel(data.visibility)} | Closed POs only | Generated ${date} IST`)
-  doc.setFontSize(8); doc.setTextColor(100, 116, 139)
-  doc.text('Each company counts once per financial year. Inactive status reflects the current client status.', margin, 43)
-  const trends = data.trends || []
-  // Keep chart labels readable even with many financial years.
-  const chartRows = trends.slice(0, 8)
-  chart(doc, chartRows, { x: margin, y: 49, width: 131, height: 82, title: 'Client portfolio by financial year', kind: 'bar' })
-  chart(doc, chartRows, { x: margin + 138, y: 49, width: 131, height: 82, title: 'Client growth trend', kind: 'line' })
-  autoTable(doc, { ...tableOptions, startY: 139, head: [['Financial year', 'Unique clients with closed POs', 'Active clients', 'Inactive clients']], body: trends.map((row) => [row.year, row.clients, row.active, row.inactive]) })
-  for (let start = 8; start < trends.length; start += 8) {
-    doc.addPage(); heading('Financial year trends', `${scopeLabel(data.visibility)} | Closed POs only`)
-    const rows = trends.slice(start, start + 8)
-    chart(doc, rows, { x: margin, y: 46, width: 131, height: 100, title: 'Client portfolio by financial year', kind: 'bar' })
-    chart(doc, rows, { x: margin + 138, y: 46, width: 131, height: 100, title: 'Client growth trend', kind: 'line' })
-  }
-  for (const section of data.yearSections) {
+  function applicantTables(section, ownerName = '') {
     onProgress(`Preparing FY ${section.year}…`)
     const serviceChunks = section.services.length ? Array.from({ length: Math.ceil(section.services.length / 6) }, (_, index) => section.services.slice(index * 6, index * 6 + 6)) : [[]]
     for (const [index, services] of serviceChunks.entries()) {
       doc.addPage()
-      const title = `FY ${section.year} - Applicant / Sub-applicant service matrix`
+      const title = `FY ${section.year}${ownerName ? ` - ${ownerName}` : ''} - Applicant / Sub-applicant service matrix`
       const subtitle = `${section.summary.clients} unique clients | ${section.services.length} closed services${serviceChunks.length > 1 ? ` | Service columns ${index + 1} of ${serviceChunks.length}` : ''}`
       heading(title, subtitle)
       if (!section.summary.clients) {
@@ -104,7 +91,7 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
       if (!group.clients?.length) continue
       for (const [index, services] of serviceChunks.entries()) {
         doc.addPage()
-        const title = `FY ${section.year} - ${clean(group.type)}: Client service details`
+        const title = `FY ${section.year}${ownerName ? ` - ${ownerName}` : ''} - ${clean(group.type)}: Client service details`
         const subtitle = `${group.clients.length} clients | Check = closed service PO; cross = no closed PO${serviceChunks.length > 1 ? ` | Service columns ${index + 1} of ${serviceChunks.length}` : ''}`
         autoTable(doc, {
           ...tableOptions, startY: 44,
@@ -135,6 +122,54 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
       }
     }
   }
+  if (view === 'overall') {
+    heading('Overall Dashboard', `${scopeLabel(data.visibility)} | Closed POs only | Generated ${date} IST`)
+    doc.setFontSize(8); doc.setTextColor(100, 116, 139)
+    doc.text('Each company counts once per financial year. Inactive status reflects the current client status.', margin, 43)
+    const trends = data.trends || []
+    // Keep chart labels readable even with many financial years.
+    const chartRows = trends.slice(0, 8)
+    chart(doc, chartRows, { x: margin, y: 49, width: 131, height: 82, title: 'Client portfolio by financial year', kind: 'bar' })
+    chart(doc, chartRows, { x: margin + 138, y: 49, width: 131, height: 82, title: 'Client growth trend', kind: 'line' })
+    autoTable(doc, { ...tableOptions, startY: 139, head: [['Financial year', 'Unique clients with closed POs', 'Active clients', 'Inactive clients']], body: trends.map((row) => [row.year, row.clients, row.active, row.inactive]) })
+    for (let start = 8; start < trends.length; start += 8) {
+      doc.addPage(); heading('Financial year trends', `${scopeLabel(data.visibility)} | Closed POs only`)
+      const rows = trends.slice(start, start + 8)
+      chart(doc, rows, { x: margin, y: 46, width: 131, height: 100, title: 'Client portfolio by financial year', kind: 'bar' })
+      chart(doc, rows, { x: margin + 138, y: 46, width: 131, height: 100, title: 'Client growth trend', kind: 'line' })
+    }
+    for (const section of data.yearSections) applicantTables(section)
+  } else {
+    const users = data.userSections || []
+    heading('User-wise Dashboard', `${scopeLabel(data.visibility)} | Operations users and their managers | Generated ${date} IST`)
+    doc.setFontSize(10); doc.setTextColor(...slate)
+    doc.text(`${users.length} users | All financial years | Closed service POs only`, margin, 48)
+    doc.setFontSize(9)
+    doc.text('Includes every user and client, across all pages and collapsed applicant groups.', margin, 58)
+    doc.text('Each client counts once per user per financial year; shared clients can appear under multiple users.', margin, 68)
+    if (!users.length) doc.text('No operations users or managers available in your scope.', margin, 82)
+    for (const section of data.yearSections) {
+      onProgress(`Preparing user-wise FY ${section.year}…`)
+      const serviceChunks = section.services.length ? Array.from({ length: Math.ceil(section.services.length / 6) }, (_, index) => section.services.slice(index * 6, index * 6 + 6)) : [[]]
+      for (const [index, services] of serviceChunks.entries()) {
+        doc.addPage()
+        const title = `FY ${section.year} - User-wise service matrix`
+        const subtitle = `${users.length} operations users and managers${serviceChunks.length > 1 ? ` | Service columns ${index + 1} of ${serviceChunks.length}` : ''}`
+        autoTable(doc, { ...tableOptions, startY: 44, head: [['Users', 'Clients', ...services.map(clean)]],
+          body: users.map((user) => {
+            const owned = user.yearSections.find((entry) => entry.year === section.year)
+            return [clean(user.userName), owned?.summary.clients || 0, ...services.map((service) => (owned?.clients || []).reduce((total, client) => total + (client.services[service] || 0), 0))]
+          }),
+          columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 20, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 2, { cellWidth: (width - 78) / services.length, halign: 'center' }])) },
+          didDrawPage: () => heading(title, subtitle)
+        })
+      }
+      for (const user of users) {
+        const owned = user.yearSections.find((entry) => entry.year === section.year)
+        if (owned?.summary.clients) applicantTables(owned, clean(user.userName))
+      }
+    }
+  }
   const pages = doc.getNumberOfPages()
   for (let index = 1; index <= pages; index++) {
     doc.setPage(index); doc.setDrawColor(226, 232, 240); doc.line(margin, 198, 283, 198)
@@ -143,7 +178,7 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
     doc.text(`${index} / ${pages}`, 283, 204, { align: 'right' })
   }
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(generatedAt)
-  return { doc, filename: `Overall-Dashboard-${day}.pdf` }
+  return { doc, filename: `${view === 'users' ? 'User-wise-Dashboard' : 'Overall-Dashboard'}-${day}.pdf` }
 }
 
 export async function downloadOverallDashboardPdf(data, options = {}) {

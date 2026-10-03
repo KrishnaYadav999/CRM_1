@@ -18,6 +18,34 @@ test('PDF includes both charts, every FY, scope and paginated service columns', 
   assert.ok(doc.output('arraybuffer').byteLength > 1000);
 });
 
+test('User-wise PDF exports every eligible user, FY and owned client without overall data', async () => {
+  const { createOverallDashboardPdf } = await import('../../frontend/src/utils/overallDashboardPdf.mjs');
+  const { buildUserSections } = require('../src/services/overallDashboardUsers');
+  const users = Array.from({ length: 7 }, (_, index) => ({ _id: `owner-${index}`, name: `Operator ${index}`, role: 'operation' }));
+  const records = users.map((user, index) => ({ clientName: `Owned client ${index}`, leadNumber: `LEAD-${index}`, subApplicantType: 'Producer', financialYear: index === 6 ? '2026-27' : '2025-26', isClosed: true, owners: [{ id: user._id }], services: [{ name: 'Annual Filling' }] }));
+  records.push({ clientName: 'Overall-only client', financialYear: '2025-26', subApplicantType: 'Producer', isClosed: true, services: [{ name: 'Consulting' }] });
+  const data = { ...buildOverall(records), canViewUsers: true, visibility: 'team', userSections: buildUserSections(records, [], users) };
+  const { doc, filename } = await createOverallDashboardPdf(data, { view: 'users', generatedAt: new Date('2026-10-03T10:00:00Z') });
+  assert.equal(filename, 'User-wise-Dashboard-2026-10-03.pdf');
+  const content = doc.internal.pages.flat().join('\n');
+  for (let index = 0; index < 7; index++) {
+    assert.ok(content.includes(`Operator ${index}`));
+    assert.ok(content.includes(`Owned client ${index}`));
+    assert.ok(content.includes(`LEAD-${index}`));
+  }
+  for (const label of ['User-wise Dashboard', 'User-wise service matrix', '2025-26', '2026-27', 'My team and my clients', 'Applicant / Sub-applicant type', 'Client service details']) assert.ok(content.includes(label), label);
+  assert.ok(!content.includes('Overall-only client'));
+  assert.ok(!content.includes('Client portfolio by financial year'));
+  assert.ok(doc.getNumberOfPages() > 10);
+});
+
+test('User-wise PDF refuses exports without explicit role access', async () => {
+  const { createOverallDashboardPdf } = await import('../../frontend/src/utils/overallDashboardPdf.mjs');
+  const data = buildOverall([]);
+  await assert.rejects(createOverallDashboardPdf(data, { view: 'users' }), /only to Admin/);
+  await assert.rejects(createOverallDashboardPdf({ ...data, canViewUsers: false }, { view: 'users' }), /only to Admin/);
+});
+
 test('PDF repeats table headings and splits very long applicant tables across pages', async () => {
   const { createOverallDashboardPdf } = await import('../../frontend/src/utils/overallDashboardPdf.mjs');
   const data = buildOverall([{ clientName: 'One', applicantType: 'PIBO', subApplicantType: 'Producer', financialYear: '2025-26', isClosed: true, services: [{ name: 'Consulting' }] }]);
