@@ -7,7 +7,7 @@ const User = require('../models/User');
 const { loadPurchaseOrders } = require('./purchaseOrderController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { loadOverallRecords, createOverallCache } = require('../services/overallDashboardData');
-const cachedOverallRecords = createOverallCache();
+const cachedOverallRecords = createOverallCache({ ttl: 60000 });
 const { overallLeadFilter } = require('../services/overallDashboardVisibility');
 const { userHasAnyRole } = require('../utils/userRoles');
 
@@ -24,7 +24,7 @@ function countBy(rows, key) {
 
 async function visibleUsers(scope, requester) {
   const filter = scope === null ? { isActive: { $ne: false } } : { _id: { $in: scope.ids }, isActive: { $ne: false } };
-  const users = await User.find(filter).select('_id crmUserId name email role roles managerId teamId').sort({ name: 1 }).lean();
+  const users = await User.find(filter).select('_id crmUserId name email role roles managerId teamId').sort({ name: 1 }).maxTimeMS(10000).lean();
   if (!users.length && requester?._id) return [{ _id: requester._id, name: requester.name, email: requester.email, role: requester.role }];
   return users;
 }
@@ -140,7 +140,7 @@ exports.overall = async (req, res) => {
       cachedOverallRecords(JSON.stringify({ filter, scope }), () => loadOverallRecords(Lead, filter, scope)),
       require('../models/ClientDeactivation').find({ status: 'INACTIVE' }).select('companyKey status').maxTimeMS(10000).lean(),
       canViewUsers ? visibleUsers(scope, req.user) : [],
-      canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').lean() : []
+      canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').maxTimeMS(10000).lean() : []
     ]);
     res.set('Cache-Control', 'private, no-store');
     res.set('Server-Timing', `overall;dur=${Date.now() - startedAt}`);

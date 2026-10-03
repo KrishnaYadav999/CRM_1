@@ -56,7 +56,7 @@ export default function OverallDashboard() {
     pendingRequest.current = { signal }
     setLoading(true)
     try {
-      const response = await api.get('/dashboard-insights/overall', { signal, timeout: 25000 })
+      const response = await api.get('/dashboard-insights/overall', { signal, timeout: 45000 })
       if (sequence === requestSequence.current && !signal?.aborted) { setData(response.data); setError('') }
     } catch (err) {
       if (sequence === requestSequence.current && err.code !== 'ERR_CANCELED') setError(err.response?.data?.error || 'Dashboard request timed out or could not load. Please refresh and retry.')

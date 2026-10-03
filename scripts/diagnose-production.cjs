@@ -23,14 +23,15 @@ async function measure(name, run) {
       fs.readSync(fd, buffer, 0, buffer.length, Math.max(0, length - buffer.length)); fs.closeSync(fd);
       const lines = buffer.toString().split('\n').slice(-1000);
       if (logPath.endsWith('access.log')) {
-        const totals = {};
+        const totals = {}; const latest = {};
         for (const line of lines) {
           const match = line.match(/"(?:GET|POST|PUT|PATCH|DELETE) (\/api\/[^ ?"]+)[^"]*" (\d{3}) /);
           if (!match) continue;
-          const route = match[1].split('/').slice(0, 4).join('/');
+          const route = match[1].split('/').slice(0, 4).join('/').replace(/\/[a-f0-9]{24}/gi, '/:id');
           const label = `${route}:${match[2]}`; totals[label] = (totals[label] || 0) + 1;
+          latest[route] = { status: Number(match[2]), at: line.match(/\[([^\]]+)\]/)?.[1] };
         }
-        report({ check: 'recent-http-statuses', counts: totals });
+        report({ check: 'recent-http-statuses', counts: totals, latest });
       } else report({ check: 'proxy-errors', counts: Object.fromEntries(['upstream timed out', 'connect() failed', 'upstream prematurely closed', 'upstream sent too big header'].map((name) => [name, lines.filter((line) => line.includes(name)).length])) });
     }
     const processList = spawnSync('pm2', ['jlist'], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
@@ -51,6 +52,10 @@ async function measure(name, run) {
     }
     await mongoose.connect(appRequire('./src/config/db').__test.buildMongoUri(), { dbName: process.env.DB_NAME || 'registerd_types', autoIndex: false, autoCreate: false, serverSelectionTimeoutMS: 10000 });
     await measure('authentication-user-query', async () => ({ found: Boolean(await appRequire('./src/models/User').findOne({ isActive: { $ne: false } }).select('_id').maxTimeMS(10000).lean()) }));
+    await measure('reminder-scan', async () => {
+      const rows = await appRequire('./src/services/leadWorkflowReminders').__test.getCcpLeads();
+      return { leads: rows.length, payloadKB: Math.round(Buffer.byteLength(JSON.stringify(rows)) / 1024) };
+    });
     await measure('overall-dashboard', async () => {
       const { loadOverallRecords } = appRequire('./src/services/overallDashboardData');
       const { buildOverall } = appRequire('./src/services/overallDashboard');
