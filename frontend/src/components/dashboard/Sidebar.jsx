@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { BriefcaseBusiness, ChevronDown, ChevronsLeft, Gauge, X } from 'lucide-react'
+import { BarChart3, BriefcaseBusiness, ChevronDown, ChevronsLeft, Gauge, X } from 'lucide-react'
 import { adminRoles, hasAnyRole, navSections } from '../../constants/dashboard'
 
 export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onClose, dashboardMode = 'operations', onDashboardModeChange }) {
@@ -10,7 +10,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
   const [openGroups, setOpenGroups] = useState({ Home: true, Sales: true })
   const [activeFlyout, setActiveFlyout] = useState(null)
   const [activeItem, setActiveItem] = useState('User Management')
-  const [dashboardChoicesOpen, setDashboardChoicesOpen] = useState(false)
+  const [dashboardChoicesOpen, setDashboardChoicesOpen] = useState(() => ['/dashboard', '/overall-dashboard'].includes(location.pathname))
   const [openNestedGroups, setOpenNestedGroups] = useState(() => ({
     'Pending Leads': location.pathname.startsWith('/pending-leads'),
     'Complete MIS': location.pathname.startsWith('/mis/'),
@@ -124,7 +124,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                           <div className="mt-2 space-y-1 pl-6">
                             {item.children.filter(canShowItem).map((child) => {
                               const ChildIcon = child.icon
-                              const isDashboardChild = child.label === 'Dashboard' && canChooseDashboard
+                              const isDashboardChild = child.label === 'Dashboard'
                               const isChildActive = child.path ? pathMatches(child.path) : activeItem === child.label
                               if (child.children?.length) {
                                 const nestedActive = child.children.some((entry) => pathMatches(entry.path))
@@ -145,7 +145,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                       type="button"
                                       onClick={() => setDashboardChoicesOpen((value) => !value)}
                                       className={`sidebar-child-button flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm font-black transition ${
-                                        location.pathname === '/dashboard'
+                                        ['/dashboard', '/overall-dashboard'].includes(location.pathname)
                                           ? 'sidebar-child-button-current bg-white/14 text-white'
                                           : 'text-emerald-50/78 hover:bg-white/10 hover:text-white'
                                       }`}
@@ -159,6 +159,8 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                     </button>
                                     {dashboardChoicesOpen && (
                                       <div className="mt-1 grid gap-1 pl-5">
+                                        <button type="button" onClick={() => { setActiveItem('Overall Dashboard'); navigate('/overall-dashboard'); onClose?.() }} aria-current={location.pathname === '/overall-dashboard' ? 'page' : undefined} className={`sidebar-dashboard-choice flex min-h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-xs font-black transition ${location.pathname === '/overall-dashboard' ? 'sidebar-dashboard-choice-active bg-[#f45b0b] text-white' : 'text-emerald-50/75 hover:bg-white/10 hover:text-white'}`}><BarChart3 className="h-3.5 w-3.5" />Overall Dashboard</button>
+                                        {canChooseDashboard && <>
                                         <button
                                           type="button"
                                           onClick={() => chooseDashboard('operations')}
@@ -183,6 +185,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                           <BriefcaseBusiness className="h-3.5 w-3.5" />
                                           Sales Dashboard
                                         </button>
+                                        </>}
                                       </div>
                                     )}
                                   </div>
@@ -220,7 +223,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                         <div className="px-3 py-2 font-black text-slate-900">{item.label}</div>
                         {item.children.filter(canShowItem).map((child) => {
                           const ChildIcon = child.icon
-                          const isDashboardChild = child.label === 'Dashboard' && canChooseDashboard
+                          const isDashboardChild = child.label === 'Dashboard'
                           const isChildActive = child.path ? pathMatches(child.path) : activeItem === child.label
                           if (child.children?.length) {
                             return (
@@ -254,6 +257,8 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                             return (
                               <div key={child.label} className="rounded-lg bg-slate-50 p-1">
                                 <div className="px-2 py-1 text-xs font-black uppercase tracking-[0.12em] text-slate-400">Dashboard</div>
+                                <button type="button" onClick={() => { setActiveItem('Overall Dashboard'); navigate('/overall-dashboard'); setActiveFlyout(null); onClose?.() }} aria-current={location.pathname === '/overall-dashboard' ? 'page' : undefined} className={`flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-black transition ${location.pathname === '/overall-dashboard' ? 'bg-[#f45b0b] text-white' : 'text-slate-700 hover:bg-emerald-50 hover:text-[#0f5d46]'}`}><BarChart3 className="h-4 w-4 shrink-0" />Overall Dashboard</button>
+                                {canChooseDashboard && <>
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -284,6 +289,7 @@ export default function Sidebar({ currentUser, collapsed, onToggleCollapsed, onC
                                   <BriefcaseBusiness className="h-4 w-4 shrink-0" />
                                   Sales Dashboard
                                 </button>
+                                </>}
                               </div>
                             )
                           }
