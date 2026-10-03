@@ -53,6 +53,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
+import PurchaseSalesProgress from '../components/dashboard/PurchaseSalesProgress'
 import AddUserModal from '../components/dashboard/AddUserModal'
 import CreateTeamModal from '../components/dashboard/CreateTeamModal'
 import EditUserModal from '../components/dashboard/EditUserModal'
@@ -3937,7 +3938,8 @@ function OperationsPoCommercialCell({ rows, field, pdfMode = false }) {
   return <div className="operations-po-commercial">{shown.length ? shown.map((value) => <span key={value}>{field === 'poEndDate' ? formatDisplayDate(value) : value}</span>) : <span className="operations-po-unrecorded">Not recorded</span>}{!pdfMode && values.length > 2 && <small>+{values.length - 2} more · View clients</small>}</div>
 }
 
-function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, reportTime }) {
+function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, reportTime, financialYear = currentFinancialYear() }) {
+  const [activeTab, setActiveTab] = useState('ownership')
   const [expandedUser, setExpandedUser] = useState('')
   const [search, setSearch] = useState('')
   const [now, setNow] = useState(() => reportTime || Date.now())
@@ -3971,11 +3973,12 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
   return <section className="operations-user-status-card" aria-label="User-wise operations status">
     <header className="operations-user-status-heading">
       <div><span>Operations performance</span><h2>Client Ownership &amp; Red Flags</h2><p>Assigned clients, approved compliance and overdue correction deadlines. Red flags are cumulative: 96h also counts in 72h and 48h.</p></div>
-      <div className="operations-report-actions"><b><Users aria-hidden="true" />{groups.length} Operations users</b>{!pdfMode && <button type="button" className="operations-report-download" disabled={exporting || !groups.length} onClick={() => { setExportError(''); setPdfProgress('Preparing PDF…'); setExporting(true) }}><Download aria-hidden="true" />{exporting ? pdfProgress : 'Download full PDF'}</button>}</div>
+      <div className="operations-report-actions">{pdfMode ? <b><Users aria-hidden="true" />{groups.length} Operations users</b> : <div role="tablist" aria-label="Operations reports" className="flex flex-wrap gap-2"><button type="button" role="tab" aria-selected={activeTab === 'ownership'} className="operations-report-download" onClick={() => setActiveTab('ownership')}><Users aria-hidden="true" />{groups.length} Operations users</button><button type="button" role="tab" aria-selected={activeTab === 'data'} className="operations-report-download" onClick={() => setActiveTab('data')}>Purchase &amp; Sales</button></div>}{!pdfMode && activeTab === 'ownership' && <button type="button" className="operations-report-download" disabled={exporting || !groups.length} onClick={() => { setExportError(''); setPdfProgress('Preparing PDF…'); setExporting(true) }}><Download aria-hidden="true" />{exporting ? pdfProgress : 'Download full PDF'}</button>}</div>
     </header>
     <div className="operations-report-meta"><span><CalendarDays aria-hidden="true" />Updated {formatDisplayDateTime(now)} IST</span><span>Full PDF includes every Operations user and all assigned client details.</span></div>
     {exportError && <p className="operations-export-error" role="alert">{exportError}</p>}
     {!pdfMode && <div className="operations-user-toolbar"><label><Search aria-hidden="true" /><input aria-label="Search Operations users or clients" placeholder="Search user, client or ATPL code" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span>{new Set(groups.flatMap((group) => group.rows.map((row) => row.id))).size} assigned clients · {totals[48]} overdue assignments</span></div>}
+    {activeTab === 'data' ? <PurchaseSalesProgress groups={visibleGroups} financialYear={financialYear} /> : <>
     <div className="operations-user-status-scroll">
       <table className="operations-user-status-table">
         <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th><th>PO End Date<small>Recorded dates</small></th><th>PO Financial Year<small>Recorded years</small></th><th>Payment Term<small>As per PO</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th>Final Flag<small>All three red = Red</small></th><th aria-label="Action">View</th></tr></thead>
@@ -4014,6 +4017,7 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
         <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td colSpan={3}><small>PO details are listed by client above</small></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td><OperationsFinalFlag rows={groups.flatMap((group) => group.rows)} /></td><td /></tr></tfoot>
       </table>
     </div>
+    </>}
     {!groups.length && <div className="operations-user-status-empty"><Users aria-hidden="true" /><strong>No assigned client records found</strong></div>}
     {!pdfMode && exporting && <div ref={pdfRef} className="operations-pdf-source" aria-hidden="true"><OperationsUserProgressTable rows={rows} users={users} pdfMode reportTime={now} /></div>}
   </section>
@@ -4100,7 +4104,7 @@ function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], use
     </div>
     <AnnualRegistrationKpi data={complianceKpi} />
     <div className="epr-category-grid" hidden style={{ display: 'none' }}>{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
-    <OperationsUserProgressTable rows={clientSelectedRows} users={users} />
+    <OperationsUserProgressTable rows={clientSelectedRows} users={users} financialYear={financialYear} />
     <div className="epr-chart-grid">
       <article className="epr-chart-card"><header><div><h2>Leads by EPR Category</h2><p>Filtered category distribution</p></div><b>{selectedRows.length} total</b></header><div className="epr-donut-body"><div className="epr-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={chartData} dataKey="total" nameKey="name" innerRadius={62} outerRadius={86} paddingAngle={3} stroke="none">{chartData.map((entry, index) => <Cell key={entry.name} fill={categoryChartData.length ? categoryColors[index] : '#e5e7eb'} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><span><strong>{selectedRows.length}</strong>Total</span></div><div className="epr-chart-legend">{analytics.categories.map((item, index) => <div key={item.name}><i style={{ background: categoryColors[index] }} /><span>{item.name}</span><strong>{item.total}</strong><small>{selectedRows.length ? `${((item.total / selectedRows.length) * 100).toFixed(1)}%` : '0%'}</small></div>)}</div></div></article>
       <article className="epr-chart-card"><header><div><h2>Applicant / Sub-applicant Mix</h2><p>Live distribution by applicant type</p></div></header><div className="epr-bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={analytics.applicants} margin={{ top: 24, right: 10, left: -20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8edf3" /><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><Tooltip cursor={{ fill: '#f8fafc' }} /><Bar dataKey="count" radius={[7, 7, 0, 0]} maxBarSize={54}>{analytics.applicants.map((item, index) => <Cell key={item.name} fill={['#fb923c', '#34d399', '#8b5cf6', '#0ea5e9', '#f43f5e', '#94a3b8', '#fbbf24'][index]} />)}</Bar></BarChart></ResponsiveContainer></div></article>
