@@ -13,7 +13,7 @@ test('PDF includes both charts, every FY, scope and paginated service columns', 
   const content = doc.internal.pages.flat().join('\n');
   for (const label of ['Client portfolio by financial year', 'Client growth trend', 'My team and my clients', '2025-26', '2026-27', '2027-28', 'Service columns 1 of 2', 'Service columns 2 of 2', 'Annual Return', 'Producer']) assert.ok(content.includes(label), label);
   const text = [...content.matchAll(/\(([^()]*)\) Tj/g)].map((match) => match[1]).join(' ');
-  assert.ok(text.includes('Annual Return Filling / Annual Filling'));
+  assert.ok(text.includes('Annual Return Filling'));
   assert.ok(content.includes('No clients with closed purchase orders'));
   assert.ok(doc.output('arraybuffer').byteLength > 1000);
 });

@@ -55,5 +55,5 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (state.allowed) return <AnnouncementGate>{children}</AnnouncementGate>
-  return <Navigate to={state.authenticated ? '/dashboard' : '/login'} replace />
+  return <Navigate to={state.authenticated ? '/overall-dashboard' : '/login'} replace />
 }

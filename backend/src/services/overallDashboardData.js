@@ -1,7 +1,7 @@
 // Keep file proofs, screenshots, client forms and quotation PDFs out of analytics.
 // In particular, poFileUrl may contain an entire base64 document. Evaluate proof
 // presence in MongoDB instead of transferring the document to the application.
-const { createOverallServiceVisibility } = require('./overallDashboardVisibility');
+const { createOverallServiceVisibility, overallOwners } = require('./overallDashboardVisibility');
 function overallPipeline(filter = {}) {
   return [
     { $match: filter },
@@ -60,7 +60,7 @@ function overallRecordsFromLeads(leads, scope = null) {
           clientName: lead.company || lead.companyName || 'Untitled client', financialYear: po.fy,
           applicantType: service.applicantType || service.piboParent || lead.applicantType || 'Not specified',
           subApplicantType: service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory || 'Not specified',
-          isClosed: true, services: names.map((name) => ({ name }))
+          owners: overallOwners(lead, service, assignment), isClosed: true, services: names.map((name) => ({ name }))
         });
       }
     }

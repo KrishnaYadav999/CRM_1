@@ -57,7 +57,10 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
   const date = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }).format(generatedAt)
   const heading = (title, subtitle) => {
     doc.setFillColor(240, 253, 250); doc.roundedRect(margin, 12, width, 25, 3, 3, 'F')
-    doc.setTextColor(...teal); doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.text(clean(title), margin + 5, 22)
+    doc.setTextColor(...teal); doc.setFont('helvetica', 'bold'); doc.setFontSize(17)
+    const titleWidth = doc.getTextWidth(clean(title))
+    if (titleWidth > width - 10) doc.setFontSize(17 * (width - 10) / titleWidth)
+    doc.text(clean(title), margin + 5, 22)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...slate); doc.text(clean(subtitle), margin + 5, 30)
   }
   const tableOptions = {

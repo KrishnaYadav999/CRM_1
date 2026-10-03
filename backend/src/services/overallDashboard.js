@@ -1,4 +1,4 @@
-const SERVICES = ['New Registration', 'Account Closure', 'Annual Return Filling / Annual Filling', 'Audits - Producer/ PWP', 'Category 1 – EOL', 'Category 1 – Recycling', 'Category 2 – EOL', 'Category 2 – Recycling', 'Category 3 – EOL', 'Category 3 – Recycling', 'CIPET Registration Advisory', 'Consulting', 'Corporate training & awareness Consulting', 'Credit Procurement', 'CTO/CCA Renewal and Amendment', 'Data Uploading', 'E-Certificate Registration', 'Environmental Statement Form V', 'EPR KAVACH', 'Marking and labelling QR Code', 'Name Change Application – GPCB', 'CTE & CTO/CCA Expansion'];
+const SERVICES = ['New Registration', 'Account Closure', 'Annual Return Filling', 'Audits - Producer/ PWP', 'Category 1 – EOL', 'Category 1 – Recycling', 'Category 2 – EOL', 'Category 2 – Recycling', 'Category 3 – EOL', 'Category 3 – Recycling', 'CIPET Registration Advisory', 'Consulting', 'Corporate training & awareness Consulting', 'Credit Procurement', 'CTO/CCA Renewal and Amendment', 'Data Uploading', 'E-Certificate Registration', 'Environmental Statement Form V', 'EPR KAVACH', 'Marking and labelling QR Code', 'Name Change Application – GPCB', 'CTE & CTO/CCA Expansion'];
 const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 function normalizeYear(value) {
   const match = String(value || '').trim().match(/^(\d{4})\s*[-/]\s*(\d{2}|\d{4})$/);
@@ -11,7 +11,8 @@ function buildOverall(records, deactivations = [], selectedYear = '') {
   const canonicalService = (value) => {
     const raw = String(value || '').trim();
     const key = normalize(raw).replace('filing', 'filling');
-    if (['annualreturnfilling', 'annualfilling'].includes(key)) return 'Annual Return Filling / Annual Filling';
+    if (key === 'creditprocurement') return '';
+    if (['annualreturnfilling', 'annualfilling', 'annualreturnfillingannualfilling'].includes(key)) return 'Annual Return Filling';
     const known = catalog.find((name) => normalize(name) === key);
     if (known) return known;
     if (raw) catalog.push(raw);
@@ -45,7 +46,9 @@ function buildOverall(records, deactivations = [], selectedYear = '') {
   const yearSections = yearOptions.map((year) => {
     const current = [...(byYear.get(year)?.values() || [])].sort((a, b) => a.name.localeCompare(b.name));
     const used = new Set(current.flatMap((client) => [...client.types.values()].flatMap((names) => [...names])));
-    const services = catalog.filter((name) => used.has(name));
+    const totals = new Map();
+    current.forEach((client) => new Set([...client.types.values()].flatMap((names) => [...names])).forEach((name) => totals.set(name, (totals.get(name) || 0) + 1)));
+    const services = catalog.filter((name) => used.has(name)).sort((a, b) => totals.get(b) - totals.get(a));
     const serialize = (client, taken, types) => ({ key: client.key, name: client.name, clientId: client.clientId, references: [...client.references].sort(), inactive: client.inactive, types, services: Object.fromEntries(services.map((name) => [name, taken.has(name) ? 1 : 0])) });
     const clients = current.map((client) => serialize(client, new Set([...client.types.values()].flatMap((names) => [...names])), [...client.types.keys()]));
     const groups = typeNames.map((type) => {
