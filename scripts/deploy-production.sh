@@ -142,6 +142,8 @@ if [[ "$SERVER_BUILD" == true ]]; then
   CRM_FRONTEND_OUT_DIR="$NEXT_DIST" NODE_OPTIONS=--max-old-space-size=2048 npm run build --prefix frontend
   test -s "$NEXT_DIST/index.html"
 fi
+# mktemp creates a private directory; Nginx must be able to traverse the release root.
+chmod 755 "$NEXT_DIST"
 
 if [[ "$BACKEND_CHANGED" == true ]]; then
   if [[ "$BACKEND_DEPS_CHANGED" == true ]]; then
