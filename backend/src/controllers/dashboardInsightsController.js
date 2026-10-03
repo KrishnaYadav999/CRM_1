@@ -24,7 +24,7 @@ function countBy(rows, key) {
 
 async function visibleUsers(scope, requester) {
   const filter = scope === null ? { isActive: { $ne: false } } : { _id: { $in: scope.ids }, isActive: { $ne: false } };
-  const users = await User.find(filter).select('_id crmUserId name email role managerId').sort({ name: 1 }).lean();
+  const users = await User.find(filter).select('_id crmUserId name email role roles managerId teamId').sort({ name: 1 }).lean();
   if (!users.length && requester?._id) return [{ _id: requester._id, name: requester.name, email: requester.email, role: requester.role }];
   return users;
 }
@@ -135,15 +135,17 @@ exports.overall = async (req, res) => {
   try {
     const scope = await getVisibleUserScope(req.user);
     const filter = overallLeadFilter(scope);
-    const [records, requests, users] = await Promise.all([
+    const canViewUsers = userHasAnyRole(req.user, ['admin', 'superadmin', 'manager']);
+    const [records, requests, users, teams] = await Promise.all([
       cachedOverallRecords(JSON.stringify({ filter, scope }), () => loadOverallRecords(Lead, filter, scope)),
       require('../models/ClientDeactivation').find({ status: 'INACTIVE' }).select('companyKey status').maxTimeMS(10000).lean(),
-      visibleUsers(scope, req.user)
+      canViewUsers ? visibleUsers(scope, req.user) : [],
+      canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').lean() : []
     ]);
     res.set('Cache-Control', 'private, no-store');
     res.set('Server-Timing', `overall;dur=${Date.now() - startedAt}`);
     const visibility = scope === null ? 'all' : userHasAnyRole(req.user, ['manager']) ? 'team' : 'self';
-    return res.json({ ...require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear), userSections: require('../services/overallDashboardUsers').buildUserSections(records, requests, users), visibility });
+    return res.json({ ...require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear), userSections: canViewUsers ? require('../services/overallDashboardUsers').buildUserSections(records, requests, users, teams) : [], canViewUsers, visibility });
   } catch (error) {
     console.error('[overall-dashboard] load failed', { durationMs: Date.now() - startedAt, name: error.name, code: error.code });
     return res.status(error.code === 50 ? 503 : 500).json({ error: 'Unable to load Overall Dashboard. Please refresh and retry.' });

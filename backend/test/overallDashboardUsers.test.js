@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOverall } = require('../src/services/overallDashboard');
 const { overallRecordsFromLeads } = require('../src/services/overallDashboardData');
-const { buildUserSections } = require('../src/services/overallDashboardUsers');
+const { buildUserSections, eligibleOperationsUsers } = require('../src/services/overallDashboardUsers');
 
 test('dashboard hides credit, merges annual aliases and puts most used closed services first', () => {
   const row = (clientName, service, isClosed = true) => ({ clientName, financialYear: '2025-26', subApplicantType: 'Producer', isClosed, services: [{ name: service }] });
@@ -14,7 +14,7 @@ test('dashboard hides credit, merges annual aliases and puts most used closed se
 });
 
 test('user matrix keeps service ownership separate and never includes users outside supplied scope', () => {
-  const users = [{ _id: 'krishna', name: 'Krishna', email: 'k@example.test' }, { _id: 'manager', name: 'Manager' }];
+  const users = [{ _id: 'krishna', name: 'Krishna', role: 'operation', email: 'k@example.test' }, { _id: 'manager', name: 'Manager', role: 'operation' }];
   const leads = [{ _id: 'lead', company: 'CCL', createdBy: 'manager', serviceSelections: [
     { createdBy: 'krishna', subApplicantType: 'Producer', servicesOffered: 'New Registration' },
     { createdBy: 'outsider', subApplicantType: 'Brand Owner', servicesOffered: 'Consulting' }
@@ -32,7 +32,26 @@ test('user matrix keeps service ownership separate and never includes users outs
 
 test('user matrix supports on-behalf legacy owners and prefers stable IDs to identical names', () => {
   const leads = [{ _id: 'lead', company: '20 Micron', createdBy: 'admin', generatedForUser: 'intended', generatedForName: 'Same Name', serviceSelections: [{ subApplicantType: 'Importer', servicesOffered: 'Consulting' }], assignments: [{ closedAt: 'now', poYearRows: [{ fy: '2026-27', hasPoEvidence: true }] }] }];
-  const rows = buildUserSections(overallRecordsFromLeads(leads), [], [{ _id: 'intended', name: 'Same Name' }, { _id: 'other', name: 'Same Name' }]);
+  const rows = buildUserSections(overallRecordsFromLeads(leads), [], [{ _id: 'intended', name: 'Same Name', role: 'operation' }, { _id: 'other', name: 'Same Name', role: 'operation' }]);
   assert.equal(rows[0].yearSections[1].summary.clients, 1);
   assert.equal(rows[1].yearSections[0].summary.clients, 0);
+});
+
+test('user list contains only operations staff and their direct or team managers', () => {
+  const users = [
+    { _id: 'op1', name: 'Operation One', role: 'operation', managerId: 'direct' },
+    { _id: 'op2', name: 'Operation Two', role: 'operation', teamId: 'ops-team' },
+    { _id: 'op3', name: 'Operation Three', role: 'accounts', roles: ['operation'] },
+    { _id: 'direct', name: 'Direct Manager', role: 'manager' },
+    { _id: 'team-manager', name: 'Team Manager', role: 'manager' },
+    { _id: 'sales-manager', name: 'Sales Manager', role: 'manager' },
+    { _id: 'sales', name: 'Sales', role: 'operation', roles: ['sales'] },
+    { _id: 'super', name: 'Super Admin', role: 'operation', roles: ['super-admin'] },
+    { _id: 'himanshu', name: '  HIMANSHU   PARASHAR ', role: 'operation' },
+    { _id: 'admin', name: 'Admin', role: 'admin' },
+    { _id: 'account', name: 'Accounts', role: 'accounts' }
+  ];
+  const teams = [{ _id: 'ops-team', manager: 'team-manager', members: [] }, { _id: 'sales-team', manager: 'sales-manager', members: ['sales'] }];
+  assert.deepEqual(eligibleOperationsUsers(users, teams).map((user) => user._id), ['op1', 'op2', 'op3', 'direct', 'team-manager']);
+  assert.deepEqual(eligibleOperationsUsers(users.slice(0, 3), teams).map((user) => user._id), ['op1', 'op2', 'op3']);
 });
