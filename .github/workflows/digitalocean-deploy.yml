@@ -116,6 +116,7 @@ jobs:
           chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Transfer verified frontend artifact
+        timeout-minutes: 5
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -124,23 +125,30 @@ jobs:
           remote_deploy_script="/tmp/crm-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"
           artifact_sha="$(sha256sum deployment-artifact/frontend-dist.tgz | awk '{print $1}')"
 
-          scp \
+          # Stream through SSH so deployment does not depend on the SFTP subsystem.
+          printf -v artifact_command 'umask 077; cat > %q' "$remote_artifact"
+          printf -v script_command 'umask 077; cat > %q' "$remote_deploy_script"
+          ssh \
             -i "$HOME/.ssh/digitalocean_deploy" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            -P "$port" \
-            deployment-artifact/frontend-dist.tgz \
-            "$DO_USER@$DO_HOST:$remote_artifact"
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            -p "$port" \
+            "$DO_USER@$DO_HOST" "$artifact_command" < deployment-artifact/frontend-dist.tgz
 
-          scp \
+          ssh \
             -i "$HOME/.ssh/digitalocean_deploy" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            -P "$port" \
-            deployment-artifact/scripts/deploy-production.sh \
-            "$DO_USER@$DO_HOST:$remote_deploy_script"
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            -p "$port" \
+            "$DO_USER@$DO_HOST" "$script_command" < deployment-artifact/scripts/deploy-production.sh
 
           echo "REMOTE_FRONTEND_ARTIFACT=$remote_artifact" >> "$GITHUB_ENV"
           echo "REMOTE_DEPLOY_SCRIPT=$remote_deploy_script" >> "$GITHUB_ENV"
@@ -165,6 +173,9 @@ jobs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
             -p "$port" \
             "$DO_USER@$DO_HOST" \
             "$remote_command"
