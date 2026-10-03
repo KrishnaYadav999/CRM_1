@@ -1,20 +1,29 @@
 // Keep file proofs, screenshots, client forms and quotation PDFs out of analytics.
 // In particular, poFileUrl may contain an entire base64 document. Evaluate proof
 // presence in MongoDB instead of transferring the document to the application.
+const { createOverallServiceVisibility } = require('./overallDashboardVisibility');
 function overallPipeline(filter = {}) {
   return [
     { $match: filter },
     { $project: {
       company: 1, companyName: 1, companyIdentity: 1, applicantType: 1, subApplicantType: 1,
       piboCategory: 1, closedAt: 1, closedBy: 1,
+      createdBy: 1, createdByCrmUserId: 1, createdByEmail: 1, createdByName: 1, importedCreatedBy: 1,
+      generatedForUser: 1, generatedForEmail: 1, generatedForName: 1,
+      createdOnBehalfOfUser: 1, createdOnBehalfOfEmail: 1, createdOnBehalfOfName: 1,
+      assignedTo: 1, assignedToText: 1, assignedStaff: 1, assignedStaffText: 1, assignedStaffEmail: 1,
       serviceSelections: { $map: { input: { $ifNull: ['$serviceSelections', []] }, as: 'service', in: {
         applicantType: '$$service.applicantType', piboParent: '$$service.piboParent',
         subApplicantType: '$$service.subApplicantType', piboCategory: '$$service.piboCategory',
-        servicesOffered: '$$service.servicesOffered', applicableService: '$$service.applicableService'
+        servicesOffered: '$$service.servicesOffered', applicableService: '$$service.applicableService',
+        createdBy: '$$service.createdBy', createdByCrmUserId: '$$service.createdByCrmUserId',
+        createdByEmail: '$$service.createdByEmail', createdByName: '$$service.createdByName'
       } } },
       assignments: { $map: { input: { $ifNull: ['$assignments', []] }, as: 'assignment', in: {
         closedAt: '$$assignment.closedAt', closedBy: '$$assignment.closedBy', closedByText: '$$assignment.closedByText',
         servicesOffered: '$$assignment.servicesOffered',
+        assignedTo: '$$assignment.assignedTo', assignedToText: '$$assignment.assignedToText', assignedToEmail: '$$assignment.assignedToEmail',
+        assignedStaff: '$$assignment.assignedStaff', assignedStaffText: '$$assignment.assignedStaffText', assignedStaffEmail: '$$assignment.assignedStaffEmail',
         poYearRows: { $map: { input: { $ifNull: ['$$assignment.poYearRows', []] }, as: 'po', in: {
           fy: '$$po.fy',
           hasPoEvidence: { $or: [
@@ -32,11 +41,13 @@ function overallPipeline(filter = {}) {
   ];
 }
 const serviceName = (value) => typeof value === 'string' ? value.trim() : String(value?.name || value?.label || value?.servicesOffered || value?.applicableService || '').trim();
-function overallRecordsFromLeads(leads) {
+function overallRecordsFromLeads(leads, scope = null) {
   const records = [];
+  const canSeeService = createOverallServiceVisibility(scope);
   for (const lead of leads) {
     for (const [index, assignment] of (lead.assignments || []).entries()) {
       const service = lead.serviceSelections?.[index] || {};
+      if (!canSeeService(lead, service, assignment)) continue;
       const isClosed = Boolean(assignment.closedAt || assignment.closedBy || assignment.closedByText
         || (lead.serviceSelections?.length === 1 && (lead.closedAt || lead.closedBy)));
       if (!isClosed) continue;
@@ -56,9 +67,9 @@ function overallRecordsFromLeads(leads) {
   }
   return records;
 }
-async function loadOverallRecords(Lead, filter) {
+async function loadOverallRecords(Lead, filter, scope = null) {
   const leads = await Lead.aggregate(overallPipeline(filter)).option({ maxTimeMS: 12000 });
-  return overallRecordsFromLeads(leads);
+  return overallRecordsFromLeads(leads, scope);
 }
 function createOverallCache({ ttl = 30000, maxEntries = 50, now = Date.now } = {}) {
   const entries = new Map();

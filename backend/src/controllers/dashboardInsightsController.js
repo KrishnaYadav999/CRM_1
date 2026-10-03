@@ -8,6 +8,8 @@ const { loadPurchaseOrders } = require('./purchaseOrderController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
 const { loadOverallRecords, createOverallCache } = require('../services/overallDashboardData');
 const cachedOverallRecords = createOverallCache();
+const { overallLeadFilter } = require('../services/overallDashboardVisibility');
+const { userHasAnyRole } = require('../utils/userRoles');
 
 const text = (value) => String(value?._id || value?.id || value || '').trim();
 
@@ -132,14 +134,15 @@ exports.overall = async (req, res) => {
   const startedAt = Date.now();
   try {
     const scope = await getVisibleUserScope(req.user);
-    const filter = ownerFilter(scope, 'createdBy', 'assignedTo', ['createdByEmail', 'createdByName', 'assignments.assignedToText'], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+    const filter = overallLeadFilter(scope);
     const [records, requests] = await Promise.all([
-      cachedOverallRecords(JSON.stringify(filter), () => loadOverallRecords(Lead, filter)),
+      cachedOverallRecords(JSON.stringify({ filter, scope }), () => loadOverallRecords(Lead, filter, scope)),
       require('../models/ClientDeactivation').find({ status: 'INACTIVE' }).select('companyKey status').maxTimeMS(10000).lean()
     ]);
     res.set('Cache-Control', 'private, no-store');
     res.set('Server-Timing', `overall;dur=${Date.now() - startedAt}`);
-    return res.json(require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear));
+    const visibility = scope === null ? 'all' : userHasAnyRole(req.user, ['manager']) ? 'team' : 'self';
+    return res.json({ ...require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear), visibility });
   } catch (error) {
     console.error('[overall-dashboard] load failed', { durationMs: Date.now() - startedAt, name: error.name, code: error.code });
     return res.status(error.code === 50 ? 503 : 500).json({ error: 'Unable to load Overall Dashboard. Please refresh and retry.' });
