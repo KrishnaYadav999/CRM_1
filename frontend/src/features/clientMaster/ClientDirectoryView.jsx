@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Building2, CheckCircle2, ChevronDown, Download, Edit3, Eye, FileCheck2, FileText, FolderCheck, Plus, RefreshCw, Search, UserCheck, X } from 'lucide-react';
+import { DeactivationButton } from './ClientDeactivation';
+import api from '../../services/api';
 import ToastMessage from '../../components/ToastMessage';
 import {
   getAssignedName,
@@ -131,6 +133,7 @@ function dedupeDirectoryClients(clients = []) {
 }
 
 function ClientDirectoryView({ clients, pagination, summary, staff, loading, error, notice, onRefresh, onDirectoryQueryChange, onExportAll, onView, onEdit, onCreate, canEdit = false, selectOptions = {}, totalClientCount }) {
+  const [deactivationStatuses, setDeactivationStatuses] = useState([]);
   const [query, setQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState('');
   const [staffFilter, setStaffFilter] = useState('');
@@ -142,6 +145,11 @@ function ClientDirectoryView({ clients, pagination, summary, staff, loading, err
 
   const directoryClients = useMemo(() => dedupeDirectoryClients(clients), [clients]);
   const filteredClients = directoryClients;
+  useEffect(() => {
+    let active = true;
+    api.get('/clients/deactivation-status').then((response) => { if (active) setDeactivationStatuses(response.data.statuses || []); }).catch(() => {});
+    return () => { active = false; };
+  }, [clients]);
 
   useEffect(() => {
     if (!directoryEffectReady.current) {
@@ -305,10 +313,10 @@ function ClientDirectoryView({ clients, pagination, summary, staff, loading, err
         <DirectoryTableHeader showing={visibleClients.length} total={Number(pagination?.total || totalClientCount || 0)} label="clients" rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} page={page} setPage={setPage} totalPages={totalPages} />
         <div className="client-directory-table-shell overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="hidden-scrollbar max-h-[520px] overflow-auto">
-            <table className="crm-data-table w-full min-w-[1040px] table-fixed text-left text-sm">
+            <table className="crm-data-table w-full min-w-[1240px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black uppercase tracking-[0.06em] text-slate-500 shadow-sm">
                 <tr>
-                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'Service Category', 'MSME', 'CPCB Approval', 'Manager Assigned to Staff', 'Actions'].map((header) => <th key={header} className="px-5 py-4">{header}</th>)}
+                  {['Unique ID', 'Legal Name', 'Trade Name', 'State', 'Assigned To', 'Visibility Status', 'Service Category', 'MSME', 'CPCB Approval', 'Manager Assigned to Staff', 'Actions'].map((header) => <th key={header} className={`px-5 py-4 ${header === 'Actions' ? 'w-56' : ''}`}>{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -316,6 +324,8 @@ function ClientDirectoryView({ clients, pagination, summary, staff, loading, err
                   loading ? <ClientTableLoadingRows /> : <tr><td colSpan={11} className="px-5 py-12 text-center font-black text-slate-400">No clients found.</td></tr>
                 ) : visibleClients.map((item) => {
                   const data = readClientData(item);
+                  const lifecycle = deactivationStatuses.find((row) => row.clientIds.includes(String(item._id || item.id)));
+                  const locked = lifecycle && lifecycle.status !== 'REJECTED';
                   return (
                     <tr key={item._id || item.id} className="transition hover:bg-orange-50/60">
                       <td className="px-5 py-4 font-black text-slate-900"><span className="cell-clip">{getClientUniqueId(item)}</span></td>
@@ -323,7 +333,7 @@ function ClientDirectoryView({ clients, pagination, summary, staff, loading, err
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.tradeName || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{data.registeredAddress?.state || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getAssignedName(item, staff)}</span></td>
-                      <td className="px-5 py-4"><span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">{getVisibilityStatus(item)}</span></td>
+                      <td className="px-5 py-4"><span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">{lifecycle?.status === 'INACTIVE' ? 'Inactive' : locked ? 'Deactivation Pending' : getVisibilityStatus(item)}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clamp">{data.basic?.eprCategory || '-'}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getMsmeSummary(data)}</span></td>
                       <td className="px-5 py-4 font-black uppercase text-slate-500"><span className="cell-clip">{getCpcbStatus(data)}</span></td>
@@ -331,7 +341,8 @@ function ClientDirectoryView({ clients, pagination, summary, staff, loading, err
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
-                          {canEdit && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit Client Master" aria-label="Edit Client Master"><Edit3 className="h-4 w-4" /></button>}
+                          {!locked && <DeactivationButton clientId={item._id || item.id} onChanged={onRefresh} />}
+                          {canEdit && !locked && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit Client Master" aria-label="Edit Client Master"><Edit3 className="h-4 w-4" /></button>}
                         </div>
                       </td>
                     </tr>

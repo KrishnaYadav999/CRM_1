@@ -125,3 +125,15 @@ exports.purchaseSales = async (req, res) => {
     clients: details
   });
 };
+
+exports.overall = async (req, res) => {
+  try {
+    const scope = await getVisibleUserScope(req.user);
+    const filter = ownerFilter(scope, 'createdBy', 'assignedTo', ['createdByEmail', 'createdByName', 'assignments.assignedToText'], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+    const [records, requests] = await Promise.all([
+      loadPurchaseOrders({ Lead, Client, Quotation }, filter),
+      require('../models/ClientDeactivation').find({ status: 'INACTIVE' }).select('companyKey status').lean()
+    ]);
+    return res.json(require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear));
+  } catch { return res.status(500).json({ error: 'Unable to load Overall Dashboard.' }); }
+};

@@ -77,6 +77,7 @@ async function clientAccessFilter(user) {
     { 'data.importMeta.uniqueId': { $in: leadIdentityValues } }
   ] };
 }
+exports.clientAccessFilter = clientAccessFilter;
 
 async function leadAccessFilter(user) {
   const scope = await getVisibleUserScope(user);
@@ -2357,6 +2358,10 @@ exports.approveAllPendingClients = async (req, res) => {
 
   for (const record of records) {
     try {
+      const approvalClientId = String(record.sourceClientId || record.payload?.id || '');
+      const locked = (req.clientDeactivationLocks || []).some((entry) => entry.clientIds.some((id) => String(id) === approvalClientId)
+        || String(entry.clientName || '').trim().toLowerCase() === String(record.clientName || '').trim().toLowerCase());
+      if (locked) throw new Error('Client is inactive or awaiting deactivation approval.');
       const approvedClient = await applyClientApprovalStatus(record, 'APPROVED', req.user?._id, remarks);
       record.approvalStatus = 'APPROVED';
       record.nextReminderAt = null;
