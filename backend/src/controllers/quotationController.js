@@ -896,10 +896,11 @@ exports.updateQuotationApproval = async (req, res) => {
   if (!quotation) {
     return res.status(404).json({ error: 'Linked quotation not found. Refresh Pending Approval and try again.' });
   }
-  if (status === 'APPROVED' && String(quotation.managementApproval?.status || '').toUpperCase() === 'PENDING') {
-    if (isSuperAdminReviewer) {
-      return res.status(409).json({ error: 'Use Super Admin Final Approve to complete this quotation.' });
-    }
+  if (['approved', 'rejected'].includes(quotation.status)) {
+    return res.status(409).json({ error: 'This quotation already has a final decision. Refresh Pending Approval.' });
+  }
+  quotation.$where = { status: quotation.status };
+  if (status === 'APPROVED' && String(quotation.managementApproval?.status || '').toUpperCase() === 'PENDING' && !isSuperAdminReviewer) {
     const actionAt = update.actionAt;
     const adminName = req.user?.name || req.user?.email || 'CRM Admin';
     quotation.status = 'admin_approved';
@@ -918,7 +919,10 @@ exports.updateQuotationApproval = async (req, res) => {
       adminApprovalProofUrl: proofUrl,
       adminApprovalProofName: proofName
     };
-    await quotation.save();
+    try { await quotation.save(); } catch (error) {
+      if (['DocumentNotFoundError', 'VersionError'].includes(error.name)) return res.status(409).json({ error: 'Another reviewer has already updated this quotation. Refresh Pending Approval.' });
+      throw error;
+    }
     await PendingApproval.updateMany(
       {
         type: 'quotation',
@@ -950,6 +954,7 @@ exports.updateQuotationApproval = async (req, res) => {
   quotation.status = status === 'APPROVED' ? 'approved' : 'rejected';
   quotation.approvalDecision = {
     status,
+    ...(isSuperAdminReviewer && status === 'APPROVED' ? { approvalKind: 'MANAGEMENT_FINAL' } : {}),
     remarks,
     proofUrl,
     proofName,
@@ -966,7 +971,10 @@ exports.updateQuotationApproval = async (req, res) => {
       decisionRemarks: remarks
     };
   }
-  await quotation.save();
+  try { await quotation.save(); } catch (error) {
+      if (['DocumentNotFoundError', 'VersionError'].includes(error.name)) return res.status(409).json({ error: 'Another reviewer has already updated this quotation. Refresh Pending Approval.' });
+      throw error;
+    }
 
   await PendingApproval.updateMany(
     {
@@ -1113,12 +1121,11 @@ exports.finalizeManagementApproval = async (req, res) => {
     ? await Quotation.findById(requestedId).populate('createdBy', 'name email')
     : null;
   if (!quotation) return res.status(404).json({ error: 'Linked quotation not found.' });
+  if (['approved', 'rejected'].includes(quotation.status)) return res.status(409).json({ error: 'This quotation already has a final decision.' });
   if (String(quotation.managementApproval?.status || '').toUpperCase() !== 'PENDING') {
     return res.status(409).json({ error: 'This quotation does not have a pending management approval request.' });
   }
-  if (String(quotation.managementApproval?.adminApprovalStatus || '').toUpperCase() !== 'APPROVED') {
-    return res.status(409).json({ error: 'Admin approval must be completed before final Super Admin approval.' });
-  }
+  quotation.$where = { status: quotation.status };
   const actionAt = new Date();
   const approverName = req.user?.name || req.user?.email || 'Super Admin';
   const remarks = String(req.body.remarks || '').trim() || `Final approval completed by ${approverName}.`;
@@ -1129,13 +1136,16 @@ exports.finalizeManagementApproval = async (req, res) => {
   quotation.approvalDecision = {
     status: 'APPROVED', approvalKind: 'MANAGEMENT_FINAL', remarks,
     source: quotation.managementApproval.source || '', note: quotation.managementApproval.note || '',
-    proofUrl: quotation.managementApproval.adminApprovalProofUrl || '',
-    proofName: quotation.managementApproval.adminApprovalProofName || '',
+    proofUrl: String(req.body.proofUrl || quotation.managementApproval.adminApprovalProofUrl || '').trim(),
+    proofName: String(req.body.proofName || quotation.managementApproval.adminApprovalProofName || '').trim(),
     adminApprovedByName: quotation.managementApproval.adminApprovedByName || '',
     adminApprovedAt: quotation.managementApproval.adminApprovedAt || null,
     reviewerRole: 'superadmin', actionBy: req.user?._id, actionAt
   };
-  await quotation.save();
+  try { await quotation.save(); } catch (error) {
+    if (['DocumentNotFoundError', 'VersionError'].includes(error.name)) return res.status(409).json({ error: 'Another reviewer has already updated this quotation. Refresh Pending Approval.' });
+    throw error;
+  }
   await PendingApproval.updateMany({
     type: 'quotation',
     $or: [{ sourceClientId: String(quotation._id) }, { 'payload.quotationId': quotation._id }, { 'payload.quotationId': String(quotation._id) }]
@@ -1213,8 +1223,7 @@ exports.approveAllPendingQuotations = async (req, res) => {
   const records = await PendingApproval.find({
     type: 'quotation',
     approvalStatus: 'PENDING',
-    'payload.managementApprovalStatus': 'PENDING',
-    'payload.adminApprovalStatus': 'APPROVED'
+    'payload.managementApprovalStatus': 'PENDING'
   });
   let approved = 0;
   const failures = [];
@@ -1222,6 +1231,10 @@ exports.approveAllPendingQuotations = async (req, res) => {
   for (const record of records) {
     try {
       const quotation = await Quotation.findById(record.sourceClientId);
+      if (!quotation || String(quotation.managementApproval?.status || '').toUpperCase() !== 'PENDING' || ['approved', 'rejected'].includes(quotation.status)) {
+        throw new Error('Quotation is missing or already has a final decision. Refresh Pending Approval.');
+      }
+      quotation.$where = { status: quotation.status };
       if (quotation) {
         quotation.status = 'approved';
         const actionAt = new Date();

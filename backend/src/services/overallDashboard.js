@@ -1,4 +1,4 @@
-const SERVICES = ['New Registration', 'Account Closure', 'Annual Return Filling', 'Audits - Producer/ PWP', 'Category 1 – EOL', 'Category 1 – Recycling', 'Category 2 – EOL', 'Category 2 – Recycling', 'Category 3 – EOL', 'Category 3 – Recycling', 'CIPET Registration Advisory', 'Consulting', 'Corporate training & awareness Consulting', 'Credit Procurement', 'CTO/CCA Renewal and Amendment', 'Data Uploading', 'E-Certificate Registration', 'Environmental Statement Form V', 'EPR KAVACH', 'Marking and labelling QR Code', 'Name Change Application – GPCB', 'Annual Filling', 'CTE & CTO/CCA Expansion'];
+const SERVICES = ['New Registration', 'Account Closure', 'Annual Return Filling / Annual Filling', 'Audits - Producer/ PWP', 'Category 1 – EOL', 'Category 1 – Recycling', 'Category 2 – EOL', 'Category 2 – Recycling', 'Category 3 – EOL', 'Category 3 – Recycling', 'CIPET Registration Advisory', 'Consulting', 'Corporate training & awareness Consulting', 'Credit Procurement', 'CTO/CCA Renewal and Amendment', 'Data Uploading', 'E-Certificate Registration', 'Environmental Statement Form V', 'EPR KAVACH', 'Marking and labelling QR Code', 'Name Change Application – GPCB', 'CTE & CTO/CCA Expansion'];
 const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 function normalizeYear(value) {
   const match = String(value || '').trim().match(/^(\d{4})\s*[-/]\s*(\d{2}|\d{4})$/);
@@ -11,6 +11,7 @@ function buildOverall(records, deactivations = [], selectedYear = '') {
   const canonicalService = (value) => {
     const raw = String(value || '').trim();
     const key = normalize(raw).replace('filing', 'filling');
+    if (['annualreturnfilling', 'annualfilling'].includes(key)) return 'Annual Return Filling / Annual Filling';
     const known = catalog.find((name) => normalize(name) === key);
     if (known) return known;
     if (raw) catalog.push(raw);

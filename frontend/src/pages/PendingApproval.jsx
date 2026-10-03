@@ -1179,7 +1179,7 @@ export default function PendingApproval() {
     if (quotationDecision.status === 'REJECTED' && !remarks) return;
     const decision = quotationDecision;
     setQuotationDecision(null);
-    if (decision.finalApproval) await finalizeManagementApproval(decision.row);
+    if (decision.finalApproval) await finalizeManagementApproval(decision.row, decision);
     else await updateQuotationApproval(decision.row, decision.status, decision);
   }
 
@@ -1187,13 +1187,13 @@ export default function PendingApproval() {
     setQuotationDecision({ row, status, finalApproval: status === 'APPROVED' && isQuotationSuperAdmin && row.managementApprovalStatus === 'PENDING', remarks: '', proofUrl: '', proofName: '' });
   }
 
-  async function finalizeManagementApproval(row) {
+  async function finalizeManagementApproval(row, decision = {}) {
     if (!isQuotationSuperAdmin || getApprovalStatus(row) !== 'PENDING') return;
     const id = row.quotationId || row._id || row.id;
     setSavingId(`management-final-${id}`);
     setError('');
     try {
-      const response = await api.patch(API_ENDPOINTS.quotations.managementApprovalFinalize(id), {});
+      const response = await api.patch(API_ENDPOINTS.quotations.managementApprovalFinalize(id), { remarks: decision.remarks || '', proofUrl: decision.proofUrl || '', proofName: decision.proofName || '' });
       setNotice(response.data?.message || 'Quotation received final Super Admin approval.');
       await loadPage({ force: true, silent: true });
     } catch (err) {
@@ -2039,7 +2039,6 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, onFinaliz
   const pending = getApprovalStatus(row) === 'PENDING';
   const submitting = savingId === `management-final-${id}`;
   const managementStatus = String(row?.managementApprovalStatus || '').toUpperCase();
-  const adminApproved = String(row?.adminApprovalStatus || '').toUpperCase() === 'APPROVED';
 
   if (managementStatus === 'APPROVED') {
     const source = String(row.managementApprovalSource || '').replace(/_/g, ' ');
@@ -2051,9 +2050,9 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, onFinaliz
 
   return (
     <td className="management-approval-cell">
-      <button type="button" disabled={Boolean(savingId) || !adminApproved} title={adminApproved ? 'Complete final Super Admin approval' : 'Admin approval is required first'} onClick={() => onFinalize(row)} className="management-approve-button disabled:cursor-not-allowed disabled:opacity-50">
+      <button type="button" disabled={Boolean(savingId)} title="Complete final Super Admin approval" onClick={() => onFinalize(row)} className="management-approve-button disabled:cursor-not-allowed disabled:opacity-50">
         {submitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
-        {adminApproved ? 'Final Approve' : 'Admin Approval Required'}
+        Final Approve
       </button>
     </td>
   );
@@ -2093,9 +2092,9 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
           <div className="pending-quotation-actions-bottom">
             {((canAdminApprove && !adminApproved) || isSuperAdmin) && <button
               type="button"
-              disabled={Boolean(savingId) || (isSuperAdmin && row.managementApprovalStatus === 'PENDING' && !adminApproved)}
+              disabled={Boolean(savingId)}
               onClick={() => onUpdate(row, 'APPROVED')}
-              title={isSuperAdmin && row.managementApprovalStatus === 'PENDING' && !adminApproved ? 'Admin approval is required first' : 'Approve quotation'}
+              title="Approve quotation"
               className="pending-action pending-action-approve"
             >
               {approving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}

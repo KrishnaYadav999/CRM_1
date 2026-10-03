@@ -4,6 +4,18 @@ const { buildOverall, normalizeYear } = require('../src/services/overallDashboar
 const { loadPurchaseOrders } = require('../src/controllers/purchaseOrderController');
 const row = (clientName, financialYear, service, extra = {}) => ({ clientName, financialYear, subApplicantType: 'Producer', applicantType: 'PIBO', isClosed: true, services: [{ name: service }], ...extra });
 
+test('annual filling aliases share one column and deduplicate each client in that FY', () => {
+  const result = buildOverall([
+    row('CCL', '2025-26', 'Annual Return Filling'), row('CCL', '2025-26', 'Annual Filling'),
+    row('20 Micron', '2025-26', 'Annual Filing'), row('Open client', '2025-26', 'Annual Return Filing', { isClosed: false })
+  ]);
+  const name = 'Annual Return Filling / Annual Filling';
+  assert.deepEqual(result.services, [name]);
+  assert.equal(result.summary.services, 2);
+  assert.equal(result.groups.find((group) => group.type === 'Producer').services[name], 2);
+  assert.equal(result.yearSections[0].clients.find((client) => client.name === 'CCL').services[name], 1);
+});
+
 test('yearly matrices start at 2025, fill gaps and expose only closed services for each FY', () => {
   const result = buildOverall([
     row('Older client', '2024-25', 'Account Closure'),
@@ -23,7 +35,7 @@ test('yearly matrices start at 2025, fill gaps and expose only closed services f
   assert.equal(first.groups.find((group) => group.type === 'Importer of Raw Material').count, 1);
   assert.equal(gap.summary.clients, 0);
   assert.deepEqual(gap.services, []);
-  assert.deepEqual(last.services, ['Annual Filling', 'CTE & CTO/CCA Expansion']);
+  assert.deepEqual(last.services, ['Annual Return Filling / Annual Filling', 'CTE & CTO/CCA Expansion']);
   assert.equal(result.portfolioSummary.clients, 2);
   assert.equal(result.portfolioSummary.services, 4);
 });
