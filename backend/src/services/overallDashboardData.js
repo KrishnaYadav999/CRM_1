@@ -6,7 +6,7 @@ function overallPipeline(filter = {}) {
   return [
     { $match: filter },
     { $project: {
-      company: 1, companyName: 1, companyIdentity: 1, applicantType: 1, subApplicantType: 1,
+      leadCode: 1, company: 1, companyName: 1, companyIdentity: 1, applicantType: 1, subApplicantType: 1,
       piboCategory: 1, closedAt: 1, closedBy: 1,
       createdBy: 1, createdByCrmUserId: 1, createdByEmail: 1, createdByName: 1, importedCreatedBy: 1,
       generatedForUser: 1, generatedForEmail: 1, generatedForName: 1,
@@ -56,7 +56,7 @@ function overallRecordsFromLeads(leads, scope = null) {
         const names = (po.services || []).map(serviceName).filter(Boolean);
         if (!names.length) { const fallback = serviceName(service.servicesOffered || service.applicableService || assignment.servicesOffered); if (fallback) names.push(fallback); }
         records.push({
-          leadId: String(lead._id), companyIdentity: lead.companyIdentity || '',
+          leadId: String(lead._id), leadNumber: lead.leadCode || '', companyIdentity: lead.companyIdentity || '',
           clientName: lead.company || lead.companyName || 'Untitled client', financialYear: po.fy,
           applicantType: service.applicantType || service.piboParent || lead.applicantType || 'Not specified',
           subApplicantType: service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory || 'Not specified',

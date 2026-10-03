@@ -35,12 +35,12 @@ test('logged-in user sees only their services, counts, FY options and drill-down
   const records = overallRecordsFromLeads([sharedLead], scope);
   assert.equal(records.length, 1);
   const data = buildOverall(records);
-  assert.deepEqual(data.yearOptions, ['2026-27']);
+  assert.deepEqual(data.yearOptions, ['2025-26', '2026-27']);
   assert.equal(data.summary.clients, 1);
   const producer = data.groups.find((group) => group.type === 'Producer');
   assert.equal(producer.services['New Registration'], 1);
-  assert.equal(producer.services.Consulting, 0);
-  assert.equal(producer.clients[0].services.Consulting, 0);
+  assert.equal(producer.services.Consulting, undefined);
+  assert.equal(producer.clients[0].services.Consulting, undefined);
 });
 test('manager sees self plus reporting users and team members, excluding outsiders', async (t) => {
   t.mock.method(Team, 'find', (filter) => { assert.equal(filter.manager, 'manager'); return query([{ _id: 'team', members: ['alice'] }]); });
@@ -55,7 +55,7 @@ test('manager sees self plus reporting users and team members, excluding outside
   const records = overallRecordsFromLeads([sharedLead], scope);
   assert.equal(records.length, 2);
   assert.ok(records.every((row) => !row.services.some((service) => service.name === 'Consulting')));
-  assert.equal(buildOverall(records, [], '2026-27').groups.find((group) => group.type === 'Producer').services.Consulting, 0);
+  assert.equal(buildOverall(records, [], '2026-27').groups.find((group) => group.type === 'Producer').services.Consulting, undefined);
 });
 test('service contributor identities and legacy assignments are scoped with stable-id priority', () => {
   const visible = createOverallServiceVisibility(scopeFor([alice]));

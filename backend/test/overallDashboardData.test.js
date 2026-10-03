@@ -31,8 +31,8 @@ test('compact records preserve closure, service fallback, FY deduplication and p
   assert.equal(data.summary.services, 2);
   const producer = data.groups.find((group) => group.type === 'Producer');
   assert.equal(producer.services['New Registration'], 1);
-  assert.equal(producer.services['Account Closure'], 0);
-  assert.deepEqual(data.yearOptions, ['2026-27']);
+  assert.equal(producer.services['Account Closure'], undefined);
+  assert.deepEqual(data.yearOptions, ['2025-26', '2026-27']);
 });
 test('cache coalesces concurrent refreshes and isolates user scopes', async () => {
   const cached = createOverallCache();
