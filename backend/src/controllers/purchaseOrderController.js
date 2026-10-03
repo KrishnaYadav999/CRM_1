@@ -105,8 +105,10 @@ async function loadPurchaseOrders(models, leadFilter = {}) {
           subApplicantType: text(leadService.subApplicantType || leadService.piboCategory || lead.subApplicantType || lead.piboCategory) || 'Not specified',
           ownerId: idText(assignment.closedBy || assignment.closureRequestedBy || assignment.assignedTo || assignment.assignedStaff || lead.createdBy) || null,
           ownerName: text(assignment.closedByText || assignment.closureRequestedByText || assignment.assignedToText || assignment.assignedStaffText || lead.createdByName) || 'Unassigned',
+          isClosed: Boolean(assignment.closedAt || assignment.closedBy || assignment.closedByText || (lead.serviceSelections?.length === 1 && (lead.closedAt || lead.closedBy))),
+          companyIdentity: lead.companyIdentity || '',
           approvalStatus: text(assignment.poApprovalStatus).toUpperCase() || 'PENDING',
-          services,
+          services: services.length ? services : [serviceObject(leadService.servicesOffered || leadService.applicableService || assignment.servicesOffered)].filter((service) => service.name),
           service: firstService,
           poProof: text(row.poFileUrl) ? {
             url: text(row.poFileUrl),

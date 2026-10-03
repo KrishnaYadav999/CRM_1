@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Diamond, Edit3, Eye, FileCheck2, FileText, RefreshCw, RotateCcw, Search, X, XCircle, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { DeactivationApprovals } from '../features/clientMaster/ClientDeactivation';
 import DashboardShell from '../components/dashboard/DashboardShell';
 import ProfileModal from '../components/dashboard/ProfileModal';
 import ApprovalTabs from '../components/dashboard/ApprovalTabs';
@@ -652,6 +653,7 @@ export default function PendingApproval() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [debugInfo, setDebugInfo] = useState(null);
+  const [deactivationCount, setDeactivationCount] = useState(0);
   const [activeTab, setActiveTab] = useState('clients');
   const [clientPage, setClientPage] = useState(1);
   const [quotePage, setQuotePage] = useState(1);
@@ -737,7 +739,7 @@ export default function PendingApproval() {
   ), [filteredPoApprovals, poPage]);
 
   const approvalTabs = useMemo(() => {
-    const list = [];
+    const list = [{ id: 'deactivation', icon: Users, label: 'Client Deactivation', count: deactivationCount }];
     if (isServiceParticipantView) {
       list.push({ id: 'services', icon: FileText, label: 'Pending Service Approvals', count: filteredServices.length });
       return list;
@@ -756,7 +758,13 @@ export default function PendingApproval() {
       list.push({ id: 'duplicates', icon: Users, label: 'Special Approvals', count: filteredDuplicateLeads.length });
     }
     return list;
-  }, [canApproveClients, canApproveTemporary, isComplianceApprovalView, isServiceParticipantView, filteredClients.length, filteredTemporary.length, filteredPoApprovals.length, filteredQuotations.length, filteredRoyalty.length, filteredServices.length, filteredDuplicateLeads.length]);
+  }, [deactivationCount, canApproveClients, canApproveTemporary, isComplianceApprovalView, isServiceParticipantView, filteredClients.length, filteredTemporary.length, filteredPoApprovals.length, filteredQuotations.length, filteredRoyalty.length, filteredServices.length, filteredDuplicateLeads.length]);
+
+  useEffect(() => {
+    let mounted = true;
+    api.get('/clients/deactivation-requests').then((response) => { if (mounted) setDeactivationCount((response.data.requests || []).filter((row) => row.canDecide).length); }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   function handleTabChange(tabId) {
     if (tabId && typeof tabId === 'string') {
@@ -772,6 +780,7 @@ export default function PendingApproval() {
 
   useEffect(() => {
     const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'deactivation') { setActiveTab('deactivation'); return; }
     if (isComplianceApprovalView) {
       setActiveTab('clients');
       setTypeFilter('clients');
@@ -1379,7 +1388,7 @@ export default function PendingApproval() {
           </div>
 
           <section className="pending-approval-panel">
-            <div className="pending-filter-bar">
+            {activeTab !== 'deactivation' && <div className="pending-filter-bar">
               <label className="pending-search-field">
                 <Search className="h-4 w-4" />
                 <input
@@ -1428,8 +1437,8 @@ export default function PendingApproval() {
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </button>
-            </div>
-            {!isComplianceApprovalView && (
+            </div>}
+            {activeTab !== 'deactivation' && !isComplianceApprovalView && (
               <div className="pending-status-quick-filters" aria-label="Quick approval status filters">
                 <span>Quick filter</span>
                 <button type="button" className={statusFilter === 'APPROVED' ? 'is-active' : ''} onClick={() => { setActiveTab('quotations'); setTypeFilter('quotations'); setStatusFilter('APPROVED'); }}>
@@ -1445,7 +1454,7 @@ export default function PendingApproval() {
               />
             </div>
 
-            {activeTab === 'po' ? (
+            {activeTab === 'deactivation' ? <DeactivationApprovals onCountChange={setDeactivationCount} /> : activeTab === 'po' ? (
               <>
                 <ApprovalTable title="Purchase Order Approvals" columns={['Company / Lead', 'Service', 'PO Amount', 'PO Proof', 'Basic Amount (INR)', 'Submitted By', 'Status', 'Actions']} emptyText="No Purchase Orders are waiting for approval." page={poPage} totalPages={poTotalPages} showing={visiblePoApprovals.length} total={filteredPoApprovals.length} onPrev={() => setPoPage((value) => Math.max(1, value - 1))} onNext={() => setPoPage((value) => Math.min(poTotalPages, value + 1))}>
                 {visiblePoApprovals.map((row) => {

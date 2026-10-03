@@ -11,6 +11,14 @@ const { ADMIN_ROLES, CLIENT_APPROVAL_ROLES } = require('../constants/roles');
 const emailProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Math.max(1, Number(process.env.EMAIL_PROOF_MAX_SIZE_MB) || 15) * 1024 * 1024, files: 1, fields: 10 } }).single('file');
 const receiveEmailProof = (req, res, next) => emailProofUpload(req, res, (error) => error ? res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, message: error.code === 'LIMIT_FILE_SIZE' ? 'Email proof exceeds the configured size limit.' : 'Invalid email proof upload.', code: error.code || 'MULTIPART_UPLOAD_FAILED' }) : next());
 
+const deactivation = require('../services/clientDeactivation');
+router.get('/deactivation-status', requireAuth, deactivation.statuses);
+router.get('/deactivation-requests', requireAuth, deactivation.list);
+router.post('/deactivation-requests/:requestId/decision', requireAuth, deactivation.decide);
+router.post('/:id/deactivation', requireAuth, deactivation.request);
+router.use('/:id', requireAuth, deactivation.guard);
+router.use('/', requireAuth, deactivation.guard);
+
 router.get('/', requireAuth, clientCtrl.listClients);
 router.get('/dashboard/compliance-records', requireAuth, clientCtrl.listDashboardComplianceRecords);
 router.get('/discovery/search', requireAuth, clientCtrl.searchClientMasterCompanies);
