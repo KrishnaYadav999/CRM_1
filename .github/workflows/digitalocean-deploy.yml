@@ -132,6 +132,12 @@ jobs:
           remote_deploy_script="/tmp/crm-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"
           artifact_sha="$(sha256sum deployment-artifact/frontend-dist.tgz | awk '{print $1}')"
 
+          printf -v driver_command 'umask 077; cat > %q' "$remote_deploy_script"
+          ssh -i "$HOME/.ssh/digitalocean_deploy" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            -p "$port" "$DO_USER@$DO_HOST" "$driver_command" < deployment-artifact/scripts/deploy-production.sh
+
           # The server pulls the verified archive over HTTPS; only a small driver uses SSH.
           # Keep the GitHub token on the runner and mask the short-lived download URL.
           headers="$(curl --fail --silent --show-error --dump-header - --output /dev/null \
@@ -149,10 +155,13 @@ jobs:
               "$download_url" "$remote_zip" "$remote_artifact" "$remote_deploy_script"
             cat <<'REMOTE'
           trap 'rm -f -- "$remote_zip"' EXIT
-          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 180 "$download_url" -o "$remote_zip"
-          unzip -p "$remote_zip" frontend-dist.tgz > "$remote_artifact"
-          unzip -p "$remote_zip" scripts/deploy-production.sh > "$remote_script"
-          test -s "$remote_artifact"
+          if curl --fail --silent --show-error --location --connect-timeout 15 --max-time 30 "$download_url" -o "$remote_zip"; then
+            unzip -p "$remote_zip" frontend-dist.tgz > "$remote_artifact"
+            test -s "$remote_artifact"
+          else
+            echo 'Artifact download is too slow; using the guarded server build fallback.'
+            rm -f -- "$remote_artifact"
+          fi
           test -s "$remote_script"
           REMOTE
           } | ssh \
@@ -180,7 +189,7 @@ jobs:
           public_url="${PUBLIC_URL:-https://crmananttattva.com}"
 
           printf -v remote_command \
-            'cd %q && bash %q %q %q %q %q %q %q' \
+            'cd %q && bash %q %q %q %q %q %q %q true' \
             "$app_dir" "$REMOTE_DEPLOY_SCRIPT" "$DEPLOY_SHA" "$pm2_app" "$public_url" \
             "$REMOTE_FRONTEND_ARTIFACT" "$FRONTEND_ARTIFACT_SHA256" "$REMOTE_DEPLOY_SCRIPT"
 

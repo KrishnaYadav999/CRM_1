@@ -8,6 +8,8 @@ PUBLIC_URL="${3:-https://crmananttattva.com}"
 FRONTEND_ARTIFACT="${4:?Frontend artifact path is required}"
 FRONTEND_ARTIFACT_SHA256="${5:?Frontend artifact SHA-256 is required}"
 DEPLOY_DRIVER_PATH="${6:-}"
+ALLOW_SERVER_BUILD="${7:-false}"
+SERVER_BUILD=false
 APP_DIR="$(pwd -P)"
 LOCK_FILE="/tmp/crmananttattva-production-deploy.lock"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
@@ -95,22 +97,30 @@ if [[ ! "$FRONTEND_ARTIFACT" =~ ^/tmp/crm-frontend-[0-9]+-[0-9]+\.tgz$ ]]; then
 fi
 
 if [[ ! -f "$FRONTEND_ARTIFACT" ]]; then
-  echo "Frontend artifact was not found."
-  exit 1
+  if [[ "$ALLOW_SERVER_BUILD" != true ]] ||
+     ! git diff --quiet "$PREVIOUS_SHA" "$EXPECTED_SHA" -- frontend/package.json frontend/package-lock.json ||
+     [[ ! -x "$APP_DIR/frontend/node_modules/.bin/vite" ]]; then
+    echo "Frontend artifact unavailable and matching local build dependencies were not found."
+    exit 1
+  fi
+  SERVER_BUILD=true
+  echo "Building the CI-verified commit with unchanged frontend dependencies on the server."
 fi
 
+NEXT_DIST="$(mktemp -d "$APP_DIR/frontend/.dist-next.XXXXXX")"
+if [[ "$SERVER_BUILD" == false ]]; then
 ACTUAL_ARTIFACT_SHA256="$(sha256sum "$FRONTEND_ARTIFACT" | awk '{print $1}')"
 if [[ "$ACTUAL_ARTIFACT_SHA256" != "$FRONTEND_ARTIFACT_SHA256" ]]; then
   echo "Frontend artifact checksum verification failed."
   false
 fi
 
-NEXT_DIST="$(mktemp -d "$APP_DIR/frontend/.dist-next.XXXXXX")"
 tar --extract --gzip --file "$FRONTEND_ARTIFACT" --directory "$NEXT_DIST" --no-same-owner --no-same-permissions
 test -s "$NEXT_DIST/index.html"
 if [[ -n "$(find "$NEXT_DIST" -type l -print -quit)" ]]; then
   echo "Frontend artifact contains a symbolic link; deployment stopped."
   false
+fi
 fi
 
 if ! git diff --quiet "$PREVIOUS_SHA" "$EXPECTED_SHA" -- backend; then
@@ -126,6 +136,11 @@ CODE_UPDATED=true
 if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
   echo "Production worktree did not switch to the requested commit."
   false
+fi
+
+if [[ "$SERVER_BUILD" == true ]]; then
+  NODE_OPTIONS=--max-old-space-size=2048 npm run build --prefix frontend -- --outDir "$NEXT_DIST"
+  test -s "$NEXT_DIST/index.html"
 fi
 
 if [[ "$BACKEND_CHANGED" == true ]]; then
