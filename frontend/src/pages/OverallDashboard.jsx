@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { ArrowUpRight, BarChart3, CalendarDays, ChevronDown, RefreshCw } from 'lucide-react'
 import DashboardShell from '../components/dashboard/DashboardShell'
+import FinancialYearTimeline from '../components/dashboard/FinancialYearTimeline'
 import OverallClientPopup from '../features/clientMaster/OverallClientPopup'
 import InlineApplicantClients from '../features/clientMaster/InlineApplicantClients'
 import api from '../services/api'
@@ -37,6 +38,7 @@ export default function OverallDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [popup, setPopup] = useState(null)
+  const [matrixYear, setMatrixYear] = useState('')
   const pendingRequest = useRef(null)
   const requestSequence = useRef(0)
   const reducedMotion = useReducedMotion()
@@ -59,6 +61,7 @@ export default function OverallDashboard() {
   const openYear = useCallback((year, type = '') => { if (year) setPopup({ year, type }) }, [])
   const sections = data?.yearSections || []
   const trends = data?.trends || []
+  const activeSection = sections.find((section) => section.year === matrixYear) || sections[0]
   const popupSection = sections.find((section) => section.year === popup?.year)
   const chartClick = (state) => { const year = state?.activeLabel || (state?.activeTooltipIndex != null ? trends[Number(state.activeTooltipIndex)]?.year : null); if (year) openYear(year) }
   const yearButtons = <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">{trends.map((row) => <button key={row.year} type="button" onClick={() => openYear(row.year)} aria-label={`Open ${row.year} client list`} className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-teal-50 hover:text-teal-800">{row.year}<span className="ml-2 text-teal-700">{row.clients}</span></button>)}</div>
@@ -67,9 +70,10 @@ export default function OverallDashboard() {
     {error && <div role="alert" className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
     <div className="grid gap-5 xl:grid-cols-2"><section className={card}><h2 className="font-black text-slate-900">Client portfolio by financial year</h2><p className="mb-6 mt-2 text-xs text-slate-500">Hover for closed PO client counts. Click a bar to view & export the full list.</p><div className="h-72"><ResponsiveContainer width="100%" height="100%"><BarChart data={trends} accessibilityLayer onClick={chartClick}><defs><linearGradient id="overallActive" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#14b8a6" /><stop offset="100%" stopColor="#0f766e" /></linearGradient></defs><CartesianGrid strokeDasharray="3 6" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="year" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} /><Tooltip content={<PortfolioTooltip />} cursor={{ fill: '#f0fdfa' }} /><Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 16 }} /><Bar dataKey="active" name="Active clients" fill="url(#overallActive)" stackId="clients" maxBarSize={64} radius={[4, 4, 0, 0]} isAnimationActive={!reducedMotion} animationDuration={650} cursor="pointer" onClick={(entry) => openYear(entry.payload?.year || entry.year)} /><Bar dataKey="inactive" name="Inactive clients" fill="#f59e0b" stackId="clients" maxBarSize={64} radius={[4, 4, 0, 0]} isAnimationActive={!reducedMotion} animationDuration={650} cursor="pointer" onClick={(entry) => openYear(entry.payload?.year || entry.year)} /></BarChart></ResponsiveContainer></div>{yearButtons}</section>
     <section className={card}><h2 className="font-black text-slate-900">Client growth trend</h2><p className="mb-6 mt-2 text-xs text-slate-500">Unique clients with closed POs each year. Click a point to explore clients.</p><div className="h-72"><ResponsiveContainer width="100%" height="100%"><LineChart data={trends} accessibilityLayer onClick={chartClick}><CartesianGrid strokeDasharray="3 6" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="year" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} /><Tooltip content={<PortfolioTooltip />} /><Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 16 }} /><Line type="monotone" dataKey="clients" name="Unique clients" stroke="#4f46e5" strokeWidth={3} dot={<InteractiveDot onSelect={openYear} />} activeDot={<InteractiveDot onSelect={openYear} />} isAnimationActive={!reducedMotion} animationDuration={700} /><Line type="monotone" dataKey="inactive" name="Inactive clients" stroke="#f59e0b" strokeWidth={2} dot={<InteractiveDot onSelect={openYear} />} activeDot={<InteractiveDot onSelect={openYear} />} isAnimationActive={!reducedMotion} animationDuration={700} /></LineChart></ResponsiveContainer></div>{yearButtons}</section></div>
-    <div className="flex flex-wrap items-center justify-between gap-3 px-1"><div><h2 className="text-xl font-black text-slate-900">Applicant / Sub-applicant service matrix</h2><p className="mt-2 text-xs text-slate-500">Separate tables for each financial year. Only services with closed POs appear. Click an applicant type for client details.</p></div><span className="rounded-full border border-teal-100 bg-teal-50 px-4 py-2 text-xs font-bold text-teal-700">From 2025-26 · {sections.length} financial years</span></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 px-1"><div><h2 className="text-xl font-black text-slate-900">Applicant / Sub-applicant service matrix</h2><p className="mt-2 text-xs text-slate-500">Select a financial year below. Only services with closed POs appear. Expand an applicant type for client details.</p></div><span className="rounded-full border border-teal-100 bg-teal-50 px-4 py-2 text-xs font-bold text-teal-700">From 2025-26 · {sections.length} financial years</span></div>
     {loading && !data && <div aria-label="Loading yearly matrices" className="h-64 animate-pulse rounded-3xl bg-slate-200/70" />}
-    {sections.map((section) => <YearMatrix key={section.year} section={section} onOpen={openYear} reducedMotion={reducedMotion} />)}
+    {activeSection && <FinancialYearTimeline sections={sections} selectedYear={activeSection.year} onSelect={setMatrixYear} reducedMotion={reducedMotion} />}
+    <AnimatePresence mode="wait" initial={false}>{activeSection && <motion.div key={activeSection.year} role="tabpanel" id="overall-year-matrix" aria-labelledby={`matrix-year-${activeSection.year}`} initial={reducedMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={reducedMotion ? {} : { opacity: 0, y: -8 }} transition={{ duration: reducedMotion ? 0 : .18 }}><YearMatrix section={activeSection} onOpen={openYear} reducedMotion={reducedMotion} /></motion.div>}</AnimatePresence>
     <AnimatePresence>{popupSection && <OverallClientPopup key={`${popup.year}-${popup.type}`} section={popupSection} type={popup.type} onClose={closePopup} />}</AnimatePresence>
   </main></DashboardShell>
 }
