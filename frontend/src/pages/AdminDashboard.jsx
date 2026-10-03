@@ -4102,7 +4102,6 @@ function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], use
       <label className="epr-date-filter"><span>To</span><input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
       <button type="button" className="epr-clear-filter" onClick={resetFilters}>Clear</button>
     </div>
-    <AnnualRegistrationKpi data={complianceKpi} />
     <div className="epr-category-grid" hidden style={{ display: 'none' }}>{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
     <OperationsUserProgressTable rows={clientSelectedRows} users={users} financialYear={financialYear} />
     <div className="epr-chart-grid">

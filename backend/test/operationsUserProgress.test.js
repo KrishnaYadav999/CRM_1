@@ -2,6 +2,21 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const helpers = import('../../frontend/src/utils/operationsUserProgress.mjs');
 
+test('operations report includes active managers and excludes inactive operations users', async () => {
+  const { buildOperationsProgressGroups } = await helpers;
+  const users = [
+    { _id: 'operator', name: 'Active operation', role: 'operation', isActive: true },
+    { _id: 'manager', name: 'Active manager', role: 'manager', isActive: true },
+    { _id: 'secondary-manager', name: 'Secondary manager', role: 'accounts', roles: ['manager'], isActive: true },
+    { _id: 'inactive-op', name: 'Inactive operation', role: 'operation', isActive: false },
+    { _id: 'inactive-manager', name: 'Inactive manager', role: 'manager', isActive: 'inactive' },
+    { _id: 'inactive-zero', name: 'Inactive zero', role: 'operation', isActive: 0 }
+  ];
+  const groups = buildOperationsProgressGroups([{ id: 'client', client: { serviceAllocations: { service: { userId: 'manager' } } } }], users, () => []);
+  assert.deepEqual(groups.map((group) => group.id).sort(), ['manager', 'operator', 'secondary-manager']);
+  assert.equal(groups.find((group) => group.id === 'manager').total, 1);
+});
+
 test('status dates use the real review timestamp and PO date', async () => {
   const { getOperationsStatusDates } = await helpers;
   const dates = getOperationsStatusDates({ hasPo: true, poDetails: { poDate: '2026-09-25' },

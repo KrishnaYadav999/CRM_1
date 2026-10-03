@@ -19,7 +19,10 @@ export function getOperationsStatusDates(row = {}) {
 }
 
 export function isOperationsStaff(user = {}) {
-  return /^(operation|operations|operations executive|operation executive)$/.test(key(user.role))
+  const active = user.isActive
+  if (active === false || active === 0 || ['false', '0', 'inactive'].includes(key(active))) return false
+  const roles = [user.role, ...(Array.isArray(user.roles) ? user.roles : [])].map(key)
+  return roles.some((role) => /^(operation|operations|operations executive|operation executive|manager)$/.test(role))
     || /\boperations?\b/.test(key(user.team?.name || user.team || user.department))
 }
 

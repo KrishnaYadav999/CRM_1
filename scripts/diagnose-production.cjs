@@ -16,6 +16,23 @@ async function measure(name, run) {
 }
 (async () => {
   try {
+    for (const logPath of ['/var/log/nginx/access.log', '/var/log/nginx/error.log']) {
+      if (!fs.existsSync(logPath)) continue;
+      const fd = fs.openSync(logPath, 'r'); const length = fs.fstatSync(fd).size;
+      const buffer = Buffer.alloc(Math.min(length, 512 * 1024));
+      fs.readSync(fd, buffer, 0, buffer.length, Math.max(0, length - buffer.length)); fs.closeSync(fd);
+      const lines = buffer.toString().split('\n').slice(-1000);
+      if (logPath.endsWith('access.log')) {
+        const totals = {};
+        for (const line of lines) {
+          const match = line.match(/"(?:GET|POST|PUT|PATCH|DELETE) (\/api\/[^ ?"]+)[^"]*" (\d{3}) /);
+          if (!match) continue;
+          const route = match[1].split('/').slice(0, 4).join('/');
+          const label = `${route}:${match[2]}`; totals[label] = (totals[label] || 0) + 1;
+        }
+        report({ check: 'recent-http-statuses', counts: totals });
+      } else report({ check: 'proxy-errors', counts: Object.fromEntries(['upstream timed out', 'connect() failed', 'upstream prematurely closed', 'upstream sent too big header'].map((name) => [name, lines.filter((line) => line.includes(name)).length])) });
+    }
     const processList = spawnSync('pm2', ['jlist'], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
     if (processList.status === 0) {
       for (const process of JSON.parse(processList.stdout)) {
