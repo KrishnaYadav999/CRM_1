@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: digitalocean-production
@@ -16,6 +17,8 @@ concurrency:
 jobs:
   verify:
     name: Verify release
+    outputs:
+      artifact-id: ${{ steps.upload-frontend.outputs.artifact-id }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -58,6 +61,7 @@ jobs:
           test -s frontend-dist.tgz
 
       - name: Upload frontend artifact
+        id: upload-frontend
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist-${{ github.sha }}
@@ -118,6 +122,9 @@ jobs:
       - name: Transfer verified frontend artifact
         timeout-minutes: 5
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.verify.outputs.artifact-id }}
         run: |
           set -Eeuo pipefail
           port="${DO_PORT:-22}"
@@ -125,10 +132,30 @@ jobs:
           remote_deploy_script="/tmp/crm-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"
           artifact_sha="$(sha256sum deployment-artifact/frontend-dist.tgz | awk '{print $1}')"
 
-          # Stream through SSH so deployment does not depend on the SFTP subsystem.
-          printf -v artifact_command 'umask 077; cat > %q' "$remote_artifact"
-          printf -v script_command 'umask 077; cat > %q' "$remote_deploy_script"
-          ssh \
+          # The server pulls the verified archive over HTTPS; only a small driver uses SSH.
+          # Keep the GitHub token on the runner and mask the short-lived download URL.
+          headers="$(curl --fail --silent --show-error --dump-header - --output /dev/null \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip")"
+          download_url="$(printf '%s\n' "$headers" | sed -n 's/^[Ll]ocation: *//p' | tr -d '\r')"
+          test -n "$download_url"
+          [[ "$download_url" == https://* ]]
+          echo "::add-mask::$download_url"
+          remote_zip="/tmp/crm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.zip"
+          {
+            printf 'set -Eeuo pipefail\numask 077\n'
+            printf 'download_url=%q\nremote_zip=%q\nremote_artifact=%q\nremote_script=%q\n' \
+              "$download_url" "$remote_zip" "$remote_artifact" "$remote_deploy_script"
+            cat <<'REMOTE'
+          trap 'rm -f -- "$remote_zip"' EXIT
+          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 180 "$download_url" -o "$remote_zip"
+          unzip -p "$remote_zip" frontend-dist.tgz > "$remote_artifact"
+          unzip -p "$remote_zip" scripts/deploy-production.sh > "$remote_script"
+          test -s "$remote_artifact"
+          test -s "$remote_script"
+          REMOTE
+          } | ssh \
             -i "$HOME/.ssh/digitalocean_deploy" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
@@ -137,18 +164,7 @@ jobs:
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=3 \
             -p "$port" \
-            "$DO_USER@$DO_HOST" "$artifact_command" < deployment-artifact/frontend-dist.tgz
-
-          ssh \
-            -i "$HOME/.ssh/digitalocean_deploy" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=3 \
-            -p "$port" \
-            "$DO_USER@$DO_HOST" "$script_command" < deployment-artifact/scripts/deploy-production.sh
+            "$DO_USER@$DO_HOST" 'bash -s'
 
           echo "REMOTE_FRONTEND_ARTIFACT=$remote_artifact" >> "$GITHUB_ENV"
           echo "REMOTE_DEPLOY_SCRIPT=$remote_deploy_script" >> "$GITHUB_ENV"
