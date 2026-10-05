@@ -122,12 +122,15 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
         doc.addPage()
         const title = `FY ${section.year} - User-wise service matrix`
         const subtitle = `${users.length} operations users and managers${serviceChunks.length > 1 ? ` | Service columns ${index + 1} of ${serviceChunks.length}` : ''}`
-        autoTable(doc, { ...tableOptions, startY: 44, head: [['Users', 'Clients (FY / Allocated)', ...services.map(clean)]],
+        autoTable(doc, { ...tableOptions, startY: 44, head: [['Users', 'Allocated Overall', `Clients in ${section.year}`, 'Closed PO', ...services.map(clean)]],
           body: users.map((user) => {
             const owned = user.yearSections.find((entry) => entry.year === section.year)
-            return [clean(user.userName), `${owned?.summary.clients || 0} / ${user.allocatedClients || 0}`, ...services.map((service) => (owned?.clients || []).reduce((total, client) => total + (client.services[service] || 0), 0))]
+            const closedClients = owned?.summary.clients || 0
+            const selectedYearClients = Math.max(user.allocatedClientsByYear?.[section.year] || 0, closedClients)
+            const allocatedClients = Math.max(user.allocatedClients || 0, selectedYearClients)
+            return [clean(user.userName), allocatedClients, `${selectedYearClients} / ${allocatedClients}`, `${closedClients} / ${selectedYearClients}`, ...services.map((service) => (owned?.clients || []).reduce((total, client) => total + (client.services[service] || 0), 0))]
           }),
-          columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 20, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 2, { cellWidth: (width - 78) / services.length, halign: 'center' }])) },
+          columnStyles: { 0: { cellWidth: 52 }, 1: { cellWidth: 22, halign: 'center' }, 2: { cellWidth: 24, halign: 'center' }, 3: { cellWidth: 22, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 4, { cellWidth: (width - 120) / services.length, halign: 'center' }])) },
           didDrawPage: () => heading(title, subtitle)
         })
       }

@@ -144,8 +144,17 @@ exports.overall = async (req, res) => {
       canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').maxTimeMS(10000).lean() : [],
       canViewUsers ? Client.find({ $and: [
         { 'data.importMeta.approvalOverride': { $ne: true } }, allocatedClientFilter
-      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations data.assignedServiceId data.selectedLeadSnapshot data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations')
-        .populate('selectedLead', 'assignedTo assignedToText assignedToEmail assignedStaff assignedStaffText assignedStaffEmail assignments')
+      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations firstAnnualReturnYear financialYear data.assignedServiceId data.selectedLeadSnapshot data.basic.firstAnnualReturnYear data.basic.servicesForYear data.firstAnnualReturnYearApplicable data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations')
+        .populate('selectedLead', [
+          'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedStaff', 'assignedStaffText', 'assignedStaffEmail',
+          'firstAnnualReturnYearApplicable',
+          'serviceSelections.assignedServiceId', 'serviceSelections.serviceAssignmentId',
+          'serviceSelections.firstAnnualReturnYearApplicable', 'serviceSelections.financialYear', 'serviceSelections.servicesForYear',
+          'assignments.assignedServiceId', 'assignments.serviceAssignmentId',
+          'assignments.assignedTo', 'assignments.assignedToText', 'assignments.assignedToEmail',
+          'assignments.assignedStaff', 'assignments.assignedStaffText', 'assignments.assignedStaffEmail',
+          'assignments.poYearRows.fy', 'assignments.poYearRows.poFinancialYear'
+        ].join(' '))
         .maxTimeMS(12000).lean() : []
     ]);
     res.set('Cache-Control', 'private, no-store');

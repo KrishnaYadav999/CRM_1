@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOverall } = require('../src/services/overallDashboard');
 const { overallRecordsFromLeads } = require('../src/services/overallDashboardData');
-const { buildUserSections, eligibleOperationsUsers, buildAllocatedClientCounts } = require('../src/services/overallDashboardUsers');
+const { buildUserSections, eligibleOperationsUsers, buildAllocatedClientCounts, buildAllocatedClientStats } = require('../src/services/overallDashboardUsers');
 
 test('dashboard hides credit, merges annual aliases and puts most used closed services first', () => {
   const row = (clientName, service, isClosed = true) => ({ clientName, financialYear: '2025-26', subApplicantType: 'Producer', isClosed, services: [{ name: service }] });
@@ -77,12 +77,17 @@ test('user list contains only operations staff and their direct or team managers
 test('user matrix exposes total allocated clients using permanent service ownership', () => {
   const users = [{ _id: 'saurabh', name: 'Saurabh Bhat', email: 'saurabh@example.test', role: 'manager' }, { _id: 'tushar', name: 'Tushar Gawas', role: 'operation', managerId: 'saurabh' }];
   const clients = [
-    { _id: 'one', assignedServiceId: 'service-a', selectedLead: { assignments: [{ assignedServiceId: 'service-a', assignedStaff: 'saurabh' }, { assignedServiceId: 'service-b', assignedStaff: 'tushar' }] } },
-    { _id: 'two', selectedLead: { assignedStaffText: 'Saurabh Bhat' } },
-    { _id: 'three', adminControls: { assignedTo: 'tushar' } }
+    { _id: 'one', assignedServiceId: 'service-a', selectedLead: { serviceSelections: [{ assignedServiceId: 'service-a', firstAnnualReturnYearApplicable: '2026-27' }], assignments: [{ assignedServiceId: 'service-a', assignedStaff: 'saurabh' }, { assignedServiceId: 'service-b', assignedStaff: 'tushar' }] } },
+    { _id: 'two', selectedLead: { assignedStaffText: 'Saurabh Bhat', serviceSelections: [{ firstAnnualReturnYearApplicable: '2025-26' }], assignments: [{}] } },
+    { _id: 'three', adminControls: { assignedTo: 'tushar' }, data: { basic: { firstAnnualReturnYear: '2026-27' } } }
   ];
   assert.deepEqual(buildAllocatedClientCounts(clients, users), { saurabh: 2, tushar: 1 });
+  assert.deepEqual(buildAllocatedClientStats(clients, users), {
+    saurabh: { total: 2, byYear: { '2026-27': 1, '2025-26': 1 } },
+    tushar: { total: 1, byYear: { '2026-27': 1 } }
+  });
   const rows = buildUserSections([], [], users, [], clients);
   assert.equal(rows.find((row) => row.userId === 'saurabh').allocatedClients, 2);
+  assert.equal(rows.find((row) => row.userId === 'saurabh').allocatedClientsByYear['2026-27'], 1);
   assert.equal(rows.find((row) => row.userId === 'tushar').allocatedClients, 1);
 });
