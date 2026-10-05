@@ -18,6 +18,7 @@ router.get('/search/company', requireAuth, leadCtrl.searchCompanies);
 router.get('/duplicate-approvals', requireAuth, leadCtrl.listDuplicateLeadApprovals);
 router.get('/temporary', requireAuth, temporaryLeadCtrl.list);
 router.post('/temporary', requireAuth, temporaryLeadCtrl.create);
+router.post('/temporary/bulk', requireAuth, temporaryLeadCtrl.bulkCreate);
 router.post('/temporary/:id/convert', requireAuth, temporaryLeadCtrl.convert);
 router.post('/temporary/:id/follow-up', requireAuth, temporaryLeadCtrl.saveFollowUp);
 router.post('/temporary/:id/follow-up/close', requireAuth, temporaryLeadCtrl.closeFollowUp);
