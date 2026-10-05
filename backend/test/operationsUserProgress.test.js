@@ -9,6 +9,9 @@ test('operations PDF keeps the aggregate table and excludes client detail rows',
   const pdf = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/utils/operationsReportPdf.mjs'), 'utf8');
   assert.match(page, /const open = !pdfMode && expandedUser === group\.id/);
   assert.match(page, /aggregate user metrics only; client names are excluded/);
+  assert.match(page, /!pdfMode && <th>Payment Term/);
+  assert.match(page, /\.\.\.\(!pdfMode \? \["paymentTerm"\] : \[\]\)/);
+  assert.match(page, /colSpan=\{pdfMode \? 2 : 3\}/);
   assert.match(pdf, /\.operations-client-details,\.operations-user-detail-row/);
   assert.match(pdf, /\.operations-user-status-table/);
 });

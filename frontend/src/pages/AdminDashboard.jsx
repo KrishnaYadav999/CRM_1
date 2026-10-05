@@ -3981,7 +3981,7 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
     {activeTab === 'data' ? <PurchaseSalesProgress groups={visibleGroups} financialYear={financialYear} /> : <>
     <div className="operations-user-status-scroll">
       <table className="operations-user-status-table">
-        <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th><th>PO End Date<small>Recorded dates</small></th><th>PO Financial Year<small>Recorded years</small></th><th>Payment Term<small>As per PO</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th>Final Flag<small>All three red = Red</small></th><th aria-label="Action">View</th></tr></thead>
+        <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th><th>PO End Date<small>Recorded dates</small></th><th>PO Financial Year<small>Recorded years</small></th>{!pdfMode && <th>Payment Term<small>As per PO</small></th>}{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th>Final Flag<small>All three red = Red</small></th><th aria-label="Action">View</th></tr></thead>
         <tbody>
           {visibleGroups.map((group, groupIndex) => {
             const open = !pdfMode && expandedUser === group.id
@@ -3991,7 +3991,7 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
                 <td><button type="button" className="operations-user-toggle" aria-expanded={open} onClick={() => setExpandedUser(open ? '' : group.id)}><ChevronRight aria-hidden="true" /><i className={`avatar-${tones[groupIndex % tones.length]}`}>{initials}</i><strong>{group.name}</strong></button></td>
                 <td><b>{group.total}</b></td>
                 <td><OperationsProgressValue done={group.complianceDone} total={group.total} tone={group.complianceDone === group.total ? 'green' : 'red'} /></td>
-                <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td>{["poEndDate", "poFinancialYear", "paymentTerm"].map((field) => <td key={field}><OperationsPoCommercialCell rows={group.rows} field={field} pdfMode={pdfMode} /></td>)}
+                <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td>{["poEndDate", "poFinancialYear", ...(!pdfMode ? ["paymentTerm"] : [])].map((field) => <td key={field}><OperationsPoCommercialCell rows={group.rows} field={field} pdfMode={pdfMode} /></td>)}
                 {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><OperationsProgressValue done={group.milestones[hours]} total={group.total} tone={group.milestones[hours] ? 'red' : 'green'} /></td>)}
                 <td><OperationsFinalFlag rows={group.rows} /></td>
                 <td><button type="button" className="operations-user-view" aria-label={`${open ? 'Hide' : 'View'} ${group.name} clients`} onClick={() => setExpandedUser(open ? '' : group.id)}><Eye aria-hidden="true" /></button></td>
@@ -4014,7 +4014,7 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
             </React.Fragment>
           })}
         </tbody>
-        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td colSpan={3}><small>{pdfMode ? 'Aggregated PO details' : 'PO details are listed by client above'}</small></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td><OperationsFinalFlag rows={groups.flatMap((group) => group.rows)} /></td><td /></tr></tfoot>
+        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td colSpan={pdfMode ? 2 : 3}><small>{pdfMode ? 'Aggregated PO details' : 'PO details are listed by client above'}</small></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td><OperationsFinalFlag rows={groups.flatMap((group) => group.rows)} /></td><td /></tr></tfoot>
       </table>
     </div>
     </>}
