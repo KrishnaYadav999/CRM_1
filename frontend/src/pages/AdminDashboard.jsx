@@ -70,7 +70,7 @@ import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
-import { allocationOwnerKeys, buildOperationsProgressGroups, getOperationsStatusDates, getOperationsFinalFlag, getPoFinancialYear, selectRowsForPoFinancialYear } from '../utils/operationsUserProgress.mjs'
+import { allocationOwnerKeys, buildOperationsProgressGroups, buildOperationsWorkbookData, getOperationsStatusDates, getOperationsFinalFlag, getPoFinancialYear, selectRowsForPoFinancialYear } from '../utils/operationsUserProgress.mjs'
 import { downloadOperationsReportPdf } from '../utils/operationsReportPdf.mjs'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
@@ -1756,10 +1756,11 @@ function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []
   return {
     poNo,
     poDate,
-    records: (leadPo.records || []).map((po) => ({ poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', poEndDate: po.poEndDate || '', poFinancialYear: po.poFinancialYear || '', paymentTerm: po.paymentTerm || '', fileUrl: po.poFileUrl || '', fileName: po.poFileName || 'Purchase Order' })),
+    records: (leadPo.records || []).map((po) => ({ poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', poEndDate: po.poEndDate || '', poFinancialYear: po.poFinancialYear || '', paymentTerm: po.paymentTerm || '', poAmount: po.poAmount ?? '', fileUrl: po.poFileUrl || '', fileName: po.poFileName || 'Purchase Order' })),
     poEndDate: getPoValue(leadPo.poEndDate, data.financials?.poEndDate, quoteWithPo.poEndDate, purchaseOrder.endDate, annualWithPo.financials?.poEndDate),
     poFinancialYear: getPoValue(leadPo.poFinancialYear, data.financials?.poFinancialYear, quoteWithPo.poFinancialYear, purchaseOrder.financialYear, annualWithPo.financials?.poFinancialYear),
     paymentTerm: getPoValue(leadPo.paymentTerm, data.financials?.paymentTerm, quoteWithPo.paymentTerm, purchaseOrder.paymentTerm, annualWithPo.financials?.paymentTerm),
+    poAmount: getPoValue(leadPo.poAmount, data.financials?.poAmount, quoteWithPo.poAmount, purchaseOrder.amount, annualWithPo.financials?.poAmount),
     poFile,
     fileName: getFileDisplayValue(poFile),
     fileUrl: getFileUrl(poFile),
@@ -3752,7 +3753,7 @@ function buildLeadPoRows(leads = [], users = []) {
           createdAt: po.poDate || po.poReceivedDate || assignment.updatedAt || lead.updatedAt || lead.createdAt || '',
           annualReturns: [],
           hasPo,
-          poDetails: { hasPo, poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', poEndDate: po.poEndDate || '', poFinancialYear: po.poFinancialYear || '', paymentTerm: po.paymentTerm || '', fileUrl, fileName: po.poFileName || 'Purchase Order' },
+          poDetails: { hasPo, poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', poEndDate: po.poEndDate || '', poFinancialYear: po.poFinancialYear || '', paymentTerm: po.paymentTerm || '', poAmount: po.poAmount ?? '', fileUrl, fileName: po.poFileName || 'Purchase Order' },
           user,
           userName: user ? getUserName(user) : assignment.assignedStaffText || assignment.assignedToText || assignment.closedByText || lead.createdByName || 'Unassigned'
         }
@@ -3938,6 +3939,26 @@ function OperationsPoCommercialCell({ rows, field, pdfMode = false }) {
   return <div className="operations-po-commercial">{shown.length ? shown.map((value) => <span key={value}>{field === 'poEndDate' ? formatDisplayDate(value) : value}</span>) : <span className="operations-po-unrecorded">Not recorded</span>}{!pdfMode && values.length > 2 && <small>+{values.length - 2} more · View clients</small>}</div>
 }
 
+function fitOperationsWorksheet(sheet, rows = []) {
+  const headers = rows.length ? Object.keys(rows[0]) : []
+  sheet['!cols'] = headers.map((header) => ({ wch: Math.min(55, Math.max(12, header.length + 2, ...rows.map((row) => String(row[header] ?? '').length + 2))) }))
+  if (sheet['!ref']) sheet['!autofilter'] = { ref: sheet['!ref'] }
+  sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' }
+}
+
+function downloadOperationsExcel(groups, financialYear) {
+  const { summary, clients } = buildOperationsWorkbookData(groups, financialYear)
+  const summarySheet = XLSX.utils.json_to_sheet(summary)
+  const clientSheet = XLSX.utils.json_to_sheet(clients)
+  fitOperationsWorksheet(summarySheet, summary)
+  fitOperationsWorksheet(clientSheet, clients)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, summarySheet, 'User Summary')
+  XLSX.utils.book_append_sheet(workbook, clientSheet, 'Client Details')
+  const yearLabel = String(financialYear || 'all').replace(/[^a-z0-9-]+/gi, '-')
+  XLSX.writeFile(workbook, `Operations-Dashboard-${yearLabel}-${new Date().toISOString().slice(0, 10)}.xlsx`)
+}
+
 function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, reportTime, financialYear = currentFinancialYear() }) {
   const [activeTab, setActiveTab] = useState('ownership')
   const [expandedUser, setExpandedUser] = useState('')
@@ -3973,7 +3994,7 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
   return <section className="operations-user-status-card" aria-label="User-wise operations status">
     <header className="operations-user-status-heading">
       <div><span>Operations performance</span><h2>Client Ownership &amp; Red Flags</h2><p>Assigned clients, approved compliance and overdue correction deadlines. Red flags are cumulative: 96h also counts in 72h and 48h.</p></div>
-      <div className="operations-report-actions">{pdfMode ? <b><Users aria-hidden="true" />{groups.length} Operations users</b> : <div role="tablist" aria-label="Operations reports" className="flex flex-wrap gap-2"><button type="button" role="tab" aria-selected={activeTab === 'ownership'} className="operations-report-download" onClick={() => setActiveTab('ownership')}><Users aria-hidden="true" />{groups.length} Operations users</button><button type="button" role="tab" aria-selected={activeTab === 'data'} className="operations-report-download" onClick={() => setActiveTab('data')}>Purchase &amp; Sales</button></div>}{!pdfMode && activeTab === 'ownership' && <button type="button" className="operations-report-download" disabled={exporting || !groups.length} onClick={() => { setExportError(''); setPdfProgress('Preparing PDF…'); setExporting(true) }}><Download aria-hidden="true" />{exporting ? pdfProgress : 'Download full PDF'}</button>}</div>
+      <div className="operations-report-actions">{pdfMode ? <b><Users aria-hidden="true" />{groups.length} Operations users</b> : <div role="tablist" aria-label="Operations reports" className="flex flex-wrap gap-2"><button type="button" role="tab" aria-selected={activeTab === 'ownership'} className="operations-report-download" onClick={() => setActiveTab('ownership')}><Users aria-hidden="true" />{groups.length} Operations users</button><button type="button" role="tab" aria-selected={activeTab === 'data'} className="operations-report-download" onClick={() => setActiveTab('data')}>Purchase &amp; Sales</button></div>}{!pdfMode && activeTab === 'ownership' && <><button type="button" className="operations-report-download" disabled={!groups.length} onClick={() => downloadOperationsExcel(groups, financialYear)}><Download aria-hidden="true" />Export Excel</button><button type="button" className="operations-report-download" disabled={exporting || !groups.length} onClick={() => { setExportError(''); setPdfProgress('Preparing PDF…'); setExporting(true) }}><Download aria-hidden="true" />{exporting ? pdfProgress : 'Download full PDF'}</button></>}</div>
     </header>
     <div className="operations-report-meta"><span><CalendarDays aria-hidden="true" />Updated {formatDisplayDateTime(now)} IST</span><span>{pdfMode ? 'PDF contains aggregate user metrics only; client names are excluded.' : 'PDF includes every Operations user as an aggregate table without client names.'}</span></div>
     {exportError && <p className="operations-export-error" role="alert">{exportError}</p>}

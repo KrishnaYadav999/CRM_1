@@ -16,6 +16,34 @@ test('operations PDF keeps the aggregate table and excludes client detail rows',
   assert.match(pdf, /\.operations-user-status-table/);
 });
 
+test('operations Excel export contains user summary and full client/PO details', async () => {
+  const { buildOperationsWorkbookData } = await helpers;
+  const groups = [{ name: 'Operations User', total: 1, complianceDone: 1, poDone: 1,
+    milestones: { 48: 1, 72: 0, 96: 0 }, rows: [{ companyName: '=CLIENT', atplCode: 'ATPL-LEAD-1',
+      eprCategory: 'Plastic', category: 'PIBO', subApplicantType: 'Brand Owner', hasPo: true,
+      poDetails: { records: [{ poNo: 'PO-1', poDate: '2026-09-08', poEndDate: '2027-03-31',
+        poFinancialYear: '2026-27', paymentTerm: '50% Advance', poAmount: 50000, fileUrl: 'https://example.com/po.pdf' }] },
+      client: { data: { basic: { contactPerson: 'A Person', sector: 'Food' }, otp: { email: 'a@example.com', mobile: '9999999999' } }, operationsSla: { approvalStatus: 'APPROVED', actionAt: '2026-09-09' } },
+      sla: { 48: { breached: true, known: true, due: Date.parse('2026-09-10') }, 72: { breached: false, known: true, due: Date.parse('2026-09-11') }, 96: { breached: false, known: true, due: Date.parse('2026-09-12') } }
+    }] }];
+  const workbook = buildOperationsWorkbookData(groups, '2026-27');
+  assert.equal(workbook.summary[0]['Assigned Clients'], 1);
+  assert.equal(workbook.clients[0]['Client Name'], "'=CLIENT");
+  assert.equal(workbook.clients[0]['Contact Person'], 'A Person');
+  assert.equal(workbook.clients[0]['PO Amount (INR)'], 50000);
+  assert.equal(workbook.clients[0]['48h+ Flag'], 'Red');
+  assert.equal(workbook.clients[0]['Final Flag'], 'Green');
+});
+
+test('PO approval review displays quotation price only for system quotation rows', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/PendingApproval.jsx'), 'utf8');
+  assert.match(page, /Quotation Price \(INR\)/);
+  assert.match(page, /rows\.some\(\(row\) => row\.isSystemQuotation\)/);
+  assert.match(page, /po\.basicAmountValue\.toLocaleString\('en-IN'\)/);
+});
+
 test('operations report includes active managers and excludes inactive operations users', async () => {
   const { buildOperationsProgressGroups } = await helpers;
   const users = [

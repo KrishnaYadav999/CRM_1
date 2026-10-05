@@ -8,9 +8,9 @@ const quoteModule = import(`data:text/javascript;base64,${Buffer.from(quoteSourc
 const request = page.slice(page.indexOf('  function requestLeadClosure('), page.indexOf('  async function uploadClosureFile'));
 const opening = page.slice(page.indexOf('  function openLeadPoDetails('), page.indexOf('  const renderClosureDialog ='));
 async function open(source, quotations) {
-  const { selectLeadClosureQuotation } = await quoteModule;
+  const { hydrateClosurePoRows, selectLeadClosureQuotation } = await quoteModule;
   const state = {};
-  const context = { source, quotations, lead: { _id: 'previous-lead' }, currentUser: { _id: 'user-1' }, staff: [], emptyLead: {}, selectLeadClosureQuotation,
+  const context = { source, quotations, lead: { _id: 'previous-lead' }, currentUser: { _id: 'user-1' }, staff: [], emptyLead: {}, hydrateClosurePoRows, selectLeadClosureQuotation,
     normalizeLegacyServiceSelections: (lead) => lead.serviceSelections,
     primaryLeadOwner: () => ({ id: 'owner-1', name: 'Owner' }),
     setLead: (value) => { state.lead = value; }, setEditingLeadId: (value) => { state.id = value; },
@@ -37,6 +37,22 @@ test('manual PO entry retains earlier quotation proof and service period when re
   assert.equal(state.dialog.earlierQuotationProofUrl, 'https://example.com/quote.pdf');
   assert.equal(state.dialog.poYearRows[0].fy, '2026-27');
   assert.equal(state.dialog.poYearRows[0].services[0], 'Registration');
+});
+test('selected Annual Return service overrides a stale New Registration label without losing PO values', async () => {
+  const source = { _id: 'lead-0386', serviceSelections: [
+    { assignedServiceId: 'annual-importer', subApplicantType: 'Importer', servicesOffered: 'Annual Return Filling', firstAnnualReturnYearApplicable: '2024-25' },
+    { assignedServiceId: 'annual-brand', subApplicantType: 'Brand Owner', servicesOffered: 'Annual Return Filling', firstAnnualReturnYearApplicable: '2024-25' },
+    { assignedServiceId: 'registration', servicesOffered: 'New Registration', firstAnnualReturnYearApplicable: '2026-27' }
+  ], assignments: [
+    { assignedServiceId: 'annual-importer', quotationSent: 'no', poYearRows: [{ fy: '2026-27', services: ['New Registration'], poNumber: '2025090099', poAmount: 50000, poFileUrl: 'proof.pdf' }] },
+    { assignedServiceId: 'annual-brand' }, { assignedServiceId: 'registration' }
+  ] };
+  const state = await open(source, []);
+  assert.equal(state.dialog.poYearRows[0].services[0], 'Annual Return Filling');
+  assert.equal(state.dialog.poYearRows[0].fy, '2024-25');
+  assert.equal(state.dialog.poYearRows[0].poNumber, '2025090099');
+  assert.equal(state.dialog.poYearRows[0].poAmount, 50000);
+  assert.equal(state.dialog.poYearRows[0].poFileUrl, 'proof.pdf');
 });
 test('dashboard PO details preserve explicit PO financial year separately from the service period', () => {
   const admin = fs.readFileSync(require('node:path').resolve(__dirname, '../../frontend/src/pages/AdminDashboard.jsx'), 'utf8');

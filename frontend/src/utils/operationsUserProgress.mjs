@@ -97,6 +97,88 @@ export function getOperationsFinalFlag(sla = {}) {
   return [48, 72, 96].every((hours) => sla[hours]?.breached === true) ? 'red' : 'green'
 }
 
+function excelText(value, fallback = '') {
+  const text = String(value ?? '').trim() || fallback
+  return /^[=+\-@]/.test(text) ? `'${text}` : text
+}
+
+function clientContactDetails(row = {}) {
+  const client = row.client || {}
+  const data = client.data && typeof client.data === 'object' ? client.data : client
+  const basic = data.basic || client.basic || {}
+  const authorised = data.authorised || client.authorised || {}
+  const coordinating = data.coordinating || client.coordinating || {}
+  const otp = data.otp || client.otp || {}
+  const first = (...values) => values.find((value) => String(value ?? '').trim()) || ''
+  return {
+    person: first(basic.contactPerson, authorised.name, authorised.personName, coordinating.name, coordinating.personName, client.contactPerson, client.personName),
+    email: first(otp.email, authorised.email, coordinating.email, client.email, client.emailId),
+    phone: first(otp.mobile, otp.mobileNo, authorised.mobile, authorised.mobileNo, coordinating.mobile, coordinating.mobileNo, client.mobileNo1, client.mobile, client.phone),
+    sector: first(basic.sector, basic.industryType, data.sector, data.industryType, client.sector, client.industryType, row.eprCategory)
+  }
+}
+
+function poRecords(row = {}) {
+  const details = row.poDetails || {}
+  return Array.isArray(details.records) && details.records.length ? details.records : [details]
+}
+
+export function buildOperationsWorkbookData(groups = [], financialYear = 'all') {
+  const summary = groups.map((group) => {
+    const finalRed = group.rows.filter((row) => getOperationsFinalFlag(row.sla) === 'red').length
+    const recordedValues = (field) => [...new Set(group.rows.flatMap((row) => poRecords(row).map((po) => excelText(po[field]))).filter(Boolean))].join(' | ')
+    return {
+      'Operations User': excelText(group.name, 'Unassigned'),
+      'Financial Year Filter': excelText(financialYear, 'All'),
+      'Assigned Clients': group.total,
+      'Compliance Approved': group.complianceDone,
+      'PO Received': group.poDone,
+      'PO End Dates': recordedValues('poEndDate'),
+      'PO Financial Years': recordedValues('poFinancialYear'),
+      'Payment Terms': recordedValues('paymentTerm'),
+      '48h+ Red Flags': group.milestones[48],
+      '72h+ Red Flags': group.milestones[72],
+      '96h+ Red Flags': group.milestones[96],
+      'Final Red Flags': finalRed
+    }
+  })
+  const clients = groups.flatMap((group) => group.rows.flatMap((row) => {
+    const contact = clientContactDetails(row)
+    const approval = row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || 'PENDING'
+    const statusDates = getOperationsStatusDates(row)
+    return poRecords(row).map((po) => ({
+      'Operations User': excelText(group.name, 'Unassigned'),
+      'Client Name': excelText(row.companyName, 'Unnamed client'),
+      'ATPL Code': excelText(row.atplCode, 'Not recorded'),
+      'Contact Person': excelText(contact.person, 'Not recorded'),
+      'Email': excelText(contact.email, 'Not recorded'),
+      'Phone': excelText(contact.phone, 'Not recorded'),
+      'Sector': excelText(contact.sector, 'Not recorded'),
+      'EPR Category': excelText(row.eprCategory, 'Not recorded'),
+      'Applicant Type': excelText(row.category, 'Not recorded'),
+      'Sub-applicant Type': excelText(row.subApplicantType, 'Not recorded'),
+      'Compliance Status': excelText(String(approval).replace(/_/g, ' ')),
+      'Compliance Status Date': excelText(statusDates.compliance.value, 'Not recorded'),
+      'PO Status': row.hasPo ? 'Received' : 'Pending',
+      'PO Number': excelText(po.poNo || po.poNumber, 'Not recorded'),
+      'PO Date': excelText(po.poDate, 'Not recorded'),
+      'PO End Date': excelText(po.poEndDate, 'Not recorded'),
+      'PO Financial Year': excelText(po.poFinancialYear, 'Not recorded'),
+      'Payment Term': excelText(po.paymentTerm, 'Not recorded'),
+      'PO Amount (INR)': Number.isFinite(Number(po.poAmount)) && String(po.poAmount).trim() ? Number(po.poAmount) : '',
+      'PO Proof Link': excelText(po.fileUrl || row.poDetails?.fileUrl, 'Not recorded'),
+      '48h+ Flag': row.sla?.[48]?.breached ? 'Red' : row.sla?.[48]?.known ? 'Clear' : 'No correction deadline',
+      '48h Due': excelText(row.sla?.[48]?.due ? new Date(row.sla[48].due).toISOString() : '', 'Not recorded'),
+      '72h+ Flag': row.sla?.[72]?.breached ? 'Red' : row.sla?.[72]?.known ? 'Clear' : 'No correction deadline',
+      '72h Due': excelText(row.sla?.[72]?.due ? new Date(row.sla[72].due).toISOString() : '', 'Not recorded'),
+      '96h+ Flag': row.sla?.[96]?.breached ? 'Red' : row.sla?.[96]?.known ? 'Clear' : 'No correction deadline',
+      '96h Due': excelText(row.sla?.[96]?.due ? new Date(row.sla[96].due).toISOString() : '', 'Not recorded'),
+      'Final Flag': getOperationsFinalFlag(row.sla) === 'red' ? 'Red' : 'Green'
+    }))
+  }))
+  return { summary, clients }
+}
+
 export function getPoFinancialYear(row = {}) {
   return String(row.poDetails?.poFinancialYear || row.poFinancialYear || '').trim()
 }

@@ -82,3 +82,34 @@ export function selectLeadClosureQuotation(quotations = [], { service = {}, assi
 
   return { quotation: null, items: [], matchType: 'none' };
 }
+
+/**
+ * Retain entered PO/commercial values while keeping the selected service as
+ * the authoritative source for service period and service offered.
+ */
+export function hydrateClosurePoRows(fetchedRows = [], savedRows = [], service = {}) {
+  const fetched = Array.isArray(fetchedRows) ? fetchedRows : [];
+  const saved = Array.isArray(savedRows) ? savedRows : [];
+  const serviceName = service.servicesOffered || service.applicableService || '';
+  const serviceYear = service.firstAnnualReturnYearApplicable || service.servicesForYear || service.financialYear || '';
+  const authoritative = (base = {}, persisted = {}) => ({
+    ...base,
+    ...persisted,
+    fy: base.fy || serviceYear || persisted.fy || '',
+    services: (Array.isArray(base.services) && base.services.length ? base.services : [serviceName]).filter(Boolean),
+    quotationItemIndex: base.quotationItemIndex,
+    quotationId: base.quotationId || '',
+    quotationNumber: base.quotationNumber || '',
+    quotationItems: Array.isArray(base.quotationItems) ? base.quotationItems : [],
+    quotationBasicAmount: base.quotationBasicAmount || 0,
+    quotationCreatedById: base.quotationCreatedById || '',
+    quotationCreatedByEmail: base.quotationCreatedByEmail || ''
+  });
+  const rows = fetched.map((row, index) => authoritative(row, saved[index] || {}));
+  saved.slice(fetched.length).forEach((row) => rows.push(authoritative({
+    ...row,
+    fy: serviceYear || row.fy || '',
+    services: [serviceName].filter(Boolean)
+  }, row)));
+  return rows;
+}

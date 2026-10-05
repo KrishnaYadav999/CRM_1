@@ -16,7 +16,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizeLegacyPiboCategory, normalizePiboCategories, PIBO_PARENTS } from '../constants/piboCategories';
 import { uploadMedia } from '../services/mediaUpload';
 import { fetchIndiaStateCities, fetchIndiaStates } from '../services/countriesNow';
-import { selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
+import { hydrateClosurePoRows, selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
 import PoCommercialFields from '../components/PoCommercialFields';
 import PoProofView from '../components/PoProofView';
 import { poCommercialError } from '../utils/poCommercialDetails.mjs';
@@ -1123,8 +1123,10 @@ export default function LeadGeneration() {
   function requestLeadClosure(index, value, sourceLead = lead) {
     if (!value) return updateAssignmentRow(index, 'closedBy', '');
     const matchingService = normalizeLegacyServiceSelections(sourceLead)[index] || {};
-    const reviewMode = (sourceLead.assignments || [])[index]?.poStatus === 'provisional';
-    const matchingAssignment = (sourceLead.assignments || [])[index] || {};
+    const sourceAssignments = sourceLead.assignments || [];
+    const matchingAssignment = sourceAssignments.find((assignment) => matchingService.assignedServiceId
+      && assignment?.assignedServiceId === matchingService.assignedServiceId) || sourceAssignments[index] || {};
+    const reviewMode = matchingAssignment.poStatus === 'provisional';
     const relevantQuotations = quotations.filter((quote) => {
       const leadMatch = [quote.leadId, quote.leadCode, quote.businessLeadCode].filter(Boolean).some((id) => [sourceLead._id, sourceLead.id, sourceLead.sourceLeadId, sourceLead.leadCode].filter(Boolean).map(String).includes(String(id?._id || id?.id || id)));
       return leadMatch && !['rejected'].includes(String(quote.status || '').toLowerCase());
@@ -1153,8 +1155,7 @@ export default function LeadGeneration() {
     });
     const fetchedPoRows = selectedQuotationItems.length ? selectedQuotationItems.map(quoteRow) : [quoteRow()];
     const savedPoRows = Array.isArray(matchingAssignment.poYearRows) ? matchingAssignment.poYearRows : [];
-    const hydratedPoRows = fetchedPoRows.map((row, rowIndex) => ({ ...row, ...(savedPoRows[rowIndex] || {}) }));
-    const poYearRows = [...hydratedPoRows, ...savedPoRows.slice(fetchedPoRows.length)];
+    const poYearRows = hydrateClosurePoRows(fetchedPoRows, savedPoRows, matchingService);
     const actorId = String(currentUser?._id || currentUser?.id || '');
     const leadOwner = primaryLeadOwner(sourceLead, staff, currentUser);
     setClosureDialog({ index, value: actorId || value, behalfMode: 'lead-owner', behalfUserId: leadOwner.id, leadOwnerName: leadOwner.name, leadOwnerEmail: leadOwner.email, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
@@ -2253,7 +2254,9 @@ export default function LeadGeneration() {
     setLead(normalized);
     setEditingLeadId(sourceLead._id || sourceLead.id || '');
     requestLeadClosure(index, String(currentUser?._id || currentUser?.id || ''), normalized);
-    const assignment = sourceLead.assignments?.[index] || {};
+    const selectedService = normalized.serviceSelections[index] || {};
+    const assignment = sourceLead.assignments?.find((row) => selectedService.assignedServiceId
+      && row?.assignedServiceId === selectedService.assignedServiceId) || sourceLead.assignments?.[index] || {};
     setClosureDialog((current) => ({ ...current, poEditor: true, reviewMode: false, choice: 'yes', quotationSent: assignment.quotationSent || (current.quotation ? 'yes' : 'no'), earlierQuotationProofUrl: assignment.earlierQuotationProofUrl || assignment.poYearRows?.[0]?.earlierQuotationProofUrl || '', earlierQuotationProofName: assignment.earlierQuotationProofName || assignment.poYearRows?.[0]?.earlierQuotationProofName || '' }));
   }
 

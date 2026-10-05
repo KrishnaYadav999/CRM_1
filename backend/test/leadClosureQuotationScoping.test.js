@@ -73,3 +73,16 @@ test('Lead Generation no longer falls back to an unrelated quotation item at the
   assert.match(page, /selectLeadClosureQuotation\(relevantQuotations/);
   assert.doesNotMatch(page, /allQuotationItems\[index\]/);
 });
+
+test('PO hydration keeps selected service identity authoritative over stale saved labels', async () => {
+  const { hydrateClosurePoRows } = await modulePromise;
+  const rows = hydrateClosurePoRows(
+    [{ fy: '2024-25', services: ['Annual Return Filling'], quotationId: '' }],
+    [{ fy: '2026-27', services: ['New Registration'], poNumber: '2025090099', poAmount: 50000 }],
+    { servicesOffered: 'Annual Return Filling', firstAnnualReturnYearApplicable: '2024-25' }
+  );
+  assert.equal(rows[0].services[0], 'Annual Return Filling');
+  assert.equal(rows[0].fy, '2024-25');
+  assert.equal(rows[0].poNumber, '2025090099');
+  assert.equal(rows[0].poAmount, 50000);
+});
