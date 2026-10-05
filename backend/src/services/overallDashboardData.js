@@ -26,6 +26,7 @@ function overallPipeline(filter = {}) {
         assignedStaff: '$$assignment.assignedStaff', assignedStaffText: '$$assignment.assignedStaffText', assignedStaffEmail: '$$assignment.assignedStaffEmail',
         poYearRows: { $map: { input: { $ifNull: ['$$assignment.poYearRows', []] }, as: 'po', in: {
           fy: '$$po.fy',
+          poFinancialYear: '$$po.poFinancialYear',
           hasPoEvidence: { $or: [
             { $ne: [{ $ifNull: ['$$po.poNumber', ''] }, ''] },
             { $ne: [{ $ifNull: ['$$po.poFileUrl', ''] }, ''] }
@@ -57,7 +58,10 @@ function overallRecordsFromLeads(leads, scope = null) {
         if (!names.length) { const fallback = serviceName(service.servicesOffered || service.applicableService || assignment.servicesOffered); if (fallback) names.push(fallback); }
         records.push({
           leadId: String(lead._id), leadNumber: lead.leadCode || '', companyIdentity: lead.companyIdentity || '',
-          clientName: lead.company || lead.companyName || 'Untitled client', financialYear: po.fy,
+          // Dashboard financial-year buckets follow the PO Financial Year.
+          // Legacy rows created before this field existed fall back to the
+          // service/EPR period stored in `fy`.
+          clientName: lead.company || lead.companyName || 'Untitled client', financialYear: po.poFinancialYear || po.fy,
           applicantType: service.applicantType || service.piboParent || lead.applicantType || 'Not specified',
           subApplicantType: service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory || 'Not specified',
           owners: overallOwners(lead, service, assignment), isClosed: true, services: names.map((name) => ({ name }))

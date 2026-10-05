@@ -37,6 +37,24 @@ test('user matrix supports on-behalf legacy owners and prefers stable IDs to ide
   assert.equal(rows[1].yearSections[0].summary.clients, 0);
 });
 
+test('overall and user-wise dashboards group records by PO Financial Year instead of service period', () => {
+  const leads = [{ _id: 'lead', company: 'Tigi Industries', createdBy: 'owner',
+    serviceSelections: [{ subApplicantType: 'Producer', servicesOffered: 'Annual Return Filling' }],
+    assignments: [{ closedAt: 'now', poYearRows: [{ fy: '2025-26', poFinancialYear: '2026-27', poNumber: 'AT/26-27/101', hasPoEvidence: true }] }] }];
+  const records = overallRecordsFromLeads(leads);
+  assert.equal(records[0].financialYear, '2026-27');
+  const overall = buildOverall(records);
+  assert.equal(overall.yearSections.find((section) => section.year === '2025-26').summary.clients, 0);
+  assert.equal(overall.yearSections.find((section) => section.year === '2026-27').summary.clients, 1);
+  const users = buildUserSections(records, [], [{ _id: 'owner', name: 'Owner', role: 'operation' }]);
+  assert.equal(users[0].yearSections.find((section) => section.year === '2026-27').summary.clients, 1);
+});
+
+test('dashboard keeps service-period fallback for legacy PO rows without PO Financial Year', () => {
+  const records = overallRecordsFromLeads([{ _id: 'legacy', company: 'Legacy Client', serviceSelections: [{ servicesOffered: 'Consulting' }], assignments: [{ closedAt: 'now', poYearRows: [{ fy: '2025-26', hasPoEvidence: true }] }] }]);
+  assert.equal(records[0].financialYear, '2025-26');
+});
+
 test('user list contains only operations staff and their direct or team managers', () => {
   const users = [
     { _id: 'op1', name: 'Operation One', role: 'operation', managerId: 'direct' },
