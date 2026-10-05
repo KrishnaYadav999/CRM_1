@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOverall } = require('../src/services/overallDashboard');
 const { overallRecordsFromLeads } = require('../src/services/overallDashboardData');
-const { buildUserSections, eligibleOperationsUsers } = require('../src/services/overallDashboardUsers');
+const { buildUserSections, eligibleOperationsUsers, buildAllocatedClientCounts } = require('../src/services/overallDashboardUsers');
 
 test('dashboard hides credit, merges annual aliases and puts most used closed services first', () => {
   const row = (clientName, service, isClosed = true) => ({ clientName, financialYear: '2025-26', subApplicantType: 'Producer', isClosed, services: [{ name: service }] });
@@ -72,4 +72,17 @@ test('user list contains only operations staff and their direct or team managers
   const teams = [{ _id: 'ops-team', manager: 'team-manager', members: [] }, { _id: 'sales-team', manager: 'sales-manager', members: ['sales'] }];
   assert.deepEqual(eligibleOperationsUsers(users, teams).map((user) => user._id), ['op1', 'op2', 'op3', 'direct', 'team-manager']);
   assert.deepEqual(eligibleOperationsUsers(users.slice(0, 3), teams).map((user) => user._id), ['op1', 'op2', 'op3']);
+});
+
+test('user matrix exposes total allocated clients using permanent service ownership', () => {
+  const users = [{ _id: 'saurabh', name: 'Saurabh Bhat', email: 'saurabh@example.test', role: 'manager' }, { _id: 'tushar', name: 'Tushar Gawas', role: 'operation', managerId: 'saurabh' }];
+  const clients = [
+    { _id: 'one', assignedServiceId: 'service-a', selectedLead: { assignments: [{ assignedServiceId: 'service-a', assignedStaff: 'saurabh' }, { assignedServiceId: 'service-b', assignedStaff: 'tushar' }] } },
+    { _id: 'two', selectedLead: { assignedStaffText: 'Saurabh Bhat' } },
+    { _id: 'three', adminControls: { assignedTo: 'tushar' } }
+  ];
+  assert.deepEqual(buildAllocatedClientCounts(clients, users), { saurabh: 2, tushar: 1 });
+  const rows = buildUserSections([], [], users, [], clients);
+  assert.equal(rows.find((row) => row.userId === 'saurabh').allocatedClients, 2);
+  assert.equal(rows.find((row) => row.userId === 'tushar').allocatedClients, 1);
 });

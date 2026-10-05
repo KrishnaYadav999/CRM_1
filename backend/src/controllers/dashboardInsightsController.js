@@ -136,16 +136,22 @@ exports.overall = async (req, res) => {
     const scope = await getVisibleUserScope(req.user);
     const filter = overallLeadFilter(scope);
     const canViewUsers = userHasAnyRole(req.user, ['admin', 'superadmin', 'manager']);
-    const [records, requests, users, teams] = await Promise.all([
+    const allocatedClientFilter = canViewUsers ? await require('./clientController').clientAccessFilter(req.user) : {};
+    const [records, requests, users, teams, allocatedClients] = await Promise.all([
       cachedOverallRecords(JSON.stringify({ filter, scope }), () => loadOverallRecords(Lead, filter, scope)),
       require('../models/ClientDeactivation').find({ status: 'INACTIVE' }).select('companyKey status').maxTimeMS(10000).lean(),
       canViewUsers ? visibleUsers(scope, req.user) : [],
-      canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').maxTimeMS(10000).lean() : []
+      canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').maxTimeMS(10000).lean() : [],
+      canViewUsers ? Client.find({ $and: [
+        { 'data.importMeta.approvalOverride': { $ne: true } }, allocatedClientFilter
+      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations data.assignedServiceId data.selectedLeadSnapshot data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations')
+        .populate('selectedLead', 'assignedTo assignedToText assignedToEmail assignedStaff assignedStaffText assignedStaffEmail assignments')
+        .maxTimeMS(12000).lean() : []
     ]);
     res.set('Cache-Control', 'private, no-store');
     res.set('Server-Timing', `overall;dur=${Date.now() - startedAt}`);
     const visibility = scope === null ? 'all' : userHasAnyRole(req.user, ['manager']) ? 'team' : 'self';
-    return res.json({ ...require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear), userSections: canViewUsers ? require('../services/overallDashboardUsers').buildUserSections(records, requests, users, teams) : [], canViewUsers, visibility });
+    return res.json({ ...require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear), userSections: canViewUsers ? require('../services/overallDashboardUsers').buildUserSections(records, requests, users, teams, allocatedClients) : [], canViewUsers, visibility });
   } catch (error) {
     console.error('[overall-dashboard] load failed', { durationMs: Date.now() - startedAt, name: error.name, code: error.code });
     return res.status(error.code === 50 ? 503 : 500).json({ error: 'Unable to load Overall Dashboard. Please refresh and retry.' });

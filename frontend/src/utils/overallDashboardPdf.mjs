@@ -84,7 +84,7 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
         doc.setFontSize(10); doc.setTextColor(100, 116, 139); doc.text('No clients with closed purchase orders in this financial year.', margin, 51)
         continue
       }
-      autoTable(doc, { ...tableOptions, startY: 44, head: [['Applicant / Sub-applicant type', 'Clients', ...services.map(clean)]], body: section.groups.map((group) => [clean(group.type), group.count, ...services.map((service) => group.services[service] || 0)]), columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 20, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 2, { cellWidth: (width - 78) / services.length, halign: 'center' }])) }, didDrawPage: () => { heading(title, subtitle) } })
+      autoTable(doc, { ...tableOptions, startY: 44, head: [['Applicant / Sub-applicant type', 'Service Count', ...services.map(clean)]], body: section.groups.map((group) => [clean(group.type), Object.values(group.services || {}).reduce((sum, count) => sum + Number(count || 0), 0), ...services.map((service) => group.services[service] || 0)]), columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 20, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 2, { cellWidth: (width - 78) / services.length, halign: 'center' }])) }, didDrawPage: () => { heading(title, subtitle) } })
     }
     // PDFs intentionally stop at aggregate applicant/service tables. Client
     // names and lead references remain available only in the authenticated UI.
@@ -122,10 +122,10 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
         doc.addPage()
         const title = `FY ${section.year} - User-wise service matrix`
         const subtitle = `${users.length} operations users and managers${serviceChunks.length > 1 ? ` | Service columns ${index + 1} of ${serviceChunks.length}` : ''}`
-        autoTable(doc, { ...tableOptions, startY: 44, head: [['Users', 'Clients', ...services.map(clean)]],
+        autoTable(doc, { ...tableOptions, startY: 44, head: [['Users', 'Clients (FY / Allocated)', ...services.map(clean)]],
           body: users.map((user) => {
             const owned = user.yearSections.find((entry) => entry.year === section.year)
-            return [clean(user.userName), owned?.summary.clients || 0, ...services.map((service) => (owned?.clients || []).reduce((total, client) => total + (client.services[service] || 0), 0))]
+            return [clean(user.userName), `${owned?.summary.clients || 0} / ${user.allocatedClients || 0}`, ...services.map((service) => (owned?.clients || []).reduce((total, client) => total + (client.services[service] || 0), 0))]
           }),
           columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 20, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 2, { cellWidth: (width - 78) / services.length, halign: 'center' }])) },
           didDrawPage: () => heading(title, subtitle)
