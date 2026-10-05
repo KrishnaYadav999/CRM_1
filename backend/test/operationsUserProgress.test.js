@@ -121,6 +121,48 @@ test('original Sonal assignment overrides a historical Tushar service allocation
   assert.equal(groups.find((group) => group.id === 'tushar').total, 0);
 });
 
+test('permanent staff Sonal overrides Tushar stored as the assigned manager', async () => {
+  const { buildOperationsProgressGroups, permanentStaffOwnerKeys } = await helpers;
+  const localUsers = [{ _id: 'sonal', name: 'Sonal More', role: 'operation' }, { _id: 'tushar', name: 'Tushar Gawas', role: 'manager' }];
+  const client = { assignedServiceId: 'annual-importer', selectedLead: { assignedTo: 'tushar', assignedToText: 'Tushar Gawas', assignments: [{
+    assignedServiceId: 'annual-importer', assignedTo: 'tushar', assignedToText: 'Tushar Gawas', assignedStaff: 'sonal', assignedStaffText: 'Sonal More'
+  }] } };
+  assert.deepEqual(permanentStaffOwnerKeys(client).slice(0, 2), ['sonal', 'sonal more']);
+  const groups = buildOperationsProgressGroups([{ id: '20-microns', user: localUsers[1], client }], localUsers, () => ['tushar']);
+  assert.equal(groups.find((group) => group.id === 'sonal').total, 1);
+  assert.equal(groups.find((group) => group.id === 'tushar').total, 0);
+});
+
+test('permanent-staff ownership is applied consistently across all clients', async () => {
+  const { buildOperationsProgressGroups } = await helpers;
+  const localUsers = [
+    { _id: 'sonal', name: 'Sonal More', role: 'operation' },
+    { _id: 'prachi', name: 'Prachi Chavan', role: 'operation' },
+    { _id: 'tushar', name: 'Tushar Gawas', role: 'manager' }
+  ];
+  const clientRow = (id, staffId, staffName) => ({ id, user: localUsers[2], client: { assignedServiceId: `${id}-service`, selectedLead: {
+    assignedTo: 'tushar', assignedToText: 'Tushar Gawas', assignments: [{ assignedServiceId: `${id}-service`, assignedTo: 'tushar', assignedStaff: staffId, assignedStaffText: staffName }]
+  } } });
+  const groups = buildOperationsProgressGroups([
+    clientRow('client-a', 'sonal', 'Sonal More'),
+    clientRow('client-b', 'sonal', 'Sonal More'),
+    clientRow('client-c', 'prachi', 'Prachi Chavan')
+  ], localUsers, () => ['tushar']);
+  assert.equal(groups.find((group) => group.id === 'sonal').total, 2);
+  assert.equal(groups.find((group) => group.id === 'prachi').total, 1);
+  assert.equal(groups.find((group) => group.id === 'tushar').total, 0);
+  assert.equal(groups.reduce((sum, group) => sum + group.total, 0), 3);
+});
+
+test('lead directory Assigned To uses permanent staff and Assigned By resolves the assigning manager', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadGeneration.jsx'), 'utf8');
+  assert.match(page, /resolveLeadStaffName\(item, staff\)/);
+  assert.match(page, /resolveLeadAssignedBy\(item, staff\)/);
+  assert.match(page, /row\?\.assignedStaff\?\.name, row\?\.assignedStaffText/);
+});
+
 test('legacy assignment names work when no service allocations exist', async () => {
   const { buildOperationsProgressGroups } = await helpers;
   const groups = buildOperationsProgressGroups([{ id: 'legacy', client: {} }], users, () => ['sonal more']);

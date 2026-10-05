@@ -3760,8 +3760,8 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
       'Referred By': item.referredBy || '',
       Source: item.source || '',
       Notes: item.notes || '',
-      'Assigned To': item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '',
-      'Assigned By': item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '') : ''),
+      'Assigned To': resolveLeadStaffName(item, staff),
+      'Assigned By': resolveLeadAssignedBy(item, staff),
       'Created By': item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '',
       'Lead Date': item.leadDate || '',
       'Next Follow-Up Date': item.nextFollowUpDate || '',
@@ -3858,8 +3858,8 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
                     <td className="px-4 py-4"><LeadPersonCell name={item.contactPerson} /></td>
                     <td className="px-4 py-4"><span className="lead-contact-value"><Phone className="h-3.5 w-3.5" />{item.mobileNo1 || '-'}</span></td>
                     <td className="px-4 py-4"><span className="lead-contact-value normal-case"><Mail className="h-3.5 w-3.5" />{item.emails || '-'}</span></td>
-                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-'}</span></td>
-                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{personLabel(item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-'))}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{resolveLeadStaffName(item, staff)}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{resolveLeadAssignedBy(item, staff)}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '-'}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-indigo-700"><span className="cell-clamp">{item.createdOnBehalfOfName || item.generatedForUser?.name || item.generatedForName || item.createdBy?.name || item.createdByName || '-'}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.closedBy?.name || item.closedByText || item.assignments?.find((row) => row.closedBy || row.closedByText)?.closedByText || '-'}</span></td>
@@ -5571,6 +5571,32 @@ function LeadPersonCell({ name }) {
   const label = String(name || '-').trim() || '-';
   const initials = label === '-' ? '?' : label.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   return <span className="lead-person-cell"><span className="lead-person-avatar">{initials}</span><span className="cell-clamp">{label}</span></span>;
+}
+
+function resolveLeadStaffName(item = {}, staff = []) {
+  const assignments = Array.isArray(item.assignments) ? item.assignments : [];
+  const candidates = [
+    ...assignments.flatMap((row) => [row?.assignedStaff?.name, row?.assignedStaffText, row?.assignedStaffEmail, row?.assignedStaff]),
+    item.assignedStaff?.name, item.assignedStaffText, item.assignedStaffEmail, item.assignedStaff
+  ].filter(Boolean);
+  const labels = [...new Set(candidates.map((value) => {
+    const raw = typeof value === 'object' ? (value.name || value.email || value._id || value.id) : value;
+    const matched = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId, user.email, user.name]
+      .some((identity) => normalizePersonName(identity) === normalizePersonName(raw)));
+    return String(matched?.name || matched?.email || raw || '').trim();
+  }).filter((value) => value && !/^[a-f0-9]{24}$/i.test(value)))];
+  return labels.join(', ') || item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-';
+}
+
+function resolveLeadAssignedBy(item = {}, staff = []) {
+  const assignments = Array.isArray(item.assignments) ? item.assignments : [];
+  const assignment = assignments.find((row) => (row?.assignedStaff || row?.assignedStaffText) && row?.assignedBy)
+    || assignments.find((row) => row?.assignedBy)
+    || {};
+  const raw = assignment.assignedBy || item.assignedBy || '';
+  const matched = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId, user.email, user.name]
+    .some((identity) => normalizePersonName(identity) === normalizePersonName(raw)));
+  return personLabel(matched?.name || matched?.email || raw || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-'));
 }
 
 function LeadDirectoryPagination({ page, totalPages, setPage }) {

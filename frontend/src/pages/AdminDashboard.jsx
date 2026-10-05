@@ -70,7 +70,7 @@ import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
-import { allocationOwnerKeys, buildOperationsProgressGroups, buildOperationsWorkbookData, getOperationsStatusDates, getOperationsFinalFlag, getPoFinancialYear, selectRowsForPoFinancialYear } from '../utils/operationsUserProgress.mjs'
+import { allocationOwnerKeys, buildOperationsProgressGroups, buildOperationsWorkbookData, getOperationsStatusDates, getOperationsFinalFlag, getPoFinancialYear, permanentStaffOwnerKeys, selectRowsForPoFinancialYear } from '../utils/operationsUserProgress.mjs'
 import { downloadOperationsReportPdf } from '../utils/operationsReportPdf.mjs'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
@@ -790,7 +790,8 @@ function canSwitchDashboard(user = {}) {
 }
 
 function getLeadOwnerName(lead = {}) {
-  return lead.assignedTo?.name || lead.assignedToText || lead.createdBy?.name || lead.createdBy?.email || lead.referredBy || 'Unassigned'
+  const staffAssignment = (Array.isArray(lead.assignments) ? lead.assignments : []).find((row) => row?.assignedStaff || row?.assignedStaffText || row?.assignedStaffEmail) || {}
+  return staffAssignment.assignedStaff?.name || staffAssignment.assignedStaffText || lead.assignedStaff?.name || lead.assignedStaffText || lead.assignedTo?.name || lead.assignedToText || lead.createdBy?.name || lead.createdBy?.email || lead.referredBy || 'Unassigned'
 }
 
 function getSalesRecordCreatorName(record = {}, users = []) {
@@ -1045,7 +1046,14 @@ function buildDistributionRows(items = [], getLabel, palette = []) {
 
 function getLeadOwnerKeys(lead = {}) {
   const assigned = lead.assignedTo && typeof lead.assignedTo === 'object' ? lead.assignedTo : {}
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : []
   return [
+    lead.assignedStaff,
+    lead.assignedStaff?._id,
+    lead.assignedStaff?.email,
+    lead.assignedStaffText,
+    lead.assignedStaffEmail,
+    ...assignments.flatMap((row) => [row?.assignedStaff, row?.assignedStaff?._id, row?.assignedStaff?.email, row?.assignedStaffText, row?.assignedStaffEmail]),
     assigned._id,
     assigned.id,
     assigned.email,
@@ -1060,6 +1068,14 @@ function getLeadOwnerKeys(lead = {}) {
     lead.createdBy?.name,
     lead.referredBy
   ].map(normalizeKey).filter(Boolean)
+}
+
+function findUserByOwnerPriority(users = [], ownerKeys = []) {
+  for (const ownerKey of ownerKeys) {
+    const matched = users.find((user) => getUserMatchKeys(user).includes(ownerKey))
+    if (matched) return matched
+  }
+  return null
 }
 
 function leadMatchesAnyUserKey(lead = {}, allowedKeys = new Set()) {
@@ -1087,7 +1103,7 @@ function buildOperationsLeadAnalytics(leads = [], users = [], currentUser = {}) 
   const userCounts = new Map()
   visibleLeads.forEach((lead) => {
     const ownerKeys = getLeadOwnerKeys(lead)
-    const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+    const matchedUser = findUserByOwnerPriority(users, ownerKeys)
     const id = matchedUser ? (getUserId(matchedUser) || getUserName(matchedUser)) : getLeadOwnerName(lead)
     const name = matchedUser ? getUserName(matchedUser) : getLeadOwnerName(lead)
     const existing = userCounts.get(id) || { id, name, leads: 0 }
@@ -1432,6 +1448,7 @@ function getAssignedUserKeysFromClient(client = {}) {
   const serviceId = String(safeClient.assignedServiceId || data.assignedServiceId || '')
   const assignments = (Array.isArray(lead.assignments) ? lead.assignments : []).filter((assignment) => !serviceId || String(assignment.assignedServiceId || assignment.serviceAssignmentId || '') === serviceId)
   return [
+    ...permanentStaffOwnerKeys(safeClient),
     // Client-level/original ownership is authoritative for user-wise reporting.
     // Service allocations remain a fallback and must not duplicate one client
     // under every user who has ever handled one of its services.
@@ -1460,7 +1477,7 @@ function getAssignedUserKeysFromClient(client = {}) {
 
 function resolveAssignedUser(client = {}, users = [], fallbackUser = null) {
   const assignedKeys = getAssignedUserKeysFromClient(client)
-  const matched = users.find((user) => getUserMatchKeys(user).some((key) => assignedKeys.includes(key)))
+  const matched = findUserByOwnerPriority(users, assignedKeys)
   if (matched) return matched
   return fallbackUser || null
 }
@@ -2003,14 +2020,14 @@ function getScopedOperationsRows(rows = [], users = [], currentUser = {}) {
 
 function getLeadUserKey(lead = {}, users = []) {
   const ownerKeys = getLeadOwnerKeys(lead)
-  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+  const matchedUser = findUserByOwnerPriority(users, ownerKeys)
   if (matchedUser) return getUserId(matchedUser) || getUserName(matchedUser)
   return getLeadOwnerName(lead) || 'unassigned'
 }
 
 function getLeadUserName(lead = {}, users = []) {
   const ownerKeys = getLeadOwnerKeys(lead)
-  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+  const matchedUser = findUserByOwnerPriority(users, ownerKeys)
   return matchedUser ? getUserName(matchedUser) : getLeadOwnerName(lead)
 }
 

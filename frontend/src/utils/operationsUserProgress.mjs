@@ -35,6 +35,21 @@ export function allocationOwnerKeys(client = {}) {
   }))]
 }
 
+export function permanentStaffOwnerKeys(client = {}) {
+  const data = client.data && typeof client.data === 'object' ? client.data : {}
+  const lead = client.selectedLead && typeof client.selectedLead === 'object'
+    ? client.selectedLead
+    : (data.selectedLeadSnapshot && typeof data.selectedLeadSnapshot === 'object' ? data.selectedLeadSnapshot : {})
+  const serviceId = String(client.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '')
+  const assignments = (Array.isArray(lead.assignments) ? lead.assignments : [])
+    .filter((assignment) => !serviceId || String(assignment?.assignedServiceId || assignment?.serviceAssignmentId || '') === serviceId)
+  return [...new Set([
+    lead.assignedStaff, lead.assignedStaffText, lead.assignedStaffEmail,
+    client.assignedStaff, client.assignedStaffText, client.assignedStaffEmail,
+    ...assignments.flatMap((assignment) => [assignment?.assignedStaff, assignment?.assignedStaffText, assignment?.assignedStaffEmail])
+  ].flatMap(identity))]
+}
+
 function date(value) {
   const parsed = value ? new Date(value).getTime() : NaN
   return Number.isFinite(parsed) ? parsed : null
@@ -83,12 +98,13 @@ export function buildOperationsProgressGroups(rows, users, getLegacyKeys, now = 
   }
   rows.forEach((row) => {
     const allocationKeys = allocationOwnerKeys(row.client)
+    const permanentStaffKeys = permanentStaffOwnerKeys(row.client)
     // A client belongs to exactly one primary/original owner in this report.
     // Prefer the owner already resolved from client-level assignment data;
     // service allocations are used only when no primary owner can be resolved.
     const resolvedOwnerKeys = [...identity(row.user), key(row.user?.crmUserId)].filter(Boolean)
     const legacyKeys = getLegacyKeys(row.client || {})
-    const owner = findOwner(resolvedOwnerKeys) || findOwner(legacyKeys) || findOwner(allocationKeys)
+    const owner = findOwner(permanentStaffKeys) || findOwner(resolvedOwnerKeys) || findOwner(legacyKeys) || findOwner(allocationKeys)
     if (!owner) return
     const group = groups.get(key(owner._id || owner.id || owner.userId || owner.email))
     if (group && !group.rows.some((item) => String(item.id) === String(row.id))) {
