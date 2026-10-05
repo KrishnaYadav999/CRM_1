@@ -1432,7 +1432,9 @@ function getAssignedUserKeysFromClient(client = {}) {
   const serviceId = String(safeClient.assignedServiceId || data.assignedServiceId || '')
   const assignments = (Array.isArray(lead.assignments) ? lead.assignments : []).filter((assignment) => !serviceId || String(assignment.assignedServiceId || assignment.serviceAssignmentId || '') === serviceId)
   return [
-    ...allocationOwnerKeys(safeClient),
+    // Client-level/original ownership is authoritative for user-wise reporting.
+    // Service allocations remain a fallback and must not duplicate one client
+    // under every user who has ever handled one of its services.
     admin.assignedTo,
     assigned._id,
     assigned.id,
@@ -1451,7 +1453,8 @@ function getAssignedUserKeysFromClient(client = {}) {
     safeClient.user?.name,
     safeClient.user?.email,
     safeClient.user?._id,
-    ...[lead, ...assignments].flatMap((owner) => [owner.assignedTo, owner.assignedTo?._id, owner.assignedTo?.email, owner.assignedToText, owner.assignedStaff, owner.assignedStaffText, owner.assignedStaffEmail])
+    ...[lead, ...assignments].flatMap((owner) => [owner.assignedTo, owner.assignedTo?._id, owner.assignedTo?.email, owner.assignedToText, owner.assignedStaff, owner.assignedStaffText, owner.assignedStaffEmail]),
+    ...allocationOwnerKeys(safeClient)
   ].map(normalizeKey).filter(Boolean)
 }
 

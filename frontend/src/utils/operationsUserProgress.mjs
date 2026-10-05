@@ -74,17 +74,26 @@ export function buildOperationsProgressGroups(rows, users, getLegacyKeys, now = 
   const staff = users.filter(isOperationsStaff)
   const groups = new Map(staff.map((user) => [key(user._id || user.id || user.userId || user.email),
     { id: key(user._id || user.id || user.userId || user.email), name: user.name || user.email, rows: [] }]))
+  const findOwner = (ownerKeys = []) => {
+    for (const ownerKey of ownerKeys) {
+      const matched = staff.find((user) => [...identity(user), key(user.crmUserId)].some((token) => token && token === ownerKey))
+      if (matched) return matched
+    }
+    return null
+  }
   rows.forEach((row) => {
     const allocationKeys = allocationOwnerKeys(row.client)
-    // Service allocations are authoritative; don't count the creator or manager as the owner.
-    const keys = allocationKeys.length ? allocationKeys : getLegacyKeys(row.client || {})
-    staff.filter((user) => [...identity(user), key(user.crmUserId)].some((token) => token && keys.includes(token)))
-      .forEach((user) => {
-        const group = groups.get(key(user._id || user.id || user.userId || user.email))
-        if (!group.rows.some((item) => String(item.id) === String(row.id))) {
-          group.rows.push({ ...row, sla: getOperationsSla(row.client?.operationsSla || row.approval || {}, now) })
-        }
-      })
+    // A client belongs to exactly one primary/original owner in this report.
+    // Prefer the owner already resolved from client-level assignment data;
+    // service allocations are used only when no primary owner can be resolved.
+    const resolvedOwnerKeys = [...identity(row.user), key(row.user?.crmUserId)].filter(Boolean)
+    const legacyKeys = getLegacyKeys(row.client || {})
+    const owner = findOwner(resolvedOwnerKeys) || findOwner(legacyKeys) || findOwner(allocationKeys)
+    if (!owner) return
+    const group = groups.get(key(owner._id || owner.id || owner.userId || owner.email))
+    if (group && !group.rows.some((item) => String(item.id) === String(row.id))) {
+      group.rows.push({ ...row, sla: getOperationsSla(row.client?.operationsSla || row.approval || {}, now) })
+    }
   })
   return [...groups.values()].map((group) => ({ ...group, total: group.rows.length,
     complianceDone: group.rows.filter((row) => key(row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus) === 'approved').length,

@@ -102,11 +102,23 @@ test('Operations client counts use service allocations and exclude admin/sales/c
   assert.equal(groups.find((group) => group.id === 'sonal').poDone, 1);
 });
 
-test('multiple allocated owners receive one client each; duplicate source rows do not inflate totals', async () => {
+test('a client with multiple service allocations is counted once under its primary owner', async () => {
   const { buildOperationsProgressGroups } = await helpers;
-  const row = { id: 'shared', client: { serviceAllocations: { a: 'sonal', b: { assignedUserId: 'other' } } } };
+  const row = { id: 'shared', user: users[0], client: { serviceAllocations: { a: 'sonal', b: { assignedUserId: 'other' } } } };
   const groups = buildOperationsProgressGroups([row, row], users, () => []);
-  assert.deepEqual(groups.map((group) => group.total), [1, 1]);
+  assert.equal(groups.find((group) => group.id === 'sonal').total, 1);
+  assert.equal(groups.find((group) => group.id === 'other').total, 0);
+  assert.equal(groups.reduce((sum, group) => sum + group.total, 0), 1);
+});
+
+test('original Sonal assignment overrides a historical Tushar service allocation', async () => {
+  const { buildOperationsProgressGroups } = await helpers;
+  const localUsers = [{ _id: 'sonal', name: 'Sonal More', role: 'operation' }, { _id: 'tushar', name: 'Tushar Gawas', role: 'operation' }];
+  const row = { id: '20-microns', user: localUsers[0], companyName: '20 MICRONS NANO MINERALS LIMITED',
+    client: { serviceAllocations: { old_service: { userId: 'tushar' }, current_service: { userId: 'sonal' } } } };
+  const groups = buildOperationsProgressGroups([row], localUsers, () => ['tushar', 'sonal']);
+  assert.equal(groups.find((group) => group.id === 'sonal').total, 1);
+  assert.equal(groups.find((group) => group.id === 'tushar').total, 0);
 });
 
 test('legacy assignment names work when no service allocations exist', async () => {
