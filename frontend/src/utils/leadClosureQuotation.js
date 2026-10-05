@@ -107,8 +107,8 @@ export function hydrateClosurePoRows(fetchedRows = [], savedRows = [], service =
   const authoritative = (base = {}, persisted = {}) => ({
     ...base,
     ...persisted,
-    fy: base.fy || serviceYear || persisted.fy || '',
-    services: (Array.isArray(base.services) && base.services.length ? base.services : [serviceName]).filter(Boolean),
+    fy: serviceYear || base.fy || persisted.fy || '',
+    services: (serviceName ? [serviceName] : (Array.isArray(base.services) ? base.services : [])).filter(Boolean),
     quotationItemIndex: base.quotationItemIndex,
     quotationId: base.quotationId || '',
     quotationNumber: base.quotationNumber || '',
@@ -124,4 +124,23 @@ export function hydrateClosurePoRows(fetchedRows = [], savedRows = [], service =
     services: [serviceName].filter(Boolean)
   }, row)));
   return rows;
+}
+
+/** Build the manual PO row from the service currently selected for closure. */
+export function buildManualClosurePoRow(row = {}, service = {}, clearAmount = false) {
+  const serviceName = service.servicesOffered || service.applicableService || '';
+  const serviceYear = service.firstAnnualReturnYearApplicable || service.servicesForYear || service.financialYear || '';
+  return {
+    ...row,
+    fy: serviceYear || row.fy || '',
+    services: (serviceName ? [serviceName] : (Array.isArray(row.services) ? row.services : [])).filter(Boolean),
+    assignedServiceId: service.assignedServiceId || row.assignedServiceId || '',
+    poAmount: clearAmount ? '' : row.poAmount,
+    quotationId: '',
+    quotationNumber: '',
+    quotationItems: [],
+    quotationBasicAmount: 0,
+    quotationCreatedById: '',
+    quotationCreatedByEmail: ''
+  };
 }

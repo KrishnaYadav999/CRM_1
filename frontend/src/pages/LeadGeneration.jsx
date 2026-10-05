@@ -16,7 +16,7 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizeLegacyPiboCategory, normalizePiboCategories, PIBO_PARENTS } from '../constants/piboCategories';
 import { uploadMedia } from '../services/mediaUpload';
 import { fetchIndiaStateCities, fetchIndiaStates } from '../services/countriesNow';
-import { hydrateClosurePoRows, selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
+import { buildManualClosurePoRow, hydrateClosurePoRows, selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
 import PoCommercialFields from '../components/PoCommercialFields';
 import PoProofView from '../components/PoProofView';
 import { poCommercialError } from '../utils/poCommercialDetails.mjs';
@@ -1158,7 +1158,7 @@ export default function LeadGeneration() {
     const poYearRows = hydrateClosurePoRows(fetchedPoRows, savedPoRows, matchingService);
     const actorId = String(currentUser?._id || currentUser?.id || '');
     const leadOwner = primaryLeadOwner(sourceLead, staff, currentUser);
-    setClosureDialog({ index, value: actorId || value, behalfMode: 'lead-owner', behalfUserId: leadOwner.id, leadOwnerName: leadOwner.name, leadOwnerEmail: leadOwner.email, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
+    setClosureDialog({ index, value: actorId || value, behalfMode: 'lead-owner', behalfUserId: leadOwner.id, leadOwnerName: leadOwner.name, leadOwnerEmail: leadOwner.email, selectedService: matchingService, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
   }
 
   async function uploadClosureFile(event, type, rowIndex = 0) {
@@ -1186,19 +1186,14 @@ export default function LeadGeneration() {
       if (!current) return current;
       if (mode === 'no') {
         const switchingToEarlierProof = current.quotationSent !== 'no';
+        const selectedRow = (current.poYearRows || []).find((row) => !current.selectedService?.assignedServiceId
+          || String(row.assignedServiceId || '') === String(current.selectedService.assignedServiceId))
+          || current.poYearRows?.[0]
+          || {};
         return {
           ...current,
           quotationSent: 'no',
-          poYearRows: current.poYearRows.map((row) => ({
-            ...row,
-            poAmount: switchingToEarlierProof ? '' : row.poAmount,
-            quotationId: '',
-            quotationNumber: '',
-            quotationItems: [],
-            quotationBasicAmount: 0,
-            quotationCreatedById: '',
-            quotationCreatedByEmail: ''
-          }))
+          poYearRows: [buildManualClosurePoRow(selectedRow, current.selectedService || {}, switchingToEarlierProof)]
         };
       }
       const currentRows = current.poYearRows || [];

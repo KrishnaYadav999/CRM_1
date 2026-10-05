@@ -87,6 +87,25 @@ test('PO hydration keeps selected service identity authoritative over stale save
   assert.equal(rows[0].poAmount, 50000);
 });
 
+test('manual earlier-quotation mode always uses the selected closure service', async () => {
+  const { buildManualClosurePoRow } = await modulePromise;
+  const row = buildManualClosurePoRow({
+    fy: '2026-27',
+    services: ['CIPET Registration Advisory'],
+    poAmount: 50000,
+    quotationId: 'wrong-quotation'
+  }, {
+    assignedServiceId: 'annual-importer',
+    servicesOffered: 'Annual Return Filling',
+    firstAnnualReturnYearApplicable: '2025-26'
+  }, true);
+  assert.equal(row.fy, '2025-26');
+  assert.deepEqual(row.services, ['Annual Return Filling']);
+  assert.equal(row.assignedServiceId, 'annual-importer');
+  assert.equal(row.poAmount, '');
+  assert.equal(row.quotationId, '');
+});
+
 test('approval hydration preserves the saved quotation Basic Amount when the live PO row is blank or zero', async () => {
   const { resolveQuotationBasicAmount } = await modulePromise;
   assert.equal(resolveQuotationBasicAmount('', 50000), 50000);
