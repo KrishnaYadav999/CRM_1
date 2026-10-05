@@ -2,6 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const helpers = import('../../frontend/src/utils/operationsUserProgress.mjs');
 
+test('operations PDF keeps the aggregate table and excludes client detail rows', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const page = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/AdminDashboard.jsx'), 'utf8');
+  const pdf = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/utils/operationsReportPdf.mjs'), 'utf8');
+  assert.match(page, /const open = !pdfMode && expandedUser === group\.id/);
+  assert.match(page, /aggregate user metrics only; client names are excluded/);
+  assert.match(pdf, /\.operations-client-details,\.operations-user-detail-row/);
+  assert.match(pdf, /\.operations-user-status-table/);
+});
+
 test('operations report includes active managers and excludes inactive operations users', async () => {
   const { buildOperationsProgressGroups } = await helpers;
   const users = [

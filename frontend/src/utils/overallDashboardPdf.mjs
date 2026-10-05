@@ -86,41 +86,8 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
       }
       autoTable(doc, { ...tableOptions, startY: 44, head: [['Applicant / Sub-applicant type', 'Clients', ...services.map(clean)]], body: section.groups.map((group) => [clean(group.type), group.count, ...services.map((service) => group.services[service] || 0)]), columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 20, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 2, { cellWidth: (width - 78) / services.length, halign: 'center' }])) }, didDrawPage: () => { heading(title, subtitle) } })
     }
-    // Export all group members, including rows hidden by UI pagination or collapse.
-    for (const group of section.groups) {
-      if (!group.clients?.length) continue
-      for (const [index, services] of serviceChunks.entries()) {
-        doc.addPage()
-        const title = `FY ${section.year}${ownerName ? ` - ${ownerName}` : ''} - ${clean(group.type)}: Client service details`
-        const subtitle = `${group.clients.length} clients | Check = closed service PO; cross = no closed PO${serviceChunks.length > 1 ? ` | Service columns ${index + 1} of ${serviceChunks.length}` : ''}`
-        autoTable(doc, {
-          ...tableOptions, startY: 44,
-          head: [['Client', 'Status', ...services.map(clean)]],
-          body: group.clients.map((client) => [
-            [clean(client.name), ...(client.references || []).map(clean)].join('\n'),
-            client.inactive ? 'Inactive' : 'Active',
-            ...services.map((service) => client.services[service] ? 1 : 0)
-          ]),
-          columnStyles: { 0: { cellWidth: 72 }, 1: { cellWidth: 22, halign: 'center' }, ...Object.fromEntries(services.map((_, column) => [column + 2, { cellWidth: (width - 94) / services.length, halign: 'center' }])) },
-          didParseCell: ({ section: tableSection, column, cell }) => {
-            if (tableSection !== 'body') return
-            if (column.index >= 2) cell.text = []
-            if (column.index === 1) cell.styles.textColor = cell.raw === 'Inactive' ? [180, 83, 9] : teal
-          },
-          didDrawCell: ({ section: tableSection, column, cell }) => {
-            if (tableSection !== 'body' || column.index < 2) return
-            const yes = cell.raw === 1, x = cell.x + cell.width / 2, y = cell.y + cell.height / 2
-            doc.setFillColor(...(yes ? [209, 250, 229] : [255, 241, 242]))
-            doc.circle(x, y, 2.7, 'F')
-            doc.setDrawColor(...(yes ? teal : [244, 63, 94])); doc.setLineWidth(.45)
-            if (yes) { doc.line(x - 1.3, y, x - .3, y + 1); doc.line(x - .3, y + 1, x + 1.4, y - 1.1) }
-            else { doc.line(x - 1, y - 1, x + 1, y + 1); doc.line(x - 1, y + 1, x + 1, y - 1) }
-            doc.setLineWidth(.1)
-          },
-          didDrawPage: () => { heading(title, subtitle) }
-        })
-      }
-    }
+    // PDFs intentionally stop at aggregate applicant/service tables. Client
+    // names and lead references remain available only in the authenticated UI.
   }
   if (view === 'overall') {
     heading('Overall Dashboard', `${scopeLabel(data.visibility)} | Closed POs only | Generated ${date} IST`)
@@ -145,8 +112,8 @@ export async function createOverallDashboardPdf(data, { generatedAt = new Date()
     doc.setFontSize(10); doc.setTextColor(...slate)
     doc.text(`${users.length} users | All financial years | Closed service POs only`, margin, 48)
     doc.setFontSize(9)
-    doc.text('Includes every user and client, across all pages and collapsed applicant groups.', margin, 58)
-    doc.text('Each client counts once per user per financial year; shared clients can appear under multiple users.', margin, 68)
+    doc.text('Includes every eligible user with aggregate applicant and service counts.', margin, 58)
+    doc.text('Client names and lead references are intentionally excluded from this PDF.', margin, 68)
     if (!users.length) doc.text('No operations users or managers available in your scope.', margin, 82)
     for (const section of data.yearSections) {
       onProgress(`Preparing user-wise FY ${section.year}…`)

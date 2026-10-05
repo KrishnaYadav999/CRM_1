@@ -46,7 +46,7 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
     root.classList.add('operations-pdf-root')
     doc.body.appendChild(root)
     const reset = doc.createElement('style')
-    reset.textContent = `html,body{width:${width}px!important;margin:0!important;padding:0!important;background:#fff!important;zoom:1!important;transform:none!important}*,*::before,*::after{animation:none!important;transition:none!important}.operations-pdf-root{width:${width}px!important;margin:0!important;position:static!important;opacity:1!important;transform:none!important;zoom:1!important}.operations-user-status-scroll,.operations-client-details{max-height:none!important;height:auto!important;overflow:visible!important}.operations-user-summary-row{opacity:1!important;transform:none!important}.operations-user-status-table{width:100%!important;min-width:0!important}.operations-client-details td{padding-top:16px!important;padding-bottom:24px!important}.operations-status-date,.operations-po-number,.operations-sla-date{line-height:1.6!important;overflow:visible!important;white-space:normal!important;overflow-wrap:anywhere!important}.operations-user-progress i{box-shadow:none!important}.operations-user-toolbar,.operations-pdf-hide{display:none!important}`
+    reset.textContent = `html,body{width:${width}px!important;margin:0!important;padding:0!important;background:#fff!important;zoom:1!important;transform:none!important}*,*::before,*::after{animation:none!important;transition:none!important}.operations-pdf-root{width:${width}px!important;margin:0!important;position:static!important;opacity:1!important;transform:none!important;zoom:1!important}.operations-user-status-scroll{max-height:none!important;height:auto!important;overflow:visible!important}.operations-user-summary-row{opacity:1!important;transform:none!important}.operations-user-status-table{width:100%!important;min-width:0!important}.operations-status-date,.operations-po-number,.operations-sla-date{line-height:1.6!important;overflow:visible!important;white-space:normal!important;overflow-wrap:anywhere!important}.operations-user-progress i{box-shadow:none!important}.operations-client-details,.operations-user-detail-row,.operations-user-toolbar,.operations-pdf-hide{display:none!important}`
     doc.head.appendChild(reset)
     root.style.boxSizing = 'border-box'
     // html2canvas doesn't support color-mix; resolve the progress labels explicitly.
@@ -62,7 +62,7 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
     await new Promise((resolve) => setTimeout(resolve, 0))
     // html2canvas replaces SVGs with images in its clone, which can shrink table
     // rows. Freeze measured cell/block heights before calculating page breaks.
-    root.querySelectorAll('th,td,.operations-user-status-heading,.operations-report-meta,.operations-client-details>header,.compliance-kpi-root,.compliance-kpi-branch>header,.compliance-kpi-waste-row').forEach((block) => {
+    root.querySelectorAll('th,td,.operations-user-status-heading,.operations-report-meta,.compliance-kpi-root,.compliance-kpi-branch>header,.compliance-kpi-waste-row').forEach((block) => {
       const height = block.getBoundingClientRect().height
       block.style.boxSizing = 'border-box'
       block.style.height = `${height}px`
@@ -70,7 +70,7 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
     })
     const bounds = root.getBoundingClientRect()
     const height = Math.ceil(bounds.height)
-    const protectedBlocks = [...root.querySelectorAll('.operations-user-status-heading,.operations-user-summary-row,.operations-client-details>header,.operations-client-details tr,.operations-user-status-table>thead,.operations-user-status-table>tfoot,.operations-client-empty')]
+    const protectedBlocks = [...root.querySelectorAll('.operations-user-status-heading,.operations-user-summary-row,.operations-user-status-table>thead,.operations-user-status-table>tfoot,.operations-client-empty')]
       .map((block) => { const rect = block.getBoundingClientRect(); return { top: Math.floor(rect.top - bounds.top), bottom: Math.ceil(rect.bottom - bounds.top) } })
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3', compress: true })
     const printableWidth = 400
