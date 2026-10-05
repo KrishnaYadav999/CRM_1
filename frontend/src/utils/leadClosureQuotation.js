@@ -47,6 +47,18 @@ function quotationTime(quotation = {}) {
 }
 
 /**
+ * Prefer a real saved quotation Basic Amount over empty/zero values introduced
+ * by older live PO rows during approval hydration.
+ */
+export function resolveQuotationBasicAmount(...values) {
+  const recorded = values
+    .filter((value) => value !== '' && value !== null && value !== undefined)
+    .map(Number)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  return recorded.find((value) => value > 0) ?? recorded[0] ?? 0;
+}
+
+/**
  * Select the quotation that actually contains the clicked lead service.
  * Exact assigned-service IDs are authoritative. Identity matching exists only
  * for legacy quotations saved before those IDs were persisted.

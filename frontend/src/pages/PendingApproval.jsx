@@ -13,6 +13,7 @@ import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { uploadMedia } from '../services/mediaUpload';
 import { resolvePoApplicantDetails } from '../utils/poApplicantDetails.mjs';
+import { resolveQuotationBasicAmount } from '../utils/leadClosureQuotation';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 
 const rowsPerPage = 5;
@@ -588,7 +589,8 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
           quotationSent: String(liveRow?.quotationSent || snapshot?.quotationSent || payload.quotationSent || '').toLowerCase(),
           quotationId: liveRow?.quotationId || snapshot?.quotationId || '',
           quotationNumber: liveRow?.quotationNumber || snapshot?.quotationNumber || '',
-          quotationBasicAmount: Number(liveRow?.quotationBasicAmount ?? snapshot?.quotationBasicAmount ?? 0),
+          quotationBasicAmount: resolveQuotationBasicAmount(liveRow?.quotationBasicAmount, snapshot?.quotationBasicAmount),
+          quotationItems: Array.isArray(liveRow?.quotationItems) && liveRow.quotationItems.length ? liveRow.quotationItems : (snapshot?.quotationItems || []),
           hasPoFileUrl: Boolean(proof.poFileUrl)
         };
       });
@@ -607,7 +609,8 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
           quotationSent: String(liveRow?.quotationSent || snapshot.quotationSent || payload.quotationSent || '').toLowerCase(),
           quotationId: liveRow?.quotationId || snapshot.quotationId || '',
           quotationNumber: liveRow?.quotationNumber || snapshot.quotationNumber || '',
-          quotationBasicAmount: Number(liveRow?.quotationBasicAmount ?? snapshot.quotationBasicAmount ?? 0),
+          quotationBasicAmount: resolveQuotationBasicAmount(liveRow?.quotationBasicAmount, snapshot.quotationBasicAmount),
+          quotationItems: Array.isArray(liveRow?.quotationItems) && liveRow.quotationItems.length ? liveRow.quotationItems : (snapshot.quotationItems || []),
           hasPoFileUrl: Boolean(proof.poFileUrl)
         };
       });

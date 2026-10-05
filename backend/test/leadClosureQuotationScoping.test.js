@@ -86,3 +86,11 @@ test('PO hydration keeps selected service identity authoritative over stale save
   assert.equal(rows[0].poNumber, '2025090099');
   assert.equal(rows[0].poAmount, 50000);
 });
+
+test('approval hydration preserves the saved quotation Basic Amount when the live PO row is blank or zero', async () => {
+  const { resolveQuotationBasicAmount } = await modulePromise;
+  assert.equal(resolveQuotationBasicAmount('', 50000), 50000);
+  assert.equal(resolveQuotationBasicAmount(0, 50000), 50000);
+  assert.equal(resolveQuotationBasicAmount('25000', 50000), 25000);
+  assert.equal(resolveQuotationBasicAmount('', null), 0);
+});
