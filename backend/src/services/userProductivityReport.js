@@ -2,6 +2,7 @@ const User = require('../models/User');
 const UserSession = require('../models/UserSession');
 const AuditLog = require('../models/AuditLog');
 const Lead = require('../models/Lead');
+const TemporaryLead = require('../models/TemporaryLead');
 const SupportTicket = require('../models/SupportTicket');
 const Client = require('../models/Client');
 const Team = require('../models/Team');
@@ -91,7 +92,7 @@ function buildDailyTimeline(sessions, activities) {
   return [...groups.values()].map((row) => ({ ...row, modules: [...row.modules].sort() })).sort((a, b) => b.date.localeCompare(a.date));
 }
 
-function buildUserProductivityReport({ users, sessions, activities, leads, clients = [], ticketStats, period, now = new Date() }) {
+function buildUserProductivityReport({ users, sessions, activities, leads, temporaryLeads = [], clients = [], ticketStats, period, now = new Date() }) {
   const byUser = (items, field) => items.reduce((map, item) => {
     const key = String(item[field] || '');
     if (!map.has(key)) map.set(key, []);
@@ -116,6 +117,12 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
     if (!ownerId) return map;
     if (!map.has(ownerId)) map.set(ownerId, []);
     map.get(ownerId).push(lead);
+    return map;
+  }, new Map());
+  const temporaryCountsByUser = temporaryLeads.reduce((map, lead) => {
+    const ownerId = [lead.createdBy, lead.createdByEmail, lead.createdByName]
+      .map((identity) => userByIdentity.get(normalizeIdentity(entityId(identity)))).find(Boolean);
+    if (ownerId) map.set(ownerId, (map.get(ownerId) || 0) + 1);
     return map;
   }, new Map());
   const clientLeadById = new Map(leads.map((lead) => [entityId(lead._id), lead]));
@@ -169,6 +176,7 @@ function buildUserProductivityReport({ users, sessions, activities, leads, clien
       teamId: user.teamId || null, managerId: user.managerId || null,
       active: user.isActive !== false, lastLogin: user.lastLogin || null, lastActivity,
       totalLeads: ownLeads.length, closedLeads, openLeads: Math.max(0, ownLeads.length - closedLeads),
+      temporaryLeads: temporaryCountsByUser.get(id) || 0,
       clientMasters: ownClients.length, clientFieldsFilled,
       clientFieldsMissing: Math.max(0, clientFieldsTotal - clientFieldsFilled),
       draftClients: ownClients.filter((client) => String(client.workflowStatus || 'draft').toLowerCase() === 'draft').length,
@@ -227,13 +235,14 @@ async function getUserProductivityReport({ from, to, requester }) {
     const activityUserFilter = isAdmin ? {} : { userId: { $in: scopedUserIds } };
     const ownerFilter = isAdmin ? {} : { createdBy: { $in: scopedUserIds } };
     const createdAt = { $gte: period.start, $lte: period.end };
-    const [users, sessions, activities, leads, clients, ticketStats] = await Promise.all([
+    const [users, sessions, activities, leads, temporaryLeads, clients, ticketStats] = await Promise.all([
       reportQuery('users', User.find(userFilter).select('name email crmUserId role team teamId managerId operationHeadId isActive lastLogin').lean()),
       reportQuery('sessions', UserSession.find({ ...activityUserFilter, loginAt: createdAt })
         .select('userId loginAt lastActivityAt logoutAt activeSeconds activityCount presenceState ipAddress userAgent').sort({ loginAt: -1 }).limit(5000).maxTimeMS(15000).lean()),
       reportQuery('activities', AuditLog.find({ ...activityUserFilter, occurredAt: createdAt })
         .select('userId action module description occurredAt statusCode').sort({ occurredAt: -1 }).limit(10000).maxTimeMS(15000).lean()),
       reportQuery('leads', Lead.find({ ...ownerFilter, createdAt }).select('createdBy createdByCrmUserId createdByEmail createdByName importedCreatedBy generatedForUser generatedForName generatedForEmail status closedBy closedByText closedAt createdAt').maxTimeMS(20000).lean()),
+      reportQuery('temporary-leads', TemporaryLead.find({ ...ownerFilter, createdAt }).select('createdBy createdByName createdByEmail').maxTimeMS(15000).lean()),
       reportQuery('clients', Client.find({ ...ownerFilter, createdAt }).select('createdBy data workflowStatus adminControls.approvalStatus createdAt updatedAt selectedLead assignedServiceId').maxTimeMS(20000).lean()),
       reportQuery('tickets', SupportTicket.aggregate([
         { $match: { ...ownerFilter, createdAt } },
@@ -245,7 +254,7 @@ async function getUserProductivityReport({ from, to, requester }) {
       ]).option({ maxTimeMS: 15000 }))
     ]);
     return {
-      ...buildUserProductivityReport({ users, sessions, activities, leads, clients, ticketStats, period }),
+      ...buildUserProductivityReport({ users, sessions, activities, leads, temporaryLeads, clients, ticketStats, period }),
       misAccess: {
         isAdmin,
         scope: isAdmin ? 'all' : (operationTeams.some((team) => String(entityId(team.operationHead) || '') === String(requesterId)) ? 'operation-head' : 'manager'),

@@ -115,13 +115,27 @@ function fallbackCompletion(data = {}) {
   return { filled, missing: Math.max(0, total - filled) }
 }
 
-function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = [], from, to }) {
+async function loadTemporaryMisLeads() {
+  const rows = []
+  let page = 1
+  let pages = 1
+  do {
+    const { data } = await api.get(API_ENDPOINTS.leads.temporaryLeads, { timeout: 30000, params: { page, limit: 100 } })
+    rows.push(...(data.temporaryLeads || []))
+    pages = Number(data.pagination?.pages || 1)
+    page += 1
+  } while (page <= pages)
+  return rows
+}
+
+function buildFallbackMisReport({ users = [], leads = [], temporaryLeads = [], clients = [], teams = [], from, to }) {
   const periodClients = clients.filter((client) => dateInReportRange(client.createdAt, from, to))
   const identity = (value) => String(entityId(value) || '').trim().toLowerCase().replace(/\s+/g, ' ')
   const rows = users.map((account) => {
     const id = entityId(account._id || account.id)
     const aliases = new Set([id, account.crmUserId, account.email, account.name].map(identity).filter(Boolean))
     const ownedLeads = leads.filter((lead) => {
+      if (!dateInReportRange(lead.createdAt, from, to)) return false
       const generatedOwner = [lead.generatedForUser, lead.generatedForName, lead.generatedForEmail].filter(Boolean)
       const owner = generatedOwner.length ? generatedOwner : [lead.createdBy, lead.createdByCrmUserId, lead.createdByEmail, lead.createdByName, lead.importedCreatedBy]
       return owner.map(identity).some((value) => aliases.has(value))
@@ -135,6 +149,7 @@ function buildFallbackMisReport({ users = [], leads = [], clients = [], teams = 
       id, name: displayText(account.name || account.email, 'Unnamed user'), email: displayText(account.email, ''),
       role: String(account.role || '').toLowerCase(), team: displayText(account.team, 'No team assigned'), managerId: entityId(account.managerId),
       active: account.isActive !== false, online: false, presence: account.lastLogin ? 'Offline' : 'Never Logged In', lastLogin: account.lastLogin || null,
+      temporaryLeads: temporaryLeads.filter((lead) => dateInReportRange(lead.createdAt, from, to) && entityId(lead.createdBy) === id).length,
       lastActivity: account.lastLogin || null, totalLeads: ownedLeads.length, closedLeads, openLeads: Math.max(0, ownedLeads.length - closedLeads),
       clientMasters: ownedClients.length, clientFieldsFilled, clientFieldsMissing,
       draftClients: ownedClients.filter((client) => String(client.workflowStatus || 'draft').toLowerCase() === 'draft').length,
@@ -250,19 +265,19 @@ function salesDepartment(row = {}) {
 function buildSalesDepartmentGroups(rows = []) {
   return ['Sales Team', 'Operations Team', 'Management', 'Other Departments'].map((name) => {
     const members = rows.filter((row) => salesDepartment(row) === name)
-    const totals = members.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
+    const totals = members.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0), temporary: sum.temporary + Number(row.temporaryLeads || 0) }), { total: 0, open: 0, closed: 0, temporary: 0 })
     return { name, members, ...totals }
   }).filter((group) => group.members.length)
 }
 
 function SalesOwnershipTable({ groups, loading, onOpenUser }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[940px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Sr. No.</th><th className="px-5 py-3">Lead Owner</th><th className="px-5 py-3">Role / CRM Team</th><th className="px-5 py-3 text-right">Total Leads</th><th className="px-5 py-3 text-right">Lead Open</th><th className="px-5 py-3 text-right">Lead Close</th><th className="px-5 py-3">Close Rate</th></tr></thead><tbody>
-    {loading && <tr><td colSpan="7" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr>}
+  return <div className="overflow-x-auto"><table className="w-full min-w-[940px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th rowSpan={2} scope="col" className="px-5 py-3">Sr. No.</th><th rowSpan={2} scope="col" className="px-5 py-3">Lead Owner</th><th rowSpan={2} scope="col" className="px-5 py-3">Role / CRM Team</th><th colSpan={2} scope="colgroup" className="border-x border-emerald-100 bg-emerald-50 px-5 py-3 text-center text-emerald-800">Total Leads</th><th rowSpan={2} scope="col" className="px-5 py-3 text-right">Lead Open</th><th rowSpan={2} scope="col" className="px-5 py-3 text-right">Lead Close</th><th rowSpan={2} scope="col" className="px-5 py-3">Close Rate</th></tr><tr><th scope="col" className="border-l border-emerald-100 bg-violet-50 px-5 py-2 text-right text-violet-700">Temp Lead</th><th scope="col" className="border-r border-emerald-100 bg-emerald-50 px-5 py-2 text-right text-emerald-700">Lead</th></tr></thead><tbody>
+    {loading && <tr><td colSpan="8" className="p-5"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></td></tr>}
     {!loading && groups.flatMap((group) => {
       const teamRate = group.total ? Math.round(group.closed / group.total * 100) : 0
-      return [<tr key={`department-${group.name}`} className="border-t-2 border-emerald-200 bg-emerald-50 font-black text-emerald-950"><td className="px-5 py-3" colSpan="3"><span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{group.name}<small className="rounded-full bg-white px-2 py-1 text-[10px] text-emerald-700">{group.members.length} users</small></span></td><td className="px-5 py-3 text-right text-lg">{group.total}</td><td className="px-5 py-3 text-right text-orange-600">{group.open}</td><td className="px-5 py-3 text-right text-emerald-700">{group.closed}</td><td className="px-5 py-3 text-emerald-800">{teamRate}%</td></tr>, ...group.members.map((row, index) => { const rate = row.totalLeads ? Math.round(row.closedLeads / row.totalLeads * 100) : 0; return <tr key={String(row.id)} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-emerald-50/50"><td className="px-5 py-4 pl-8 font-black text-slate-400">{index + 1}</td><td className="px-5 py-4"><button type="button" onClick={() => onOpenUser(row)} className="text-left"><strong className="block text-slate-950 hover:text-emerald-700">{row.name}</strong><small className="text-slate-500">{row.email}</small></button></td><td className="px-5 py-4"><strong className="block text-xs">{row.roleLabel}</strong><small className="text-slate-500">{row.team || group.name}</small></td><td className="px-5 py-4 text-right text-lg font-black text-slate-950">{row.totalLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-orange-600">{row.openLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{row.closedLeads}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${rate}%` }} /></div><strong className="text-emerald-800">{rate}%</strong></div></td></tr> })]
+      return [<tr key={`department-${group.name}`} className="border-t-2 border-emerald-200 bg-emerald-50 font-black text-emerald-950"><td className="px-5 py-3" colSpan="3"><span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{group.name}<small className="rounded-full bg-white px-2 py-1 text-[10px] text-emerald-700">{group.members.length} users</small></span></td><td className="px-5 py-3 text-right text-lg text-violet-700">{group.temporary}</td><td className="px-5 py-3 text-right text-lg">{group.total}</td><td className="px-5 py-3 text-right text-orange-600">{group.open}</td><td className="px-5 py-3 text-right text-emerald-700">{group.closed}</td><td className="px-5 py-3 text-emerald-800">{teamRate}%</td></tr>, ...group.members.map((row, index) => { const rate = row.totalLeads ? Math.round(row.closedLeads / row.totalLeads * 100) : 0; return <tr key={String(row.id)} className="border-t border-slate-100 font-semibold text-slate-700 hover:bg-emerald-50/50"><td className="px-5 py-4 pl-8 font-black text-slate-400">{index + 1}</td><td className="px-5 py-4"><button type="button" onClick={() => onOpenUser(row)} className="text-left"><strong className="block text-slate-950 hover:text-emerald-700">{row.name}</strong><small className="text-slate-500">{row.email}</small></button></td><td className="px-5 py-4"><strong className="block text-xs">{row.roleLabel}</strong><small className="text-slate-500">{row.team || group.name}</small></td><td className="px-5 py-4 text-right text-lg font-black text-violet-700">{Number(row.temporaryLeads || 0)}</td><td className="px-5 py-4 text-right text-lg font-black text-slate-950">{row.totalLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-orange-600">{row.openLeads}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{row.closedLeads}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${rate}%` }} /></div><strong className="text-emerald-800">{rate}%</strong></div></td></tr> })]
     })}
-    {!loading && !groups.length && <tr><td colSpan="7" className="p-10 text-center font-bold text-slate-400">No lead owners found.</td></tr>}
+    {!loading && !groups.length && <tr><td colSpan="8" className="p-10 text-center font-bold text-slate-400">No lead owners found.</td></tr>}
   </tbody></table></div>
 }
 
@@ -326,15 +341,15 @@ export default function SuperAdminDashboard({ misPage = false }) {
       if (misPage && currentUserIsAdmin) {
         const fallbackResults = await Promise.allSettled([
           api.get(API_ENDPOINTS.auth.users, { timeout: 30000 }), api.get(API_ENDPOINTS.leads.list, { timeout: 30000 }),
-          api.get(API_ENDPOINTS.clients.list, { timeout: 30000 }), api.get(API_ENDPOINTS.teams.list, { timeout: 30000 })
+          api.get(API_ENDPOINTS.clients.list, { timeout: 30000 }), api.get(API_ENDPOINTS.teams.list, { timeout: 30000 }), loadTemporaryMisLeads()
         ])
-        const [usersResult, leadsResult, clientsResult, teamsResult] = fallbackResults
+        const [usersResult, leadsResult, clientsResult, teamsResult, temporaryResult] = fallbackResults
         const users = usersResult.status === 'fulfilled' ? usersResult.value.data?.users || [] : []
         const leads = leadsResult.status === 'fulfilled' ? leadsResult.value.data?.leads || [] : []
         const clients = clientsResult.status === 'fulfilled' ? clientsResult.value.data?.clients || [] : []
         const teams = teamsResult.status === 'fulfilled' ? teamsResult.value.data?.teams || [] : []
         if (users.length) {
-          setReport(buildFallbackMisReport({ users, leads, clients, teams, from: appliedFilters.from, to: appliedFilters.to }))
+          setReport(buildFallbackMisReport({ users, leads, temporaryLeads: temporaryResult.status === 'fulfilled' ? temporaryResult.value : [], clients, teams, from: appliedFilters.from, to: appliedFilters.to }))
           setError('Live activity telemetry is temporarily unavailable. Sales and Operation MIS are showing current CRM records.')
         } else setError(requestError?.response?.data?.error || 'Unable to load MIS data. Please try again.')
       } else setError(requestError?.response?.data?.error || 'Unable to load the user activity report. Please try again.')
@@ -552,7 +567,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
 
         {misPage && misAccess.showSales && <section className="mt-4 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-5 py-4">
-            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Management · Lead Ownership MIS</p><h2 className="text-xl font-black text-slate-950">Sales & Operations Team Performance</h2><p className="text-xs font-semibold text-slate-500">Permanent Lead Owner based counts · manager allocation never changes ownership credit</p></div></div>
+            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-700"><Users className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-700">Management · Lead Ownership MIS</p><h2 className="text-xl font-black text-slate-950">Sales & Operations Team Performance</h2><p className="text-xs font-semibold text-slate-500">Permanent Lead Owner based counts · Temp Lead includes all captured temporary records, including converted records</p></div></div>
             <button type="button" onClick={() => downloadMisPdf('sales')} disabled={loading || Boolean(generatingMisPdf)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075848] px-4 text-sm font-black text-white disabled:opacity-50">{generatingMisPdf === 'sales' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{generatingMisPdf === 'sales' ? 'Generating...' : 'Download Sales PDF'}</button>
           </header>
           <SalesOwnershipTable groups={departmentSalesGroups} loading={loading} onOpenUser={setWorkReportUser} />
