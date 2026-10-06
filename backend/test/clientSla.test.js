@@ -21,6 +21,8 @@ test('SLA API does not save incomplete dates, saves valid data and returns it on
  let saves = 0;
  const record = { sla: {}, markModified() {}, async save() { saves++; } };
  t.mock.method(Client, 'findOne', () => ({ select: async () => record, then(resolve, reject) { return Promise.resolve(record).then(resolve, reject); } }));
+ const firstVisit = response(); await getClientSla({ params: {id}, user }, firstVisit);
+ assert.equal(firstVisit.body.ready, false);
  const incomplete = response();
  await updateClientSla({ params: {id}, user, body: {status:'Yes',fromDate:'2026-10-06'} }, incomplete);
  assert.equal(incomplete.statusCode, 400); assert.equal(incomplete.body.ready, false); assert.equal(saves,0);

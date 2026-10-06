@@ -1352,6 +1352,7 @@ export default function ClientMaster() {
   const [pendingLeadServices, setPendingLeadServices] = useState(null);
   const [pendingServiceView, setPendingServiceView] = useState(null);
   const [pendingSlaView, setPendingSlaView] = useState(null);
+  const [slaAccessClient, setSlaAccessClient] = useState(null);
   const [pendingCpcbOnboarding, setPendingCpcbOnboarding] = useState(null);
   const [saving, setSaving] = useState(false);
   const [savingMode, setSavingMode] = useState('');
@@ -2840,6 +2841,8 @@ export default function ClientMaster() {
   }
 
   function closeViewClient() {
+    setSlaAccessClient(null);
+    setPendingSlaView(null);
     clientRecordRequestRef.current += 1;
     setViewClient(null);
     setViewServiceClients([]);
@@ -2855,6 +2858,30 @@ export default function ClientMaster() {
         ? updatedClient
         : item
     )));
+  }
+
+  async function requestDirectoryClientView(selectedClient) {
+    const requestId = ++clientRecordRequestRef.current;
+    setPendingServiceView(null);
+    setPendingSlaView(null);
+    setSlaAccessClient(selectedClient);
+    setViewLoading(true);
+    setError('');
+    try {
+      const clientId = String(selectedClient?._id || selectedClient?.id || selectedClient?.clientMasterId || '').trim();
+      const { data: response } = await api.get(API_ENDPOINTS.clients.sla(clientId));
+      if (requestId !== clientRecordRequestRef.current) return;
+      if (response.ready === true) {
+        await openDirectoryClientView(selectedClient);
+      } else {
+        setViewLoading(false);
+        setPendingSlaView({ client: selectedClient, returnToDetails: false });
+      }
+    } catch (err) {
+      if (requestId !== clientRecordRequestRef.current) return;
+      setViewLoading(false);
+      setError(err?.response?.data?.error || 'Unable to check saved SLA details. Please try again.');
+    }
   }
 
   async function openDirectoryClientView(selectedClient) {
@@ -2896,10 +2923,10 @@ export default function ClientMaster() {
     return (
       <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
         {pendingSlaView ? (
-          <ClientSlaPage key={pendingSlaView._id || pendingSlaView.id || pendingSlaView.clientMasterId} client={pendingSlaView} onClose={() => setPendingSlaView(null)} onContinue={() => {
-            const selectedClient = pendingSlaView;
+          <ClientSlaPage key={pendingSlaView.client._id || pendingSlaView.client.id || pendingSlaView.client.clientMasterId} client={pendingSlaView.client} backLabel={pendingSlaView.returnToDetails ? 'Back to Client Details' : 'Back to Client Master list'} onClose={() => setPendingSlaView(null)} onContinue={() => {
+            const { client: selectedClient, returnToDetails } = pendingSlaView;
             setPendingSlaView(null);
-            openDirectoryClientView(selectedClient);
+            if (!returnToDetails) openDirectoryClientView(selectedClient);
           }} />
         ) : viewLoading ? (
           <div className="grid min-h-[calc(100vh-64px)] place-items-center bg-[#f3f8f6] px-4">
@@ -2918,6 +2945,7 @@ export default function ClientMaster() {
             currentUser={currentUser}
             onClose={closeViewClient}
             onClientUpdated={handleViewedClientUpdated}
+            onEditSla={() => setPendingSlaView({ client: slaAccessClient || viewClient, returnToDetails: true })}
           />
         ) : (
           <ClientDirectoryView
@@ -2932,7 +2960,7 @@ export default function ClientMaster() {
             onRefresh={loadPage}
             onDirectoryQueryChange={loadClientDirectory}
             onExportAll={loadAllClientsForExport}
-            onView={(item) => { setPendingServiceView(null); setPendingSlaView(item); }}
+            onView={requestDirectoryClientView}
             onEdit={openClientEdit}
             canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
             onCreate={openClientForm}
@@ -3478,7 +3506,7 @@ function openableClientDocumentUrl(url) {
   return /^(https?:|data:|blob:)/i.test(value) ? value : normalizeDocumentUrl(value);
 }
 
-function ClientViewModal({ client, serviceClients = [], onServiceChange, quotations = [], proformaInvoices = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
+function ClientViewModal({ client, serviceClients = [], onServiceChange, onEditSla, quotations = [], proformaInvoices = [], staff = [], onClose, initialTab = 'basic', initialAnnualYear = '', currentUser, onClientUpdated }) {
   const navigate = useNavigate();
   const data = readClientData(client);
   const msmeRows = getMsmeRows(data);
@@ -3844,6 +3872,7 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
             </div>
             <div className="flex flex-wrap gap-2">
               <a href="https://eprplastic.cpcb.gov.in/#/plastic/home" target="_blank" rel="noreferrer" className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><ShieldCheck className="h-4 w-4" />CPCB Login</a>
+              {onEditSla && <button type="button" onClick={onEditSla} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3.5 text-sm font-black text-teal-700 hover:bg-teal-100"><Edit3 className="h-4 w-4" />SLA EDIT</button>}
               <button type="button" onClick={() => navigate('/sales/quotations?mode=add', { state: { quotationContext } })} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-black text-violet-700"><Plus className="h-4 w-4" />Quotation</button>
               <button type="button" onClick={() => setHistoryOpen(true)} className="btn-lift inline-flex min-h-9 items-center gap-2 rounded-lg bg-teal-700 px-3.5 text-sm font-black text-white"><FileText className="h-4 w-4" />History</button>
             </div>

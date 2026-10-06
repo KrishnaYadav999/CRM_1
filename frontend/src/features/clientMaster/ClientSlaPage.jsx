@@ -12,7 +12,7 @@ function validDate(value) {
   const date = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
-export default function ClientSlaPage({ client, onClose, onContinue }) {
+export default function ClientSlaPage({ client, onClose, onContinue, backLabel = 'Back to Client Master list' }) {
   const clientId = String(client?._id || client?.id || client?.clientMasterId || '');
   const data = readClientData(client);
   const clientName = data.basic?.clientLegalName || data.basic?.tradeName || data.companyOverview?.companyName || 'Client';
@@ -56,7 +56,7 @@ export default function ClientSlaPage({ client, onClose, onContinue }) {
     finally { setBusy(''); }
   }
   return <main className="client-sla-page">
-    <button type="button" className="sla-back" disabled={Boolean(busy)} onClick={onClose}><ArrowLeft size={16} />Back to Client Master list</button>
+    <button type="button" className="sla-back" disabled={Boolean(busy)} onClick={onClose}><ArrowLeft size={16} />{backLabel}</button>
     <section className="sla-card">
       <header className="sla-header"><span className="sla-icon"><FileCheck2 size={28} /></span><div><p>CLIENT MASTER ACCESS</p><h1>SLA Details</h1><span>{clientName}</span></div><span className={`sla-access ${datesValid ? 'sla-access-ready' : ''}`}><LockKeyhole size={15} />{datesValid ? 'Ready to save' : 'Dates required to continue'}</span></header>
       <form onSubmit={save}>
