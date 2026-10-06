@@ -2871,7 +2871,7 @@ export default function ClientMaster() {
       const clientId = String(selectedClient?._id || selectedClient?.id || selectedClient?.clientMasterId || '').trim();
       const { data: response } = await api.get(API_ENDPOINTS.clients.sla(clientId));
       if (requestId !== clientRecordRequestRef.current) return;
-      if (response.ready === true) {
+      if (response.ready === true && response.sla?.status !== 'No') {
         await openDirectoryClientView(selectedClient);
       } else {
         setViewLoading(false);
