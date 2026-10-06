@@ -645,7 +645,8 @@ function isSoftApprovalLoadError(err) {
   return err?.code === 'ECONNABORTED' || err?.message === 'Network Error' || !err?.response;
 }
 
-export default function PendingApproval() {
+export default function PendingApproval({ embedded = false, companyOnly = false }) {
+  const ApprovalShell = embedded ? React.Fragment : DashboardShell;
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   });
@@ -692,7 +693,7 @@ export default function PendingApproval() {
   const isQuotationSuperAdmin = primaryRole === 'superadmin' || (!primaryRole && hasAnyRole(currentUser, ['superadmin']));
   const canAdminApproveQuotation = primaryRole === 'admin' || (!primaryRole && hasAnyRole(currentUser, ['admin']) && !isQuotationSuperAdmin);
   const canApproveTemporary = hasAnyRole(currentUser, ['admin', 'superadmin']);
-  const isComplianceApprovalView = hasAnyRole(currentUser, ['compliance']) && !canApprove;
+  const isComplianceApprovalView = companyOnly || hasAnyRole(currentUser, ['compliance']) && !canApprove;
   const isServiceParticipantView = !canApprove && !isComplianceApprovalView;
   const canApproveClients = canApprove || isComplianceApprovalView;
 
@@ -757,6 +758,7 @@ export default function PendingApproval() {
   ), [filteredPoApprovals, poPage]);
 
   const approvalTabs = useMemo(() => {
+    if (companyOnly) return [{ id: 'clients', icon: Clock3, label: 'Pending Clients', count: filteredClients.length }];
     const list = [{ id: 'deactivation', icon: Users, label: 'Client Deactivation', count: deactivationCount }];
     if (isServiceParticipantView) {
       list.push({ id: 'services', icon: FileText, label: 'Pending Service Approvals', count: filteredServices.length });
@@ -776,7 +778,7 @@ export default function PendingApproval() {
       list.push({ id: 'duplicates', icon: Users, label: 'Special Approvals', count: filteredDuplicateLeads.length });
     }
     return list;
-  }, [deactivationCount, canApproveClients, canApproveTemporary, isComplianceApprovalView, isServiceParticipantView, filteredClients.length, filteredTemporary.length, filteredPoApprovals.length, filteredQuotations.length, filteredRoyalty.length, filteredServices.length, filteredDuplicateLeads.length]);
+  }, [companyOnly, deactivationCount, canApproveClients, canApproveTemporary, isComplianceApprovalView, isServiceParticipantView, filteredClients.length, filteredTemporary.length, filteredPoApprovals.length, filteredQuotations.length, filteredRoyalty.length, filteredServices.length, filteredDuplicateLeads.length]);
 
   useEffect(() => {
     let mounted = true;
@@ -1375,10 +1377,10 @@ export default function PendingApproval() {
   }
 
   return (
-    <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
+    <ApprovalShell {...(!embedded ? { currentUser, onOpenProfile: () => setProfileOpen(true), onLogout: handleLogout } : {})}>
       <div className="pending-approval-page">
         <div className="pending-approval-shell">
-          <header className="pending-approval-hero">
+          {!embedded && <header className="pending-approval-hero">
             <div className="pending-approval-title">
               <button
                 type="button"
@@ -1403,20 +1405,20 @@ export default function PendingApproval() {
               <RefreshCw className="h-4 w-4" />
               Refresh
             </button>
-          </header>
+          </header>}
 
           {error && <ToastMessage type="error" className="mt-5">{error}</ToastMessage>}
           {notice && <ToastMessage type="success" className="mt-5">{notice}</ToastMessage>}
           {loading && <div className="page-inline-loader">Refreshing approval data...</div>}
 
-          <div className="pending-metrics">
+          {!embedded && <div className="pending-metrics">
             {canApproveClients && <Metric icon={Users} label="Pending Clients" value={pendingClients.filter((client) => getApprovalStatus(client) === 'PENDING').length} hint="Needs your review" tone="mint" onClick={() => openMetric('clients')} />}
             {!isComplianceApprovalView && <Metric icon={FileText} label="Pending Quotations" value={pendingQuotations.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Needs your review" tone="blue" onClick={() => openMetric('quotations')} />}
             {!isComplianceApprovalView && <Metric icon={Users} label="Special Approvals" value={duplicateLeadApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Lead review" tone="mint" onClick={() => openMetric('duplicates')} />}
             {!isComplianceApprovalView && <Metric icon={Users} label="Royalty Claims" value={royaltyApprovals.filter((row) => getApprovalStatus(row) === 'PENDING').length} hint="Ratio review" tone="blue" onClick={() => openMetric('royalty')} />}
             <Metric icon={CheckCircle2} label="Approved" value={approvedTodayCount} hint="Saved approval history" tone="teal" onClick={() => openMetric(isComplianceApprovalView ? 'clients' : 'quotations', 'APPROVED')} />
             <Metric icon={XCircle} label="Rejected" value={rejectedCount} hint="Since midnight" tone="rose" onClick={() => openMetric(null, 'REJECTED')} />
-          </div>
+          </div>}
 
           <section className="pending-approval-panel">
             {activeTab !== 'deactivation' && <div className="pending-filter-bar">
@@ -1863,7 +1865,7 @@ export default function PendingApproval() {
           onUpdatePassword={handleUpdatePassword}
         />
       )}
-    </DashboardShell>
+    </ApprovalShell>
   );
 }
 

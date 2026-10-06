@@ -1,142 +1,442 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildSections, reviewState, validateDecision } = require('../src/services/arCompliance');
+const service = require('../src/services/arCompliance');
 const Client = require('../src/models/Client');
-const AnnualReturn = require('../src/models/AnnualReturn');
-const PurchaseData = require('../src/models/PurchaseData');
-const SalesData = require('../src/models/SalesData');
-const PurchaseRows = require('../src/models/PurchaseImportRow');
-const SalesRows = require('../src/models/SalesImportRow');
+const Annual = require('../src/models/AnnualReturn');
+const Purchase = require('../src/models/PurchaseData');
+const Sales = require('../src/models/SalesData');
+const PR = require('../src/models/PurchaseImportRow');
+const SR = require('../src/models/SalesImportRow');
 const Review = require('../src/models/ArComplianceReview');
-const controller = require('../src/controllers/arComplianceController');
-const id = '64b000000000000000000002';
-const user = { _id: '64b000000000000000000001', role: 'compliance' };
-const query = (value) => ({ populate() { return this; }, select() { return this; }, sort() { return this; }, async lean() { return value; } });
-function response() { return { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } }; }
-function fixture(t, savedReview = null) {
-  const client = { _id: id, data: { basic: { clientLegalName: 'Test Client' }, annualReturn: { filings: { '2025-26': { draft: { 'basic.gstNumber': 'GST123', 'data.productionFacility': false } } } } } };
-  t.mock.method(Client, 'findOne', () => query(structuredClone(client)));
-  t.mock.method(AnnualReturn, 'find', () => query([]));
-  for (const model of [PurchaseData, SalesData]) { t.mock.method(model, 'distinct', async () => []); t.mock.method(model, 'findOne', () => query(null)); }
-  for (const model of [PurchaseRows, SalesRows]) t.mock.method(model, 'find', () => query([]));
-  t.mock.method(Review, 'findOne', () => query(savedReview));
-  return client;
-}
-test('AR source includes grouped draft, every checklist field, proof, reconciliation and imported values without mutating source', () => {
-  const source = { draft: { 'basic.gstNumber': 'GST', 'basic.plantLocation': '', 'data.productionFacility': false, savedAt: 'ignore', __completedTabs: { basic: true } }, purchase: { checklist: [{ particular: 'Received from client', status: 'Yes', partiallyDataReceived: true, proofs: [{ name: 'proof.pdf', url: 'https://example.test/proof.pdf' }] }], reconciliation: { quantity: 0 } }, purchaseRows: [{ entityName: 'Factory', quantity: 12 }] };
-  const before = structuredClone(source);
-  const sections = buildSections(source);
-  assert.deepEqual(source, before);
-  assert.equal(sections.filter((section) => section.label === 'Basic Info').length, 1);
-  const fields = sections.flatMap((section) => section.fields);
-  assert.ok(fields.some((field) => field.value === false));
-  assert.ok(fields.some((field) => field.value === 0));
-  assert.ok(fields.some((field) => field.value === ''));
-  assert.ok(fields.some((field) => field.url === 'https://example.test/proof.pdf'));
-  assert.ok(fields.some((field) => field.value === 'Factory'));
-  assert.ok(!fields.some((field) => /Saved At|Completed Tabs/.test(field.label)));
-  assert.equal(new Set(fields.map((field) => field.key)).size, fields.length);
-});
-test('changed user value invalidates only that field and final AR status; identical data keeps review', () => {
-  const sections = buildSections({ draft: { 'basic.name': 'A', 'basic.total': 0 } });
-  const initial = reviewState(sections);
-  const fields = sections.flatMap((section) => section.fields).map((field) => ({ key: field.key, fingerprint: field.fingerprint, status: 'VERIFIED', remarks: 'Checked' }));
-  const saved = { fields, status: 'APPROVED', sourceFingerprint: initial.sourceFingerprint };
-  assert.equal(reviewState(sections, saved).progress.verified, 2);
-  const changed = reviewState(buildSections({ draft: { 'basic.name': 'B', 'basic.total': 0 } }), saved);
-  assert.equal(changed.status, 'IN_REVIEW'); assert.equal(changed.progress.verified, 1);
-  assert.equal(changed.sections[0].fields[0].review.stale, true);
-});
-test('final decisions require every field review, full approval all verified, partial approval mixed results', () => {
-  const state = { progress: { total: 2, reviewed: 1, verified: 1 } };
-  assert.match(validateDecision('REJECTED', 'Reason', state), /every field/);
-  state.progress.reviewed = 2;
-  assert.match(validateDecision('APPROVED', 'Reason', state), /Verify every/);
-  assert.equal(validateDecision('PARTIALLY_APPROVED', 'Reason', state), '');
-  assert.equal(validateDecision('REJECTED', 'Reason', state), '');
-  state.progress.verified = 2;
-  assert.equal(validateDecision('APPROVED', 'Reason', state), '');
-  assert.match(validateDecision('PARTIALLY_APPROVED', 'Reason', state), /both verified/);
-  assert.match(validateDecision('APPROVED', '', state), /remarks/);
-  assert.match(validateDecision('EDIT_DATA', 'Reason', state), /Select/);
-});
-test('AR read endpoint selects saved financial year and exposes user values as review fields', async (t) => {
-  fixture(t);
-  const res = response();
-  await controller.get({ params: { id }, query: { financialYear: '2025-26' }, user }, res, (error) => { throw error; });
-  assert.equal(res.body.financialYear, '2025-26'); assert.equal(res.body.client.name, 'Test Client');
-  assert.equal(res.body.progress.total, 2); assert.equal(res.body.status, 'PENDING');
-});
-test('AR endpoints reject missing clients and nonexistent field keys without writes', async (t) => {
-  fixture(t);
-  let writes = 0; t.mock.method(Review, 'updateOne', async () => { writes++; });
-  const res = response(); await controller.saveField({ params: { id }, query: {}, user, body: { financialYear: '2025-26', key: 'forged', status: 'VERIFIED', remarks: 'x' } }, res, (error) => { throw error; });
-  assert.equal(res.statusCode, 409); assert.equal(writes, 0);
-  const missing = response(); await controller.get({ params: { id: 'bad' }, query: {}, user }, missing, (error) => { throw error; }); assert.equal(missing.statusCode, 404);
-});
-test('field review writes only review collection and preserves source value despite injected data', async (t) => {
-  const client = fixture(t);
-  const field = buildSections({ draft: client.data.annualReturn.filings['2025-26'].draft })[0].fields[0];
-  const writes = []; t.mock.method(Review, 'updateOne', async (filter, update) => { writes.push(update); return { matchedCount: 1 }; });
-  t.mock.method(Client, 'updateOne', () => { throw new Error('AR review must not edit client data'); });
-  t.mock.method(AnnualReturn, 'updateOne', () => { throw new Error('AR review must not edit annual data'); });
-  const res = response(); await controller.saveField({ params: { id }, query: {}, user, body: { financialYear: '2025-26', key: field.key, fingerprint: field.fingerprint, status: 'VERIFIED', remarks: 'Verified GST', data: { 'basic.gstNumber': 'tampered' } } }, res, (error) => { throw error; });
-  assert.equal(res.statusCode, 200); assert.equal(writes.length, 2);
-  assert.equal(client.data.annualReturn.filings['2025-26'].draft['basic.gstNumber'], 'GST123');
-  assert.ok(Array.isArray(writes[1]));
-  assert.equal(writes[1][0].$set.fields.$concatArrays[1].$literal[0].reviewedBy, user._id);
-});
-test('final API rejects old source fingerprint and unreviewed fields without saving', async (t) => {
-  const client = fixture(t);
-  const state = reviewState(buildSections({ draft: client.data.annualReturn.filings['2025-26'].draft }));
-  let writes = 0; t.mock.method(Review, 'updateOne', async () => { writes++; });
-  for (const [sourceFingerprint, code] of [['old', 409], [state.sourceFingerprint, 400]]) {
-    const res = response(); await controller.decide({ params: { id }, query: {}, user, body: { financialYear: '2025-26', sourceFingerprint, decision: 'APPROVED', remarks: 'Reviewed' } }, res, (error) => { throw error; }); assert.equal(res.statusCode, code);
+const cc = require('../src/controllers/clientController');
+const ctrl = require('../src/controllers/arComplianceController');
+const id = '64b000000000000000000002',
+  manager = {
+    _id: '64b000000000000000000001',
+    role: 'manager',
+    name: 'Manager'
+  },
+  compliance = {
+    ...manager,
+    role: 'compliance',
+    name: 'Compliance'
+  };
+const q = value => ({
+  populate() {
+    return this;
+  },
+  select() {
+    return this;
+  },
+  sort() {
+    return this;
+  },
+  async lean() {
+    return structuredClone(value);
   }
-  assert.equal(writes, 0);
 });
-test('all AR endpoints require authentication and compliance approval roles', () => {
-  const router = require('../src/routes/clients');
-  const routes = router.stack.filter((layer) => layer.route?.path.includes('ar-compliance'));
+const res = () => ({
+  statusCode: 200,
+  status(code) {
+    this.statusCode = code;
+    return this;
+  },
+  json(body) {
+    this.body = body;
+    return this;
+  }
+});
+const upload = name => ({
+  importStatus: 'Imported',
+  name,
+  importedRowCount: 1,
+  totalQuantity: 12
+});
+function inputs() {
+  return {
+    draft: {
+      'basic.gstNumber': 'GST123',
+      'data.productionFacility': false
+    },
+    purchase: {
+      clientId: id,
+      financialYear: '2025-26',
+      dataVersion: 1,
+      baseUpload: upload('base.xlsx'),
+      portalUpload: upload('portal.xlsx'),
+      checklist: [{
+        particular: 'Received from client',
+        status: 'Yes',
+        files: [{
+          name: 'proof.pdf',
+          url: 'https://example.test/proof.pdf'
+        }]
+      }],
+      reconciliation: {
+        totals: {
+          baseQty: 12,
+          portalQty: 12
+        },
+        categorySummary: {
+          'Cat-I': {
+            Registered: {
+              baseQty: 12
+            }
+          }
+        },
+        entitySummary: {
+          Registered: [{
+            name: 'Factory',
+            baseQty: 12
+          }]
+        }
+      }
+    },
+    purchaseRows: [{
+      source: 'base',
+      rowNumber: 1,
+      entityName: 'Factory',
+      quantity: 12
+    }, {
+      source: 'portal',
+      rowNumber: 1,
+      entityName: 'Factory',
+      quantity: 12
+    }]
+  };
+}
+const verified = sections => sections.flatMap(s => s.fields).map(f => ({
+  key: f.key,
+  fingerprint: f.fingerprint,
+  status: 'VERIFIED',
+  remarks: 'Checked'
+}));
+function fixture(t) {
+  const data = inputs(),
+    client = {
+      _id: id,
+      data: {
+        basic: {
+          clientLegalName: 'Test Client'
+        },
+        annualReturn: {
+          filings: {
+            '2025-26': {
+              draft: data.draft
+            }
+          }
+        }
+      }
+    },
+    state = {
+      review: null,
+      writes: [],
+      data,
+      client
+    };
+  t.mock.method(cc, 'clientAccessFilter', async () => ({
+    managerScoped: true
+  }));
+  t.mock.method(Client, 'findOne', () => q(client));
+  t.mock.method(Client, 'find', () => q([client]));
+  t.mock.method(Annual, 'find', () => q([]));
+  for (const [model, value] of [[Purchase, data.purchase], [Sales, null]]) {
+    t.mock.method(model, 'findOne', () => q(value));
+    t.mock.method(model, 'find', () => q(service.readyModule(value) ? [value] : []));
+  }
+  t.mock.method(PR, 'find', () => q(data.purchaseRows));
+  t.mock.method(SR, 'find', () => q([]));
+  t.mock.method(Review, 'findOne', () => q(state.review));
+  t.mock.method(Review, 'find', () => q(state.review ? [state.review] : []));
+  t.mock.method(Review, 'updateOne', async (filter, update) => {
+    state.writes.push({
+      filter,
+      update
+    });
+    state.review ||= {
+      client: id,
+      financialYear: '2025-26',
+      fields: [],
+      managerFields: [],
+      history: []
+    };
+    if (Array.isArray(update)) {
+      const values = update[0].$set,
+        path = values.managerFields ? 'managerFields' : 'fields',
+        item = values[path].$concatArrays[1].$literal[0];
+      state.review[path] = (state.review[path] || []).filter(f => f.key !== item.key).concat(item);
+      for (const [key, value] of Object.entries(values)) if (![path, 'history'].includes(key)) state.review[key] = value;
+    } else if (update.$set) Object.assign(state.review, update.$set);
+    state.review.updatedAt = new Date();
+    return {
+      matchedCount: 1
+    };
+  });
+  return state;
+}
+async function call(method, user = manager, body = {}) {
+  const response = res();
+  await ctrl[method]({
+    params: {
+      id
+    },
+    query: {
+      financialYear: '2025-26'
+    },
+    user,
+    body: {
+      financialYear: '2025-26',
+      ...body
+    }
+  }, response, error => {
+    throw error;
+  });
+  return response;
+}
+test('draft, one-file and failed imports do not qualify for AR review', () => {
+  assert.equal(service.readyModule(null), false);
+  assert.equal(service.readyModule({
+    baseUpload: upload('base')
+  }), false);
+  assert.equal(service.readyModule({
+    baseUpload: upload('base'),
+    portalUpload: {
+      importStatus: 'Failed'
+    }
+  }), false);
+  assert.deepEqual(service.buildSections({
+    draft: {
+      name: 'draft'
+    }
+  }), []);
+});
+test('summary, tracker files and entities display as complete read-only table units', () => {
+  const data = inputs(),
+    copy = structuredClone(data),
+    sections = service.buildSections(data),
+    purchase = sections.find(s => s.key === 'purchase');
+  assert.deepEqual(data, copy);
+  assert.equal(purchase.fields.find(f => f.label === 'Purchase Base Excel Table').rows[0].entityName, 'Factory');
+  assert.equal(purchase.fields.find(f => f.label === 'Purchase Upload Tracker').rows[0].files[0].name, 'proof.pdf');
+  assert.equal(purchase.fields.find(f => f.kind === 'summary').categories['Cat-I'].Registered.baseQty, 12);
+  assert.equal(purchase.fields.find(f => f.label === 'Registered Entity List').rows[0].name, 'Factory');
+  assert.ok(!purchase.fields.some(f => /Row 1/.test(f.label)));
+});
+test('extra imported rows need no extra cell reviews; change invalidates its whole table', () => {
+  const data = inputs(),
+    sections = service.buildSections(data),
+    total = sections.flatMap(s => s.fields).length;
+  data.purchaseRows.push({
+    source: 'base',
+    rowNumber: 2,
+    entityName: 'Other',
+    quantity: 0
+  });
+  const changed = service.reviewState(service.buildSections(data), {
+    fields: verified(sections)
+  });
+  assert.equal(changed.progress.total, total);
+  assert.equal(changed.progress.verified, total - 1);
+  assert.equal(changed.sections.find(s => s.key === 'purchase').fields.find(f => f.label === 'Purchase Base Excel Table').review.stale, true);
+});
+test('Manager approval gates Compliance and data changes reset both stages', () => {
+  const fp = service.reviewState(service.buildSections(inputs())).sourceFingerprint;
+  assert.equal(service.workflowState({}, fp).stage, 'MANAGER_REVIEW');
+  assert.equal(service.workflowState({
+    managerStatus: 'REJECTED',
+    managerSourceFingerprint: fp
+  }, fp).stage, 'MANAGER_REJECTED');
+  const review = {
+    managerStatus: 'APPROVED',
+    managerSourceFingerprint: fp,
+    status: 'APPROVED',
+    sourceFingerprint: fp
+  };
+  assert.equal(service.workflowState(review, fp).stage, 'COMPLETED');
+  assert.equal(service.workflowState(review, 'changed').stage, 'MANAGER_REVIEW');
+});
+test('final decision requires all review items and Manager cannot partially approve', () => {
+  const state = {
+    progress: {
+      total: 2,
+      reviewed: 1,
+      verified: 1
+    }
+  };
+  assert.match(service.validateDecision('REJECTED', 'Reason', state, 'manager'), /every field or table/);
+  state.progress.reviewed = 2;
+  assert.match(service.validateDecision('PARTIALLY_APPROVED', 'Reason', state, 'manager'), /Manager/);
+  assert.equal(service.validateDecision('PARTIALLY_APPROVED', 'Reason', state), '');
+  assert.match(service.validateDecision('APPROVED', 'Reason', state), /Verify/);
+});
+test('queue contains completed Excel pairs only and shows initial Manager stage', async t => {
+  const state = fixture(t);
+  let result = await call('list');
+  assert.equal(result.body.rows.length, 1);
+  assert.equal(result.body.rows[0].stage, 'MANAGER_REVIEW');
+  state.data.purchase.portalUpload = null;
+  result = await call('list');
+  assert.equal(result.body.rows.length, 0);
+});
+test('Compliance cannot save reviews or final decision before Manager approves', async t => {
+  const state = fixture(t),
+    data = (await call('get', compliance)).body;
+  assert.equal(data.canReview, false);
+  assert.equal(data.workflow.stage, 'MANAGER_REVIEW');
+  assert.equal((await call('saveField', compliance, {
+    reviewStage: 'compliance'
+  })).statusCode, 403);
+  assert.equal((await call('decide', compliance, {
+    reviewStage: 'compliance'
+  })).statusCode, 403);
+  assert.equal(state.writes.length, 0);
+});
+test('Manager review persists separately and never changes user values', async t => {
+  const state = fixture(t),
+    data = (await call('get')).body,
+    field = data.sections.find(s => s.key === 'purchase').fields[0];
+  t.mock.method(Client, 'updateOne', () => {
+    throw Error('User data must not change');
+  });
+  t.mock.method(Purchase, 'updateOne', () => {
+    throw Error('Excel data must not change');
+  });
+  const result = await call('saveField', manager, {
+    reviewStage: 'manager',
+    key: field.key,
+    fingerprint: field.fingerprint,
+    status: 'VERIFIED',
+    remarks: 'Tracker checked',
+    data: {
+      status: 'tampered'
+    }
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(state.review.managerFields.length, 1);
+  assert.equal(state.review.fields.length, 0);
+  assert.equal(state.data.purchase.checklist[0].status, 'Yes');
+});
+test('Manager access is scoped to accessible clients', async t => {
+  fixture(t);
+  let filter;
+  t.mock.method(Client, 'findOne', value => {
+    filter = value;
+    return q(null);
+  });
+  assert.equal((await call('get')).statusCode, 404);
+  assert.deepEqual(filter.$and[1], {
+    managerScoped: true
+  });
+});
+test('Manager Reject blocks handoff; Approve unlocks independent Compliance reviews', async t => {
+  const state = fixture(t),
+    data = (await call('get')).body;
+  state.review = {
+    client: id,
+    financialYear: '2025-26',
+    managerFields: verified(data.sections),
+    fields: [],
+    updatedAt: new Date()
+  };
+  let result = await call('decide', manager, {
+    reviewStage: 'manager',
+    sourceFingerprint: data.sourceFingerprint,
+    decision: 'REJECTED',
+    remarks: 'Please correct'
+  });
+  assert.equal(result.body.workflow.stage, 'MANAGER_REJECTED');
+  assert.equal((await call('get', compliance)).body.canReview, false);
+  result = await call('decide', manager, {
+    reviewStage: 'manager',
+    sourceFingerprint: data.sourceFingerprint,
+    decision: 'APPROVED',
+    remarks: 'All checked'
+  });
+  assert.equal(result.body.workflow.stage, 'COMPLIANCE_REVIEW');
+  const next = (await call('get', compliance)).body;
+  assert.equal(next.canReview, true);
+  assert.equal(next.progress.reviewed, 0);
+  assert.equal(next.managerDecision.by, 'Manager');
+  assert.equal((await call('get', manager)).body.canReview, false);
+});
+test('changed source returns queue to Manager and blocks Compliance', async t => {
+  const state = fixture(t),
+    data = (await call('get')).body;
+  state.review = {
+    client: id,
+    financialYear: '2025-26',
+    managerStatus: 'APPROVED',
+    managerSourceFingerprint: data.sourceFingerprint,
+    managerSourceRevision: service.sourceRevision(state.data),
+    fields: [],
+    managerFields: []
+  };
+  assert.equal((await call('list', compliance)).body.rows[0].stage, 'COMPLIANCE_REVIEW');
+  state.data.purchase.checklist[0].status = 'No';
+  assert.equal((await call('list', compliance)).body.rows[0].stage, 'MANAGER_REVIEW');
+  assert.equal((await call('get', compliance)).body.canReview, false);
+});
+test('Compliance final approval persists after its own table reviews', async t => {
+  const state = fixture(t),
+    data = (await call('get')).body;
+  state.review = {
+    client: id,
+    financialYear: '2025-26',
+    managerStatus: 'APPROVED',
+    managerSourceFingerprint: data.sourceFingerprint,
+    managerSourceRevision: service.sourceRevision(state.data),
+    fields: verified(data.sections),
+    updatedAt: new Date()
+  };
+  const result = await call('decide', compliance, {
+    reviewStage: 'compliance',
+    sourceFingerprint: data.sourceFingerprint,
+    decision: 'APPROVED',
+    remarks: 'Compliance verified'
+  });
+  assert.equal(result.body.workflow.stage, 'COMPLETED');
+  assert.equal(state.review.managerStatus, 'APPROVED');
+  assert.equal((await call('list', compliance)).body.rows[0].status, 'APPROVED');
+});
+test('forged stage and stale fingerprints cannot change reviews', async t => {
+  const state = fixture(t),
+    data = (await call('get')).body;
+  assert.equal((await call('saveField', manager, {
+    reviewStage: 'compliance'
+  })).statusCode, 403);
+  assert.equal((await call('saveField', manager, {
+    reviewStage: 'manager',
+    key: data.sections[0].fields[0].key,
+    fingerprint: 'old'
+  })).statusCode, 409);
+  assert.equal((await call('decide', manager, {
+    reviewStage: 'manager',
+    sourceFingerprint: 'old'
+  })).statusCode, 409);
+  assert.equal(state.writes.length, 0);
+});
+test('AR route permissions allow Manager and Compliance but reject operations', () => {
+  const routes = require('../src/routes/clients').stack.filter(l => l.route?.path.includes('ar-compliance'));
   assert.equal(routes.length, 4);
   for (const layer of routes) {
     assert.equal(layer.route.stack[0].handle.name, 'requireAuth');
-    assert.equal(layer.route.stack.length, 3);
-    const denied = response(); let passed = false;
-    layer.route.stack[1].handle({ user: { role: 'operation' } }, denied, () => { passed = true; });
-    assert.equal(denied.statusCode, 403); assert.equal(passed, false);
-    for (const role of ['admin', 'compliance', 'compliance manager']) {
-      let allowed = false; layer.route.stack[1].handle({ user: { role } }, response(), () => { allowed = true; });
-      assert.equal(allowed, true, `${role} must access AR compliance`);
+    for (const role of ['manager', 'compliance', 'compliance manager', 'admin']) {
+      let passed = false;
+      layer.route.stack[1].handle({
+        user: {
+          role
+        }
+      }, res(), () => {
+        passed = true;
+      });
+      assert.equal(passed, true);
     }
+    const denied = res();
+    layer.route.stack[1].handle({
+      user: {
+        role: 'operation'
+      }
+    }, denied, () => {});
+    assert.equal(denied.statusCode, 403);
   }
-});
-test('final API persists reviewer, financial year and decision with concurrent review protection', async (t) => {
-  const draft = { 'basic.gstNumber': 'GST123', 'data.productionFacility': false };
-  const sections = buildSections({ draft });
-  const state = reviewState(sections);
-  const review = { status: 'IN_REVIEW', sourceFingerprint: state.sourceFingerprint, updatedAt: new Date(), fields: sections.flatMap((section) => section.fields).map((field) => ({ key: field.key, fingerprint: field.fingerprint, status: 'VERIFIED', remarks: 'Checked' })) };
-  fixture(t, review);
-  let write;
-  t.mock.method(Review, 'updateOne', async (filter, update) => { write = { filter, update }; return { matchedCount: 1 }; });
-  const req = { params: { id }, query: {}, user, body: { financialYear: '2025-26', sourceFingerprint: state.sourceFingerprint, decision: 'APPROVED', remarks: 'All verified' } };
-  const res = response(); await controller.decide(req, res, (error) => { throw error; });
-  assert.equal(res.statusCode, 200); assert.equal(write.filter.financialYear, '2025-26');
-  assert.deepEqual(write.filter.updatedAt, review.updatedAt); assert.equal(write.update.$set.status, 'APPROVED');
-  assert.equal(write.update.$set.decidedBy, user._id); assert.equal(write.update.$set.finalRemarks, 'All verified');
-  t.mock.method(Review, 'updateOne', async () => ({ matchedCount: 0 }));
-  const conflict = response(); await controller.decide(req, conflict, (error) => { throw error; }); assert.equal(conflict.statusCode, 409);
-});
-test('AR queue includes saved purchase and annual years and returns changed approved data for review', async (t) => {
-  const client = { _id: id, data: { basic: { clientLegalName: 'Queue Client' }, annualReturn: { filings: { '2025-26': { savedAt: '2026-10-06T10:00:00Z', draft: { amount: 123 } } } } } };
-  t.mock.method(Client, 'find', () => query([client]));
-  t.mock.method(AnnualReturn, 'find', () => query([]));
-  t.mock.method(PurchaseData, 'find', () => query([{ clientId: id, financialYear: '2024-25' }]));
-  t.mock.method(SalesData, 'find', () => query([]));
-  t.mock.method(Review, 'find', () => query([{ client: id, financialYear: '2025-26', status: 'APPROVED', decidedAt: '2026-10-05T10:00:00Z', decidedBy: { name: 'Reviewer' } }]));
-  const res = response(); await controller.list({ user }, res, (error) => { throw error; });
-  assert.equal(res.body.rows.length, 2);
-  assert.equal(res.body.rows.find((row) => row.financialYear === '2025-26').status, 'IN_REVIEW');
-  assert.equal(res.body.rows.find((row) => row.financialYear === '2024-25').status, 'PENDING');
-  assert.equal(res.body.rows[0].decisionBy, 'Reviewer');
 });

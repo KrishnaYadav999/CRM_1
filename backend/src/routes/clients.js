@@ -9,6 +9,7 @@ const salesCtrl = require('../controllers/salesDataController');
 const purchaseProofCtrl = require('../controllers/purchaseProofController');
 const { requireAuth, requireRoles } = require('../middleware/auth');
 const { ADMIN_ROLES, CLIENT_APPROVAL_ROLES } = require('../constants/roles');
+const AR_REVIEW_ROLES = [...CLIENT_APPROVAL_ROLES, 'manager'];
 const emailProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Math.max(1, Number(process.env.EMAIL_PROOF_MAX_SIZE_MB) || 15) * 1024 * 1024, files: 1, fields: 10 } }).single('file');
 const receiveEmailProof = (req, res, next) => emailProofUpload(req, res, (error) => error ? res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, message: error.code === 'LIMIT_FILE_SIZE' ? 'Email proof exceeds the configured size limit.' : 'Invalid email proof upload.', code: error.code || 'MULTIPART_UPLOAD_FAILED' }) : next());
 
@@ -21,10 +22,10 @@ router.use('/:id', requireAuth, deactivation.guard);
 router.use('/', requireAuth, deactivation.guard);
 
 router.get('/', requireAuth, clientCtrl.listClients);
-router.get('/ar-compliance', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.list);
-router.get('/:id/ar-compliance', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.get);
-router.put('/:id/ar-compliance/field', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.saveField);
-router.post('/:id/ar-compliance/decision', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.decide);
+router.get('/ar-compliance', requireAuth, requireRoles(AR_REVIEW_ROLES), arReviewCtrl.list);
+router.get('/:id/ar-compliance', requireAuth, requireRoles(AR_REVIEW_ROLES), arReviewCtrl.get);
+router.put('/:id/ar-compliance/field', requireAuth, requireRoles(AR_REVIEW_ROLES), arReviewCtrl.saveField);
+router.post('/:id/ar-compliance/decision', requireAuth, requireRoles(AR_REVIEW_ROLES), arReviewCtrl.decide);
 router.get('/dashboard/purchase-sales-progress', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.listPurchaseSalesProgress);
 router.get('/dashboard/compliance-records', requireAuth, clientCtrl.listDashboardComplianceRecords);
 router.get('/discovery/search', requireAuth, clientCtrl.searchClientMasterCompanies);
