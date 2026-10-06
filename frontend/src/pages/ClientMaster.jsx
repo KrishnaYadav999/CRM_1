@@ -12,6 +12,7 @@ import { adminRoles } from '../constants/dashboard';
 import api from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import ClientDirectoryView from '../features/clientMaster/ClientDirectoryView';
+import ClientSlaPage from '../features/clientMaster/ClientSlaPage';
 import ClientLifecycleTracker from '../features/clientMaster/ClientLifecycleTracker';
 import { selectOptions } from '../features/clientMaster/clientMaster.constants';
 import {
@@ -1350,6 +1351,7 @@ export default function ClientMaster() {
   const [viewMode, setViewMode] = useState('list');
   const [pendingLeadServices, setPendingLeadServices] = useState(null);
   const [pendingServiceView, setPendingServiceView] = useState(null);
+  const [pendingSlaView, setPendingSlaView] = useState(null);
   const [pendingCpcbOnboarding, setPendingCpcbOnboarding] = useState(null);
   const [saving, setSaving] = useState(false);
   const [savingMode, setSavingMode] = useState('');
@@ -2893,7 +2895,13 @@ export default function ClientMaster() {
   if (viewMode === 'list') {
     return (
       <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
-        {viewLoading ? (
+        {pendingSlaView ? (
+          <ClientSlaPage key={pendingSlaView._id || pendingSlaView.id || pendingSlaView.clientMasterId} client={pendingSlaView} onClose={() => setPendingSlaView(null)} onContinue={() => {
+            const selectedClient = pendingSlaView;
+            setPendingSlaView(null);
+            openDirectoryClientView(selectedClient);
+          }} />
+        ) : viewLoading ? (
           <div className="grid min-h-[calc(100vh-64px)] place-items-center bg-[#f3f8f6] px-4">
             <div className="rounded-xl border border-slate-200 bg-white px-6 py-5 text-sm font-black text-[#30737B] shadow-sm">Loading Client Master...</div>
           </div>
@@ -2924,7 +2932,7 @@ export default function ClientMaster() {
             onRefresh={loadPage}
             onDirectoryQueryChange={loadClientDirectory}
             onExportAll={loadAllClientsForExport}
-            onView={openDirectoryClientView}
+            onView={(item) => { setPendingServiceView(null); setPendingSlaView(item); }}
             onEdit={openClientEdit}
             canEdit={adminRoles.includes(String(currentUser?.role || '').toLowerCase())}
             onCreate={openClientForm}
@@ -3515,7 +3523,9 @@ function ClientViewModal({ client, serviceClients = [], onServiceChange, quotati
     ['City with PIN', cityPin, MapPin],
     ['PIBO Category', data.basic?.piboCategory, FolderCheck],
     ['Service Category', data.basic?.eprCategory, FileCheck2],
-    ['Services Offered', data.basic?.servicesOffered, CheckCircle2]
+    ['Services Offered', data.basic?.servicesOffered, CheckCircle2],
+    ['Registered on CPCB Portal', data.cpcbOnboarding?.cpcbPortalRegistered === true ? 'Yes' : data.cpcbOnboarding?.cpcbPortalRegistered === false ? 'No' : 'Not answered', ShieldCheck],
+    ...(data.cpcbOnboarding?.cpcbPortalRegistered === false && data.cpcbOnboarding?.cpcbApplicationStatus ? [['CPCB Application Status', data.cpcbOnboarding.cpcbApplicationStatus, ClipboardList]] : [])
   ];
   const companyHistoryRows = [
     ['Lead ID', data.importMeta?.leadNumber || data.importMeta?.uniqueId || getClientUniqueId(client), FileText],

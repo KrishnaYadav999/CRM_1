@@ -1565,6 +1565,32 @@ exports.getClient = async (req, res) => {
   });
 };
 
+// SLA uses the same record visibility rules as the Client Master directory.
+exports.getClientSla = async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ error: 'Invalid Client Master ID' });
+    const client = await Client.findOne(combineAccessFilters({ _id: req.params.id }, await clientAccessFilter(req.user))).select('sla');
+    if (!client) return res.status(404).json({ error: 'Client Master record not found' });
+    const { validationError } = require('../services/clientSla');
+    const sla = client.sla || {};
+    res.json({ ok: true, sla, ready: !validationError(sla) });
+  } catch (error) { res.status(500).json({ error: 'Unable to load SLA details.' }); }
+};
+exports.updateClientSla = async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ error: 'Invalid Client Master ID' });
+    const client = await Client.findOne(combineAccessFilters({ _id: req.params.id }, await clientAccessFilter(req.user)));
+    if (!client) return res.status(404).json({ error: 'Client Master record not found' });
+    const { validationError, cleanSla } = require('../services/clientSla');
+    const invalid = validationError(req.body || {});
+    if (invalid) return res.status(400).json({ error: invalid, ready: false });
+    client.sla = { ...cleanSla(req.body), updatedAt: new Date(), updatedBy: req.user?._id, updatedByName: req.user?.name || req.user?.email || 'CRM User' };
+    client.markModified('sla');
+    await client.save();
+    res.json({ ok: true, sla: client.sla, ready: true });
+  } catch (error) { res.status(500).json({ error: 'Unable to save SLA details.' }); }
+};
+
 exports.updateCpcbOnboarding = async (req, res) => {
   const clientMasterId = String(req.body.clientMasterId || '').trim();
   const assignedServiceId = String(req.body.assignedServiceId || '').trim();
