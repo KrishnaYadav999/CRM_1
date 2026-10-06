@@ -410,7 +410,7 @@ export default function SuperAdminDashboard({ misPage = false }) {
   const allSalesMisRows = useMemo(() => rows, [rows])
   const salesDepartmentGroups = useMemo(() => buildSalesDepartmentGroups(allSalesMisRows), [allSalesMisRows])
   const managementSalesGroups = useMemo(() => salesDepartmentGroups.filter((group) => group.name === 'Management'), [salesDepartmentGroups])
-  const departmentSalesGroups = useMemo(() => salesDepartmentGroups.filter((group) => group.name !== 'Management'), [salesDepartmentGroups])
+  const departmentSalesGroups = useMemo(() => salesDepartmentGroups.filter((group) => group.name !== 'Management' && group.name !== 'Operations Team'), [salesDepartmentGroups])
   const misAccess = report.misAccess || { isAdmin: true, scope: 'all', showSales: true, showQuotations: true, operationTeams: [] }
   const operationsOnlyMis = misPage && !misAccess.isAdmin
   const misTitle = operationsOnlyMis
