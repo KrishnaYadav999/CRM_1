@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, Clock3, Eye, FileText, Info, List, Upload } from 'lucide-react';
 import '../features/clientMaster/uploadTracker.css';
+import ArProofLinks from './ArProofLinks';
 
 export default function ArReadonlyTracker({ field, renderValue: Value }) {
   const [expanded, setExpanded] = useState(null);
@@ -19,7 +20,7 @@ export default function ArReadonlyTracker({ field, renderValue: Value }) {
         <td>{simple(row) ? '—' : <span className="ut-date ar-saved-date">{row.date ? String(row.date).slice(0, 10).split('-').reverse().join('-') : 'Not provided'}</span>}</td>
         <td>{['Received from client', 'Ready to upload'].includes(row.particular) ? <div className={`ut-data-status ${row.completeDataReceived ? 'ut-data-complete' : ''}`}><label><input type="checkbox" disabled checked={Boolean(row.partialDataReceived ?? row.partiallyDataReceived)} />Partially Data received</label><label><input type="checkbox" disabled checked={Boolean(row.completeDataReceived)} />Complete Data Received</label></div> : <span className={`ut-applicability ${row.particular === 'Upload Complete' && complete(row) ? 'ut-applicability-done' : ''}`}><Info size={16} />{row.particular === 'Upload Complete' ? complete(row) ? 'Upload completed' : 'Awaiting completion' : 'Not applicable'}</span>}</td>
         <td>{simple(row) ? '—' : <button type="button" className="ut-view" aria-expanded={expanded === index} aria-label={`View ${row.particular} documents and remarks`} onClick={() => setExpanded(current => current === index ? null : index)}><Eye size={16} />{expanded === index ? 'Hide' : 'View'}</button>}</td></tr>
-        {expanded === index && <tr className="ut-detail-row"><td colSpan={7}><div className="ut-details"><div><strong>Supporting documents</strong><div className="grid gap-2 mt-2"><Value value={row.files || []} /></div></div><div><strong>Remarks</strong><p className="mt-2"><Value value={row.remarks} /></p></div></div></td></tr>}
+        {expanded === index && <tr className="ut-detail-row"><td colSpan={7}><div className="ut-details"><div><strong>Supporting documents</strong><div className="grid gap-2 mt-2"><ArProofLinks files={row.files || []} /></div></div><div><strong>Remarks</strong><p className="mt-2"><Value value={row.remarks} /></p></div></div></td></tr>}
       </React.Fragment>)}</tbody></table></div>
     <footer className="ut-footer"><div><Info size={18} /><p>Read-only tracker. Select View to inspect supporting documents and remarks.</p></div><span className="ut-row-count">{rows.length} entries</span></footer>
   </section>;

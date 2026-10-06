@@ -4,6 +4,7 @@ import { ArrowLeft, Eye, FileCheck2, Loader2, LockKeyhole, RefreshCw } from 'luc
 import DashboardShell from '../components/dashboard/DashboardShell';
 import PendingApproval from './PendingApproval';
 import ArReviewData from './ArReviewData';
+import ArReviewDialog from './ArReviewDialog';
 import { hasAnyRole } from '../constants/dashboard';
 import api from '../services/api';
 import './arCompliance.css';
@@ -29,7 +30,7 @@ function SectionData({
 }) {
   if (!section) return null;
   const entities = section.fields.filter(field => /Entity List$/.test(field.label));
-  const fields = section.fields.filter(field => !entities.includes(field) && !/^(Validation & Reconciliation Issues|(?:Purchase|Sales) (?:Base|Portal) Excel Table)$/.test(field.label));
+  const fields = section.fields.filter(field => !entities.includes(field) && !/^(Validation & Reconciliation Issues|Supporting Screenshots|User Remarks|(?:Purchase|Sales) (?:Base|Portal) Excel Table)$/.test(field.label));
   const summaryIndex = fields.findIndex(field => field.kind === 'summary');
   const dataItem = field => <DataItem key={field.key} field={field} />;
   return <div className="ar-fields">{fields.map((field, index) => <React.Fragment key={field.key}>{dataItem(field)}{index === summaryIndex && entities.length > 0 && <div className="ar-entity-pair">{entities.map(dataItem)}</div>}</React.Fragment>)}{summaryIndex < 0 && entities.map(dataItem)}</div>;
@@ -55,6 +56,7 @@ export function ArComplianceWorkspace({
   const [payload, setPayload] = useState(null),
     [year, setYear] = useState(() => new URLSearchParams(window.location.search).get('financialYear') || '');
   const [activeKey, setActiveKey] = useState('');
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [loading, setLoading] = useState(true),
     [loadVersion, setLoadVersion] = useState(0),
     [saving, setSaving] = useState('');
@@ -66,6 +68,7 @@ export function ArComplianceWorkspace({
     let cancelled = false;
     setLoading(true);
     setPayload(null);
+    setReviewOpen(false);
     setError('');
     setNotice('');
     setDecision('');
@@ -106,6 +109,7 @@ export function ArComplianceWorkspace({
       setPayload(data);
       setFinalRemarks(data.finalRemarks || '');
       setDecision('');
+      setReviewOpen(false);
       setNotice(payload.reviewStage === 'manager' && decision === 'APPROVED' ? 'Manager approved. AR data is now with Compliance for review.' : `${payload.reviewStage === 'manager' ? 'Manager' : 'Compliance'} decision saved: ${human(decision)}.`);
     } catch (err) {
       setError(err?.response?.data?.error || 'Unable to save decision.');
@@ -124,8 +128,11 @@ export function ArComplianceWorkspace({
     {error && <div role="alert" className="ar-alert">{error}{!payload && <button className="ml-3 underline" onClick={() => setLoadVersion(value => value + 1)}>Reload data</button>}</div>}{notice && <div role="status" className="ar-notice">{notice}</div>}
     {loading ? <div className="ar-empty"><Loader2 className="mx-auto animate-spin" /><p>Loading saved annual-return data…</p></div> : !payload?.sections.length ? <div className="ar-card ar-empty">AR review becomes available after both Base Data and Portal Upload Excel files are successfully imported.</div> : <>
       <div className="ar-grid"><aside className="ar-card ar-nav"><header><h2>AR Data</h2><p className="ar-muted">View saved client information</p></header>{payload.sections.map(item => <button key={item.key} aria-current={activeKey === item.key} disabled={Boolean(saving)} onClick={() => setActiveKey(item.key)}>{item.label}</button>)}</aside>
-        <main className="ar-card overflow-hidden"><header className="ar-section-header"><h2>{section?.label}</h2><p className="ar-muted">Review the upload tracker, supporting documents and reconciliation. All user data is read-only.</p></header><SectionData key={`${payload.financialYear}:${section?.key}`} section={section} /></main></div>
-      <section className="ar-card ar-final"><label>Final {manager ? 'manager' : 'compliance'} remarks *<textarea disabled={!canReview || Boolean(saving)} rows={3} maxLength={2000} value={finalRemarks} onChange={event => setFinalRemarks(event.target.value)} placeholder="Enter your final review, decision and any required corrections…" /><span className="ar-muted">One final review applies to all AR data for this financial year.</span></label><div className="grid content-start gap-3"><label>Final {manager ? 'manager' : 'compliance'} decision<select value={decision} onChange={event => setDecision(event.target.value)} disabled={!canReview || Boolean(saving)}><option value="">Select decision</option><option value="APPROVED">Approve</option><option value="REJECTED">Reject</option>{!manager && <option value="PARTIALLY_APPROVED">Partially Approve</option>}</select></label><button type="button" className="ar-save flex items-center gap-2 justify-center w-full" disabled={!canReview || !validDecision || !finalRemarks.trim() || Boolean(saving)} onClick={submitDecision}><FileCheck2 size={15} />{saving === 'decision' ? 'Submitting…' : 'Submit Final Review'}</button></div></section>
+        <main className="ar-card overflow-hidden"><header className="ar-section-header ar-section-actions"><div><h2>{section?.label}</h2><p className="ar-muted">Review the upload tracker, supporting documents and reconciliation. All user data is read-only.</p></div><button type="button" className="ar-save" disabled={!canReview || Boolean(saving)} onClick={() => setReviewOpen(true)}><FileCheck2 size={15} />{manager ? 'Manager Review' : 'Compliance Review'}</button></header><SectionData key={`${payload.financialYear}:${section?.key}`} section={section} /></main></div>
+      {reviewOpen && <ArReviewDialog title={manager ? 'Manager Review' : 'Compliance Review'} busy={Boolean(saving)} onClose={() => setReviewOpen(false)}><p className="ar-muted mb-4">{payload.client.name} · {payload.financialYear}</p>{error && <div role="alert" className="ar-alert">{error}</div>}      <form className="ar-final" onSubmit={event => {
+          event.preventDefault();
+          if (canReview && validDecision && finalRemarks.trim() && !saving) submitDecision();
+        }}><label>Final {manager ? 'manager' : 'compliance'} remarks *<textarea disabled={!canReview || Boolean(saving)} rows={3} maxLength={2000} value={finalRemarks} onChange={event => setFinalRemarks(event.target.value)} placeholder="Enter your final review, decision and any required corrections…" /><span className="ar-muted">One final review applies to all AR data for this financial year.</span></label><div className="grid content-start gap-3"><label>Final {manager ? 'manager' : 'compliance'} decision<select value={decision} onChange={event => setDecision(event.target.value)} disabled={!canReview || Boolean(saving)}><option value="">Select decision</option><option value="APPROVED">Approve</option><option value="REJECTED">Reject</option>{!manager && <option value="PARTIALLY_APPROVED">Partially Approve</option>}</select></label><button type="submit" className="ar-save flex items-center gap-2 justify-center w-full" disabled={!canReview || !validDecision || !finalRemarks.trim() || Boolean(saving)}><FileCheck2 size={15} />{saving === 'decision' ? 'Submitting…' : 'Submit Final Review'}</button></div></form></ArReviewDialog>}
 
     </>}
   </div>;

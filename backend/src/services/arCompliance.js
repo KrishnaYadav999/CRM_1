@@ -8,6 +8,7 @@ function readyModule(data) {
   return data?.baseUpload?.importStatus === 'Imported' && data?.portalUpload?.importStatus === 'Imported';
 }
 function safeValue(value) {
+  if (value && typeof value.toHexString === 'function') return value.toHexString();
   if (value instanceof Date) return value.toISOString();
   if (Array.isArray(value)) return value.map(safeValue);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().filter(key => !ignored.has(key) && !key.startsWith('__')).map(key => [key, safeValue(value[key])]));

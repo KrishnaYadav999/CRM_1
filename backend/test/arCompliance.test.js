@@ -222,6 +222,15 @@ test('summary, tracker files and entities display as complete read-only table un
   assert.equal(purchase.fields.find(f => f.label === 'Registered Entity List').rows[0].name, 'Factory');
   assert.ok(!purchase.fields.some(f => /Row 1/.test(f.label)));
 });
+test('email proof IDs stay strings for protected preview and download requests', () => {
+  const mongoose = require('mongoose');
+  const data = inputs();
+  const proofId = new mongoose.Types.ObjectId();
+  data.purchase.checklist[0].files = [{ proofId, name: 'Confirmation.msg', type: 'application/vnd.ms-outlook', url: `/api/purchase-proofs/${proofId}/download` }];
+  const proof = service.buildSections(data).find(section => section.key === 'purchase').fields.find(field => field.kind === 'tracker').rows[0].files[0];
+  assert.equal(proof.proofId, proofId.toHexString());
+  assert.equal(proof.url, `/api/purchase-proofs/${proofId}/download`);
+});
 test('extra imported rows need no extra cell reviews; change invalidates its whole table', () => {
   const data = inputs(),
     sections = service.buildSections(data),
