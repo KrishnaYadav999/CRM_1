@@ -1,3 +1,4 @@
+import OperationsTabRemarks from '../components/dashboard/OperationsTabRemarks';
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -3953,12 +3954,6 @@ function OperationsFinalFlag({ rows = [], sla }) {
   return <span className={`operations-final-flag is-${tone}`} aria-label={`Final Flag: ${tone}`} title="Final flag is red only when 48h, 72h and 96h are all red."><Flag aria-hidden="true" fill="currentColor" /><strong>{tone === 'red' ? 'Red' : 'Green'}</strong>{!sla && <small>{red} / {rows.length} red</small>}</span>
 }
 
-function OperationsPoCommercialCell({ rows, field, pdfMode = false }) {
-  const values = [...new Set(rows.flatMap((row) => (row.poDetails?.records?.length ? row.poDetails.records : [row.poDetails || {}]).map((po) => String(po[field] || '').trim())).filter(Boolean))].sort()
-  const shown = pdfMode ? values : values.slice(0, 2)
-  return <div className="operations-po-commercial">{shown.length ? shown.map((value) => <span key={value}>{field === 'poEndDate' ? formatDisplayDate(value) : value}</span>) : <span className="operations-po-unrecorded">Not recorded</span>}{!pdfMode && values.length > 2 && <small>+{values.length - 2} more · View clients</small>}</div>
-}
-
 function fitOperationsWorksheet(sheet, rows = []) {
   const headers = rows.length ? Object.keys(rows[0]) : []
   sheet['!cols'] = headers.map((header) => ({ wch: Math.min(55, Math.max(12, header.length + 2, ...rows.map((row) => String(row[header] ?? '').length + 2))) }))
@@ -3967,17 +3962,20 @@ function fitOperationsWorksheet(sheet, rows = []) {
 }
 
 function downloadOperationsExcel(groups, financialYear) {
-  const { summary, clients, poDetails } = buildOperationsWorkbookData(groups, financialYear)
+  const { summary, clients, poDetails, tabRemarks } = buildOperationsWorkbookData(groups, financialYear)
   const summarySheet = XLSX.utils.json_to_sheet(summary)
   const clientSheet = XLSX.utils.json_to_sheet(clients)
   const poSheet = XLSX.utils.json_to_sheet(poDetails)
+  const remarksSheet = XLSX.utils.json_to_sheet(tabRemarks)
   fitOperationsWorksheet(summarySheet, summary)
   fitOperationsWorksheet(clientSheet, clients)
   fitOperationsWorksheet(poSheet, poDetails)
+  fitOperationsWorksheet(remarksSheet, tabRemarks)
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, summarySheet, 'User Summary')
   XLSX.utils.book_append_sheet(workbook, clientSheet, 'Client Details')
   XLSX.utils.book_append_sheet(workbook, poSheet, 'PO Details')
+  XLSX.utils.book_append_sheet(workbook, remarksSheet, 'Compliance Tab Remarks')
   const yearLabel = String(financialYear || 'all').replace(/[^a-z0-9-]+/gi, '-')
   XLSX.writeFile(workbook, `Operations-Dashboard-${yearLabel}-${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
@@ -4024,8 +4022,8 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
     {!pdfMode && <div className="operations-user-toolbar"><label><Search aria-hidden="true" /><input aria-label="Search Operations users or clients" placeholder="Search user, client or ATPL code" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span>{new Set(groups.flatMap((group) => group.rows.map((row) => row.id))).size} assigned clients · {totals[48]} overdue assignments</span></div>}
     {activeTab === 'data' ? <PurchaseSalesProgress groups={visibleGroups} financialYear={financialYear} /> : <>
     <div className="operations-user-status-scroll">
-      <table className="operations-user-status-table">
-        <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th><th>PO End Date<small>Recorded dates</small></th><th>PO Financial Year<small>Recorded years</small></th>{!pdfMode && <th>Payment Term<small>As per PO</small></th>}{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th>Final Flag<small>All three red = Red</small></th><th aria-label="Action">View</th></tr></thead>
+      <table className="operations-user-status-table operations-with-remarks">
+        <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th><th>Tab remarks<small>Compliance review by tab</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th>Final Flag<small>All three red = Red</small></th><th aria-label="Action">View</th></tr></thead>
         <tbody>
           {visibleGroups.map((group, groupIndex) => {
             const open = !pdfMode && expandedUser === group.id
@@ -4035,21 +4033,21 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
                 <td><button type="button" className="operations-user-toggle" aria-expanded={open} onClick={() => setExpandedUser(open ? '' : group.id)}><ChevronRight aria-hidden="true" /><i className={`avatar-${tones[groupIndex % tones.length]}`}>{initials}</i><strong>{group.name}</strong></button></td>
                 <td><b>{group.total}</b></td>
                 <td><OperationsProgressValue done={group.complianceDone} total={group.total} tone={group.complianceDone === group.total ? 'green' : 'red'} /></td>
-                <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td>{["poEndDate", "poFinancialYear", ...(!pdfMode ? ["paymentTerm"] : [])].map((field) => <td key={field}><OperationsPoCommercialCell rows={group.rows} field={field} pdfMode={pdfMode} /></td>)}
+                <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td><td><OperationsTabRemarks rows={group.rows} aggregate={pdfMode} /></td>
                 {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><OperationsProgressValue done={group.milestones[hours]} total={group.total} tone={group.milestones[hours] ? 'red' : 'green'} /></td>)}
                 <td><OperationsFinalFlag rows={group.rows} /></td>
                 <td><button type="button" className="operations-user-view" aria-label={`${open ? 'Hide' : 'View'} ${group.name} clients`} onClick={() => setExpandedUser(open ? '' : group.id)}><Eye aria-hidden="true" /></button></td>
               </motion.tr>
-              {open && <tr className="operations-user-detail-row"><td colSpan={12}><div className="operations-client-details">
+              {open && <tr className="operations-user-detail-row"><td colSpan={10}><div className="operations-client-details">
                 <header><strong>{group.name} · Assigned clients</strong><span>{group.total} client records</span></header>
-                {group.rows.length ? <table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th><th>PO End Date</th><th>PO Financial Year</th><th>Payment Term</th>{OPERATIONS_PROGRESS_MILESTONES.map((hours) => <th key={hours}>{hours}h+ Red Flag</th>)}<th>Final Flag</th></tr></thead>
+                {group.rows.length ? <table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th><th>Tab remarks</th>{OPERATIONS_PROGRESS_MILESTONES.map((hours) => <th key={hours}>{hours}h+ Red Flag</th>)}<th>Final Flag</th></tr></thead>
                   <tbody>{group.rows.map((row) => {
                     const approval = row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || 'PENDING'
                     const statusDates = getOperationsStatusDates(row)
                     return <tr key={row.id}><td><div className="operations-client-name"><FileText aria-hidden="true" /><span><strong title={row.companyName}>{row.companyName}</strong><small>{row.atplCode}</small></span></div></td>
                       <td><em className={approval === 'APPROVED' ? 'status-applicable' : 'status-partial'}>{String(approval).replace(/_/g, ' ')}</em><small className="operations-status-date"><CalendarDays aria-hidden="true" />{statusDates.compliance.value ? `${statusDates.compliance.label} ${formatDisplayDateTime(statusDates.compliance.value)}` : 'Status date not recorded'}</small></td>
                       <td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Pending'}</em><small className="operations-status-date"><CalendarDays aria-hidden="true" />{statusDates.po.value ? `PO date ${formatDisplayDate(statusDates.po.value)}` : row.hasPo ? 'PO date not recorded' : 'Awaiting PO'}</small>{row.poDetails?.poNo && <small className="operations-po-number">PO #{row.poDetails.poNo}</small>}{row.poDetails?.fileUrl && <a className="operations-po-proof-link" href={row.poDetails.fileUrl} target="_blank" rel="noopener noreferrer"><Eye aria-hidden="true" />View PO Proof</a>}</td>
-                      {["poEndDate", "poFinancialYear", "paymentTerm"].map((field) => <td key={field}><OperationsPoCommercialCell rows={[row]} field={field} pdfMode /></td>)}
+                      <td><OperationsTabRemarks rows={[row]} /></td>
                       {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><em className={row.sla[hours].breached ? 'status-missing' : row.sla[hours].known ? 'status-received' : 'status-neutral'}>{row.sla[hours].breached ? 'Red flag' : row.sla[hours].known ? 'Clear' : 'No correction deadline'}</em>{row.sla[hours].due && <small className="operations-sla-date">Due {formatDisplayDateTime(row.sla[hours].due)}</small>}</td>)}
                       <td><OperationsFinalFlag sla={row.sla} /></td>
                     </tr>
@@ -4058,7 +4056,7 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
             </React.Fragment>
           })}
         </tbody>
-        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td colSpan={pdfMode ? 2 : 3}><small>{pdfMode ? 'Aggregated PO details' : 'PO details are listed by client above'}</small></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td><OperationsFinalFlag rows={groups.flatMap((group) => group.rows)} /></td><td /></tr></tfoot>
+        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td><small>Compliance remarks listed by client and tab above</small></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td><OperationsFinalFlag rows={groups.flatMap((group) => group.rows)} /></td><td /></tr></tfoot>
       </table>
     </div>
     </>}

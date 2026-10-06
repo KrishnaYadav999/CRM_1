@@ -1252,9 +1252,16 @@ exports.listClients = async (req, res) => {
     ])
   ]);
   if (req.query.dashboard === 'true' && clients.length) {
-    const approvals = await PendingApproval.find({
-      type: 'client', source: 'crm', sourceClientId: { $in: clients.map((client) => String(client._id)) }
-    }).select('sourceClientId approvalStatus actionAt createdAt reminderFlag redFlagAt greenFlagDeadline correctionStatus correctionStartedAt correctionDueAt correctionBreachedAt correctionDeadlinePolicy').lean();
+    const [approvals, complianceReviews] = await Promise.all([
+      PendingApproval.find({
+        type: 'client', source: 'crm', sourceClientId: { $in: clients.map((client) => String(client._id)) }
+      }).select('sourceClientId approvalStatus actionAt createdAt reminderFlag redFlagAt greenFlagDeadline correctionStatus correctionStartedAt correctionDueAt correctionBreachedAt correctionDeadlinePolicy').lean(),
+      ClientComplianceReview.find({ client: { $in: clients.map((client) => client._id) } })
+        .select('client status sections finalRemarks updatedAt')
+        .populate('sections.reviewedBy', 'name email').lean()
+    ]);
+    const reviewByClient = new Map(complianceReviews.map((review) => [String(review.client), review]));
+    clients.forEach((client) => { client.complianceReview = reviewByClient.get(String(client._id)) || null; });
     const approvalByClient = new Map(approvals.map((approval) => [String(approval.sourceClientId), approval]));
     clients.forEach((client) => { client.operationsSla = approvalByClient.get(String(client._id)) || null; });
   }

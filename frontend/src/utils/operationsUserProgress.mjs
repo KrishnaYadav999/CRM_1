@@ -148,19 +148,28 @@ function poRecords(row = {}) {
   return Array.isArray(details.records) && details.records.length ? details.records : [details]
 }
 
+export function getOperationsTabRemarks(row = {}) {
+  const review = row.client?.complianceReview || row.complianceReview || {}
+  return (Array.isArray(review.sections) ? review.sections : []).map((section) => ({
+    key: section.key || section.label,
+    label: section.label || section.key || 'Compliance tab',
+    status: section.status || 'NOT_REVIEWED',
+    remarks: String(section.remarks || '').trim(),
+    reviewedBy: section.reviewedBy?.name || section.reviewedBy?.email || '',
+    reviewedAt: section.reviewedAt || ''
+  }))
+}
+
 export function buildOperationsWorkbookData(groups = [], financialYear = 'all') {
   const summary = groups.map((group) => {
     const finalRed = group.rows.filter((row) => getOperationsFinalFlag(row.sla) === 'red').length
-    const recordedValues = (field) => [...new Set(group.rows.flatMap((row) => poRecords(row).map((po) => excelText(po[field]))).filter(Boolean))].join(' | ')
     return {
       'Operations User': excelText(group.name, 'Unassigned'),
       'Financial Year Filter': excelText(financialYear, 'All'),
       'Assigned Clients': group.total,
       'Compliance Approved': group.complianceDone,
       'PO Received': group.poDone,
-      'PO End Dates': recordedValues('poEndDate'),
-      'PO Financial Years': recordedValues('poFinancialYear'),
-      'Payment Terms': recordedValues('paymentTerm'),
+      'Compliance Tabs With Remarks': group.rows.reduce((count, row) => count + getOperationsTabRemarks(row).filter(tab => tab.remarks).length, 0),
       '48h+ Red Flags': group.milestones[48],
       '72h+ Red Flags': group.milestones[72],
       '96h+ Red Flags': group.milestones[96],
@@ -208,9 +217,8 @@ export function buildOperationsWorkbookData(groups = [], financialYear = 'all') 
       'PO Record Count': row.hasPo ? records.length : 0,
       'PO Number(s)': uniquePoValues(records.map((po) => ({ ...po, poNumber: po.poNo || po.poNumber })), 'poNumber'),
       'PO Date(s)': uniquePoValues(records, 'poDate'),
-      'PO End Date(s)': uniquePoValues(records, 'poEndDate'),
-      'PO Financial Year(s)': uniquePoValues(records, 'poFinancialYear'),
-      'Payment Term(s)': uniquePoValues(records, 'paymentTerm'),
+      'Tab remarks': excelText(getOperationsTabRemarks(row).map(tab => `${tab.label} [${tab.status.replace(/_/g, ' ')}]: ${tab.remarks || 'No remarks added'}`).join('\n'), 'No tab reviews recorded'),
+      'Final Compliance Remarks': excelText(row.client?.complianceReview?.finalRemarks, 'No final remarks added'),
       'Total PO Amount (INR)': amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : '',
       'PO Proof Link(s)': uniquePoValues(records.map((po) => ({ ...po, proofLink: po.fileUrl || row.poDetails?.fileUrl })), 'proofLink')
     }
@@ -233,7 +241,17 @@ export function buildOperationsWorkbookData(groups = [], financialYear = 'all') 
       'PO Proof Link': excelText(po.fileUrl || row.poDetails?.fileUrl, 'Not recorded')
     }))
   }))
-  return { summary, clients, poDetails }
+  const tabRemarks = groups.flatMap(group => group.rows.flatMap(row => getOperationsTabRemarks(row).map(tab => ({
+    'Operations User': excelText(group.name),
+    'Client Name': excelText(row.companyName),
+    'ATPL Code': excelText(row.atplCode),
+    'Tab': excelText(tab.label),
+    'Status': excelText(tab.status.replace(/_/g, ' ')),
+    'Tab remarks': excelText(tab.remarks, 'No remarks added'),
+    'Reviewed By': excelText(tab.reviewedBy, 'Not recorded'),
+    'Reviewed At': excelText(tab.reviewedAt, 'Not recorded')
+  }))))
+  return { summary, clients, poDetails, tabRemarks }
 }
 
 export function getPoFinancialYear(row = {}) {

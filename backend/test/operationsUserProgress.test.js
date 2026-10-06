@@ -9,9 +9,7 @@ test('operations PDF keeps the aggregate table and excludes client detail rows',
   const pdf = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/utils/operationsReportPdf.mjs'), 'utf8');
   assert.match(page, /const open = !pdfMode && expandedUser === group\.id/);
   assert.match(page, /aggregate user metrics only; client names are excluded/);
-  assert.match(page, /!pdfMode && <th>Payment Term/);
-  assert.match(page, /\.\.\.\(!pdfMode \? \["paymentTerm"\] : \[\]\)/);
-  assert.match(page, /colSpan=\{pdfMode \? 2 : 3\}/);
+  assert.match(page, /<OperationsTabRemarks rows=\{group.rows\} aggregate=\{pdfMode\}/);
   assert.match(pdf, /\.operations-client-details,\.operations-user-detail-row/);
   assert.match(pdf, /\.operations-user-status-table/);
 });
@@ -210,4 +208,29 @@ test('correction hours skip first and third Saturdays in IST and respect saved f
   assert.equal(addCorrectionHours(start, 96), addClientCorrectionHours(start, 96).getTime());
   const final = '2026-10-08T06:00:00Z';
   assert.equal(getOperationsSla({ correctionStartedAt: start, greenFlagDeadline: final })[96].due, Date.parse(final));
+});
+
+test('all compliance tab remarks survive workbook export with client and reviewer identity', async () => {
+ const { buildOperationsWorkbookData } = await helpers;
+ const longRemark = 'Check factory documents.\n' + 'Detailed note '.repeat(70);
+ const rows = ['Client A', 'Client B'].map((companyName, index) => ({companyName, atplCode:`ATPL-${index}`, hasPo:false, sla:{}, client:{complianceReview:{finalRemarks:'Final note',sections:[
+  {key:'companyOverview',label:'Company Overview',status:'VERIFIED',remarks:`Verified ${companyName}`,reviewedBy:{name:'Reviewer'},reviewedAt:'2026-10-06T10:00:00Z'},
+  {key:'documents',label:'Documents',status:'CHANGES_REQUIRED',remarks:longRemark},
+  {key:'cpcb',label:'CPCB Login Credentials',status:'NOT_REVIEWED',remarks:''}
+ ]}}}));
+ const result = buildOperationsWorkbookData([{name:'Operations User',total:2,complianceDone:0,poDone:0,milestones:{48:0,72:0,96:0},rows}]);
+ assert.equal(result.tabRemarks.length,6);
+ assert.equal(result.tabRemarks[0]['Client Name'],'Client A');
+ assert.equal(result.tabRemarks[0]['Reviewed By'],'Reviewer');
+ assert.equal(result.tabRemarks[1]['Tab remarks'],longRemark.trim());
+ assert.equal(result.tabRemarks[3]['Tab remarks'],'Verified Client B');
+ assert.match(result.clients[0]['Tab remarks'],/Company Overview.*Verified Client A/);
+ assert.equal(result.clients[0]['Final Compliance Remarks'],'Final note');
+ assert.equal(result.summary[0]['Compliance Tabs With Remarks'],4);
+ const XLSX = require('../../frontend/node_modules/xlsx');
+ const workbook = XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(result.tabRemarks),'Compliance Tab Remarks');
+ const roundtrip = XLSX.read(XLSX.write(workbook,{type:'buffer',bookType:'xlsx'}),{type:'buffer'});
+ const exported = XLSX.utils.sheet_to_json(roundtrip.Sheets['Compliance Tab Remarks']);
+ assert.equal(exported.length,6); assert.equal(exported[1]['Tab remarks'],longRemark.trim());
 });
