@@ -2,23 +2,28 @@ import React from 'react';
 import { ClipboardCheck } from 'lucide-react';
 import PurchaseProofDropzone from './PurchaseProofDropzone';
 
-const REQUIRED_NORMAL_ROWS = new Set(['Received from client', 'Ready to upload', 'Client Approval on data', 'Upload Complete']);
+const HIDDEN = new Set(['Partially Data received', 'Complete Data Received', 'Work In Process', 'Partially Complete']);
+const DATA_STAGES = new Set(['Received from client', 'Ready to upload']);
+const SIMPLE = new Set(['Nil Upload', 'Client Approval on data']);
 
-export default function SalesUploadChecklist({ checklist = [], canEdit, busy, onChange, onUploadProof, onRemoveProof, onPreview, onError }) {
-  const nilUpload = checklist.find((row) => row.particular === 'Nil Upload')?.yesNo === 'Yes';
-  return <section className="overflow-hidden rounded-3xl border border-indigo-200 bg-white shadow-[0_16px_45px_rgba(79,70,229,0.10)]">
-    <div className="flex items-start gap-3 border-b border-indigo-200 bg-gradient-to-r from-indigo-50 via-violet-50 to-fuchsia-50 p-5 text-slate-900">
-      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/25"><ClipboardCheck className="h-5 w-5" /></span>
-      <div><p className="text-[10px] font-black uppercase tracking-[.2em] text-indigo-700">Sales Data Upload Checklist</p><h6 className="mt-1 text-base font-black">Complete mandatory controls before Excel submission</h6><p className="mt-1 text-xs font-bold text-slate-600">Normal flow requires four marked rows. Nil Upload requires only Client Approval on data.</p></div>
-    </div>
-    <div className="grid gap-3 p-4 lg:grid-cols-2">{checklist.map((row, index) => {
-      const required = row.particular === 'Client Approval on data' || (!nilUpload && REQUIRED_NORMAL_ROWS.has(row.particular));
-      const missing = required && (row.yesNo !== 'Yes' || !row.date || !row.files?.length);
-      const complete = required && !missing;
-      return <article key={row.particular} className={`overflow-hidden rounded-2xl border-2 bg-white transition ${missing ? 'border-rose-200' : complete ? 'border-emerald-300 shadow-sm shadow-emerald-100' : required ? 'border-amber-200' : 'border-indigo-100'}`}>
-        <div className={`flex items-center gap-3 px-3 py-3 ${required ? 'bg-gradient-to-r from-amber-50 to-orange-50' : 'bg-gradient-to-r from-indigo-50 to-violet-50'}`}><span className={`grid h-8 w-8 place-items-center rounded-lg text-xs font-black ${required ? 'bg-amber-500 text-white' : 'bg-indigo-100 text-indigo-700'}`}>{index + 1}</span><strong className="text-xs text-slate-900">{row.particular}</strong>{required && <span className="ml-auto rounded-full bg-rose-100 px-2 py-1 text-[9px] font-black uppercase text-rose-700">Required</span>}</div>
-        <div className="grid gap-3 p-3 sm:grid-cols-2"><label className="text-[10px] font-black uppercase tracking-wide text-slate-500">Status<select disabled={!canEdit} value={row.yesNo || ''} onChange={(event) => onChange(index, { yesNo: event.target.value }, true)} className={`mt-1 block w-full rounded-lg border bg-white px-3 py-2 text-xs font-black normal-case text-slate-900 ${required && row.yesNo !== 'Yes' ? 'border-rose-300' : 'border-slate-200'}`}><option value="">Select</option><option>Yes</option><option>No</option></select></label><label className="text-[10px] font-black uppercase tracking-wide text-slate-500">Date<input disabled={!canEdit} type="date" value={row.date || ''} onChange={(event) => onChange(index, { date: event.target.value })} className={`mt-1 block w-full rounded-lg border bg-white px-3 py-2 text-xs font-bold text-slate-900 ${required && !row.date ? 'border-rose-300' : 'border-slate-200'}`} /></label></div>
-        <div className="px-3 pb-3"><PurchaseProofDropzone files={row.files || []} required={required} disabled={!canEdit} busy={busy === `proof-${index}`} onUpload={(files) => onUploadProof(index, files)} onRemove={(fileIndex, file) => onRemoveProof(index, fileIndex, file)} onPreview={onPreview} onError={onError} /><textarea disabled={!canEdit} rows="2" maxLength="2000" value={row.remarks || ''} onChange={(event) => onChange(index, { remarks: event.target.value })} placeholder="Remarks…" className="mt-2 w-full resize-y rounded-lg border border-slate-200 p-2.5 text-xs font-bold" />{missing && <p className="mt-2 text-[10px] font-black text-rose-600">Yes, date and supporting proof are mandatory.</p>}</div>
+export default function SalesUploadChecklist({ title = 'Sales Data Upload Checklist', checklist = [], canEdit, busy, onChange, onUploadProof, onRemoveProof, onPreview, onError }) {
+  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3"><ClipboardCheck className="h-5 w-5 text-teal-700" /><h6 className="text-sm font-bold text-slate-900">{title}</h6></div>
+    <div className="divide-y divide-slate-200">{checklist.map((row, index) => {
+      if (HIDDEN.has(row.particular)) return null;
+      const simple = SIMPLE.has(row.particular);
+      const enabled = row.yesNo === 'Yes';
+      const editable = canEdit && !busy;
+      return <article key={row.particular} className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3"><strong className="text-sm text-slate-900">{row.particular}</strong>
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-500">Status<select aria-label={`${row.particular} status`} disabled={!editable} value={row.yesNo || ''} onChange={(event) => onChange(index, { yesNo: event.target.value }, true)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 disabled:opacity-50"><option value="">Select</option><option>Yes</option><option>No</option></select></label>
+        </div>
+        {DATA_STAGES.has(row.particular) && <fieldset disabled={!editable || !enabled} className="mt-3 flex flex-wrap gap-2 disabled:opacity-45">{[['partialDataReceived', 'Partially Data received'], ['completeDataReceived', 'Complete Data Received']].map(([field, label]) => <label key={field} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={Boolean(row[field])} onChange={(event) => onChange(index, { [field]: event.target.checked }, true)} className="h-4 w-4 accent-teal-700" />{label}</label>)}</fieldset>}
+        {!simple && <fieldset disabled={!editable || !enabled} className="mt-3 grid gap-3 disabled:opacity-45 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          <div className="min-w-0"><PurchaseProofDropzone files={row.files || []} required={enabled} disabled={!editable || !enabled} busy={busy === `proof-${index}`} onUpload={(files) => onUploadProof(index, files)} onRemove={(fileIndex, file) => onRemoveProof(index, fileIndex, file)} onPreview={onPreview} onError={onError} /></div>
+          <div className="space-y-2"><label className="block text-xs font-semibold text-slate-600">Date<input aria-label={`${row.particular} date`} type="date" value={row.date || ''} onChange={(event) => onChange(index, { date: event.target.value })} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label><label className="block text-xs font-semibold text-slate-600">Remarks<textarea rows="2" maxLength="2000" value={row.remarks || ''} onChange={(event) => onChange(index, { remarks: event.target.value })} placeholder="Add remarks…" className="mt-1 block w-full resize-y rounded-lg border border-slate-200 p-2 text-sm" /></label></div>
+        </fieldset>}
+        {!simple && enabled && (!row.date || !row.files?.length) && <p className="mt-2 text-xs font-medium text-amber-700">Date and supporting proof are required.</p>}
       </article>;
     })}</div>
   </section>;
