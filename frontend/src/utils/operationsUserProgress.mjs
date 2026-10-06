@@ -167,11 +167,11 @@ export function buildOperationsWorkbookData(groups = [], financialYear = 'all') 
       'Final Red Flags': finalRed
     }
   })
-  const clients = groups.flatMap((group) => group.rows.flatMap((row) => {
+  const clientBase = (group, row) => {
     const contact = clientContactDetails(row)
     const approval = row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || 'PENDING'
     const statusDates = getOperationsStatusDates(row)
-    return poRecords(row).map((po) => ({
+    return {
       'Operations User': excelText(group.name, 'Unassigned'),
       'Client Name': excelText(row.companyName, 'Unnamed client'),
       'ATPL Code': excelText(row.atplCode, 'Not recorded'),
@@ -185,13 +185,6 @@ export function buildOperationsWorkbookData(groups = [], financialYear = 'all') 
       'Compliance Status': excelText(String(approval).replace(/_/g, ' ')),
       'Compliance Status Date': excelText(statusDates.compliance.value, 'Not recorded'),
       'PO Status': row.hasPo ? 'Received' : 'Pending',
-      'PO Number': excelText(po.poNo || po.poNumber, 'Not recorded'),
-      'PO Date': excelText(po.poDate, 'Not recorded'),
-      'PO End Date': excelText(po.poEndDate, 'Not recorded'),
-      'PO Financial Year': excelText(po.poFinancialYear, 'Not recorded'),
-      'Payment Term': excelText(po.paymentTerm, 'Not recorded'),
-      'PO Amount (INR)': Number.isFinite(Number(po.poAmount)) && String(po.poAmount).trim() ? Number(po.poAmount) : '',
-      'PO Proof Link': excelText(po.fileUrl || row.poDetails?.fileUrl, 'Not recorded'),
       '48h+ Flag': row.sla?.[48]?.breached ? 'Red' : row.sla?.[48]?.known ? 'Clear' : 'No correction deadline',
       '48h Due': excelText(row.sla?.[48]?.due ? new Date(row.sla[48].due).toISOString() : '', 'Not recorded'),
       '72h+ Flag': row.sla?.[72]?.breached ? 'Red' : row.sla?.[72]?.known ? 'Clear' : 'No correction deadline',
@@ -199,9 +192,48 @@ export function buildOperationsWorkbookData(groups = [], financialYear = 'all') 
       '96h+ Flag': row.sla?.[96]?.breached ? 'Red' : row.sla?.[96]?.known ? 'Clear' : 'No correction deadline',
       '96h Due': excelText(row.sla?.[96]?.due ? new Date(row.sla[96].due).toISOString() : '', 'Not recorded'),
       'Final Flag': getOperationsFinalFlag(row.sla) === 'red' ? 'Red' : 'Green'
+    }
+  }
+  const uniquePoValues = (records, field, fallback = 'Not recorded') => excelText(
+    [...new Set(records.map((po) => po?.[field]).filter((value) => String(value ?? '').trim()))].join(' | '),
+    fallback
+  )
+  // This sheet intentionally contains exactly one row per assigned client so
+  // its Received/Pending totals always reconcile with the Operations table.
+  const clients = groups.flatMap((group) => group.rows.map((row) => {
+    const records = poRecords(row)
+    const amounts = records.map((po) => Number(po?.poAmount)).filter((amount) => Number.isFinite(amount))
+    return {
+      ...clientBase(group, row),
+      'PO Record Count': row.hasPo ? records.length : 0,
+      'PO Number(s)': uniquePoValues(records.map((po) => ({ ...po, poNumber: po.poNo || po.poNumber })), 'poNumber'),
+      'PO Date(s)': uniquePoValues(records, 'poDate'),
+      'PO End Date(s)': uniquePoValues(records, 'poEndDate'),
+      'PO Financial Year(s)': uniquePoValues(records, 'poFinancialYear'),
+      'Payment Term(s)': uniquePoValues(records, 'paymentTerm'),
+      'Total PO Amount (INR)': amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : '',
+      'PO Proof Link(s)': uniquePoValues(records.map((po) => ({ ...po, proofLink: po.fileUrl || row.poDetails?.fileUrl })), 'proofLink')
+    }
+  }))
+  // Multiple POs for one client remain available here without inflating the
+  // unique-client counts in the Client Details sheet.
+  const poDetails = groups.flatMap((group) => group.rows.flatMap((row) => {
+    if (!row.hasPo) return []
+    return poRecords(row).map((po, index) => ({
+      'Operations User': excelText(group.name, 'Unassigned'),
+      'Client Name': excelText(row.companyName, 'Unnamed client'),
+      'ATPL Code': excelText(row.atplCode, 'Not recorded'),
+      'PO Record': index + 1,
+      'PO Number': excelText(po.poNo || po.poNumber, 'Not recorded'),
+      'PO Date': excelText(po.poDate, 'Not recorded'),
+      'PO End Date': excelText(po.poEndDate, 'Not recorded'),
+      'PO Financial Year': excelText(po.poFinancialYear, 'Not recorded'),
+      'Payment Term': excelText(po.paymentTerm, 'Not recorded'),
+      'PO Amount (INR)': Number.isFinite(Number(po.poAmount)) && String(po.poAmount).trim() ? Number(po.poAmount) : '',
+      'PO Proof Link': excelText(po.fileUrl || row.poDetails?.fileUrl, 'Not recorded')
     }))
   }))
-  return { summary, clients }
+  return { summary, clients, poDetails }
 }
 
 export function getPoFinancialYear(row = {}) {

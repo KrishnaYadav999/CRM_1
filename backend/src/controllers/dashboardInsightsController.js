@@ -144,7 +144,7 @@ exports.overall = async (req, res) => {
       canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').maxTimeMS(10000).lean() : [],
       canViewUsers ? Client.find({ $and: [
         { 'data.importMeta.approvalOverride': { $ne: true } }, allocatedClientFilter
-      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations firstAnnualReturnYear financialYear data.assignedServiceId data.selectedLeadSnapshot data.basic.firstAnnualReturnYear data.basic.servicesForYear data.firstAnnualReturnYearApplicable data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations')
+      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations firstAnnualReturnYear financialYear data.assignedServiceId data.selectedLeadSnapshot data.basic.firstAnnualReturnYear data.basic.servicesForYear data.firstAnnualReturnYearApplicable data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations data.financials.compliancePoNo data.financials.poNo data.financials.poNumber data.financials.compliancePoDate data.financials.poDate data.financials.compliancePoFileName data.financials.poFileName data.financials.poFinancialYear data.validation.poNumber data.validation.poNo data.validation.poDate data.validation.poFileName data.validation.poFinancialYear')
         .populate('selectedLead', [
           'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedStaff', 'assignedStaffText', 'assignedStaffEmail',
           'firstAnnualReturnYearApplicable',
@@ -153,7 +153,13 @@ exports.overall = async (req, res) => {
           'assignments.assignedServiceId', 'assignments.serviceAssignmentId',
           'assignments.assignedTo', 'assignments.assignedToText', 'assignments.assignedToEmail',
           'assignments.assignedStaff', 'assignments.assignedStaffText', 'assignments.assignedStaffEmail',
-          'assignments.poYearRows.fy', 'assignments.poYearRows.poFinancialYear'
+          'assignments.poYearRows.fy', 'assignments.poYearRows.poFinancialYear',
+          'assignments.poYearRows.poNumber', 'assignments.poYearRows.poNo', 'assignments.poYearRows.poDate',
+          'assignments.poYearRows.poReceivedDate', 'assignments.poYearRows.poFileName',
+          'assignments.originalPoDetails.fy', 'assignments.originalPoDetails.poFinancialYear',
+          'assignments.originalPoDetails.poNumber', 'assignments.originalPoDetails.poNo',
+          'assignments.originalPoDetails.poDate', 'assignments.originalPoDetails.poReceivedDate',
+          'assignments.originalPoDetails.poFileName'
         ].join(' '))
         .maxTimeMS(12000).lean() : []
     ]);

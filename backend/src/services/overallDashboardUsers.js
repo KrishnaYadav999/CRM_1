@@ -78,13 +78,47 @@ function allocatedFinancialYears(client = {}) {
   ].map(normalizeYear).filter(Boolean))];
 }
 
+const hasPoValue = (value) => {
+  if (Array.isArray(value)) return value.some(hasPoValue);
+  if (value && typeof value === 'object') return Object.values(value).some(hasPoValue);
+  return Boolean(String(value || '').trim());
+};
+
+function allocatedPoStatus(client = {}) {
+  const data = client.data && typeof client.data === 'object' ? client.data : {};
+  const lead = client.selectedLead && typeof client.selectedLead === 'object'
+    ? client.selectedLead
+    : (data.selectedLeadSnapshot && typeof data.selectedLeadSnapshot === 'object' ? data.selectedLeadSnapshot : {});
+  const serviceId = String(client.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '');
+  const services = Array.isArray(lead.serviceSelections) ? lead.serviceSelections : [];
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const serviceIndex = serviceId ? services.findIndex((row) => String(row?.assignedServiceId || row?.serviceAssignmentId || '') === serviceId) : -1;
+  const assignment = assignments.find((row) => serviceId && String(row?.assignedServiceId || row?.serviceAssignmentId || '') === serviceId)
+    || (serviceIndex >= 0 ? assignments[serviceIndex] : assignments[0]) || {};
+  const rows = [...(assignment.poYearRows || []), ...(assignment.originalPoDetails ? [assignment.originalPoDetails] : [])];
+  const receivedRows = rows.filter((row) => hasPoValue(row?.poNumber || row?.poNo || row?.poDate || row?.poReceivedDate || row?.poFileName || row?.fileName));
+  const financials = data.financials || {};
+  const validation = data.validation || {};
+  const clientMasterPo = hasPoValue([
+    financials.compliancePoNo, financials.poNo, financials.poNumber,
+    financials.compliancePoDate, financials.poDate,
+    financials.compliancePoFileName, financials.poFileName,
+    validation.poNumber, validation.poNo, validation.poDate, validation.poFileName
+  ]);
+  const received = receivedRows.length > 0 || clientMasterPo;
+  const rowYears = receivedRows.map((row) => normalizeYear(row?.poFinancialYear || row?.fy)).filter(Boolean);
+  const clientYears = [financials.poFinancialYear, validation.poFinancialYear].map(normalizeYear).filter(Boolean);
+  const years = [...new Set([...rowYears, ...clientYears])];
+  return { received, years: years.length ? years : received ? allocatedFinancialYears(client) : [] };
+}
+
 function buildAllocatedClientStats(clients = [], users = [], teams = []) {
   const eligible = eligibleOperationsUsers(users, teams);
   const userKeys = eligible.map((user) => ({
     id: String(user._id),
     keys: new Set([user._id, user.id, user.userId, user.crmUserId, user.email, user.name].flatMap(identity))
   }));
-  const stats = Object.fromEntries(userKeys.map((user) => [user.id, { total: 0, byYear: {} }]));
+  const stats = Object.fromEntries(userKeys.map((user) => [user.id, { total: 0, poReceived: 0, poPending: 0, byYear: {}, poReceivedByYear: {} }]));
   const seen = new Set();
   clients.forEach((client, index) => {
     const clientKey = String(client?._id || client?.id || `row-${index}`);
@@ -95,10 +129,17 @@ function buildAllocatedClientStats(clients = [], users = [], teams = []) {
       .find(Boolean);
     if (!owner) return;
     stats[owner.id].total += 1;
-    allocatedFinancialYears(client).forEach((year) => {
+    const financialYears = allocatedFinancialYears(client);
+    financialYears.forEach((year) => {
       stats[owner.id].byYear[year] = (stats[owner.id].byYear[year] || 0) + 1;
     });
+    const po = allocatedPoStatus(client);
+    if (po.received) stats[owner.id].poReceived += 1;
+    po.years.forEach((year) => {
+      stats[owner.id].poReceivedByYear[year] = (stats[owner.id].poReceivedByYear[year] || 0) + 1;
+    });
   });
+  Object.values(stats).forEach((row) => { row.poPending = Math.max(0, row.total - row.poReceived); });
   return stats;
 }
 
@@ -124,6 +165,9 @@ function buildUserSections(records, deactivations, users, teams = [], allocatedC
       role: user.role,
       allocatedClients: Math.max(allocatedStats[id]?.total || 0, ownedClientCount),
       allocatedClientsByYear: allocatedStats[id]?.byYear || {},
+      poReceivedClients: allocatedStats[id]?.poReceived || 0,
+      poPendingClients: allocatedStats[id]?.poPending || 0,
+      poReceivedClientsByYear: allocatedStats[id]?.poReceivedByYear || {},
       yearSections: buildOverall(owned, deactivations).yearSections
     };
   });
