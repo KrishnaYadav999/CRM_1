@@ -13,7 +13,7 @@ async function requireAuth(req, res, next) {
     }
 
     const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-    const user = await User.findById(payload.sub).select('-otp -otpExpires -password');
+    const user = await User.findById(payload.sub).select('-otp -otpExpires -password').maxTimeMS(10000);
 
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'User is not active' });
@@ -23,7 +23,12 @@ async function requireAuth(req, res, next) {
     req.authSessionId = payload.sid || '';
     activityAudit(req, res, next);
   } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    if (['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError', 'CastError'].includes(err.name)) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    console.error('[authentication] database lookup failed', { name: err.name, code: err.code });
+    res.set('Retry-After', '2');
+    return res.status(503).json({ error: 'Authentication service is temporarily unavailable. Please retry.' });
   }
 }
 

@@ -1,4 +1,5 @@
 const Notification = require('../models/Notification');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
 const { getUserRoles, userHasAnyRole } = require('../utils/userRoles');
@@ -123,6 +124,30 @@ exports.listNotifications = async (req, res) => {
       .map(mapNotification)
   });
 };
+
+exports.unreadAnnouncements = async (req, res) => {
+  try {
+    const items = await Notification.find({ kind: 'announcement', status: 'Active', readBy: { $ne: req.user._id } })
+      .select('title description tag status kind createdByName createdAt attachmentName attachmentUrl')
+      .sort({ createdAt: 1, _id: 1 }).limit(100).lean();
+    return res.json({ ok: true, announcements: items.map(mapNotification) });
+  } catch (error) {
+    return res.status(500).json({ error: 'Unable to load announcements. Please retry.' });
+  }
+};
+
+exports.markAnnouncementRead = async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid announcement ID.' });
+  try {
+    const result = await Notification.updateOne({ _id: req.params.id, kind: 'announcement', status: 'Active' },
+      { $addToSet: { readBy: req.user._id } });
+    if (!result.matchedCount) return res.status(404).json({ error: 'This announcement is no longer active.' });
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: 'Unable to save read confirmation. Please retry.' });
+  }
+};
+
 
 exports.createNotification = async (req, res) => {
   const title = String(req.body.title || '').trim();

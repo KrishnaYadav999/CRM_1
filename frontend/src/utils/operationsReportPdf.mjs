@@ -15,13 +15,13 @@ export function reportPageRanges(height, pageHeight, protectedBlocks = []) {
   return pages
 }
 
-export async function downloadOperationsReportPdf(element, onProgress = () => {}) {
+export async function downloadOperationsReportPdf(element, onProgress = () => {}, options = {}) {
   if (!element) throw new Error('The report is not ready. Please try again.')
   onProgress('Loading PDF tools…')
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
-  const width = 1440
+  const width = options.width || 1800
   const frame = document.createElement('iframe')
-  frame.title = 'Operations report PDF'
+  frame.title = options.title || 'Operations report PDF'
   frame.setAttribute('aria-hidden', 'true')
   frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${width}px;height:1000px;border:0;pointer-events:none;zoom:1`
   try {
@@ -46,7 +46,7 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
     root.classList.add('operations-pdf-root')
     doc.body.appendChild(root)
     const reset = doc.createElement('style')
-    reset.textContent = `html,body{width:${width}px!important;margin:0!important;padding:0!important;background:#fff!important;zoom:1!important;transform:none!important}*,*::before,*::after{animation:none!important;transition:none!important}.operations-pdf-root{width:${width}px!important;margin:0!important;position:static!important;opacity:1!important;transform:none!important;zoom:1!important}.operations-user-status-scroll,.operations-client-details{max-height:none!important;height:auto!important;overflow:visible!important}.operations-user-summary-row{opacity:1!important;transform:none!important}.operations-user-status-table{width:100%!important;min-width:0!important}.operations-user-progress i{box-shadow:none!important}.operations-user-toolbar,.operations-pdf-hide{display:none!important}`
+    reset.textContent = `html,body{width:${width}px!important;margin:0!important;padding:0!important;background:#fff!important;zoom:1!important;transform:none!important}*,*::before,*::after{animation:none!important;transition:none!important}.operations-pdf-root{width:${width}px!important;margin:0!important;position:static!important;opacity:1!important;transform:none!important;zoom:1!important}.operations-user-status-scroll{max-height:none!important;height:auto!important;overflow:visible!important}.operations-user-summary-row{opacity:1!important;transform:none!important}.operations-user-status-table{width:100%!important;min-width:0!important}.operations-status-date,.operations-po-number,.operations-sla-date{line-height:1.6!important;overflow:visible!important;white-space:normal!important;overflow-wrap:anywhere!important}.operations-user-progress i{box-shadow:none!important}.operations-client-details,.operations-user-detail-row,.operations-user-toolbar,.operations-pdf-hide{display:none!important}`
     doc.head.appendChild(reset)
     root.style.boxSizing = 'border-box'
     // html2canvas doesn't support color-mix; resolve the progress labels explicitly.
@@ -62,7 +62,7 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
     await new Promise((resolve) => setTimeout(resolve, 0))
     // html2canvas replaces SVGs with images in its clone, which can shrink table
     // rows. Freeze measured cell/block heights before calculating page breaks.
-    root.querySelectorAll('th,td,.operations-user-status-heading,.operations-report-meta,.operations-client-details>header').forEach((block) => {
+    root.querySelectorAll('th,td,.operations-user-status-heading,.operations-report-meta,.compliance-kpi-root,.compliance-kpi-branch>header,.compliance-kpi-waste-row').forEach((block) => {
       const height = block.getBoundingClientRect().height
       block.style.boxSizing = 'border-box'
       block.style.height = `${height}px`
@@ -70,7 +70,7 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
     })
     const bounds = root.getBoundingClientRect()
     const height = Math.ceil(bounds.height)
-    const protectedBlocks = [...root.querySelectorAll('.operations-user-status-heading,.operations-user-summary-row,.operations-client-details>header,.operations-client-details tr,.operations-user-status-table>thead,.operations-user-status-table>tfoot,.operations-client-empty')]
+    const protectedBlocks = [...root.querySelectorAll('.operations-user-status-heading,.operations-user-summary-row,.operations-user-status-table>thead,.operations-user-status-table>tfoot,.operations-client-empty')]
       .map((block) => { const rect = block.getBoundingClientRect(); return { top: Math.floor(rect.top - bounds.top), bottom: Math.ceil(rect.bottom - bounds.top) } })
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3', compress: true })
     const printableWidth = 400
@@ -87,14 +87,14 @@ export async function downloadOperationsReportPdf(element, onProgress = () => {}
       pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, printableWidth, (end - start) * printableWidth / width, undefined, 'FAST')
       pdf.setFontSize(9)
       pdf.setTextColor(100, 116, 139)
-      pdf.text('Operations · Client Ownership & Red Flags', 10, 289)
+      pdf.text(options.title || 'Operations - Client Ownership & Red Flags', 10, 289)
       pdf.text(`${index + 1} / ${ranges.length}`, 410, 289, { align: 'right' })
       canvas.width = 0
       canvas.height = 0
     }
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
     onProgress('Saving PDF…')
-    pdf.save(`Operations-Client-Report-${day}.pdf`)
+    pdf.save(`${options.filename || "Operations-Client-Report"}-${day}.pdf`)
   } finally {
     frame.remove()
   }

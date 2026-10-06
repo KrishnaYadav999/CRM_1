@@ -17,6 +17,23 @@ const ONE_WEEK = 7 * DAY;
 let started = false;
 let running = false;
 
+// This scan runs every minute. Proof PDFs and attachments can be megabytes per
+// lead; loading them here stalls the shared API process even on unrelated pages.
+const LEAD_REMINDER_PROJECTION = [
+  '_id', 'sourceLeadId', 'leadCode', 'company', 'createdAt', 'updatedAt',
+  'importedCreatedAt', 'importedUpdatedAt', 'importedCreatedBy', 'bulkImported',
+  'createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedTo', 'assignedStaff',
+  'assignedToEmail', 'assignedStaffEmail', 'closedAt', 'closedBy', 'closedByText',
+  'nextFollowUpDate', 'nextFollowUpTime', 'followUpPriority', 'servicesOffered',
+  'firstAnnualReturnYearApplicable',
+  ...['createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedTo', 'assignedStaff',
+    'assignedToEmail', 'assignedStaffEmail', 'closedAt', 'closedBy', 'closedByText',
+    'followUpClosedAt', 'nextFollowUpDate', 'nextFollowUpTime', 'followUpPriority',
+    'servicesOffered', 'applicableService'].map((field) => `serviceSelections.${field}`),
+  ...['assignedTo', 'assignedStaff', 'assignedToEmail', 'assignedStaffEmail',
+    'closedAt', 'closedBy', 'closedByText'].map((field) => `assignments.${field}`)
+].join(' ');
+
 async function claimReminderDelivery(key, now = Date.now()) {
   const leaseUntil = new Date(Number(now) + (15 * 60 * 1000));
   try {
@@ -118,7 +135,7 @@ function listFrom(payload) {
 
 async function getCcpLeads() {
   try {
-    return await Lead.find({}).lean();
+    return await Lead.find({}).select(LEAD_REMINDER_PROJECTION).maxTimeMS(15000).lean();
   } catch (error) {
     console.warn('CRM lead reminder fetch failed', error.message);
     throw error;

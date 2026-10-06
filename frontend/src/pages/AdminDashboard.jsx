@@ -37,6 +37,7 @@ import {
   Gauge,
   Eye,
   FolderOpen,
+  Flag,
   ListChecks,
   Mail,
   MoreVertical,
@@ -52,6 +53,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
+import PurchaseSalesProgress from '../components/dashboard/PurchaseSalesProgress'
 import AddUserModal from '../components/dashboard/AddUserModal'
 import CreateTeamModal from '../components/dashboard/CreateTeamModal'
 import EditUserModal from '../components/dashboard/EditUserModal'
@@ -68,7 +70,7 @@ import api, { storeSessionUser } from '../services/api'
 import { API_ENDPOINTS } from '../services/apiEndpoints'
 import { downloadOperationMisPdf } from '../utils/productivityReportExports'
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat'
-import { allocationOwnerKeys, buildOperationsProgressGroups, getOperationsStatusDates } from '../utils/operationsUserProgress.mjs'
+import { allocationOwnerKeys, buildOperationsProgressGroups, buildOperationsWorkbookData, getOperationsStatusDates, getOperationsFinalFlag, getPoFinancialYear, permanentStaffOwnerKeys, selectRowsForPoFinancialYear } from '../utils/operationsUserProgress.mjs'
 import { downloadOperationsReportPdf } from '../utils/operationsReportPdf.mjs'
 
 const CALENDAR_TODO_STORAGE_KEY = 'crm.calendar.todos.v1'
@@ -788,7 +790,8 @@ function canSwitchDashboard(user = {}) {
 }
 
 function getLeadOwnerName(lead = {}) {
-  return lead.assignedTo?.name || lead.assignedToText || lead.createdBy?.name || lead.createdBy?.email || lead.referredBy || 'Unassigned'
+  const staffAssignment = (Array.isArray(lead.assignments) ? lead.assignments : []).find((row) => row?.assignedStaff || row?.assignedStaffText || row?.assignedStaffEmail) || {}
+  return staffAssignment.assignedStaff?.name || staffAssignment.assignedStaffText || lead.assignedStaff?.name || lead.assignedStaffText || lead.assignedTo?.name || lead.assignedToText || lead.createdBy?.name || lead.createdBy?.email || lead.referredBy || 'Unassigned'
 }
 
 function getSalesRecordCreatorName(record = {}, users = []) {
@@ -1043,7 +1046,14 @@ function buildDistributionRows(items = [], getLabel, palette = []) {
 
 function getLeadOwnerKeys(lead = {}) {
   const assigned = lead.assignedTo && typeof lead.assignedTo === 'object' ? lead.assignedTo : {}
+  const assignments = Array.isArray(lead.assignments) ? lead.assignments : []
   return [
+    lead.assignedStaff,
+    lead.assignedStaff?._id,
+    lead.assignedStaff?.email,
+    lead.assignedStaffText,
+    lead.assignedStaffEmail,
+    ...assignments.flatMap((row) => [row?.assignedStaff, row?.assignedStaff?._id, row?.assignedStaff?.email, row?.assignedStaffText, row?.assignedStaffEmail]),
     assigned._id,
     assigned.id,
     assigned.email,
@@ -1058,6 +1068,14 @@ function getLeadOwnerKeys(lead = {}) {
     lead.createdBy?.name,
     lead.referredBy
   ].map(normalizeKey).filter(Boolean)
+}
+
+function findUserByOwnerPriority(users = [], ownerKeys = []) {
+  for (const ownerKey of ownerKeys) {
+    const matched = users.find((user) => getUserMatchKeys(user).includes(ownerKey))
+    if (matched) return matched
+  }
+  return null
 }
 
 function leadMatchesAnyUserKey(lead = {}, allowedKeys = new Set()) {
@@ -1085,7 +1103,7 @@ function buildOperationsLeadAnalytics(leads = [], users = [], currentUser = {}) 
   const userCounts = new Map()
   visibleLeads.forEach((lead) => {
     const ownerKeys = getLeadOwnerKeys(lead)
-    const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+    const matchedUser = findUserByOwnerPriority(users, ownerKeys)
     const id = matchedUser ? (getUserId(matchedUser) || getUserName(matchedUser)) : getLeadOwnerName(lead)
     const name = matchedUser ? getUserName(matchedUser) : getLeadOwnerName(lead)
     const existing = userCounts.get(id) || { id, name, leads: 0 }
@@ -1430,7 +1448,10 @@ function getAssignedUserKeysFromClient(client = {}) {
   const serviceId = String(safeClient.assignedServiceId || data.assignedServiceId || '')
   const assignments = (Array.isArray(lead.assignments) ? lead.assignments : []).filter((assignment) => !serviceId || String(assignment.assignedServiceId || assignment.serviceAssignmentId || '') === serviceId)
   return [
-    ...allocationOwnerKeys(safeClient),
+    ...permanentStaffOwnerKeys(safeClient),
+    // Client-level/original ownership is authoritative for user-wise reporting.
+    // Service allocations remain a fallback and must not duplicate one client
+    // under every user who has ever handled one of its services.
     admin.assignedTo,
     assigned._id,
     assigned.id,
@@ -1449,13 +1470,14 @@ function getAssignedUserKeysFromClient(client = {}) {
     safeClient.user?.name,
     safeClient.user?.email,
     safeClient.user?._id,
-    ...[lead, ...assignments].flatMap((owner) => [owner.assignedTo, owner.assignedTo?._id, owner.assignedTo?.email, owner.assignedToText, owner.assignedStaff, owner.assignedStaffText, owner.assignedStaffEmail])
+    ...[lead, ...assignments].flatMap((owner) => [owner.assignedTo, owner.assignedTo?._id, owner.assignedTo?.email, owner.assignedToText, owner.assignedStaff, owner.assignedStaffText, owner.assignedStaffEmail]),
+    ...allocationOwnerKeys(safeClient)
   ].map(normalizeKey).filter(Boolean)
 }
 
 function resolveAssignedUser(client = {}, users = [], fallbackUser = null) {
   const assignedKeys = getAssignedUserKeysFromClient(client)
-  const matched = users.find((user) => getUserMatchKeys(user).some((key) => assignedKeys.includes(key)))
+  const matched = findUserByOwnerPriority(users, assignedKeys)
   if (matched) return matched
   return fallbackUser || null
 }
@@ -1659,6 +1681,7 @@ function getAnnualReturnDraftValue(row = {}, key = '') {
 
 function getLeadPurchaseOrder(client = {}, quotations = [], leads = []) {
   const data = readClientData(client)
+  const assignedServiceId = String(client.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '').trim()
   const matchIds = new Set([
     client.selectedLead, client.leadId, client.sourceLeadId, data.selectedLead, data.importMeta?.leadId,
     ...quotations.flatMap((quote) => [quote.leadRef, quote.leadId, quote.sourceLeadId, quote.businessLeadCode, quote.leadCode])
@@ -1666,15 +1689,16 @@ function getLeadPurchaseOrder(client = {}, quotations = [], leads = []) {
   const clientCodes = new Set([getClientCode(client), client.leadCode, data.leadCode, client.selectedLead?.leadCode]
     .map(formatAtplCode).map(normalizeKey).filter(Boolean))
   const clientNames = [getClientName(client), data.basic?.tradeName, client.selectedLead?.company, client.selectedLead?.companyName].filter(Boolean)
-  return leads.filter((lead) => {
+  const matches = leads.filter((lead) => {
     const exactIdentity = [lead._id, lead.id, lead.leadCode].map(normalizeKey).some((id) => matchIds.has(id))
     const codeIdentity = clientCodes.has(normalizeKey(formatAtplCode(lead.leadCode)))
     const companyIdentity = clientNames.some((name) => businessNamesMatch(name, getLeadCompanyName(lead)))
     return exactIdentity || codeIdentity || companyIdentity
   })
-    .flatMap((lead) => (lead.assignments || []).flatMap((assignment) => (assignment.poYearRows || []).map((row) => ({ ...row, closedAt: assignment.closedAt || lead.closedAt || lead.updatedAt }))))
+    .flatMap((lead) => (lead.assignments || []).filter((assignment) => !assignedServiceId || !(lead.assignments || []).some((row) => row.assignedServiceId) || String(assignment.assignedServiceId || '').trim() === assignedServiceId).flatMap((assignment) => [...(assignment.poYearRows || []), ...(assignment.originalPoDetails ? [assignment.originalPoDetails] : [])].map((row) => ({ ...row, closedAt: assignment.closedAt || lead.closedAt || lead.updatedAt }))))
     .filter((row) => getPoValue(row.poNumber, row.poFileUrl))
-    .sort((left, right) => new Date(right.poReceivedDate || right.updatedAt || right.closedAt || 0) - new Date(left.poReceivedDate || left.updatedAt || left.closedAt || 0))[0] || {}
+    .sort((left, right) => new Date(right.poReceivedDate || right.updatedAt || right.closedAt || 0) - new Date(left.poReceivedDate || left.updatedAt || left.closedAt || 0))
+  return { ...(matches[0] || {}), records: matches }
 }
 
 function getCompliancePoDetails(client = {}, quotations = [], annualReturns = [], leads = []) {
@@ -1752,6 +1776,11 @@ function getCompliancePoDetails(client = {}, quotations = [], annualReturns = []
   return {
     poNo,
     poDate,
+    records: (leadPo.records || []).map((po) => ({ poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', poEndDate: po.poEndDate || '', poFinancialYear: po.poFinancialYear || '', paymentTerm: po.paymentTerm || '', poAmount: po.poAmount ?? '', fileUrl: po.poFileUrl || '', fileName: po.poFileName || 'Purchase Order' })),
+    poEndDate: getPoValue(leadPo.poEndDate, data.financials?.poEndDate, quoteWithPo.poEndDate, purchaseOrder.endDate, annualWithPo.financials?.poEndDate),
+    poFinancialYear: getPoValue(leadPo.poFinancialYear, data.financials?.poFinancialYear, quoteWithPo.poFinancialYear, purchaseOrder.financialYear, annualWithPo.financials?.poFinancialYear),
+    paymentTerm: getPoValue(leadPo.paymentTerm, data.financials?.paymentTerm, quoteWithPo.paymentTerm, purchaseOrder.paymentTerm, annualWithPo.financials?.paymentTerm),
+    poAmount: getPoValue(leadPo.poAmount, data.financials?.poAmount, quoteWithPo.poAmount, purchaseOrder.amount, annualWithPo.financials?.poAmount),
     poFile,
     fileName: getFileDisplayValue(poFile),
     fileUrl: getFileUrl(poFile),
@@ -1991,14 +2020,14 @@ function getScopedOperationsRows(rows = [], users = [], currentUser = {}) {
 
 function getLeadUserKey(lead = {}, users = []) {
   const ownerKeys = getLeadOwnerKeys(lead)
-  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+  const matchedUser = findUserByOwnerPriority(users, ownerKeys)
   if (matchedUser) return getUserId(matchedUser) || getUserName(matchedUser)
   return getLeadOwnerName(lead) || 'unassigned'
 }
 
 function getLeadUserName(lead = {}, users = []) {
   const ownerKeys = getLeadOwnerKeys(lead)
-  const matchedUser = users.find((user) => getUserMatchKeys(user).some((key) => ownerKeys.includes(key)))
+  const matchedUser = findUserByOwnerPriority(users, ownerKeys)
   return matchedUser ? getUserName(matchedUser) : getLeadOwnerName(lead)
 }
 
@@ -3414,7 +3443,8 @@ function currentFinancialYear() {
 
 function rowAppliesToFinancialYear(row, financialYear) {
   const selectedStart = financialYearStart(financialYear)
-  if (row.poFinancialYear) return financialYearStart(row.poFinancialYear) === selectedStart
+  const poYear = getPoFinancialYear(row)
+  if (poYear) return financialYearStart(poYear) === selectedStart
   const firstStart = financialYearStart(row.firstAnnualReturnYear)
   const explicitYears = (row.annualReturns || []).flatMap((item) => [item.annualYear, item.financialYear, item.year]).filter(Boolean)
   if (explicitYears.some((year) => financialYearStart(year) === selectedStart)) return true
@@ -3498,6 +3528,7 @@ function getComplianceServiceKinds(source = {}, fallbackKind = '') {
 }
 
 function getComplianceRecordYears(source = {}) {
+  if (source.poFinancialYear) return [source.poFinancialYear]
   return [
     source.annualYear,
     source.financialYear,
@@ -3510,6 +3541,7 @@ function getComplianceRecordYears(source = {}) {
 }
 
 function complianceRecordAppliesToYear(record, financialYear) {
+  if (record.source.poFinancialYear) return financialYearStart(record.source.poFinancialYear) === financialYearStart(financialYear)
   if (record.source.clientMasterService && record.kind === 'registration') return true
   const selectedStart = financialYearStart(financialYear)
   const firstStart = financialYearStart(record.source.firstAnnualReturnYearApplicable || record.source.firstAnnualReturnYear)
@@ -3520,14 +3552,14 @@ function complianceRecordAppliesToYear(record, financialYear) {
   return true
 }
 
-function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYear()) {
+function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYear(), poYearMode = false) {
   const records = []
   const diagnostics = []
   const addRecord = (source, owner, kind, sourceId) => {
     const waste = getComplianceWasteType(source)
     const applicant = getComplianceApplicantGroup(source, waste)
     const record = { source, owner, kind, waste, applicant, sourceId }
-    if (!complianceRecordAppliesToYear(record, financialYear)) return false
+    if (!poYearMode && !complianceRecordAppliesToYear(record, financialYear)) return false
     records.push(record)
     return true
   }
@@ -3544,6 +3576,7 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
     ).trim() === assignedServiceId) || (linkedServices.length === 1 ? linkedServices[0] : {})
     const clientRecordId = row.id || row.clientKey || rowIndex
     const common = {
+      poFinancialYear: getPoFinancialYear(row),
       eprCategory: clientData.basic?.eprCategory || snapshot.eprCategory || snapshot.serviceCategory || client.eprCategory || client.serviceCategory || linkedService.eprCategory || linkedService.serviceCategory || row.eprCategory,
       applicantType: clientData.basic?.applicantType || snapshot.applicantType || snapshot.piboParent || client.applicantType || client.piboParent || linkedService.applicantType || linkedService.piboParent || row.category,
       subApplicantType: clientData.basic?.subApplicantType || clientData.basic?.piboCategory || snapshot.subApplicantType || snapshot.piboCategory || client.subApplicantType || client.piboCategory || linkedService.subApplicantType || linkedService.piboCategory || row.subApplicantType,
@@ -3677,9 +3710,22 @@ function buildComplianceKpi(clientRows = [], financialYear = currentFinancialYea
 }
 
 function AnnualRegistrationKpi({ data }) {
+  const chartRef = useRef(null)
+  const [exporting, setExporting] = useState(false)
+  const [error, setError] = useState('')
+  const [progress, setProgress] = useState('Preparing PDF…')
+  async function downloadPdf() {
+    if (exporting) return
+    setExporting(true); setError('')
+    try { await downloadOperationsReportPdf(chartRef.current, setProgress, { title: 'Annual Return & Registration', filename: 'Annual-Return-Registration', width: 1800 }) }
+    catch (failure) { setError(failure.message || 'PDF download failed. Please retry.') }
+    finally { setExporting(false) }
+  }
   const groupCount = Math.max(1, data.groups.length)
   const branchEdge = `calc(${50 / groupCount}% - ${(groupCount - 1) * 28 / (2 * groupCount)}px)`
-  return <section className="compliance-kpi-tree" aria-label="Annual Return and Registration KPI">
+  return <section ref={chartRef} className="compliance-kpi-tree" aria-label="Annual Return and Registration KPI">
+    <div className="compliance-kpi-export operations-pdf-hide"><button type="button" className="operations-report-download" disabled={exporting} onClick={downloadPdf}><Download aria-hidden="true" />{exporting ? progress : 'Download PDF'}</button></div>
+    {error && <p role="alert" className="operations-export-error operations-pdf-hide">{error}</p>}
     <header className="compliance-kpi-root">
       <span className="compliance-kpi-root-icon"><BarChart3 aria-hidden="true" /></span>
       <div><h2>Annual Return &amp; Registration</h2><p><span>Annual Return: <b>{data.annual.toLocaleString('en-IN')}</b></span><i /><span>Registration: <b>{data.registration.toLocaleString('en-IN')}</b></span></p></div>
@@ -3723,11 +3769,11 @@ function buildLeadPoRows(leads = [], users = []) {
           subApplicantType: service.subApplicantType || service.piboCategory || lead.subApplicantType || lead.piboCategory || 'Unassigned',
           firstAnnualReturnYear: financialYear,
           annualYear: financialYear,
-          poFinancialYear: financialYear,
+          poFinancialYear: po.poFinancialYear || '',
           createdAt: po.poDate || po.poReceivedDate || assignment.updatedAt || lead.updatedAt || lead.createdAt || '',
           annualReturns: [],
           hasPo,
-          poDetails: { hasPo, poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', fileUrl, fileName: po.poFileName || 'Purchase Order' },
+          poDetails: { hasPo, poNo: po.poNumber || '', poDate: po.poDate || po.poReceivedDate || '', poEndDate: po.poEndDate || '', poFinancialYear: po.poFinancialYear || '', paymentTerm: po.paymentTerm || '', poAmount: po.poAmount ?? '', fileUrl, fileName: po.poFileName || 'Purchase Order' },
           user,
           userName: user ? getUserName(user) : assignment.assignedStaffText || assignment.assignedToText || assignment.closedByText || lead.createdByName || 'Unassigned'
         }
@@ -3901,7 +3947,40 @@ function OperationsProgressValue({ done = 0, total = 0, tone = 'green', label })
   </div>
 }
 
-function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, reportTime }) {
+function OperationsFinalFlag({ rows = [], sla }) {
+  const red = sla ? (getOperationsFinalFlag(sla) === 'red' ? 1 : 0) : rows.filter((row) => getOperationsFinalFlag(row.sla) === 'red').length
+  const tone = red ? 'red' : 'green'
+  return <span className={`operations-final-flag is-${tone}`} aria-label={`Final Flag: ${tone}`} title="Final flag is red only when 48h, 72h and 96h are all red."><Flag aria-hidden="true" fill="currentColor" /><strong>{tone === 'red' ? 'Red' : 'Green'}</strong>{!sla && <small>{red} / {rows.length} red</small>}</span>
+}
+
+function OperationsPoCommercialCell({ rows, field, pdfMode = false }) {
+  const values = [...new Set(rows.flatMap((row) => (row.poDetails?.records?.length ? row.poDetails.records : [row.poDetails || {}]).map((po) => String(po[field] || '').trim())).filter(Boolean))].sort()
+  const shown = pdfMode ? values : values.slice(0, 2)
+  return <div className="operations-po-commercial">{shown.length ? shown.map((value) => <span key={value}>{field === 'poEndDate' ? formatDisplayDate(value) : value}</span>) : <span className="operations-po-unrecorded">Not recorded</span>}{!pdfMode && values.length > 2 && <small>+{values.length - 2} more · View clients</small>}</div>
+}
+
+function fitOperationsWorksheet(sheet, rows = []) {
+  const headers = rows.length ? Object.keys(rows[0]) : []
+  sheet['!cols'] = headers.map((header) => ({ wch: Math.min(55, Math.max(12, header.length + 2, ...rows.map((row) => String(row[header] ?? '').length + 2))) }))
+  if (sheet['!ref']) sheet['!autofilter'] = { ref: sheet['!ref'] }
+  sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' }
+}
+
+function downloadOperationsExcel(groups, financialYear) {
+  const { summary, clients } = buildOperationsWorkbookData(groups, financialYear)
+  const summarySheet = XLSX.utils.json_to_sheet(summary)
+  const clientSheet = XLSX.utils.json_to_sheet(clients)
+  fitOperationsWorksheet(summarySheet, summary)
+  fitOperationsWorksheet(clientSheet, clients)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, summarySheet, 'User Summary')
+  XLSX.utils.book_append_sheet(workbook, clientSheet, 'Client Details')
+  const yearLabel = String(financialYear || 'all').replace(/[^a-z0-9-]+/gi, '-')
+  XLSX.writeFile(workbook, `Operations-Dashboard-${yearLabel}-${new Date().toISOString().slice(0, 10)}.xlsx`)
+}
+
+function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, reportTime, financialYear = currentFinancialYear() }) {
+  const [activeTab, setActiveTab] = useState('ownership')
   const [expandedUser, setExpandedUser] = useState('')
   const [search, setSearch] = useState('')
   const [now, setNow] = useState(() => reportTime || Date.now())
@@ -3935,46 +4014,51 @@ function OperationsUserProgressTable({ rows = [], users = [], pdfMode = false, r
   return <section className="operations-user-status-card" aria-label="User-wise operations status">
     <header className="operations-user-status-heading">
       <div><span>Operations performance</span><h2>Client Ownership &amp; Red Flags</h2><p>Assigned clients, approved compliance and overdue correction deadlines. Red flags are cumulative: 96h also counts in 72h and 48h.</p></div>
-      <div className="operations-report-actions"><b><Users aria-hidden="true" />{groups.length} Operations users</b>{!pdfMode && <button type="button" className="operations-report-download" disabled={exporting || !groups.length} onClick={() => { setExportError(''); setPdfProgress('Preparing PDF…'); setExporting(true) }}><Download aria-hidden="true" />{exporting ? pdfProgress : 'Download full PDF'}</button>}</div>
+      <div className="operations-report-actions">{pdfMode ? <b><Users aria-hidden="true" />{groups.length} Operations users</b> : <div role="tablist" aria-label="Operations reports" className="flex flex-wrap gap-2"><button type="button" role="tab" aria-selected={activeTab === 'ownership'} className="operations-report-download" onClick={() => setActiveTab('ownership')}><Users aria-hidden="true" />{groups.length} Operations users</button><button type="button" role="tab" aria-selected={activeTab === 'data'} className="operations-report-download" onClick={() => setActiveTab('data')}>Purchase &amp; Sales</button></div>}{!pdfMode && activeTab === 'ownership' && <><button type="button" className="operations-report-download" disabled={!groups.length} onClick={() => downloadOperationsExcel(groups, financialYear)}><Download aria-hidden="true" />Export Excel</button><button type="button" className="operations-report-download" disabled={exporting || !groups.length} onClick={() => { setExportError(''); setPdfProgress('Preparing PDF…'); setExporting(true) }}><Download aria-hidden="true" />{exporting ? pdfProgress : 'Download full PDF'}</button></>}</div>
     </header>
-    <div className="operations-report-meta"><span><CalendarDays aria-hidden="true" />Updated {formatDisplayDateTime(now)} IST</span><span>Full PDF includes every Operations user and all assigned client details.</span></div>
+    <div className="operations-report-meta"><span><CalendarDays aria-hidden="true" />Updated {formatDisplayDateTime(now)} IST</span><span>{pdfMode ? 'PDF contains aggregate user metrics only; client names are excluded.' : 'PDF includes every Operations user as an aggregate table without client names.'}</span></div>
     {exportError && <p className="operations-export-error" role="alert">{exportError}</p>}
     {!pdfMode && <div className="operations-user-toolbar"><label><Search aria-hidden="true" /><input aria-label="Search Operations users or clients" placeholder="Search user, client or ATPL code" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span>{new Set(groups.flatMap((group) => group.rows.map((row) => row.id))).size} assigned clients · {totals[48]} overdue assignments</span></div>}
+    {activeTab === 'data' ? <PurchaseSalesProgress groups={visibleGroups} financialYear={financialYear} /> : <>
     <div className="operations-user-status-scroll">
       <table className="operations-user-status-table">
-        <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th>{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th aria-label="Action">View</th></tr></thead>
+        <thead><tr><th>Operations User</th><th>Assigned Clients</th><th>Compliance<small>Approved / Assigned</small></th><th>Purchase Order<small>Received / Assigned</small></th><th>PO End Date<small>Recorded dates</small></th><th>PO Financial Year<small>Recorded years</small></th>{!pdfMode && <th>Payment Term<small>As per PO</small></th>}{OPERATIONS_PROGRESS_MILESTONES.map((milestone) => <th key={milestone}>{milestone}h+ Red Flags<small>Overdue / Assigned</small></th>)}<th>Final Flag<small>All three red = Red</small></th><th aria-label="Action">View</th></tr></thead>
         <tbody>
           {visibleGroups.map((group, groupIndex) => {
-            const open = pdfMode || expandedUser === group.id
+            const open = !pdfMode && expandedUser === group.id
             const initials = group.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U'
             return <React.Fragment key={group.id}>
               <motion.tr className={`operations-user-summary-row ${open ? 'is-open' : ''}`} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: groupIndex * .045 }}>
                 <td><button type="button" className="operations-user-toggle" aria-expanded={open} onClick={() => setExpandedUser(open ? '' : group.id)}><ChevronRight aria-hidden="true" /><i className={`avatar-${tones[groupIndex % tones.length]}`}>{initials}</i><strong>{group.name}</strong></button></td>
                 <td><b>{group.total}</b></td>
                 <td><OperationsProgressValue done={group.complianceDone} total={group.total} tone={group.complianceDone === group.total ? 'green' : 'red'} /></td>
-                <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td>
+                <td><OperationsProgressValue done={group.poDone} total={group.total} tone="green" /></td>{["poEndDate", "poFinancialYear", ...(!pdfMode ? ["paymentTerm"] : [])].map((field) => <td key={field}><OperationsPoCommercialCell rows={group.rows} field={field} pdfMode={pdfMode} /></td>)}
                 {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><OperationsProgressValue done={group.milestones[hours]} total={group.total} tone={group.milestones[hours] ? 'red' : 'green'} /></td>)}
+                <td><OperationsFinalFlag rows={group.rows} /></td>
                 <td><button type="button" className="operations-user-view" aria-label={`${open ? 'Hide' : 'View'} ${group.name} clients`} onClick={() => setExpandedUser(open ? '' : group.id)}><Eye aria-hidden="true" /></button></td>
               </motion.tr>
-              {open && <tr className="operations-user-detail-row"><td colSpan={8}><div className="operations-client-details">
+              {open && <tr className="operations-user-detail-row"><td colSpan={12}><div className="operations-client-details">
                 <header><strong>{group.name} · Assigned clients</strong><span>{group.total} client records</span></header>
-                {group.rows.length ? <table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th>{OPERATIONS_PROGRESS_MILESTONES.map((hours) => <th key={hours}>{hours}h+ Red Flag</th>)}</tr></thead>
+                {group.rows.length ? <table><thead><tr><th>Client Name</th><th>Compliance Status</th><th>PO Status</th><th>PO End Date</th><th>PO Financial Year</th><th>Payment Term</th>{OPERATIONS_PROGRESS_MILESTONES.map((hours) => <th key={hours}>{hours}h+ Red Flag</th>)}<th>Final Flag</th></tr></thead>
                   <tbody>{group.rows.map((row) => {
                     const approval = row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || 'PENDING'
                     const statusDates = getOperationsStatusDates(row)
                     return <tr key={row.id}><td><div className="operations-client-name"><FileText aria-hidden="true" /><span><strong title={row.companyName}>{row.companyName}</strong><small>{row.atplCode}</small></span></div></td>
                       <td><em className={approval === 'APPROVED' ? 'status-applicable' : 'status-partial'}>{String(approval).replace(/_/g, ' ')}</em><small className="operations-status-date"><CalendarDays aria-hidden="true" />{statusDates.compliance.value ? `${statusDates.compliance.label} ${formatDisplayDateTime(statusDates.compliance.value)}` : 'Status date not recorded'}</small></td>
-                      <td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Pending'}</em><small className="operations-status-date"><CalendarDays aria-hidden="true" />{statusDates.po.value ? `PO date ${formatDisplayDate(statusDates.po.value)}` : row.hasPo ? 'PO date not recorded' : 'Awaiting PO'}</small>{row.poDetails?.poNo && <small className="operations-po-number">PO #{row.poDetails.poNo}</small>}</td>
+                      <td><em className={row.hasPo ? 'status-received' : 'status-missing'}>{row.hasPo ? 'Received' : 'Pending'}</em><small className="operations-status-date"><CalendarDays aria-hidden="true" />{statusDates.po.value ? `PO date ${formatDisplayDate(statusDates.po.value)}` : row.hasPo ? 'PO date not recorded' : 'Awaiting PO'}</small>{row.poDetails?.poNo && <small className="operations-po-number">PO #{row.poDetails.poNo}</small>}{row.poDetails?.fileUrl && <a className="operations-po-proof-link" href={row.poDetails.fileUrl} target="_blank" rel="noopener noreferrer"><Eye aria-hidden="true" />View PO Proof</a>}</td>
+                      {["poEndDate", "poFinancialYear", "paymentTerm"].map((field) => <td key={field}><OperationsPoCommercialCell rows={[row]} field={field} pdfMode /></td>)}
                       {OPERATIONS_PROGRESS_MILESTONES.map((hours) => <td key={hours}><em className={row.sla[hours].breached ? 'status-missing' : row.sla[hours].known ? 'status-received' : 'status-neutral'}>{row.sla[hours].breached ? 'Red flag' : row.sla[hours].known ? 'Clear' : 'No correction deadline'}</em>{row.sla[hours].due && <small className="operations-sla-date">Due {formatDisplayDateTime(row.sla[hours].due)}</small>}</td>)}
+                      <td><OperationsFinalFlag sla={row.sla} /></td>
                     </tr>
                   })}</tbody></table> : <p className="operations-client-empty">No clients allocated to this Operations user.</p>}
               </div></td></tr>}
             </React.Fragment>
           })}
         </tbody>
-        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td /></tr></tfoot>
+        <tfoot><tr><td><span><BarChart3 aria-hidden="true" />Total (Operations assignments)</span></td><td><b>{totals.clients}</b></td><td><OperationsProgressValue done={totals.compliance} total={totals.clients} tone="green" /></td><td><OperationsProgressValue done={totals.po} total={totals.clients} tone="green" /></td><td colSpan={pdfMode ? 2 : 3}><small>{pdfMode ? 'Aggregated PO details' : 'PO details are listed by client above'}</small></td><td><OperationsProgressValue done={totals[48]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[72]} total={totals.clients} tone="red" /></td><td><OperationsProgressValue done={totals[96]} total={totals.clients} tone="red" /></td><td><OperationsFinalFlag rows={groups.flatMap((group) => group.rows)} /></td><td /></tr></tfoot>
       </table>
     </div>
+    </>}
     {!groups.length && <div className="operations-user-status-empty"><Users aria-hidden="true" /><strong>No assigned client records found</strong></div>}
     {!pdfMode && exporting && <div ref={pdfRef} className="operations-pdf-source" aria-hidden="true"><OperationsUserProgressTable rows={rows} users={users} pdfMode reportTime={now} /></div>}
   </section>
@@ -3984,7 +4068,7 @@ function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], use
   const leadPoRows = useMemo(() => buildLeadPoRows(leads, users), [leads, users])
   const dashboardRows = leadPoRows.length ? leadPoRows : rows
   const availableYears = useMemo(() => {
-    const years = new Set([currentFinancialYear()])
+    const years = new Set(Array.from({ length: 8 }, (_, index) => `${2022 + index}-${String(2023 + index).slice(-2)}`))
     ;[...dashboardRows, ...rows].forEach((row) => [
       row.poFinancialYear,
       row.annualYear,
@@ -3996,18 +4080,13 @@ function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], use
     }))
     return [...years].sort((a, b) => financialYearStart(b) - financialYearStart(a))
   }, [dashboardRows, rows])
-  const [financialYear, setFinancialYear] = useState(currentFinancialYear())
+  const [financialYear, setFinancialYear] = useState('all')
   const [search, setSearch] = useState('')
   const [poStatus, setPoStatus] = useState('all')
   const [eprCategory, setEprCategory] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const financialYearRows = useMemo(() => dashboardRows.filter((row) => rowAppliesToFinancialYear(row, financialYear)), [dashboardRows, financialYear])
-  useEffect(() => {
-    if (!dashboardRows.length || financialYearRows.length) return
-    const populatedYear = availableYears.find((year) => dashboardRows.some((row) => rowAppliesToFinancialYear(row, year)))
-    if (populatedYear) setFinancialYear(populatedYear)
-  }, [availableYears, dashboardRows, financialYearRows.length])
+  const financialYearRows = useMemo(() => selectRowsForPoFinancialYear(dashboardRows, financialYear), [dashboardRows, financialYear])
   const selectedRows = useMemo(() => {
     const needle = search.trim().toLowerCase()
     return financialYearRows.filter((row) => {
@@ -4020,8 +4099,18 @@ function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], use
       return !needle || [row.companyName, row.atplCode, row.poDetails?.poNo, row.eprCategory, row.category, row.subApplicantType, row.userName].some((value) => String(value || '').toLowerCase().includes(needle))
     })
   }, [dateFrom, dateTo, eprCategory, financialYearRows, poStatus, search])
+  const clientSelectedRows = useMemo(() => selectRowsForPoFinancialYear(rows, financialYear).filter((row) => {
+    if (poStatus === 'received' && !row.hasPo) return false
+    if (poStatus === 'pending' && row.hasPo) return false
+    if (eprCategory !== 'all' && getPoWasteCategory(row) !== eprCategory) return false
+    const rowDate = String(row.poDetails?.poDate || row.createdAt || '').slice(0, 10)
+    if (dateFrom && (!rowDate || rowDate < dateFrom)) return false
+    if (dateTo && (!rowDate || rowDate > dateTo)) return false
+    const needle = search.trim().toLowerCase()
+    return !needle || [row.companyName, row.atplCode, row.poDetails?.poNo, row.eprCategory, row.category, row.subApplicantType, row.userName].some((value) => String(value || '').toLowerCase().includes(needle))
+  }), [rows, financialYear, poStatus, eprCategory, dateFrom, dateTo, search])
   const complianceKpi = useMemo(
-    () => buildComplianceKpi(complianceRows.length ? complianceRows : rows, financialYear),
+    () => buildComplianceKpi(selectRowsForPoFinancialYear(complianceRows.length ? complianceRows : rows, financialYear), financialYear, true),
     [complianceRows, financialYear, rows]
   )
   const analytics = useMemo(() => {
@@ -4041,22 +4130,21 @@ function EprAnalyticsDashboard({ rows = [], complianceRows = [], leads = [], use
   const categoryColors = ['#10b981', '#1687e8', '#fb8500', '#7c3aed']
   const categoryChartData = analytics.categories.filter((item) => item.total)
   const chartData = categoryChartData.length ? categoryChartData : [{ name: 'No data', total: 1 }]
-  const resetFilters = () => { setSearch(''); setPoStatus('all'); setEprCategory('all'); setDateFrom(''); setDateTo('') }
+  const resetFilters = () => { setFinancialYear('all'); setSearch(''); setPoStatus('all'); setEprCategory('all'); setDateFrom(''); setDateTo('') }
 
   return <div className="epr-intelligence-dashboard"><section className="epr-dashboard-shell">
-    <header className="epr-dashboard-heading"><div><p>ANANTTATTVA e-connect · {financialYear}</p><h1>EPR Applicant &amp; Sub-applicant Analysis</h1><span>Live client distribution with PO received and pending visibility.</span></div><button type="button" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh data</button></header>
+    <header className="epr-dashboard-heading"><div><p>ANANTTATTVA e-connect · {financialYear === 'all' ? 'All PO Financial Years' : financialYear === 'unrecorded' ? 'PO year not recorded' : financialYear}</p><h1>EPR Applicant &amp; Sub-applicant Analysis</h1><span>Live client distribution with PO received and pending visibility.</span></div><button type="button" onClick={onRefresh}><RefreshCw aria-hidden="true" />Refresh data</button></header>
     <div className="epr-filter-bar" aria-label="Dashboard filters">
       <label className="epr-search-filter"><Search aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search client, lead, user or PO..." /></label>
-      <select aria-label="Financial year" value={financialYear} onChange={(event) => setFinancialYear(event.target.value)}>{availableYears.map((year) => <option key={year}>{year}</option>)}</select>
+      <select aria-label="PO Financial Year" title="Filter by saved PO Financial Year" value={financialYear} onChange={(event) => setFinancialYear(event.target.value)}><option value="all">All PO Financial Years</option>{availableYears.map((year) => <option key={year}>{year}</option>)}<option value="unrecorded">Not recorded</option></select>
       <select aria-label="PO status" value={poStatus} onChange={(event) => setPoStatus(event.target.value)}><option value="all">All PO Status</option><option value="received">PO Received</option><option value="pending">PO Pending</option></select>
       <select aria-label="EPR category" value={eprCategory} onChange={(event) => setEprCategory(event.target.value)}><option value="all">All Categories</option>{['Plastic', 'E-Waste', 'Battery Waste', 'Other EPR'].map((item) => <option key={item}>{item}</option>)}</select>
       <label className="epr-date-filter"><span>From</span><input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} /></label>
       <label className="epr-date-filter"><span>To</span><input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
       <button type="button" className="epr-clear-filter" onClick={resetFilters}>Clear</button>
     </div>
-    <AnnualRegistrationKpi data={complianceKpi} />
     <div className="epr-category-grid" hidden style={{ display: 'none' }}>{analytics.categories.map((category, index) => <motion.article key={category.name} className={`epr-category-card epr-category-${index + 1}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}><div><p>EPR Category</p><h2>{category.name}</h2><strong>{category.total}</strong><section><span>Received {category.received}</span><span>Pending {category.total - category.received}</span></section></div><footer><p>Applicant / Sub-applicant count</p><section>{category.applicants.length ? category.applicants.map(([name, count]) => <span key={name}>{name}<b>{count}</b></span>) : <em>No clients in this category.</em>}</section></footer></motion.article>)}</div>
-    <OperationsUserProgressTable rows={rows} users={users} />
+    <OperationsUserProgressTable rows={clientSelectedRows} users={users} financialYear={financialYear} />
     <div className="epr-chart-grid">
       <article className="epr-chart-card"><header><div><h2>Leads by EPR Category</h2><p>Filtered category distribution</p></div><b>{selectedRows.length} total</b></header><div className="epr-donut-body"><div className="epr-donut"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={chartData} dataKey="total" nameKey="name" innerRadius={62} outerRadius={86} paddingAngle={3} stroke="none">{chartData.map((entry, index) => <Cell key={entry.name} fill={categoryChartData.length ? categoryColors[index] : '#e5e7eb'} />)}</Pie><Tooltip /></RechartsPieChart></ResponsiveContainer><span><strong>{selectedRows.length}</strong>Total</span></div><div className="epr-chart-legend">{analytics.categories.map((item, index) => <div key={item.name}><i style={{ background: categoryColors[index] }} /><span>{item.name}</span><strong>{item.total}</strong><small>{selectedRows.length ? `${((item.total / selectedRows.length) * 100).toFixed(1)}%` : '0%'}</small></div>)}</div></div></article>
       <article className="epr-chart-card"><header><div><h2>Applicant / Sub-applicant Mix</h2><p>Live distribution by applicant type</p></div></header><div className="epr-bar-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={analytics.applicants} margin={{ top: 24, right: 10, left: -20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8edf3" /><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} /><Tooltip cursor={{ fill: '#f8fafc' }} /><Bar dataKey="count" radius={[7, 7, 0, 0]} maxBarSize={54}>{analytics.applicants.map((item, index) => <Cell key={item.name} fill={['#fb923c', '#34d399', '#8b5cf6', '#0ea5e9', '#f43f5e', '#94a3b8', '#fbbf24'][index]} />)}</Bar></BarChart></ResponsiveContainer></div></article>

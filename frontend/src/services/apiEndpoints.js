@@ -47,6 +47,7 @@ const API_ENDPOINTS = {
     ,permanentClosure: (id) => `/leads/${encodePathValue(id)}/permanent-closure`
     ,temporaryAssignmentDecision: (approvalId) => `/leads/temporary-assignments/${encodePathValue(approvalId)}`
     ,temporaryLeads: '/leads/temporary'
+    ,bulkTemporaryLeads: '/leads/temporary/bulk'
     ,convertTemporaryLead: (id) => `/leads/temporary/${encodePathValue(id)}/convert`
     ,temporaryLeadFollowUp: (id) => `/leads/temporary/${encodePathValue(id)}/follow-up`
     ,temporaryLeadFollowUpClose: (id) => `/leads/temporary/${encodePathValue(id)}/follow-up/close`
@@ -131,6 +132,8 @@ const API_ENDPOINTS = {
     purchaseSales: '/dashboard-insights/purchase-sales'
   },
   notifications: {
+    unreadAnnouncements: '/notifications/unread-announcements',
+    markRead: (id) => `/notifications/${encodePathValue(id)}/read`,
     list: '/notifications',
     create: '/notifications',
     detail: (id) => `/notifications/${encodePathValue(id)}`,

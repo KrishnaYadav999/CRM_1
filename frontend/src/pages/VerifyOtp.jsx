@@ -44,7 +44,7 @@ export default function VerifyOtp(){
       localStorage.removeItem('login_email')
       localStorage.removeItem('login_mode')
       localStorage.removeItem('dev_otp')
-      navigate('/dashboard')
+      navigate('/overall-dashboard')
     }catch(err){
       const message = readApiError(err, 'Invalid OTP')
       setError(message)

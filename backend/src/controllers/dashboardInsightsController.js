@@ -6,6 +6,10 @@ const SalesData = require('../models/SalesData');
 const User = require('../models/User');
 const { loadPurchaseOrders } = require('./purchaseOrderController');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const { loadOverallRecords, createOverallCache } = require('../services/overallDashboardData');
+const cachedOverallRecords = createOverallCache({ ttl: 60000 });
+const { overallLeadFilter } = require('../services/overallDashboardVisibility');
+const { userHasAnyRole } = require('../utils/userRoles');
 
 const text = (value) => String(value?._id || value?.id || value || '').trim();
 
@@ -20,7 +24,7 @@ function countBy(rows, key) {
 
 async function visibleUsers(scope, requester) {
   const filter = scope === null ? { isActive: { $ne: false } } : { _id: { $in: scope.ids }, isActive: { $ne: false } };
-  const users = await User.find(filter).select('_id name email role managerId').sort({ name: 1 }).lean();
+  const users = await User.find(filter).select('_id crmUserId name email role roles managerId teamId').sort({ name: 1 }).maxTimeMS(10000).lean();
   if (!users.length && requester?._id) return [{ _id: requester._id, name: requester.name, email: requester.email, role: requester.role }];
   return users;
 }
@@ -127,13 +131,38 @@ exports.purchaseSales = async (req, res) => {
 };
 
 exports.overall = async (req, res) => {
+  const startedAt = Date.now();
   try {
     const scope = await getVisibleUserScope(req.user);
-    const filter = ownerFilter(scope, 'createdBy', 'assignedTo', ['createdByEmail', 'createdByName', 'assignments.assignedToText'], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
-    const [records, requests] = await Promise.all([
-      loadPurchaseOrders({ Lead, Client, Quotation }, filter),
-      require('../models/ClientDeactivation').find({ status: 'INACTIVE' }).select('companyKey status').lean()
+    const filter = overallLeadFilter(scope);
+    const canViewUsers = userHasAnyRole(req.user, ['admin', 'superadmin', 'manager']);
+    const allocatedClientFilter = canViewUsers ? await require('./clientController').clientAccessFilter(req.user) : {};
+    const [records, requests, users, teams, allocatedClients] = await Promise.all([
+      cachedOverallRecords(JSON.stringify({ filter, scope }), () => loadOverallRecords(Lead, filter, scope)),
+      require('../models/ClientDeactivation').find({ status: 'INACTIVE' }).select('companyKey status').maxTimeMS(10000).lean(),
+      canViewUsers ? visibleUsers(scope, req.user) : [],
+      canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').maxTimeMS(10000).lean() : [],
+      canViewUsers ? Client.find({ $and: [
+        { 'data.importMeta.approvalOverride': { $ne: true } }, allocatedClientFilter
+      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations firstAnnualReturnYear financialYear data.assignedServiceId data.selectedLeadSnapshot data.basic.firstAnnualReturnYear data.basic.servicesForYear data.firstAnnualReturnYearApplicable data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations')
+        .populate('selectedLead', [
+          'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedStaff', 'assignedStaffText', 'assignedStaffEmail',
+          'firstAnnualReturnYearApplicable',
+          'serviceSelections.assignedServiceId', 'serviceSelections.serviceAssignmentId',
+          'serviceSelections.firstAnnualReturnYearApplicable', 'serviceSelections.financialYear', 'serviceSelections.servicesForYear',
+          'assignments.assignedServiceId', 'assignments.serviceAssignmentId',
+          'assignments.assignedTo', 'assignments.assignedToText', 'assignments.assignedToEmail',
+          'assignments.assignedStaff', 'assignments.assignedStaffText', 'assignments.assignedStaffEmail',
+          'assignments.poYearRows.fy', 'assignments.poYearRows.poFinancialYear'
+        ].join(' '))
+        .maxTimeMS(12000).lean() : []
     ]);
-    return res.json(require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear));
-  } catch { return res.status(500).json({ error: 'Unable to load Overall Dashboard.' }); }
+    res.set('Cache-Control', 'private, no-store');
+    res.set('Server-Timing', `overall;dur=${Date.now() - startedAt}`);
+    const visibility = scope === null ? 'all' : userHasAnyRole(req.user, ['manager']) ? 'team' : 'self';
+    return res.json({ ...require('../services/overallDashboard').buildOverall(records, requests, req.query.financialYear), userSections: canViewUsers ? require('../services/overallDashboardUsers').buildUserSections(records, requests, users, teams, allocatedClients) : [], canViewUsers, visibility });
+  } catch (error) {
+    console.error('[overall-dashboard] load failed', { durationMs: Date.now() - startedAt, name: error.name, code: error.code });
+    return res.status(error.code === 50 ? 503 : 500).json({ error: 'Unable to load Overall Dashboard. Please refresh and retry.' });
+  }
 };

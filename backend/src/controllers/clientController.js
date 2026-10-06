@@ -1069,6 +1069,20 @@ function backgroundSyncPendingApprovals(clientRows = [], quotationRows = []) {
   }, 0);
 }
 
+exports.listPurchaseSalesProgress = async (req, res) => {
+  const financialYear = String(req.query.financialYear || '').trim();
+  if (!/^20\d{2}-\d{2}$/.test(financialYear)) return res.status(400).json({ error: 'Valid financial year is required.' });
+  const clients = await Client.find(await clientAccessFilter(req.user)).select('_id').lean();
+  const clientIds = clients.map((client) => client._id);
+  const summarize = require('../services/purchaseSalesProgress');
+  const projection = 'clientId checklist baseUpload portalUpload reconciliation managerVerificationStatus complianceVerificationStatus';
+  const [purchase, sales] = await Promise.all([
+    require('../models/PurchaseData').find({ clientId: { $in: clientIds }, financialYear }).select(projection).lean(),
+    require('../models/SalesData').find({ clientId: { $in: clientIds }, financialYear }).select(projection).lean()
+  ]);
+  res.json({ ok: true, financialYear, purchase: summarize(purchase), sales: summarize(sales) });
+};
+
 exports.listClients = async (req, res) => {
   const startedAt = process.hrtime.bigint();
   const accessStartedAt = process.hrtime.bigint();

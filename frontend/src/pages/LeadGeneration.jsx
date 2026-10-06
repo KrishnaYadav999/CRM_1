@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, BadgeIndianRupee, BellRing, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -15,7 +16,11 @@ import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { inferPiboParent, normalizeLegacyPiboCategory, normalizePiboCategories, PIBO_PARENTS } from '../constants/piboCategories';
 import { uploadMedia } from '../services/mediaUpload';
 import { fetchIndiaStateCities, fetchIndiaStates } from '../services/countriesNow';
-import { selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
+import { buildManualClosurePoRow, hydrateClosurePoRows, selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
+import PoCommercialFields from '../components/PoCommercialFields';
+import PoProofView from '../components/PoProofView';
+import { poCommercialError } from '../utils/poCommercialDetails.mjs';
+import { formatDisplayDate } from '../utils/dateFormat';
 
 const emptyLead = {
   sourceLeadId: '',
@@ -1115,13 +1120,15 @@ export default function LeadGeneration() {
     }));
   }
 
-  function requestLeadClosure(index, value) {
+  function requestLeadClosure(index, value, sourceLead = lead) {
     if (!value) return updateAssignmentRow(index, 'closedBy', '');
-    const matchingService = serviceRows[index] || {};
-    const reviewMode = assignmentRows[index]?.poStatus === 'provisional';
-    const matchingAssignment = assignmentRows[index] || {};
+    const matchingService = normalizeLegacyServiceSelections(sourceLead)[index] || {};
+    const sourceAssignments = sourceLead.assignments || [];
+    const matchingAssignment = sourceAssignments.find((assignment) => matchingService.assignedServiceId
+      && assignment?.assignedServiceId === matchingService.assignedServiceId) || sourceAssignments[index] || {};
+    const reviewMode = matchingAssignment.poStatus === 'provisional';
     const relevantQuotations = quotations.filter((quote) => {
-      const leadMatch = [quote.leadId, quote.leadCode, quote.businessLeadCode].filter(Boolean).some((id) => [editingLeadId, lead._id, lead.id, lead.leadCode].filter(Boolean).map(String).includes(String(id)));
+      const leadMatch = [quote.leadId, quote.leadCode, quote.businessLeadCode].filter(Boolean).some((id) => [sourceLead._id, sourceLead.id, sourceLead.sourceLeadId, sourceLead.leadCode].filter(Boolean).map(String).includes(String(id?._id || id?.id || id)));
       return leadMatch && !['rejected'].includes(String(quote.status || '').toLowerCase());
     }).sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0));
     const quotationSelection = selectLeadClosureQuotation(relevantQuotations, {
@@ -1136,7 +1143,7 @@ export default function LeadGeneration() {
       : selectedQuotationItems.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
     const quoteRow = (item = matchingService, itemIndex = 0) => ({
       fy: item.servicesForYear || item.financialYear || item.firstAnnualReturnYearApplicable || matchingService.firstAnnualReturnYearApplicable || '',
-      poNumber: '', poDate: '', poAmount: latestQuotation?.pricingMode === 'combined' ? defaultAmount : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), poFileUrl: '', poFileName: '', poFileMimeType: '', poFileSize: null, currency: 'INR', poReceivedDate: '',
+      poNumber: '', poDate: '', poEndDate: '', poFinancialYear: '', paymentTerm: latestQuotation?.paymentTerm || '', poAmount: latestQuotation?.pricingMode === 'combined' ? defaultAmount : ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), poFileUrl: '', poFileName: '', poFileMimeType: '', poFileSize: null, currency: 'INR', poReceivedDate: '',
       services: [item.servicesOffered || item.applicableService || matchingService.servicesOffered].filter(Boolean),
       quotationItemIndex: itemIndex,
       quotationId: latestQuotation?._id || latestQuotation?.id || '', quotationNumber: latestQuotation?.quotationNumber || '',
@@ -1148,11 +1155,10 @@ export default function LeadGeneration() {
     });
     const fetchedPoRows = selectedQuotationItems.length ? selectedQuotationItems.map(quoteRow) : [quoteRow()];
     const savedPoRows = Array.isArray(matchingAssignment.poYearRows) ? matchingAssignment.poYearRows : [];
-    const hydratedPoRows = fetchedPoRows.map((row, rowIndex) => ({ ...row, ...(savedPoRows[rowIndex] || {}) }));
-    const poYearRows = [...hydratedPoRows, ...savedPoRows.slice(fetchedPoRows.length)];
+    const poYearRows = hydrateClosurePoRows(fetchedPoRows, savedPoRows, matchingService);
     const actorId = String(currentUser?._id || currentUser?.id || '');
-    const leadOwner = primaryLeadOwner(lead, staff, currentUser);
-    setClosureDialog({ index, value: actorId || value, behalfMode: 'lead-owner', behalfUserId: leadOwner.id, leadOwnerName: leadOwner.name, leadOwnerEmail: leadOwner.email, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
+    const leadOwner = primaryLeadOwner(sourceLead, staff, currentUser);
+    setClosureDialog({ index, value: actorId || value, behalfMode: 'lead-owner', behalfUserId: leadOwner.id, leadOwnerName: leadOwner.name, leadOwnerEmail: leadOwner.email, selectedService: matchingService, reviewMode, choice: reviewMode ? 'yes' : '', quotationSent: reviewMode ? 'yes' : '', quotation: latestQuotation, quotationItems: selectedQuotationItems, poModeConfirmed: true, poMode: 'quotation', poYearRows, crmPoYearRows: poYearRows, approvalProofUrl: '', approvalProofName: '', earlierQuotationProofUrl: '', earlierQuotationProofName: '' });
   }
 
   async function uploadClosureFile(event, type, rowIndex = 0) {
@@ -1180,19 +1186,14 @@ export default function LeadGeneration() {
       if (!current) return current;
       if (mode === 'no') {
         const switchingToEarlierProof = current.quotationSent !== 'no';
+        const selectedRow = (current.poYearRows || []).find((row) => !current.selectedService?.assignedServiceId
+          || String(row.assignedServiceId || '') === String(current.selectedService.assignedServiceId))
+          || current.poYearRows?.[0]
+          || {};
         return {
           ...current,
           quotationSent: 'no',
-          poYearRows: current.poYearRows.map((row) => ({
-            ...row,
-            poAmount: switchingToEarlierProof ? '' : row.poAmount,
-            quotationId: '',
-            quotationNumber: '',
-            quotationItems: [],
-            quotationBasicAmount: 0,
-            quotationCreatedById: '',
-            quotationCreatedByEmail: ''
-          }))
+          poYearRows: [buildManualClosurePoRow(selectedRow, current.selectedService || {}, switchingToEarlierProof)]
         };
       }
       const currentRows = current.poYearRows || [];
@@ -1207,6 +1208,9 @@ export default function LeadGeneration() {
             ...quotationRow,
             poNumber: entered.poNumber || '',
             poDate: entered.poDate || '',
+            poEndDate: entered.poEndDate || '',
+            poFinancialYear: entered.poFinancialYear || '',
+            paymentTerm: entered.paymentTerm || quotationRow.paymentTerm || '',
             poAmount: entered.poAmount || quotationRow.poAmount,
             poFileUrl: entered.poFileUrl || '',
             poFileName: entered.poFileName || '',
@@ -1229,6 +1233,8 @@ export default function LeadGeneration() {
       if (!closureDialog.quotationSent) return showToast('Please select whether a quotation was sent.', 'warning');
       if (closureDialog.quotationSent === 'yes' && !(closureDialog.quotation?._id || closureDialog.quotation?.id)) return showToast('No CRM quotation was found for this lead. Select No and upload the earlier quotation proof.', 'warning');
       if (closureDialog.quotationSent === 'no' && !closureDialog.earlierQuotationProofUrl) return showToast('Upload the earlier quotation proof before entering PO details.', 'warning');
+      const commercialError = closureDialog.poYearRows.map(poCommercialError).find(Boolean);
+      if (commercialError) return showToast(commercialError, 'warning');
       const incomplete = closureDialog.poYearRows.some((row) => !row.fy || !String(row.poNumber || '').trim() || !/^\d{4}-\d{2}-\d{2}$/.test(String(row.poDate || '')) || Number.isNaN(new Date(`${row.poDate}T00:00:00`).getTime()) || !(Number(row.poAmount) > 0) || !row.poFileUrl || !row.services.length);
       if (incomplete) return showToast('Complete FY Year, PO Number, PO Date, PO Amount, PO Upload, and Services for every PO row.', 'warning');
       closurePatch = { poStatus: 'received', poApprovalStatus: 'PENDING', quotationSent: closureDialog.quotationSent, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '', poYearRows: closureDialog.poYearRows.map((row) => ({ ...row, quotationSent: closureDialog.quotationSent, quotationBasicAmount: closureDialog.quotationSent === 'no' ? 0 : row.quotationBasicAmount, earlierQuotationProofUrl: closureDialog.earlierQuotationProofUrl || '', earlierQuotationProofName: closureDialog.earlierQuotationProofName || '' })), closureRequestedBy: closureDialog.value, closureRequestedByText: currentUser?.name || currentUser?.email || '', closureApprovalProofUrl: '', closureApprovalProofName: '', provisionalCloseExpiresAt: '', kickoffEmailConsent: '' };
@@ -1269,6 +1275,11 @@ export default function LeadGeneration() {
         workflowStatus: savedLead.workflowStatus || current.workflowStatus,
         updatedAt: savedLead.updatedAt || current.updatedAt
       }));
+      if (closureDialog.poEditor) {
+        const updated = { ...lead, assignments: savedLead.assignments, updatedAt: savedLead.updatedAt };
+        setViewLead(updated);
+        setLeads((current) => current.map((item) => String(item._id || item.id) === String(updated._id || updated.id) ? updated : item));
+      }
       setClosureDialog(null);
       showToast(closureDialog.choice === 'no' ? 'Special approval closure saved in the database.' : 'Lead closed and PO details saved in the database after admin approval. Approval is pending.', 'success');
     } catch (saveError) {
@@ -1603,7 +1614,8 @@ export default function LeadGeneration() {
         setPiboCategoriesLoading(false);
       }).catch(() => setPiboCategoriesLoading(false));
 
-      const crmLeadsResponse = await api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, page: 1, limit: 10 } });
+      const initialWorkspace = new URLSearchParams(location.search).get('tab') === 'notified' ? 'notified' : 'leads';
+      const crmLeadsResponse = await api.get(API_ENDPOINTS.leads.list, { params: { paginated: true, page: 1, limit: 10, workspace: initialWorkspace } });
       const crmLeads = crmLeadsResponse.data.leads || [];
       setAllCcpLeads(crmLeads);
       setLeads(crmLeads);
@@ -1622,6 +1634,9 @@ export default function LeadGeneration() {
 
   const loadLeadDirectory = useCallback(async (params = {}) => {
     const requestId = ++leadListRequestRef.current;
+    const requestStartedAt = window.performance.now();
+    const isNotifiedRequest = String(params.workspace || '').toLowerCase() === 'notified';
+    if (isNotifiedRequest) console.info('[Lead Notifications] fetch started', { page: params.page || 1, limit: params.limit || 10, search: params.search || '', status: params.status || '', staff: params.staff || '' });
     setLoading(true);
     setError('');
     try {
@@ -1630,12 +1645,31 @@ export default function LeadGeneration() {
       });
       if (requestId !== leadListRequestRef.current) return;
       const rows = response.data?.leads || [];
+      if (isNotifiedRequest) {
+        const pendingRows = pendingManagerAssignmentRows(rows, currentUser);
+        console.info('[Lead Notifications] fetch complete', {
+          durationMs: Math.round(window.performance.now() - requestStartedAt),
+          rowsReceived: rows.length,
+          pendingRowsOnPage: pendingRows.length,
+          totalPendingLeads: Number(response.data?.pagination?.total || 0),
+          page: Number(response.data?.pagination?.page || 1),
+          totalPages: Number(response.data?.pagination?.totalPages || 1),
+          serverTiming: response.headers?.['server-timing'] || 'not provided'
+        });
+        if (!rows.length) console.warn('[Lead Notifications] No manager-assigned, staff-pending leads matched the current user visibility scope and filters.');
+      }
       setLeads(rows);
       setAllCcpLeads(rows);
       setLeadPagination(response.data?.pagination || { page: 1, limit: 10, total: rows.length, totalPages: 1 });
       setLeadSummary(response.data?.summary || { total: rows.length, existing: 0, converted: 0, new: rows.length });
     } catch (err) {
       if (requestId !== leadListRequestRef.current || err?.code === 'ERR_CANCELED') return;
+      if (isNotifiedRequest) console.error('[Lead Notifications] fetch failed', { durationMs: Math.round(window.performance.now() - requestStartedAt), message: err?.message, status: err?.response?.status, apiError: err?.response?.data?.error });
+      if (isNotifiedRequest) {
+        setLeads([]);
+        setAllCcpLeads([]);
+        setLeadPagination({ page: 1, limit: Number(params.limit || 10), total: 0, totalPages: 1 });
+      }
       setError(err?.response?.data?.error || 'Unable to fetch leads from CRM. Please retry.');
     } finally {
       if (requestId === leadListRequestRef.current) setLoading(false);
@@ -2210,12 +2244,46 @@ export default function LeadGeneration() {
     );
   }
 
+  function openLeadPoDetails(sourceLead, index = Math.max(0, (sourceLead.assignments || []).findIndex((row) => row.poYearRows?.length))) {
+    const normalized = { ...emptyLead, ...sourceLead, serviceSelections: normalizeLegacyServiceSelections(sourceLead) };
+    setLead(normalized);
+    setEditingLeadId(sourceLead._id || sourceLead.id || '');
+    requestLeadClosure(index, String(currentUser?._id || currentUser?.id || ''), normalized);
+    const selectedService = normalized.serviceSelections[index] || {};
+    const assignment = sourceLead.assignments?.find((row) => selectedService.assignedServiceId
+      && row?.assignedServiceId === selectedService.assignedServiceId) || sourceLead.assignments?.[index] || {};
+    setClosureDialog((current) => ({ ...current, poEditor: true, reviewMode: false, choice: 'yes', quotationSent: assignment.quotationSent || (current.quotation ? 'yes' : 'no'), earlierQuotationProofUrl: assignment.earlierQuotationProofUrl || assignment.poYearRows?.[0]?.earlierQuotationProofUrl || '', earlierQuotationProofName: assignment.earlierQuotationProofName || assignment.poYearRows?.[0]?.earlierQuotationProofName || '' }));
+  }
+
+  const renderClosureDialog = () => (closureDialog && createPortal((
+        <div className="fixed inset-0 z-[12000] bg-slate-50" role="dialog" aria-modal="true">
+          <section className="flex h-screen w-full flex-col overflow-hidden bg-white">
+            <header className="flex flex-col gap-4 border-b bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Closure Verification</p><h2 className="mt-1 text-2xl font-black">Have you received the Purchase Order?</h2><p className="mt-1 text-sm font-bold text-slate-500">PO or Super Admin approval proof is required before closing this service.</p></div><div className="flex items-start gap-3">{closureDialog.quotationSent === 'yes' && String(closureDialog.quotation?.approvalDecision?.status || closureDialog.quotation?.status || '').toLowerCase() === 'approved' && (() => { const decision = closureDialog.quotation.approvalDecision || {}; const reviewer = decision.actionBy || {}; const role = String(reviewer.role || decision.reviewerRole || 'Admin').replace(/[_-]+/g, ' '); return <div className="min-w-[310px] rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-800">Quotation Approved</span><span className="text-xs font-black text-slate-500">{closureDialog.quotation.leadCode || closureDialog.quotation.businessLeadCode || lead.leadCode || '-'}</span></div><p className="mt-3 text-sm font-black text-slate-900">Approved by {reviewer.name || reviewer.email || role}</p><p className="mt-1 text-xs font-bold capitalize text-slate-500">{role}{decision.actionAt ? ` • ${new Date(decision.actionAt).toLocaleString('en-IN')}` : ''}</p>{decision.proofUrl ? <a href={decision.proofUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800"><Eye className="h-4 w-4" />View approval proof{decision.proofName ? ` • ${decision.proofName}` : ''}</a> : <p className="mt-3 text-xs font-bold text-slate-400">Direct approval — no proof uploaded.</p>}</div> })()}<button type="button" onClick={() => setClosureDialog(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border bg-white"><X className="h-5 w-5" /></button></div></header>
+            <div className="flex-1 overflow-y-auto p-6 lg:px-10">{closureDialog.poEditor && <label className="mb-5 block text-sm font-bold text-slate-700">Service<select aria-label="Select PO service" className="form-input mt-2 max-w-2xl" value={closureDialog.index} disabled={closureSaving || closureUploading} onChange={(event) => openLeadPoDetails(lead, Number(event.target.value))}>{normalizeLegacyServiceSelections(lead).map((service, index) => <option key={index} value={index}>{index + 1}. {service.servicesOffered || service.applicableService || service.eprCategory || 'Service'} · {service.subApplicantType || service.piboCategory || ''}</option>)}</select></label>}
+              <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+                <h3 className="font-black text-indigo-950">Primary Lead Owner</h3>
+                <p className="mt-1 text-sm font-bold text-indigo-700">The closure credit remains with the main lead owner. You remain recorded separately as the actual Closed By user.</p>
+                <div className="mt-4 flex items-center gap-3 rounded-xl border-2 border-indigo-400 bg-white p-4 text-indigo-900"><span className="grid h-11 w-11 place-items-center rounded-full bg-indigo-100 font-black">{String(closureDialog.leadOwnerName || 'LO').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><span><strong className="block text-base font-black">{closureDialog.leadOwnerName}</strong>{closureDialog.leadOwnerEmail && <small className="mt-1 block font-bold text-slate-500">{closureDialog.leadOwnerEmail}</small>}</span></div>
+              </section>
+              {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes', poModeConfirmed: true, poMode: 'quotation' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter PO details against every quotation service.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
+              {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 7-business-day deadline to keep it closed.</p></div>}
+              {closureDialog.choice === 'yes' && <div className="mt-6 space-y-5"><section className="rounded-2xl border border-blue-200 bg-blue-50 p-5"><h3 className="font-black text-blue-950">Was a quotation sent to the customer?</h3><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => selectClosureQuotationMode('yes')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-white bg-white text-slate-700'}`}>Yes — Quotation Sent</button><button type="button" onClick={() => selectClosureQuotationMode('no')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'no' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-white bg-white text-slate-700'}`}>No — Use Earlier Quotation Proof</button></div>{closureDialog.quotationSent === 'no' && <div className="mt-4"><p className="mb-3 text-sm font-bold text-amber-900">Upload proof of the earlier quotation. No CRM quotation will be linked; enter the PO details manually for Admin approval.</p><label className="flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.earlierQuotationProofName || 'Upload Earlier Quotation Proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'quotation')} /></label></div>}</section>{closureDialog.quotationSent === 'yes' && <QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}{closureDialog.quotationSent === 'no' && closureDialog.earlierQuotationProofUrl && <EarlierQuotationPoDetails poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}</div>}
+              {closureDialog.choice === 'no' && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Close under special approval</h3><p className="mt-2 text-sm font-bold leading-6 text-amber-900">This service will be closed provisionally and the user and Super Admin will be notified by email. The PO must be uploaded within 7 business days (Monday?Friday, excluding weekends). If it is still missing after the deadline, only this service will reopen automatically; services with received POs will remain closed.</p><label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.approvalProofName || 'Upload Super Admin approval proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'approval')} /></label><p className="mt-2 text-xs font-bold text-amber-700">Accepted formats: image or PDF.</p></div>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" disabled={closureSaving} onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black disabled:opacity-50">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading || closureSaving} onClick={confirmLeadClosure} className="rounded-xl bg-[#0f5d46] px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : closureSaving ? 'Saving PO...' : 'Confirm & Save Closure'}</button></footer>
+          </section>
+        </div>
+      ), document.body));
+
   if (viewMode === 'list') {
     if (viewLead) {
       return (
         <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
+          {renderClosureDialog()}
+          {toast && <div className="fixed right-5 top-24 z-[13000] w-[min(430px,calc(100vw-40px))]"><ToastMessage type={toast.type} actionLabel="Close" onAction={() => setToast(null)}>{toast.message}</ToastMessage></div>}
           <LeadDetailView
             lead={viewLead}
+            onModifyPo={openLeadPoDetails}
             quotations={quotations}
             staff={staff}
             currentUser={currentUser}
@@ -2436,7 +2504,7 @@ export default function LeadGeneration() {
   return (
     <DashboardShell currentUser={currentUser} onOpenProfile={() => setProfileOpen(true)} onLogout={handleLogout}>
       {toast && (
-        <div className="fixed right-5 top-24 z-[70] w-[min(430px,calc(100vw-40px))]">
+        <div className="fixed right-5 top-24 z-[13000] w-[min(430px,calc(100vw-40px))]">
           <ToastMessage type={toast.type} actionLabel="Close" onAction={() => setToast(null)}>{toast.message}</ToastMessage>
         </div>
       )}
@@ -2843,25 +2911,7 @@ export default function LeadGeneration() {
           </section>
         </div>
       )}
-      {closureDialog && (
-        <div className="fixed inset-0 z-[125] bg-slate-50" role="dialog" aria-modal="true">
-          <section className="flex h-screen w-full flex-col overflow-hidden bg-white">
-            <header className="flex flex-col gap-4 border-b bg-gradient-to-r from-emerald-50 to-orange-50 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-700">Lead Closure Verification</p><h2 className="mt-1 text-2xl font-black">Have you received the Purchase Order?</h2><p className="mt-1 text-sm font-bold text-slate-500">PO or Super Admin approval proof is required before closing this service.</p></div><div className="flex items-start gap-3">{closureDialog.quotationSent === 'yes' && String(closureDialog.quotation?.approvalDecision?.status || closureDialog.quotation?.status || '').toLowerCase() === 'approved' && (() => { const decision = closureDialog.quotation.approvalDecision || {}; const reviewer = decision.actionBy || {}; const role = String(reviewer.role || decision.reviewerRole || 'Admin').replace(/[_-]+/g, ' '); return <div className="min-w-[310px] rounded-2xl border border-emerald-200 bg-white/95 p-4 shadow-sm"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-800">Quotation Approved</span><span className="text-xs font-black text-slate-500">{closureDialog.quotation.leadCode || closureDialog.quotation.businessLeadCode || lead.leadCode || '-'}</span></div><p className="mt-3 text-sm font-black text-slate-900">Approved by {reviewer.name || reviewer.email || role}</p><p className="mt-1 text-xs font-bold capitalize text-slate-500">{role}{decision.actionAt ? ` • ${new Date(decision.actionAt).toLocaleString('en-IN')}` : ''}</p>{decision.proofUrl ? <a href={decision.proofUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800"><Eye className="h-4 w-4" />View approval proof{decision.proofName ? ` • ${decision.proofName}` : ''}</a> : <p className="mt-3 text-xs font-bold text-slate-400">Direct approval — no proof uploaded.</p>}</div> })()}<button type="button" onClick={() => setClosureDialog(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border bg-white"><X className="h-5 w-5" /></button></div></header>
-            <div className="flex-1 overflow-y-auto p-6 lg:px-10">
-              <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
-                <h3 className="font-black text-indigo-950">Primary Lead Owner</h3>
-                <p className="mt-1 text-sm font-bold text-indigo-700">The closure credit remains with the main lead owner. You remain recorded separately as the actual Closed By user.</p>
-                <div className="mt-4 flex items-center gap-3 rounded-xl border-2 border-indigo-400 bg-white p-4 text-indigo-900"><span className="grid h-11 w-11 place-items-center rounded-full bg-indigo-100 font-black">{String(closureDialog.leadOwnerName || 'LO').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><span><strong className="block text-base font-black">{closureDialog.leadOwnerName}</strong>{closureDialog.leadOwnerEmail && <small className="mt-1 block font-bold text-slate-500">{closureDialog.leadOwnerEmail}</small>}</span></div>
-              </section>
-              {!closureDialog.reviewMode && <div className="grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'yes', poModeConfirmed: true, poMode: 'quotation' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200'}`}><strong className="text-lg font-black">Yes — PO Received</strong><span className="mt-1 block text-sm font-bold">Enter PO details against every quotation service.</span></button><button type="button" onClick={() => setClosureDialog((current) => ({ ...current, choice: 'no' }))} className={`rounded-2xl border-2 p-5 text-left ${closureDialog.choice === 'no' ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-200'}`}><strong className="text-lg font-black">No — Close with Approval</strong><span className="mt-1 block text-sm font-bold">Upload Super Admin email/message approval proof.</span></button></div>}
-              {closureDialog.reviewMode && <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900"><p className="font-black">Purchase Order follow-up required</p><p className="mt-1 text-sm font-bold text-blue-700">This service was closed under special approval. Upload the received PO before the 7-business-day deadline to keep it closed.</p></div>}
-              {closureDialog.choice === 'yes' && <div className="mt-6 space-y-5"><section className="rounded-2xl border border-blue-200 bg-blue-50 p-5"><h3 className="font-black text-blue-950">Was a quotation sent to the customer?</h3><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => selectClosureQuotationMode('yes')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'yes' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-white bg-white text-slate-700'}`}>Yes — Quotation Sent</button><button type="button" onClick={() => selectClosureQuotationMode('no')} className={`rounded-xl border-2 p-4 text-left font-black ${closureDialog.quotationSent === 'no' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-white bg-white text-slate-700'}`}>No — Use Earlier Quotation Proof</button></div>{closureDialog.quotationSent === 'no' && <div className="mt-4"><p className="mb-3 text-sm font-bold text-amber-900">Upload proof of the earlier quotation. No CRM quotation will be linked; enter the PO details manually for Admin approval.</p><label className="flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.earlierQuotationProofName || 'Upload Earlier Quotation Proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'quotation')} /></label></div>}</section>{closureDialog.quotationSent === 'yes' && <QuotationClosureSummary quotation={closureDialog.quotation} items={closureDialog.quotationItems} poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}{closureDialog.quotationSent === 'no' && closureDialog.earlierQuotationProofUrl && <EarlierQuotationPoDetails poRows={closureDialog.poYearRows} setClosureDialog={setClosureDialog} uploadClosureFile={uploadClosureFile} />}</div>}
-              {closureDialog.choice === 'no' && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Close under special approval</h3><p className="mt-2 text-sm font-bold leading-6 text-amber-900">This service will be closed provisionally and the user and Super Admin will be notified by email. The PO must be uploaded within 7 business days (Monday?Friday, excluding weekends). If it is still missing after the deadline, only this service will reopen automatically; services with received POs will remain closed.</p><label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-amber-400 bg-white px-4 font-black text-amber-900"><Upload className="mr-2 h-5 w-5" />{closureDialog.approvalProofName || 'Upload Super Admin approval proof'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'approval')} /></label><p className="mt-2 text-xs font-bold text-amber-700">Accepted formats: image or PDF.</p></div>}
-            </div>
-            <footer className="flex justify-end gap-3 border-t bg-slate-50 px-6 py-4"><button type="button" disabled={closureSaving} onClick={() => setClosureDialog(null)} className="rounded-xl border bg-white px-5 py-3 font-black disabled:opacity-50">Cancel</button><button type="button" disabled={!closureDialog.choice || closureUploading || closureSaving} onClick={confirmLeadClosure} className="rounded-xl bg-[#0f5d46] px-6 py-3 font-black text-white disabled:opacity-50">{closureUploading ? 'Uploading...' : closureSaving ? 'Saving PO...' : 'Confirm & Save Closure'}</button></footer>
-          </section>
-        </div>
-      )}
+      {renderClosureDialog()}
       {catalogDialog && (
         <div className="fixed inset-0 z-[115] grid place-items-center bg-slate-950/50 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="catalog-title">
           <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl shadow-slate-950/25">
@@ -3549,10 +3599,11 @@ function pendingManagerAssignmentRows(leads = [], currentUser = {}) {
     const assignments = savedAssignments.length && assignmentsHaveManager ? savedAssignments : [lead];
     return assignments.flatMap((assignment, index) => {
       const service = services.find((row) => assignment?.assignedServiceId && row?.assignedServiceId === assignment.assignedServiceId) || services[index] || {};
+      const isClosed = personIdentityTokens(assignment?.closedBy, assignment?.closedByText, assignment?.closedByEmail).length > 0 || Boolean(assignment?.closedAt);
       const managerTokens = personIdentityTokens(assignment?.assignedTo, assignment?.assignedToText, assignment?.assignedToEmail, service.assignedManagerName, service.assignedManagerEmail);
       const hasManager = managerTokens.length > 0;
       const hasStaff = personIdentityTokens(assignment?.assignedStaff, assignment?.assignedStaffText, assignment?.assignedStaffEmail, service.managerAssignedStaffName, service.managerAssignedStaffEmail).length > 0;
-      if (!hasManager || hasStaff) return [];
+      if (!isClosed || !hasManager || hasStaff) return [];
       if (restrictToCurrentManager && !managerTokens.some((token) => currentUserTokens.includes(token))) return [];
       return [{
         lead,
@@ -3595,7 +3646,6 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
 
   const filteredLeads = useMemo(() => leads.slice().sort(compareLeadCode), [leads]);
 
-  const allNotifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(leads, currentUser) : [], [canViewNotifiedLeads, currentUser, leads]);
   const notifiedRows = useMemo(() => canViewNotifiedLeads ? pendingManagerAssignmentRows(filteredLeads, currentUser) : [], [canViewNotifiedLeads, currentUser, filteredLeads]);
 
   useEffect(() => {
@@ -3631,6 +3681,15 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
   const totalPages = Math.max(1, Number(pagination?.totalPages || 1));
   const visibleLeads = filteredLeads;
   const visibleNotifiedRows = notifiedRows;
+  const currentDirectoryRequest = () => ({
+    page,
+    limit: rowsPerPage,
+    search: query.trim(),
+    status: statusFilter,
+    staff: staffFilter,
+    metric: metricFilter,
+    workspace: workspaceTab
+  });
   const staffFilterOptions = useMemo(() => {
     const optionsMap = new Map();
     staff.forEach((user) => {
@@ -3701,8 +3760,8 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
       'Referred By': item.referredBy || '',
       Source: item.source || '',
       Notes: item.notes || '',
-      'Assigned To': item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '',
-      'Assigned By': item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '') : ''),
+      'Assigned To': resolveLeadStaffName(item, staff),
+      'Assigned By': resolveLeadAssignedBy(item, staff),
       'Created By': item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '',
       'Lead Date': item.leadDate || '',
       'Next Follow-Up Date': item.nextFollowUpDate || '',
@@ -3753,7 +3812,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
             <button type="button" onClick={onCreate} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#30737B] px-4 text-sm font-black text-white shadow-lg shadow-teal-900/20"><Plus className="h-4 w-4" />Add Lead</button>
             <button type="button" onClick={() => setWorkspaceTab('temporary')} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-4 text-sm font-black text-violet-700 hover:bg-violet-100"><Clock3 className="h-4 w-4" />Temp Lead</button>
             <button type="button" onClick={() => { setQuery(''); setStatusFilter(''); setStaffFilter(''); setMetricFilter(''); setPage(1); }} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" />Clear</button>
-            <button type="button" onClick={onRefresh} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
+            <button type="button" onClick={() => onDirectoryQueryChange(currentDirectoryRequest())} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-orange-200 bg-white px-4 text-sm font-black text-orange-600 hover:bg-orange-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
             <button type="button" onClick={exportExcel} className="btn-lift inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20"><Download className="h-4 w-4" />Export</button>
           </div>
         </div>
@@ -3764,7 +3823,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
         <LeadWorkspaceTabs
           activeTab={workspaceTab}
           temporaryLeadCount={temporaryLeadCount}
-          notifiedLeadCount={allNotifiedRows.length}
+          notifiedLeadCount={workspaceTab === 'notified' ? activeTotal : null}
           showNotified={canViewNotifiedLeads}
           onChange={setWorkspaceTab}
         />
@@ -3799,8 +3858,8 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
                     <td className="px-4 py-4"><LeadPersonCell name={item.contactPerson} /></td>
                     <td className="px-4 py-4"><span className="lead-contact-value"><Phone className="h-3.5 w-3.5" />{item.mobileNo1 || '-'}</span></td>
                     <td className="px-4 py-4"><span className="lead-contact-value normal-case"><Mail className="h-3.5 w-3.5" />{item.emails || '-'}</span></td>
-                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-'}</span></td>
-                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{personLabel(item.assignedBy || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-'))}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{resolveLeadStaffName(item, staff)}</span></td>
+                    <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{resolveLeadAssignedBy(item, staff)}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.createdBy?.name || item.createdByName || item.importedCreatedBy || item.createdBy?.email || '-'}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-indigo-700"><span className="cell-clamp">{item.createdOnBehalfOfName || item.generatedForUser?.name || item.generatedForName || item.createdBy?.name || item.createdByName || '-'}</span></td>
                     <td className="px-4 py-4 font-medium uppercase text-slate-600"><span className="cell-clamp">{item.closedBy?.name || item.closedByText || item.assignments?.find((row) => row.closedBy || row.closedByText)?.closedByText || '-'}</span></td>
@@ -3835,7 +3894,7 @@ function LeadWorkspaceTabs({ activeTab, temporaryLeadCount, notifiedLeadCount, s
   const tabs = [
     { id: 'leads', label: 'All Leads', note: 'Complete lead table', icon: FileText, tone: 'emerald' },
     { id: 'temporary', label: 'Temporary Leads', note: `${temporaryLeadCount.toLocaleString('en-IN')} captured`, icon: Clock3, tone: 'violet' },
-    ...(showNotified ? [{ id: 'notified', label: 'Notified Leads', note: `${notifiedLeadCount.toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }] : [])
+    ...(showNotified ? [{ id: 'notified', label: 'Notified Leads', note: notifiedLeadCount === null ? 'Open to load' : `${Number(notifiedLeadCount || 0).toLocaleString('en-IN')} awaiting staff`, icon: BellRing, tone: 'orange' }] : [])
   ];
   return (
     <div className="flex justify-start" role="tablist" aria-label="Lead workspaces">
@@ -3858,14 +3917,14 @@ function NotifiedLeadsTable({ rows, loading, onView, onEdit, canEdit, currentUse
   return (
     <div className="animate-[fadeIn_.25s_ease-out] overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm shadow-orange-950/5">
       <div className="border-b border-orange-100 bg-gradient-to-r from-orange-50 via-amber-50 to-white px-5 py-4">
-        <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-700"><BellRing className="h-5 w-5" /></span><div><h3 className="font-black text-slate-900">Manager action pending</h3><p className="mt-0.5 text-xs font-semibold text-slate-500">Sales has assigned these leads to a Manager. They remain here until Manager Assigned to Staff is completed.</p></div></div>
+        <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-700"><BellRing className="h-5 w-5" /></span><div><h3 className="font-black text-slate-900">Manager action pending</h3><p className="mt-0.5 text-xs font-semibold text-slate-500">Only closed leads assigned to a Manager are shown here. They remain until Manager Assigned to Staff is completed.</p></div></div>
       </div>
       <div className="max-h-[680px] overflow-auto">
         <table className="w-full min-w-[1250px] table-fixed text-left text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="w-[145px] px-4 py-4">Lead ID</th><th className="w-[220px] px-4 py-4">Company</th><th className="w-[190px] px-4 py-4">Service Category</th><th className="w-[170px] px-4 py-4">Assigned Manager</th><th className="w-[160px] px-4 py-4">Assigned By</th><th className="w-[170px] px-4 py-4">Manager Assigned to Staff</th><th className="w-[155px] px-4 py-4">Notified On</th><th className="w-[115px] px-4 py-4">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => <tr key={`${leadRecordId(row.lead)}-${row.rowIndex}`} className="transition hover:bg-orange-50/50"><td className="px-4 py-4 font-black text-blue-700">{displayLeadId(row.lead)}</td><td className="px-4 py-4 font-black uppercase text-slate-800"><span className="cell-clamp">{row.lead.company || '-'}</span></td><td className="px-4 py-4"><span className="lead-service-tag">{row.service.eprCategory || row.lead.eprCategory || '-'}</span></td><td className="px-4 py-4 font-black uppercase text-teal-700">{row.managerName}</td><td className="px-4 py-4 font-bold uppercase text-slate-600">{personLabel(row.assignedBy)}</td><td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-[10px] font-black uppercase text-orange-700"><Clock3 className="h-3.5 w-3.5" />Pending</span></td><td className="px-4 py-4 text-xs font-bold text-slate-500">{row.assignedAt ? new Date(row.assignedAt).toLocaleString('en-IN') : '-'}</td><td className="px-4 py-4"><div className="flex gap-2"><button type="button" onClick={() => onView(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View lead"><Eye className="h-4 w-4" /></button>{(canEdit || canUserEditLead(row.lead, currentUser)) && <button type="button" onClick={() => onEdit(row.lead)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Assign staff"><Edit3 className="h-4 w-4" /></button>}</div></td></tr>)}
-            {!loading && rows.length === 0 && <tr><td colSpan="8" className="px-5 py-16 text-center"><BellRing className="mx-auto h-10 w-10 text-emerald-300"/><p className="mt-3 font-black text-slate-500">No notified leads are pending.</p><p className="mt-1 text-xs font-semibold text-slate-400">Every manager-assigned lead in your accessible list already has staff assigned.</p></td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan="8" className="px-5 py-16 text-center"><BellRing className="mx-auto h-10 w-10 text-emerald-300"/><p className="mt-3 font-black text-slate-500">No notified leads are pending.</p><p className="mt-1 text-xs font-semibold text-slate-400">No closed, manager-assigned lead is currently waiting for staff assignment.</p></td></tr>}
             {loading && <tr><td colSpan="8" className="px-5 py-16 text-center font-black text-slate-400">Loading notified leads...</td></tr>}
           </tbody>
         </table>
@@ -3875,7 +3934,12 @@ function NotifiedLeadsTable({ rows, loading, onView, onEdit, canEdit, currentUse
 }
 
 function TemporaryLeadsWorkspace({ onClose, onConverted, embedded = false }) {
+  // View table workspace with modal capture and Excel bulk import.
   const [clientName, setClientName] = useState('');
+  const [tempLeadModalOpen, setTempLeadModalOpen] = useState(false);
+  const [tempDraft, setTempDraft] = useState({ companyName: '', personName: '', email: '', phone: '', sector: '' });
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const bulkInputRef = useRef(null);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
@@ -3902,19 +3966,71 @@ function TemporaryLeadsWorkspace({ onClose, onConverted, embedded = false }) {
   useEffect(() => { const timer = setTimeout(load, search ? 300 : 0); return () => clearTimeout(timer); }, [page, search, status]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPage(1); }, [search, status]);
 
-  async function saveTemporaryLead(event) {
+  function openTemporaryLeadModal(event) {
     event.preventDefault();
     const name = clientName.trim();
     if (name.length < 2 || saving) return;
+    setTempDraft({ companyName: name, personName: '', email: '', phone: '', sector: '' });
+    setTempLeadModalOpen(true);
+    setMessage(null);
+  }
+
+  async function saveTemporaryLead(event) {
+    event.preventDefault();
+    if (saving) return;
     setSaving(true); setMessage(null);
     try {
-      const response = await api.post(API_ENDPOINTS.leads.temporaryLeads, { clientName: name });
+      const response = await api.post(API_ENDPOINTS.leads.temporaryLeads, tempDraft);
       setClientName(''); setPage(1);
+      setTempLeadModalOpen(false);
       setMessage({ type: 'success', text: `${response.data.temporaryLead.tempLeadCode} saved successfully.` });
       await load();
     } catch (requestError) {
       setMessage({ type: 'error', text: requestError?.response?.data?.error || 'Unable to save temporary lead.' });
     } finally { setSaving(false); }
+  }
+
+  function downloadTemporaryLeadTemplate() {
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Company Name', 'Person Name', 'Email ID', 'Phone No', 'Sector'],
+      ['Example Industries Pvt Ltd', 'Ravi Kumar', 'ravi@example.com', '9876543210', 'Manufacturing']
+    ]);
+    sheet['!cols'] = [{ wch: 32 }, { wch: 24 }, { wch: 30 }, { wch: 18 }, { wch: 24 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Temporary Leads');
+    XLSX.writeFile(workbook, `temporary-leads-template-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
+  async function uploadTemporaryLeads(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || bulkUploading) return;
+    setBulkUploading(true); setMessage(null);
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      const readValue = (row, names) => {
+        const entries = Object.entries(row);
+        const wanted = names.map((name) => name.replace(/[^a-z0-9]/gi, '').toLowerCase());
+        return entries.find(([key]) => wanted.includes(key.replace(/[^a-z0-9]/gi, '').toLowerCase()))?.[1] ?? '';
+      };
+      const rows = rawRows.map((row) => ({
+        companyName: readValue(row, ['Company Name', 'Company', 'Client Name']),
+        personName: readValue(row, ['Person Name', 'Contact Person']),
+        email: readValue(row, ['Email ID', 'Email']),
+        phone: readValue(row, ['Phone No', 'Phone Number', 'Mobile No']),
+        sector: readValue(row, ['Sector', 'Industry Type'])
+      }));
+      const response = await api.post(API_ENDPOINTS.leads.bulkTemporaryLeads, { rows });
+      const summary = response.data.summary || {};
+      const skippedPreview = (response.data.skipped || []).slice(0, 3).map((row) => `Row ${row.row}: ${row.error}`).join(' ');
+      setMessage({ type: summary.skipped ? 'error' : 'success', text: `${summary.inserted || 0} temporary lead(s) saved; ${summary.skipped || 0} skipped. ${skippedPreview}`.trim() });
+      setPage(1);
+      await load();
+    } catch (requestError) {
+      setMessage({ type: 'error', text: requestError?.response?.data?.error || 'Unable to import the temporary-lead Excel file.' });
+    } finally { setBulkUploading(false); }
   }
 
   async function convert(row) {
@@ -3954,10 +4070,11 @@ function TemporaryLeadsWorkspace({ onClose, onConverted, embedded = false }) {
       {!embedded && <header className="relative overflow-hidden border-b border-emerald-100 bg-white px-5 py-5 sm:px-7"><div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-emerald-500 to-teal-700"/><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.2em] text-emerald-700"><Clock3 className="h-4 w-4"/>Quick capture workspace</div><h1 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Temporary Leads</h1><p className="mt-1 text-sm font-semibold text-slate-500">Capture a client name now and complete the full lead whenever you are ready.</p></div><button type="button" onClick={onClose} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4"/>Back to Leads</button></div></header>}
       <div className="space-y-4 p-4 sm:p-6">
         <div className="grid gap-3 sm:grid-cols-3">{[[counts.total,'Total Captured','border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 text-sky-800'],[counts.draft,'Ready to Convert','border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-amber-800'],[counts.converted,'Converted Leads','border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-800']].map(([value,label,tone]) => <article key={label} className={`rounded-2xl p-4 shadow-sm ${tone}`}><span className="text-[10px] font-black uppercase tracking-wider opacity-70">{label}</span><strong className="mt-1 block text-3xl font-black">{Number(value || 0).toLocaleString('en-IN')}</strong></article>)}</div>
-        <form onSubmit={saveTemporaryLead} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"><label className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Client name</label><div className="mt-2 flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Building2 className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"/><input autoFocus value={clientName} maxLength={240} onChange={(event) => setClientName(event.target.value)} placeholder="Enter company or client name" className="h-12 w-full rounded-xl border border-slate-200 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"/></div><button disabled={saving || clientName.trim().length < 2} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-40"><Plus className="h-4 w-4"/>{saving ? 'Saving...' : 'Submit Temp Lead'}</button></div><p className="mt-2 text-xs font-semibold text-slate-400">A unique ID such as ATPL-TEMP-0001 is generated automatically.</p></form>
+        <form onSubmit={openTemporaryLeadModal} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"><label className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Company name</label><div className="mt-2 flex flex-col gap-2 lg:flex-row"><div className="relative flex-1"><Building2 className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"/><input autoFocus value={clientName} maxLength={240} onChange={(event) => setClientName(event.target.value)} placeholder="Enter company name" className="h-12 w-full rounded-xl border border-slate-200 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"/></div><button disabled={saving || clientName.trim().length < 2} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-40"><Plus className="h-4 w-4"/>Submit Temp Lead</button><button type="button" onClick={() => bulkInputRef.current?.click()} disabled={bulkUploading} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-5 text-sm font-black text-violet-700 disabled:opacity-40"><Upload className="h-4 w-4"/>{bulkUploading ? 'Uploading...' : 'Bulk Upload Excel'}</button><button type="button" onClick={downloadTemporaryLeadTemplate} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-black text-slate-600"><Download className="h-4 w-4"/>Template</button><input ref={bulkInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={uploadTemporaryLeads}/></div><p className="mt-2 text-xs font-semibold text-slate-400">Details are checked against temporary and permanent leads before a unique ATPL-TEMP ID is generated.</p></form>
         {message && <div className={`rounded-xl border px-4 py-3 text-sm font-bold ${message.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
+        {tempLeadModalOpen && <div className="fixed inset-0 z-[180] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && !saving && setTempLeadModalOpen(false)}><form onSubmit={saveTemporaryLead} className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"><header className="flex items-start justify-between border-b border-emerald-100 bg-emerald-50 p-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">New temporary lead</p><h3 className="mt-1 text-xl font-black text-slate-950">Complete lead details</h3><p className="mt-1 text-sm font-semibold text-slate-500">All fields are required and checked for duplicates before saving.</p></div><button type="button" disabled={saving} onClick={() => setTempLeadModalOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-white text-slate-500 disabled:opacity-40"><X className="h-4 w-4"/></button></header><div className="grid gap-4 p-5 sm:grid-cols-2"><Field label="Company Name" required className="sm:col-span-2"><input autoFocus required minLength="2" maxLength="240" className="form-input" value={tempDraft.companyName} onChange={(event) => setTempDraft((current) => ({...current,companyName:event.target.value}))} placeholder="Company name"/></Field><Field label="Person Name" required><input required minLength="2" maxLength="160" className="form-input" value={tempDraft.personName} onChange={(event) => setTempDraft((current) => ({...current,personName:event.target.value}))} placeholder="Contact person"/></Field><Field label="Email ID" required><input required type="email" maxLength="254" className="form-input" value={tempDraft.email} onChange={(event) => setTempDraft((current) => ({...current,email:event.target.value}))} placeholder="name@company.com"/></Field><Field label="Phone No." required><input required type="tel" inputMode="numeric" pattern="[0-9 +()-]{10,20}" className="form-input" value={tempDraft.phone} onChange={(event) => setTempDraft((current) => ({...current,phone:event.target.value}))} placeholder="10 to 15 digits"/></Field><Field label="Sector" required><input required minLength="2" maxLength="160" className="form-input" value={tempDraft.sector} onChange={(event) => setTempDraft((current) => ({...current,sector:event.target.value}))} placeholder="e.g. Manufacturing"/></Field></div><footer className="flex justify-end gap-2 border-t bg-slate-50 p-4"><button type="button" disabled={saving} onClick={() => setTempLeadModalOpen(false)} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black disabled:opacity-40">Cancel</button><button type="submit" disabled={saving} className="h-10 rounded-xl bg-emerald-700 px-5 text-sm font-black text-white disabled:opacity-40">{saving ? 'Checking & Saving...' : 'Save Temporary Lead'}</button></footer></form></div>}
         {trackerRow && <TemporaryLeadFollowUpTracker row={data.temporaryLeads?.find((item) => item._id === trackerRow._id) || trackerRow} onClose={() => setTrackerRow(null)} onSaved={load} />}
-        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[1fr_220px_auto]"><label className="relative"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search temp ID or client..." className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm font-bold outline-none focus:border-violet-400"/></label><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold"><option value="">All Status</option><option value="DRAFT">Ready to Convert</option><option value="CONVERTED">Converted</option></select><button type="button" onClick={load} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-black text-slate-600"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}/>Refresh</button></div>
+        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[1fr_220px_auto]"><label className="relative"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search ID, company, person, email or phone..." className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm font-bold outline-none focus:border-violet-400"/></label><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold"><option value="">All Status</option><option value="DRAFT">Ready to Convert</option><option value="CONVERTED">Converted</option></select><button type="button" onClick={load} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-black text-slate-600"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}/>Refresh</button></div>
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="p-4">Temp Lead ID</th><th className="p-4">Client Name</th><th className="p-4">Created By</th><th className="p-4">Created At</th><th className="p-4">Next Follow-up</th><th className="p-4">Status</th><th className="p-4">Permanent Lead</th><th className="p-4 text-right">Action</th></tr></thead><tbody>{loading ? <tr><td colSpan="8" className="p-12 text-center font-bold text-slate-400">Loading temporary leads...</td></tr> : data.temporaryLeads?.map((row) => <React.Fragment key={row._id}><tr className="border-t border-slate-100 hover:bg-emerald-50/30"><td className="p-4"><button type="button" onClick={() => toggleDetails(row)} className="font-black text-violet-700 underline decoration-violet-200 underline-offset-4">{row.tempLeadCode}</button></td><td className="p-4"><button type="button" onClick={() => toggleDetails(row)} className="text-left font-black uppercase text-slate-800 hover:text-violet-700">{row.clientName}</button></td><td className="p-4"><strong className="block">{row.createdBy?.name || row.createdByName || '-'}</strong><small className="text-slate-400">{row.createdBy?.email || row.createdByEmail}</small></td><td className="p-4 text-xs font-bold text-slate-500">{new Date(row.createdAt).toLocaleString('en-IN')}</td><td className="p-4 text-xs font-bold text-slate-600">{row.nextFollowUpDate ? `${row.nextFollowUpDate}${row.nextFollowUpTime ? ` · ${row.nextFollowUpTime}` : ''}` : '-'}</td><td className="p-4"><span className={`rounded-full px-3 py-1 text-[10px] font-black ${row.status === 'CONVERTED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{row.status === 'CONVERTED' ? 'Converted' : 'Ready'}</span></td><td className="p-4 font-black text-emerald-700">{row.convertedLeadCode || '-'}</td><td className="p-4 text-right"><div className="flex justify-end gap-2"><button type="button" onClick={() => toggleDetails(row)} className="h-9 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-black text-violet-700">{selectedId === row._id ? 'Hide Details' : 'View Details'}</button><button type="button" disabled={row.status === 'CONVERTED' || convertingId === row._id} onClick={() => convert(row)} className="inline-flex h-9 items-center gap-2 rounded-lg bg-violet-700 px-3 text-xs font-black text-white disabled:bg-slate-200 disabled:text-slate-400">{convertingId === row._id ? 'Converting...' : row.status === 'CONVERTED' ? 'Converted' : <>Convert to Lead<ArrowRight className="h-3.5 w-3.5"/></>}</button></div></td></tr>{selectedId === row._id && <tr className="border-t border-violet-100 bg-violet-50/40"><td colSpan="8" className="p-5"><div className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]"><section className="rounded-2xl border border-violet-100 bg-white p-5"><p className="text-[10px] font-black uppercase tracking-wider text-violet-600">Temporary lead details</p><h3 className="mt-1 text-xl font-black text-slate-900">{row.clientName}</h3><div className="mt-4 grid gap-3 sm:grid-cols-3"><FollowUpDetail label="Temp Lead ID" value={row.tempLeadCode}/><FollowUpDetail label="Created By" value={row.createdBy?.name || row.createdByName || '-'}/><FollowUpDetail label="Current Follow-up" value={row.nextFollowUpDate ? `${row.nextFollowUpDate} ${row.nextFollowUpTime || ''}` : 'Not scheduled'}/></div><h4 className="mt-5 text-xs font-black uppercase tracking-wider text-slate-500">Follow-up history</h4><div className="mt-2 max-h-40 space-y-2 overflow-y-auto">{row.followUpHistory?.length ? row.followUpHistory.map((item,index) => <div key={item.calendarItemId || index} className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs"><strong className="text-slate-800">{item.scheduledDate || '-'} {item.scheduledTime || ''}</strong><span className="ml-2 rounded-full bg-white px-2 py-1 font-black uppercase text-slate-500">{item.status || 'saved'}</span><p className="mt-1 font-semibold text-slate-600">{item.remarks}</p></div>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-400">No follow-up history yet.</p>}</div></section><section className="rounded-2xl border border-emerald-100 bg-white p-5"><p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Schedule follow-up</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><input type="date" value={followUp.scheduledDate} onChange={(event) => setFollowUp((current) => ({...current,scheduledDate:event.target.value}))} className="form-input"/><input type="time" value={followUp.scheduledTime} onChange={(event) => setFollowUp((current) => ({...current,scheduledTime:event.target.value}))} className="form-input"/><select value={followUp.priority} onChange={(event) => setFollowUp((current) => ({...current,priority:event.target.value}))} className="form-input sm:col-span-2"><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select><textarea value={followUp.remarks} onChange={(event) => setFollowUp((current) => ({...current,remarks:event.target.value}))} placeholder="Follow-up remarks" rows="3" className="form-input sm:col-span-2"/></div><button type="button" disabled={row.status === 'CONVERTED' || followUpSaving || !followUp.scheduledDate || !followUp.remarks.trim()} onClick={() => saveFollowUp(row)} className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-black text-white disabled:opacity-40"><CalendarDays className="h-4 w-4"/>{followUpSaving ? 'Saving...' : 'Save Follow-up'}</button><p className="mt-2 text-xs font-semibold text-slate-400">This follow-up will also appear in Calendar with the same completion workflow.</p></section></div></td></tr>}</React.Fragment>)}{!loading && !data.temporaryLeads?.length && <tr><td colSpan="8" className="p-12 text-center font-bold text-slate-400">No temporary leads match these filters.</td></tr>}</tbody></table></div><footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs font-bold text-slate-500"><span>Showing {data.temporaryLeads?.length || 0} of {data.pagination?.total || 0}</span><div className="flex items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} className="grid h-9 w-9 place-items-center rounded-lg border disabled:opacity-30"><ChevronLeft className="h-4 w-4"/></button><span>Page {page} of {data.pagination?.pages || 1}</span><button type="button" disabled={page >= (data.pagination?.pages || 1)} onClick={() => setPage((current) => current + 1)} className="grid h-9 w-9 place-items-center rounded-lg border disabled:opacity-30"><ChevronRight className="h-4 w-4"/></button></div><span>10 per page</span></footer></div>
       </div>
     </section>
@@ -4001,7 +4118,7 @@ function TemporaryLeadFollowUpTracker({ row, onClose, onSaved }) {
 
   const Item = ({ item, previousItem = false }) => <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm font-black text-slate-900">{item.scheduledDate || '-'}{item.scheduledTime ? ` at ${item.scheduledTime}` : ''}</strong><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${previousItem ? 'bg-slate-100 text-slate-500' : 'bg-orange-100 text-orange-700'}`}>{previousItem ? item.status || 'Previous' : 'Upcoming'}</span></div><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-700">{item.priority || 'Medium'} Priority</span>{!previousItem && <button type="button" onClick={() => { setError(''); setCloseOpen(true); }} className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white shadow-sm"><CheckCircle2 className="h-4 w-4"/>Close Follow-Up</button>}</div><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-600">{item.remarks || 'No remarks added.'}</p></article>;
 
-  return <section className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-gradient-to-r from-white to-emerald-50 px-5 py-4"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Temporary lead follow-up workflow</p><h3 className="mt-1 text-xl font-black text-slate-950">Follow-Up Tracker · {row.clientName}</h3></div><div className="flex gap-2"><button type="button" onClick={() => setModalOpen(true)} disabled={row.status === 'CONVERTED'} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-black text-white shadow-lg shadow-orange-500/20 disabled:opacity-40"><Plus className="h-4 w-4"/>Add Follow-Up</button><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500"><X className="h-4 w-4"/></button></div></header><div className="space-y-4 p-5"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><FollowUpMetric icon={CalendarDays} label="Upcoming" value={upcoming.length} tone="orange"/><FollowUpMetric icon={History} label="Previous" value={previous.length} tone="slate"/><FollowUpMetric icon={Clock3} label="Next Time" value={upcoming[0] ? `${upcoming[0].scheduledDate}${upcoming[0].scheduledTime ? ` · ${upcoming[0].scheduledTime}` : ''}` : '-'} tone="teal"/><FollowUpMetric icon={CircleAlert} label="Priority" value={upcoming[0]?.priority || 'Medium'} tone="violet"/></div><div className="grid gap-4 lg:grid-cols-2"><section className="overflow-hidden rounded-xl border border-orange-200"><h4 className="border-b border-orange-200 bg-orange-50 px-4 py-3 font-black text-orange-900">Upcoming Follow-Ups</h4><div className="min-h-36 space-y-3 p-4">{upcoming.length ? upcoming.map((item,index) => <Item key={index} item={item}/>) : <div className="grid min-h-28 place-items-center text-sm font-black text-slate-400">No upcoming follow-ups.</div>}</div></section><section className="overflow-hidden rounded-xl border border-slate-200"><h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 font-black text-slate-900">Previous Follow-Ups</h4><div className="max-h-72 min-h-36 space-y-3 overflow-y-auto p-4">{previous.length ? previous.map((item,index) => <Item key={item.calendarItemId || index} item={item} previousItem/>) : <div className="grid min-h-28 place-items-center text-sm font-black text-slate-400">No previous follow-ups.</div>}</div></section></div></div>
+  return <section className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-gradient-to-r from-white to-emerald-50 px-5 py-4"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Temporary lead follow-up workflow</p><h3 className="mt-1 text-xl font-black text-slate-950">Follow-Up Tracker · {row.clientName}</h3></div><div className="flex gap-2"><button type="button" onClick={() => setModalOpen(true)} disabled={row.status === 'CONVERTED'} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-black text-white shadow-lg shadow-orange-500/20 disabled:opacity-40"><Plus className="h-4 w-4"/>Add Follow-Up</button><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500"><X className="h-4 w-4"/></button></div></header><div className="space-y-4 p-5"><div className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 sm:grid-cols-2 xl:grid-cols-5"><FollowUpDetail label="Company Name" value={row.clientName}/><FollowUpDetail label="Person Name" value={row.personName || '-'}/><FollowUpDetail label="Email ID" value={row.email || '-'}/><FollowUpDetail label="Phone No." value={row.phone || '-'}/><FollowUpDetail label="Sector" value={row.sector || '-'}/></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><FollowUpMetric icon={CalendarDays} label="Upcoming" value={upcoming.length} tone="orange"/><FollowUpMetric icon={History} label="Previous" value={previous.length} tone="slate"/><FollowUpMetric icon={Clock3} label="Next Time" value={upcoming[0] ? `${upcoming[0].scheduledDate}${upcoming[0].scheduledTime ? ` · ${upcoming[0].scheduledTime}` : ''}` : '-'} tone="teal"/><FollowUpMetric icon={CircleAlert} label="Priority" value={upcoming[0]?.priority || 'Medium'} tone="violet"/></div><div className="grid gap-4 lg:grid-cols-2"><section className="overflow-hidden rounded-xl border border-orange-200"><h4 className="border-b border-orange-200 bg-orange-50 px-4 py-3 font-black text-orange-900">Upcoming Follow-Ups</h4><div className="min-h-36 space-y-3 p-4">{upcoming.length ? upcoming.map((item,index) => <Item key={index} item={item}/>) : <div className="grid min-h-28 place-items-center text-sm font-black text-slate-400">No upcoming follow-ups.</div>}</div></section><section className="overflow-hidden rounded-xl border border-slate-200"><h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 font-black text-slate-900">Previous Follow-Ups</h4><div className="max-h-72 min-h-36 space-y-3 overflow-y-auto p-4">{previous.length ? previous.map((item,index) => <Item key={item.calendarItemId || index} item={item} previousItem/>) : <div className="grid min-h-28 place-items-center text-sm font-black text-slate-400">No previous follow-ups.</div>}</div></section></div></div>
     {modalOpen && <div className="fixed inset-0 z-[180] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && setModalOpen(false)}><section className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl"><header className="flex items-start justify-between border-b p-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-orange-600">Follow-Up</p><h3 className="mt-1 text-xl font-black">Add Temporary Lead Follow-Up</h3></div><button type="button" onClick={() => setModalOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-50"><X className="h-4 w-4"/></button></header><div className="grid gap-4 p-5 sm:grid-cols-2"><Field label="Scheduled Date" required><input type="date" className="form-input" value={draft.scheduledDate} onChange={(event) => setDraft((current) => ({...current,scheduledDate:event.target.value}))}/></Field><Field label="Scheduled Time"><input type="time" className="form-input" value={draft.scheduledTime} onChange={(event) => setDraft((current) => ({...current,scheduledTime:event.target.value}))}/></Field><Field label="Priority" className="sm:col-span-2"><select className="form-input" value={draft.priority} onChange={(event) => setDraft((current) => ({...current,priority:event.target.value}))}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select></Field><Field label="Follow-Up Remarks" required className="sm:col-span-2"><textarea rows="3" className="form-input" value={draft.remarks} onChange={(event) => setDraft((current) => ({...current,remarks:event.target.value}))} placeholder="Enter follow-up note or outcome"/></Field>{error && <p className="sm:col-span-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}</div><footer className="flex justify-end gap-2 border-t bg-slate-50 p-4"><button type="button" onClick={() => setModalOpen(false)} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black">Cancel</button><button type="button" disabled={saving || !draft.scheduledDate || !draft.remarks.trim()} onClick={save} className="h-10 rounded-xl bg-orange-500 px-5 text-sm font-black text-white disabled:opacity-40">{saving ? 'Saving...' : 'Save Follow-Up'}</button></footer></section></div>}
     {closeOpen && <div className="fixed inset-0 z-[190] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && setCloseOpen(false)}><section className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"><header className="flex items-start justify-between border-b border-emerald-100 bg-emerald-50 p-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Complete Follow-Up</p><h3 className="mt-1 text-xl font-black text-emerald-950">Close Temporary Lead Follow-Up</h3><p className="mt-1 text-sm font-semibold text-slate-500">{row.tempLeadCode} · {row.clientName}</p></div><button type="button" onClick={() => setCloseOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-white text-slate-500"><X className="h-4 w-4"/></button></header><div className="p-5"><Field label="Closing Remarks" required><textarea autoFocus rows="4" maxLength="500" className="form-input" value={closeRemarks} onChange={(event) => setCloseRemarks(event.target.value)} placeholder="Enter follow-up outcome or closing reason"/></Field><div className="mt-2 flex justify-between text-xs font-bold text-slate-400"><span>This moves the follow-up to Previous Follow-Ups and stops reminders.</span><span>{closeRemarks.length}/500</span></div>{error && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}</div><footer className="flex justify-end gap-2 border-t bg-slate-50 p-4"><button type="button" onClick={() => setCloseOpen(false)} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black">Cancel</button><button type="button" disabled={saving || !closeRemarks.trim()} onClick={closeCurrentFollowUp} className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-black text-white disabled:opacity-40"><CheckCircle2 className="h-4 w-4"/>{saving ? 'Closing...' : 'Close Follow-Up'}</button></footer></section></div>}
   </section>;
@@ -4014,12 +4131,12 @@ function QuotationClosureSummary({ quotation, items = [], poRows = [], setClosur
   const quotationValue = Number(quotation.combinedBasicAmount || quotation.grandTotal || 0)
     || items.reduce((sum, item) => sum + ((Number(item.unit) || 1) * (Number(item.basicAmount) || 0)), 0);
   const updatePo = (rowIndex, patch) => setClosureDialog((current) => ({ ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, ...patch } : row) }));
-  return <section className="overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-2 bg-teal-50 px-5 py-4"><div><p className="text-xs font-black uppercase tracking-wider text-teal-700">Quotation details auto-fetched</p><strong className="text-slate-900">{quotation.quotationNumber || 'Latest quotation'}</strong></div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-teal-700">CRM Quotation Value: ₹{quotationValue.toLocaleString('en-IN')}</span><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-teal-700">{combined ? 'Combined Price' : 'Individual Price'}</span></div></header><div className="overflow-auto"><table className="w-full min-w-[2200px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['#', 'EPR / Service Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Unit', 'UOM', 'Basic Amount (INR)', 'PO Number', 'PO Date', 'PO Amount (INR)', 'PO Proof', 'Service'].map((heading) => <th key={heading} className="whitespace-nowrap p-3">{heading}</th>)}</tr></thead><tbody>{rows.map((item, index) => { const po = poRows[index] || {}; return <tr key={item.id || index} className="border-t align-middle"><td className="p-3 font-black">{index + 1}</td><td className="p-3 font-black text-slate-700">{po.fy || item.servicesForYear || item.financialYear || '-'}</td><td className="p-3">{item.industryType || '-'}</td><td className="p-3">{item.businessCategory || '-'}</td><td className="p-3">{item.serviceCategory || item.eprCategory || '-'}</td><td className="p-3">{item.serviceStartDate || '-'}</td><td className="p-3">{item.serviceEndDate || '-'}</td><td className="p-3">{item.subApplicantType || item.piboCategory || item.applicantType || '-'}</td><td className="p-3">{item.unit || '1'}</td><td className="p-3">{item.unitLabel || '-'}</td>{(!combined || index === 0) && <td rowSpan={combined ? rows.length : 1} className={`p-3 font-black text-emerald-700 ${combined ? 'border-l border-r bg-emerald-50 align-middle' : ''}`}>₹{Number(combined ? quotation.combinedBasicAmount || quotation.grandTotal : (Number(item.unit) || 1) * (Number(item.basicAmount) || 0)).toLocaleString('en-IN')}</td>}<td className="p-3"><input required className="form-input min-w-36" value={po.poNumber || ''} onChange={(event) => updatePo(index, { poNumber: event.target.value })} placeholder="PO Number" /></td><td className="p-3"><input required type="date" aria-label={`PO Date row ${index + 1}`} className="form-input min-w-40" value={po.poDate || ''} onChange={(event) => updatePo(index, { poDate: event.target.value })} /></td><td className="p-3"><div className="relative min-w-40"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-500">₹</span><input required type="number" min="0.01" step="0.01" className="form-input pl-7" value={po.poAmount ?? ''} onChange={(event) => updatePo(index, { poAmount: event.target.value })} placeholder="PO Amount" /></div></td><td className="p-3"><label className="flex min-h-11 min-w-36 cursor-pointer items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 px-3 font-black text-emerald-700"><Upload className="mr-2 h-4 w-4" />{po.poFileName || 'Choose File'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'po', index)} /></label></td><td className="p-3 font-bold">{po.services?.[0] || item.servicesOffered || item.applicableService || '-'}</td></tr>; })}{!rows.length && <tr><td colSpan="16" className="p-8 text-center font-bold text-slate-400">No quotation service rows available.</td></tr>}</tbody></table></div></section>;
+  return <section className="overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-2 bg-teal-50 px-5 py-4"><div><p className="text-xs font-black uppercase tracking-wider text-teal-700">Quotation details auto-fetched</p><strong className="text-slate-900">{quotation.quotationNumber || 'Latest quotation'}</strong></div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-teal-700">CRM Quotation Value: ₹{quotationValue.toLocaleString('en-IN')}</span><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-teal-700">{combined ? 'Combined Price' : 'Individual Price'}</span></div></header><div className="overflow-auto"><table className="w-full min-w-[2200px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['#', 'EPR / Service Period', 'Industry Type', 'Business Category', 'Service Category', 'Service Start Date', 'Service End Date', 'Applicant Type', 'Unit', 'UOM', 'Basic Amount (INR)', 'PO Number', 'PO Date', 'PO End Date', 'PO Financial Year', 'Payment Term', 'PO Amount (INR)', 'PO Proof', 'Service'].map((heading) => <th key={heading} className="whitespace-nowrap p-3">{heading}</th>)}</tr></thead><tbody>{rows.map((item, index) => { const po = poRows[index] || {}; return <tr key={item.id || index} className="border-t align-middle"><td className="p-3 font-black">{index + 1}</td><td className="p-3 font-black text-slate-700">{po.fy || item.servicesForYear || item.financialYear || '-'}</td><td className="p-3">{item.industryType || '-'}</td><td className="p-3">{item.businessCategory || '-'}</td><td className="p-3">{item.serviceCategory || item.eprCategory || '-'}</td><td className="p-3">{item.serviceStartDate || '-'}</td><td className="p-3">{item.serviceEndDate || '-'}</td><td className="p-3">{item.subApplicantType || item.piboCategory || item.applicantType || '-'}</td><td className="p-3">{item.unit || '1'}</td><td className="p-3">{item.unitLabel || '-'}</td>{(!combined || index === 0) && <td rowSpan={combined ? rows.length : 1} className={`p-3 font-black text-emerald-700 ${combined ? 'border-l border-r bg-emerald-50 align-middle' : ''}`}>₹{Number(combined ? quotation.combinedBasicAmount || quotation.grandTotal : (Number(item.unit) || 1) * (Number(item.basicAmount) || 0)).toLocaleString('en-IN')}</td>}<td className="p-3"><input required className="form-input min-w-36" value={po.poNumber || ''} onChange={(event) => updatePo(index, { poNumber: event.target.value })} placeholder="PO Number" /></td><td className="p-3"><input required type="date" aria-label={`PO Date row ${index + 1}`} className="form-input min-w-40" value={po.poDate || ''} onChange={(event) => updatePo(index, { poDate: event.target.value })} /></td><PoCommercialFields po={po} index={index} onChange={(patch) => updatePo(index, patch)} /><td className="p-3"><div className="relative min-w-40"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-500">₹</span><input required type="number" min="0.01" step="0.01" className="form-input pl-7" value={po.poAmount ?? ''} onChange={(event) => updatePo(index, { poAmount: event.target.value })} placeholder="PO Amount" /></div></td><td className="p-3"><label className="flex min-h-11 min-w-36 cursor-pointer items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 px-3 font-black text-emerald-700"><Upload className="mr-2 h-4 w-4" />{po.poFileName || 'Choose File'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'po', index)} /></label><PoProofView po={po} /></td><td className="p-3 font-bold">{po.services?.[0] || item.servicesOffered || item.applicableService || '-'}</td></tr>; })}{!rows.length && <tr><td colSpan="19" className="p-8 text-center font-bold text-slate-400">No quotation service rows available.</td></tr>}</tbody></table></div></section>;
 }
 
 function EarlierQuotationPoDetails({ poRows = [], setClosureDialog, uploadClosureFile }) {
   const updatePo = (rowIndex, patch) => setClosureDialog((current) => ({ ...current, poYearRows: current.poYearRows.map((row, index) => index === rowIndex ? { ...row, ...patch } : row) }));
-  return <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-2 bg-amber-50 px-5 py-4"><div><p className="text-xs font-black uppercase tracking-wider text-amber-700">Manual PO details</p><strong className="text-slate-900">Earlier quotation proof attached</strong></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-amber-700">CRM quotation not used</span></header><div className="overflow-auto"><table className="w-full min-w-[1100px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['#', 'EPR / Service Period', 'PO Number', 'PO Date', 'PO Amount (INR)', 'PO Proof', 'Service'].map((heading) => <th key={heading} className="whitespace-nowrap p-3">{heading}</th>)}</tr></thead><tbody>{poRows.map((po, index) => <tr key={index} className="border-t align-middle"><td className="p-3 font-black">{index + 1}</td><td className="p-3 font-black text-slate-700">{po.fy || '-'}</td><td className="p-3"><input required className="form-input min-w-36" value={po.poNumber || ''} onChange={(event) => updatePo(index, { poNumber: event.target.value })} placeholder="PO Number" /></td><td className="p-3"><input required type="date" aria-label={`PO Date row ${index + 1}`} className="form-input min-w-40" value={po.poDate || ''} onChange={(event) => updatePo(index, { poDate: event.target.value })} /></td><td className="p-3"><div className="relative min-w-40"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-500">₹</span><input required type="number" min="0.01" step="0.01" className="form-input pl-7" value={po.poAmount ?? ''} onChange={(event) => updatePo(index, { poAmount: event.target.value })} placeholder="Enter PO Amount" /></div></td><td className="p-3"><label className="flex min-h-11 min-w-36 cursor-pointer items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-3 font-black text-amber-700"><Upload className="mr-2 h-4 w-4" />{po.poFileName || 'Choose File'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'po', index)} /></label></td><td className="p-3 font-bold">{po.services?.[0] || '-'}</td></tr>)}{!poRows.length && <tr><td colSpan="7" className="p-8 text-center font-bold text-slate-400">No service rows available.</td></tr>}</tbody></table></div></section>;
+  return <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-2 bg-amber-50 px-5 py-4"><div><p className="text-xs font-black uppercase tracking-wider text-amber-700">Manual PO details</p><strong className="text-slate-900">Earlier quotation proof attached</strong></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-amber-700">CRM quotation not used</span></header><div className="overflow-auto"><table className="w-full min-w-[1100px] text-left text-xs"><thead className="bg-slate-100 uppercase text-slate-500"><tr>{['#', 'EPR / Service Period', 'PO Number', 'PO Date', 'PO End Date', 'PO Financial Year', 'Payment Term', 'PO Amount (INR)', 'PO Proof', 'Service'].map((heading) => <th key={heading} className="whitespace-nowrap p-3">{heading}</th>)}</tr></thead><tbody>{poRows.map((po, index) => <tr key={index} className="border-t align-middle"><td className="p-3 font-black">{index + 1}</td><td className="p-3 font-black text-slate-700">{po.fy || '-'}</td><td className="p-3"><input required className="form-input min-w-36" value={po.poNumber || ''} onChange={(event) => updatePo(index, { poNumber: event.target.value })} placeholder="PO Number" /></td><td className="p-3"><input required type="date" aria-label={`PO Date row ${index + 1}`} className="form-input min-w-40" value={po.poDate || ''} onChange={(event) => updatePo(index, { poDate: event.target.value })} /></td><PoCommercialFields po={po} index={index} onChange={(patch) => updatePo(index, patch)} /><td className="p-3"><div className="relative min-w-40"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-500">₹</span><input required type="number" min="0.01" step="0.01" className="form-input pl-7" value={po.poAmount ?? ''} onChange={(event) => updatePo(index, { poAmount: event.target.value })} placeholder="Enter PO Amount" /></div></td><td className="p-3"><label className="flex min-h-11 min-w-36 cursor-pointer items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-3 font-black text-amber-700"><Upload className="mr-2 h-4 w-4" />{po.poFileName || 'Choose File'}<input type="file" className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadClosureFile(event, 'po', index)} /></label><PoProofView po={po} /></td><td className="p-3 font-bold">{po.services?.[0] || '-'}</td></tr>)}{!poRows.length && <tr><td colSpan="10" className="p-8 text-center font-bold text-slate-400">No service rows available.</td></tr>}</tbody></table></div></section>;
 }
 
 function Field({ label, required, children, className = '' }) {
@@ -4302,7 +4419,13 @@ function LeadToolbarMenu({ label, icon: Icon, tone = 'emerald', options = [] }) 
   );
 }
 
-function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null, onBack, onEdit, onQuotationAction, onProformaAction, onLeadUpdated, canEdit = false }) {
+function SavedLeadPoDetails({ assignments = [], services = [] }) {
+  const rows = assignments.flatMap((assignment, index) => [...(assignment.poYearRows || []), ...(assignment.originalPoDetails ? [assignment.originalPoDetails] : [])].map((po) => ({ ...po, serviceLabel: po.service || (po.services || []).join(', ') || services[index]?.servicesOffered || 'Service' })));
+  if (!rows.length) return null;
+  return <section className="overflow-hidden rounded-xl border border-emerald-200 bg-white"><header className="border-b border-emerald-100 bg-emerald-50 px-5 py-4"><h3 className="font-black text-slate-900">Purchase Order Details</h3><p className="mt-1 text-xs text-slate-500">Saved PO dates, financial year and payment terms</p></header><div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Service', 'PO Number', 'PO Date', 'PO End Date', 'PO Financial Year', 'Payment Term', 'Amount (INR)', 'Proof'].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead><tbody>{rows.map((po, index) => <tr key={index} className="border-t border-slate-100"><td className="px-4 py-4 font-bold">{po.serviceLabel}</td><td className="px-4 py-4 font-black text-emerald-800">{po.poNumber || '-'}</td><td className="whitespace-nowrap px-4 py-4">{formatDisplayDate(po.poDate)}</td><td className="whitespace-nowrap px-4 py-4">{formatDisplayDate(po.poEndDate)}</td><td className="px-4 py-4"><span className="rounded-lg bg-indigo-50 px-3 py-1 font-bold text-indigo-700">{po.poFinancialYear || '-'}</span></td><td className="max-w-xs whitespace-pre-wrap break-words px-4 py-4">{po.paymentTerm || '-'}</td><td className="whitespace-nowrap px-4 py-4 font-bold">{Number(po.poAmount || 0).toLocaleString('en-IN')}</td><td className="px-4 py-4">{po.poFileUrl ? <a href={po.poFileUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-emerald-700">View PO</a> : '-'}</td></tr>)}</tbody></table></div></section>;
+}
+
+function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null, onBack, onEdit, onQuotationAction, onProformaAction, onLeadUpdated, onModifyPo, canEdit = false }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [detailLead, setDetailLead] = useState(lead);
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
@@ -4486,7 +4609,9 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
   }
 
   async function permanentlyCloseLead() {
-    const incompletePoRow = !originalPoRows.length || originalPoRows.some((row) => !row.fy || !row.poNumber.trim() || !row.poDate || !(Number(row.poAmount) > 0) || !row.poFileUrl || !row.service);
+    const commercialError = originalPoRows.map(poCommercialError).find(Boolean);
+    if (commercialError) { setPermanentCloseError(commercialError); return; }
+    const incompletePoRow = !originalPoRows.length || originalPoRows.some((row) => poCommercialError(row) || !row.fy || !row.poNumber.trim() || !row.poDate || !(Number(row.poAmount) > 0) || !row.poFileUrl || !row.service);
     if (incompletePoRow) {
       setPermanentCloseError('Complete PO Number, PO Date, PO Amount, and PO Proof for every service before permanently closing the lead.');
       return;
@@ -4868,12 +4993,13 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                 <header className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-4"><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Manual PO Details</p><h4 className="font-black text-slate-950">Enter original Purchase Order details</h4></div><span className="rounded-full bg-white px-3 py-1 text-[10px] font-black text-amber-700">Original PO required</span></header>
                 <div className="overflow-auto">
                   <table className="w-full min-w-[1250px] text-left text-xs">
-                    <thead className="bg-slate-100 uppercase text-slate-500"><tr>{['#', 'EPR / Service Period', 'PO Number', 'PO Date', 'PO Amount (INR)', 'PO Proof', 'Service'].map((heading) => <th key={heading} className="whitespace-nowrap p-3">{heading}</th>)}</tr></thead>
+                    <thead className="bg-slate-100 uppercase text-slate-500"><tr>{['#', 'EPR / Service Period', 'PO Number', 'PO Date', 'PO End Date', 'PO Financial Year', 'Payment Term', 'PO Amount (INR)', 'PO Proof', 'Service'].map((heading) => <th key={heading} className="whitespace-nowrap p-3">{heading}</th>)}</tr></thead>
                     <tbody>{originalPoRows.map((po, rowIndex) => <tr key={po.assignmentIndex} className="border-t align-middle">
                       <td className="p-3 font-black">{rowIndex + 1}</td>
                       <td className="p-3 font-black text-slate-700">{po.fy || '-'}</td>
                       <td className="p-3"><input required className="form-input min-w-48" value={po.poNumber} onChange={(event) => updateOriginalPoRow(rowIndex, { poNumber: event.target.value })} placeholder="PO Number" /></td>
                       <td className="p-3"><input required type="date" aria-label={`Original PO Date row ${rowIndex + 1}`} className="form-input min-w-40" value={po.poDate} onChange={(event) => updateOriginalPoRow(rowIndex, { poDate: event.target.value })} /></td>
+                      <PoCommercialFields po={po} index={rowIndex} onChange={(patch) => updateOriginalPoRow(rowIndex, patch)} />
                       <td className="p-3"><div className="relative min-w-48"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-500">₹</span><input required type="number" min="0.01" step="0.01" className="form-input pl-7" value={po.poAmount} onChange={(event) => updateOriginalPoRow(rowIndex, { poAmount: event.target.value })} placeholder="Enter PO Amount" /></div></td>
                       <td className="p-3"><div className="flex items-center gap-2"><label className={`flex min-h-11 min-w-40 items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-3 font-black text-amber-700 ${originalPoUploadingIndex === rowIndex ? 'cursor-wait opacity-60' : 'cursor-pointer'}`}><Upload className="mr-2 h-4 w-4" />{originalPoUploadingIndex === rowIndex ? 'Uploading...' : (po.poFileName || 'Choose File')}<input type="file" disabled={originalPoUploadingIndex >= 0 || permanentCloseSaving} className="sr-only" accept="image/*,.pdf" onChange={(event) => uploadOriginalPo(event, rowIndex)} /></label>{po.poFileUrl && <a href={po.poFileUrl} target="_blank" rel="noopener noreferrer" className="font-black text-emerald-700">View</a>}</div></td>
                       <td className="p-3 font-bold text-slate-800">{po.service || '-'}</td>
@@ -4885,7 +5011,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
             </div>
             <footer className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-6 py-5 sm:flex-row sm:justify-end">
               <button type="button" disabled={permanentCloseSaving} onClick={() => setPermanentCloseStep('')} className="min-h-11 rounded-lg border border-slate-200 bg-white px-6 font-black text-slate-700 disabled:opacity-50">Cancel</button>
-              <button type="button" disabled={permanentCloseSaving || originalPoUploadingIndex >= 0 || !hasProvisionalClosure || !originalPoRows.length || originalPoRows.some((row) => !row.fy || !row.poNumber.trim() || !row.poDate || !(Number(row.poAmount) > 0) || !row.poFileUrl)} onClick={permanentlyCloseLead} className="min-h-11 rounded-lg bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-50">{permanentCloseSaving ? 'Closing Lead...' : 'Permanently Close Lead'}</button>
+              <button type="button" disabled={permanentCloseSaving || originalPoUploadingIndex >= 0 || !hasProvisionalClosure || !originalPoRows.length || originalPoRows.some((row) => poCommercialError(row) || !row.fy || !row.poNumber.trim() || !row.poDate || !(Number(row.poAmount) > 0) || !row.poFileUrl)} onClick={permanentlyCloseLead} className="min-h-11 rounded-lg bg-emerald-700 px-6 font-black text-white shadow-lg shadow-emerald-700/20 disabled:opacity-50">{permanentCloseSaving ? 'Closing Lead...' : 'Permanently Close Lead'}</button>
             </footer>
           </section>
         </div>
@@ -4918,6 +5044,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
         <div className="flex flex-wrap gap-3">
           {hasProvisionalClosure && <button type="button" onClick={() => { setPermanentCloseError(''); setOriginalPoRows(buildOriginalPoRows()); setPermanentCloseStep('confirm'); }} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-amber-500 px-5 text-sm font-black text-white shadow-lg shadow-amber-500/20"><CheckCircle2 className="h-4 w-4" />Original PO Received?</button>}
           {showCurrentUserServiceActions && <button type="button" onClick={onEdit} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-600/20"><Edit3 className="h-4 w-4" />Change Status</button>}
+          {showCurrentUserServiceActions && <button type="button" onClick={() => onModifyPo?.(activeLead)} className="btn-lift inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-5 text-sm font-black text-white shadow-lg shadow-teal-700/20"><FileText className="h-4 w-4" />Modify PO Details</button>}
           {showCurrentUserServiceActions && (
             <>
               <LeadToolbarMenu
@@ -4996,6 +5123,7 @@ function LeadDetailView({ lead, quotations = [], staff = [], currentUser = null,
                   </table>
                   </div>
                 </>
+                <SavedLeadPoDetails assignments={detailAssignments} services={detailServices} />
                 <ReadOnlyInfoTable title="Address Information" icon={MapPin} rows={addressInfoRows} />
                 <ReadOnlyInfoTable title="Contact Information" icon={ContactRound} rows={contactInfoRows} />
                 <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 via-white to-emerald-50 p-5 shadow-sm">
@@ -5443,6 +5571,32 @@ function LeadPersonCell({ name }) {
   const label = String(name || '-').trim() || '-';
   const initials = label === '-' ? '?' : label.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   return <span className="lead-person-cell"><span className="lead-person-avatar">{initials}</span><span className="cell-clamp">{label}</span></span>;
+}
+
+function resolveLeadStaffName(item = {}, staff = []) {
+  const assignments = Array.isArray(item.assignments) ? item.assignments : [];
+  const candidates = [
+    ...assignments.flatMap((row) => [row?.assignedStaff?.name, row?.assignedStaffText, row?.assignedStaffEmail, row?.assignedStaff]),
+    item.assignedStaff?.name, item.assignedStaffText, item.assignedStaffEmail, item.assignedStaff
+  ].filter(Boolean);
+  const labels = [...new Set(candidates.map((value) => {
+    const raw = typeof value === 'object' ? (value.name || value.email || value._id || value.id) : value;
+    const matched = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId, user.email, user.name]
+      .some((identity) => normalizePersonName(identity) === normalizePersonName(raw)));
+    return String(matched?.name || matched?.email || raw || '').trim();
+  }).filter((value) => value && !/^[a-f0-9]{24}$/i.test(value)))];
+  return labels.join(', ') || item.assignedTo?.name || item.assignedToText || item.generatedForUser?.name || item.generatedForName || '-';
+}
+
+function resolveLeadAssignedBy(item = {}, staff = []) {
+  const assignments = Array.isArray(item.assignments) ? item.assignments : [];
+  const assignment = assignments.find((row) => (row?.assignedStaff || row?.assignedStaffText) && row?.assignedBy)
+    || assignments.find((row) => row?.assignedBy)
+    || {};
+  const raw = assignment.assignedBy || item.assignedBy || '';
+  const matched = staff.find((user) => [user._id, user.id, user.crmUserId, user.userId, user.email, user.name]
+    .some((identity) => normalizePersonName(identity) === normalizePersonName(raw)));
+  return personLabel(matched?.name || matched?.email || raw || (item.generatedForUser || item.generatedForName ? (item.createdBy?.name || item.createdByName || '-') : '-'));
 }
 
 function LeadDirectoryPagination({ page, totalPages, setPage }) {

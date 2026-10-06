@@ -19,7 +19,10 @@ export function getOperationsStatusDates(row = {}) {
 }
 
 export function isOperationsStaff(user = {}) {
-  return /^(operation|operations|operations executive|operation executive)$/.test(key(user.role))
+  const active = user.isActive
+  if (active === false || active === 0 || ['false', '0', 'inactive'].includes(key(active))) return false
+  const roles = [user.role, ...(Array.isArray(user.roles) ? user.roles : [])].map(key)
+  return roles.some((role) => /^(operation|operations|operations executive|operation executive|manager)$/.test(role))
     || /\boperations?\b/.test(key(user.team?.name || user.team || user.department))
 }
 
@@ -30,6 +33,21 @@ export function allocationOwnerKeys(client = {}) {
     return [entry.userId, entry.userIdString, entry.user, entry.assignedTo, entry.assigneeId,
       entry.assignedUserId, entry._id, entry.id, entry.value, entry.userName, entry.email].flatMap(identity)
   }))]
+}
+
+export function permanentStaffOwnerKeys(client = {}) {
+  const data = client.data && typeof client.data === 'object' ? client.data : {}
+  const lead = client.selectedLead && typeof client.selectedLead === 'object'
+    ? client.selectedLead
+    : (data.selectedLeadSnapshot && typeof data.selectedLeadSnapshot === 'object' ? data.selectedLeadSnapshot : {})
+  const serviceId = String(client.assignedServiceId || data.assignedServiceId || data.selectedLeadSnapshot?.assignedServiceId || '')
+  const assignments = (Array.isArray(lead.assignments) ? lead.assignments : [])
+    .filter((assignment) => !serviceId || String(assignment?.assignedServiceId || assignment?.serviceAssignmentId || '') === serviceId)
+  return [...new Set([
+    lead.assignedStaff, lead.assignedStaffText, lead.assignedStaffEmail,
+    client.assignedStaff, client.assignedStaffText, client.assignedStaffEmail,
+    ...assignments.flatMap((assignment) => [assignment?.assignedStaff, assignment?.assignedStaffText, assignment?.assignedStaffEmail])
+  ].flatMap(identity))]
 }
 
 function date(value) {
@@ -71,21 +89,131 @@ export function buildOperationsProgressGroups(rows, users, getLegacyKeys, now = 
   const staff = users.filter(isOperationsStaff)
   const groups = new Map(staff.map((user) => [key(user._id || user.id || user.userId || user.email),
     { id: key(user._id || user.id || user.userId || user.email), name: user.name || user.email, rows: [] }]))
+  const findOwner = (ownerKeys = []) => {
+    for (const ownerKey of ownerKeys) {
+      const matched = staff.find((user) => [...identity(user), key(user.crmUserId)].some((token) => token && token === ownerKey))
+      if (matched) return matched
+    }
+    return null
+  }
   rows.forEach((row) => {
     const allocationKeys = allocationOwnerKeys(row.client)
-    // Service allocations are authoritative; don't count the creator or manager as the owner.
-    const keys = allocationKeys.length ? allocationKeys : getLegacyKeys(row.client || {})
-    staff.filter((user) => [...identity(user), key(user.crmUserId)].some((token) => token && keys.includes(token)))
-      .forEach((user) => {
-        const group = groups.get(key(user._id || user.id || user.userId || user.email))
-        if (!group.rows.some((item) => String(item.id) === String(row.id))) {
-          group.rows.push({ ...row, sla: getOperationsSla(row.client?.operationsSla || row.approval || {}, now) })
-        }
-      })
+    const permanentStaffKeys = permanentStaffOwnerKeys(row.client)
+    // A client belongs to exactly one primary/original owner in this report.
+    // Prefer the owner already resolved from client-level assignment data;
+    // service allocations are used only when no primary owner can be resolved.
+    const resolvedOwnerKeys = [...identity(row.user), key(row.user?.crmUserId)].filter(Boolean)
+    const legacyKeys = getLegacyKeys(row.client || {})
+    const owner = findOwner(permanentStaffKeys) || findOwner(resolvedOwnerKeys) || findOwner(legacyKeys) || findOwner(allocationKeys)
+    if (!owner) return
+    const group = groups.get(key(owner._id || owner.id || owner.userId || owner.email))
+    if (group && !group.rows.some((item) => String(item.id) === String(row.id))) {
+      group.rows.push({ ...row, sla: getOperationsSla(row.client?.operationsSla || row.approval || {}, now) })
+    }
   })
   return [...groups.values()].map((group) => ({ ...group, total: group.rows.length,
     complianceDone: group.rows.filter((row) => key(row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus) === 'approved').length,
     poDone: group.rows.filter((row) => row.hasPo).length,
     milestones: Object.fromEntries([48, 72, 96].map((hours) => [hours, group.rows.filter((row) => row.sla[hours].breached).length]))
   })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+}
+
+export function getOperationsFinalFlag(sla = {}) {
+  return [48, 72, 96].every((hours) => sla[hours]?.breached === true) ? 'red' : 'green'
+}
+
+function excelText(value, fallback = '') {
+  const text = String(value ?? '').trim() || fallback
+  return /^[=+\-@]/.test(text) ? `'${text}` : text
+}
+
+function clientContactDetails(row = {}) {
+  const client = row.client || {}
+  const data = client.data && typeof client.data === 'object' ? client.data : client
+  const basic = data.basic || client.basic || {}
+  const authorised = data.authorised || client.authorised || {}
+  const coordinating = data.coordinating || client.coordinating || {}
+  const otp = data.otp || client.otp || {}
+  const first = (...values) => values.find((value) => String(value ?? '').trim()) || ''
+  return {
+    person: first(basic.contactPerson, authorised.name, authorised.personName, coordinating.name, coordinating.personName, client.contactPerson, client.personName),
+    email: first(otp.email, authorised.email, coordinating.email, client.email, client.emailId),
+    phone: first(otp.mobile, otp.mobileNo, authorised.mobile, authorised.mobileNo, coordinating.mobile, coordinating.mobileNo, client.mobileNo1, client.mobile, client.phone),
+    sector: first(basic.sector, basic.industryType, data.sector, data.industryType, client.sector, client.industryType, row.eprCategory)
+  }
+}
+
+function poRecords(row = {}) {
+  const details = row.poDetails || {}
+  return Array.isArray(details.records) && details.records.length ? details.records : [details]
+}
+
+export function buildOperationsWorkbookData(groups = [], financialYear = 'all') {
+  const summary = groups.map((group) => {
+    const finalRed = group.rows.filter((row) => getOperationsFinalFlag(row.sla) === 'red').length
+    const recordedValues = (field) => [...new Set(group.rows.flatMap((row) => poRecords(row).map((po) => excelText(po[field]))).filter(Boolean))].join(' | ')
+    return {
+      'Operations User': excelText(group.name, 'Unassigned'),
+      'Financial Year Filter': excelText(financialYear, 'All'),
+      'Assigned Clients': group.total,
+      'Compliance Approved': group.complianceDone,
+      'PO Received': group.poDone,
+      'PO End Dates': recordedValues('poEndDate'),
+      'PO Financial Years': recordedValues('poFinancialYear'),
+      'Payment Terms': recordedValues('paymentTerm'),
+      '48h+ Red Flags': group.milestones[48],
+      '72h+ Red Flags': group.milestones[72],
+      '96h+ Red Flags': group.milestones[96],
+      'Final Red Flags': finalRed
+    }
+  })
+  const clients = groups.flatMap((group) => group.rows.flatMap((row) => {
+    const contact = clientContactDetails(row)
+    const approval = row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || 'PENDING'
+    const statusDates = getOperationsStatusDates(row)
+    return poRecords(row).map((po) => ({
+      'Operations User': excelText(group.name, 'Unassigned'),
+      'Client Name': excelText(row.companyName, 'Unnamed client'),
+      'ATPL Code': excelText(row.atplCode, 'Not recorded'),
+      'Contact Person': excelText(contact.person, 'Not recorded'),
+      'Email': excelText(contact.email, 'Not recorded'),
+      'Phone': excelText(contact.phone, 'Not recorded'),
+      'Sector': excelText(contact.sector, 'Not recorded'),
+      'EPR Category': excelText(row.eprCategory, 'Not recorded'),
+      'Applicant Type': excelText(row.category, 'Not recorded'),
+      'Sub-applicant Type': excelText(row.subApplicantType, 'Not recorded'),
+      'Compliance Status': excelText(String(approval).replace(/_/g, ' ')),
+      'Compliance Status Date': excelText(statusDates.compliance.value, 'Not recorded'),
+      'PO Status': row.hasPo ? 'Received' : 'Pending',
+      'PO Number': excelText(po.poNo || po.poNumber, 'Not recorded'),
+      'PO Date': excelText(po.poDate, 'Not recorded'),
+      'PO End Date': excelText(po.poEndDate, 'Not recorded'),
+      'PO Financial Year': excelText(po.poFinancialYear, 'Not recorded'),
+      'Payment Term': excelText(po.paymentTerm, 'Not recorded'),
+      'PO Amount (INR)': Number.isFinite(Number(po.poAmount)) && String(po.poAmount).trim() ? Number(po.poAmount) : '',
+      'PO Proof Link': excelText(po.fileUrl || row.poDetails?.fileUrl, 'Not recorded'),
+      '48h+ Flag': row.sla?.[48]?.breached ? 'Red' : row.sla?.[48]?.known ? 'Clear' : 'No correction deadline',
+      '48h Due': excelText(row.sla?.[48]?.due ? new Date(row.sla[48].due).toISOString() : '', 'Not recorded'),
+      '72h+ Flag': row.sla?.[72]?.breached ? 'Red' : row.sla?.[72]?.known ? 'Clear' : 'No correction deadline',
+      '72h Due': excelText(row.sla?.[72]?.due ? new Date(row.sla[72].due).toISOString() : '', 'Not recorded'),
+      '96h+ Flag': row.sla?.[96]?.breached ? 'Red' : row.sla?.[96]?.known ? 'Clear' : 'No correction deadline',
+      '96h Due': excelText(row.sla?.[96]?.due ? new Date(row.sla[96].due).toISOString() : '', 'Not recorded'),
+      'Final Flag': getOperationsFinalFlag(row.sla) === 'red' ? 'Red' : 'Green'
+    }))
+  }))
+  return { summary, clients }
+}
+
+export function getPoFinancialYear(row = {}) {
+  return String(row.poDetails?.poFinancialYear || row.poFinancialYear || '').trim()
+}
+
+export function selectRowsForPoFinancialYear(rows = [], selected = 'all') {
+  if (selected === 'all') return rows
+  return rows.flatMap((row) => {
+    const details = row.poDetails || {}
+    const records = details.records?.length ? details.records : [{ ...details, poFinancialYear: getPoFinancialYear(row) }]
+    const matches = records.filter((po) => selected === 'unrecorded' ? !String(po.poFinancialYear || '').trim() : String(po.poFinancialYear || '').trim() === selected)
+    return matches.length ? [{ ...row, poFinancialYear: matches[0].poFinancialYear || '', poDetails: { ...details, ...matches[0], records: matches } }] : []
+  })
 }

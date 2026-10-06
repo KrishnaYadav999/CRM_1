@@ -1,4 +1,5 @@
 const Lead = require('../models/Lead');
+const { cleanPoCommercialDetails, validatePoCommercialDetails } = require('../utils/poCommercialDetails');
 const mongoose = require('mongoose');
 const { randomUUID } = require('crypto');
 const LeadActivity = require('../models/LeadActivity');
@@ -62,6 +63,28 @@ async function leadAccessFilter(user) {
 function combineAccessFilters(...filters) {
   const active = filters.filter((filter) => filter && Object.keys(filter).length);
   return active.length > 1 ? { $and: active } : active[0] || {};
+}
+
+function identityTokens(...values) {
+  return [...new Set(values.flatMap((value) => value && typeof value === 'object'
+    ? [value._id, value.id, value.crmUserId, value.userId, value.email, value.name]
+    : [value]).map(stableUserIdentity).filter(Boolean))];
+}
+
+function hasPendingClosedManagerAssignment(lead = {}, user = {}) {
+  const savedAssignments = Array.isArray(lead.assignments) ? lead.assignments : [];
+  const assignmentsHaveManager = savedAssignments.some((row) => identityTokens(row?.assignedTo, row?.assignedToText, row?.assignedToEmail).length);
+  const assignments = savedAssignments.length && assignmentsHaveManager ? savedAssignments : [lead];
+  const restrictToManager = userHasAnyRole(user, ['manager']) && !userHasAnyRole(user, ADMIN_ROLES);
+  const userTokens = identityTokens(user._id, user.id, user.crmUserId, user.userId, user.email, user.name);
+
+  return assignments.some((row) => {
+    const isClosed = identityTokens(row?.closedBy, row?.closedByText, row?.closedByEmail).length > 0 || Boolean(row?.closedAt);
+    const managerTokens = identityTokens(row?.assignedTo, row?.assignedToText, row?.assignedToEmail);
+    const hasStaff = identityTokens(row?.assignedStaff, row?.assignedStaffText, row?.assignedStaffEmail).length > 0;
+    if (!isClosed || !managerTokens.length || hasStaff) return false;
+    return !restrictToManager || managerTokens.some((token) => userTokens.includes(token));
+  });
 }
 
 function stableUserIdentity(value) {
@@ -360,6 +383,7 @@ function cleanBody(body) {
           poYearRows: Array.isArray(row?.poYearRows) ? row.poYearRows.slice(0, 25).map((po) => ({
             fy: String(po?.fy || '').trim(), poNumber: String(po?.poNumber || '').trim(),
             poDate: String(po?.poDate || '').trim(),
+            ...cleanPoCommercialDetails(po),
             poAmount: Math.max(0, Number(po?.poAmount) || 0),
             poFileUrl: resolvePoProof(po).url, poFileName: resolvePoProof(po).name,
             poFileMimeType: String(po?.poFileMimeType || '').trim(),
@@ -601,6 +625,9 @@ function normalizedPoClosureRows(assignment = {}) {
     fy: String(po?.fy || '').trim(),
     poNumber: String(po?.poNumber || '').trim(),
     poDate: String(po?.poDate || '').trim(),
+    poEndDate: String(po?.poEndDate || '').trim(),
+    poFinancialYear: String(po?.poFinancialYear || '').trim(),
+    paymentTerm: String(po?.paymentTerm || '').trim(),
     poAmount: Math.max(0, Number(po?.poAmount) || 0),
     poFileUrl: resolvePoProof(po).url,
     services: (Array.isArray(po?.services) ? po.services : [])
@@ -812,6 +839,8 @@ async function getNextLeadCode() {
 
 async function createLeadRecord(rawBody, user) {
   const data = setProvisionalClosureDeadlines(cleanBody(rawBody));
+  const commercialError = (data.assignments || []).flatMap((row) => row.poYearRows || []).map(validatePoCommercialDetails).find(Boolean);
+  if (commercialError) { const error = new Error(commercialError); error.statusCode = 400; throw error; }
   const duplicateServiceError = validateDuplicateServiceSelections(data);
   if (duplicateServiceError) {
     const validationError = new Error(duplicateServiceError);
@@ -1213,6 +1242,7 @@ exports.listLeads = async (req, res) => {
   const staff = String(req.query.staff || '').trim();
   const allocationOwner = String(req.query.allocationOwner || '').trim();
   const metric = String(req.query.metric || '').trim();
+  const workspace = String(req.query.workspace || '').trim().toLowerCase();
   const sortBy = ['leadCode', 'createdAt', 'updatedAt', 'company', 'status'].includes(String(req.query.sortBy))
     ? String(req.query.sortBy)
     : 'leadCode';
@@ -1260,11 +1290,11 @@ exports.listLeads = async (req, res) => {
   const projection = [
     'leadCode', 'sourceLeadId', 'company', 'status', 'workflowStatus', 'recordStatus',
     'eprCategory', 'piboCategory', 'existingClient', 'contactPerson', 'mobileNo1', 'emails',
-    'addressLine1', 'state', 'city', 'pinCode', 'assignedTo', 'assignedToText', 'assignedStaff',
+    'addressLine1', 'state', 'city', 'pinCode', 'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedStaff',
     'assignedStaffText', 'assignedStaffEmail', 'assignedBy', 'createdBy', 'createdByName',
     'createdByEmail', 'importedCreatedBy', 'generatedForUser', 'generatedForName',
     'generatedForEmail', 'createdOnBehalfOfUser', 'createdOnBehalfOfName', 'closedBy',
-    'closedByText', 'closedOnBehalfOfName', 'closedAt', 'assignReachedAt', 'assignments',
+    'closedByText', 'closedByEmail', 'closedOnBehalfOfName', 'closedAt', 'assignReachedAt', 'assignments',
     'serviceSelections', 'createdAt', 'updatedAt',
     ...(req.query.dashboard === 'true' ? [
       'industryType', 'applicantType', 'subApplicantType', 'servicesOffered', 'referredBy',
@@ -1279,6 +1309,42 @@ exports.listLeads = async (req, res) => {
     ] : [])
   ].join(' ');
   const queryStartedAt = process.hrtime.bigint();
+  if (workspace === 'notified') {
+    // Avoid the nested MongoDB array/count query that can exceed the gateway
+    // timeout. Classify the user's already-scoped directory in Node, then page.
+    const candidates = await Lead.find(filter).select(projection)
+      .sort({ [sortBy]: sortOrder, ...(sortBy === 'leadCode' ? { createdAt: sortOrder } : { _id: sortOrder }) })
+      .lean();
+    const matched = candidates.filter((lead) => hasPendingClosedManagerAssignment(lead, req.user));
+    const total = matched.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const safePage = Math.min(page, totalPages);
+    const pageRows = matched.slice((safePage - 1) * limit, safePage * limit);
+    const leads = await Lead.populate(pageRows, [
+      { path: 'assignedTo', select: 'name email avatarUrl role' },
+      { path: 'closedBy', select: 'name email avatarUrl role' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'generatedForUser', select: 'name email crmUserId' }
+    ]);
+    const queryMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
+    const totalMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    const existing = matched.filter((lead) => lead.existingClient === 'Yes' || lead.status === 'Existing Client').length;
+    res.set('Server-Timing', `access;dur=${accessMs.toFixed(1)}, query;dur=${queryMs.toFixed(1)}, total;dur=${totalMs.toFixed(1)}`);
+    return res.json({
+      ok: true,
+      leads,
+      pagination: {
+        page: safePage, limit, total, totalPages,
+        hasNextPage: safePage < totalPages,
+        hasPreviousPage: safePage > 1
+      },
+      summary: {
+        total, existing, converted: existing, new: total - existing,
+        allocated: total, unassigned: 0, notifiedPending: total
+      },
+      timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
+    });
+  }
   const [leads, total, summaryRows] = await Promise.all([
     Lead.find(filter).select(projection)
       .populate('assignedTo', 'name email avatarUrl role')
@@ -1320,7 +1386,10 @@ exports.listLeads = async (req, res) => {
       converted: summary.existing,
       new: summary.total - summary.existing,
       allocated: summary.allocated,
-      unassigned: summary.total - summary.allocated
+      unassigned: summary.total - summary.allocated,
+      // The notified workspace is already filtered, so its total is the exact
+      // pending lead count without another collection-wide count query.
+      notifiedPending: workspace === 'notified' ? total : undefined
     },
     timings: process.env.API_PERF_TIMINGS === 'true' ? { accessMs, queryMs, totalMs } : undefined
   });
@@ -1544,6 +1613,8 @@ exports.updateLead = async (req, res) => {
       data.subApplicantType = selection.piboCategory;
     }
 
+    const poCommercialError = (data.assignments || []).flatMap((row) => row.poYearRows || []).map(validatePoCommercialDetails).find(Boolean);
+    if (poCommercialError) return res.status(400).json({ error: poCommercialError });
     if (Array.isArray(data.assignments)) {
       const invalidPoDate = data.assignments.some((row, index) => {
         const beforeAssignment = beforeLead.assignments?.[index] || {};
@@ -1738,6 +1809,7 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
         fy: String(submitted.fy || serviceRow.firstAnnualReturnYearApplicable || '').trim().slice(0, 30),
         poNumber: String(submitted.poNumber || '').trim().slice(0, 100),
         poDate: String(submitted.poDate || '').trim(),
+        ...cleanPoCommercialDetails(submitted),
         poAmount: Math.max(0, Number(submitted.poAmount) || 0),
         service: String(serviceRow.servicesOffered || serviceRow.applicableService || serviceRow.eprCategory || submitted.service || '').trim().slice(0, 255),
         poFileUrl: String(submitted.poFileUrl || '').trim().slice(0, 2000),
@@ -1748,6 +1820,8 @@ exports.permanentlyCloseProvisionalLead = async (req, res) => {
         poUploadedAt: String(submitted.poUploadedAt || '').trim()
       };
     });
+    const commercialError = originalPoRows.map(validatePoCommercialDetails).find(Boolean);
+    if (commercialError) return res.status(400).json({ error: commercialError });
     const invalidPoRow = originalPoRows.find((row) => !row.fy || !row.poNumber || !/^\d{4}-\d{2}-\d{2}$/.test(row.poDate)
       || Number.isNaN(new Date(`${row.poDate}T00:00:00`).getTime()) || !(row.poAmount > 0) || !row.service
       || !/^https:\/\//i.test(row.poFileUrl) || !row.poFileName
@@ -2498,3 +2572,15 @@ exports.uploadPurchaseOrderProof = async (req, res) => {
 // follows the exact same lead-code and ownership rules as Add Lead.
 exports.createLeadRecordInternal = createLeadRecord;
 exports.buildAppendOnlyServicePatchInternal = buildAppendOnlyServicePatch;
+
+// Review the persisted submission snapshot before an administrator decides a PO.
+exports.getPurchaseOrderApproval = async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid PO approval ID.' });
+  try {
+    const approval = await PendingApproval.findOne({ _id: req.params.id, type: 'purchase_order' }).lean();
+    if (!approval) return res.status(404).json({ error: 'PO approval not found.' });
+    return res.json({ ok: true, approval });
+  } catch (error) {
+    return res.status(500).json({ error: 'Unable to load submitted PO details. Please retry.' });
+  }
+};

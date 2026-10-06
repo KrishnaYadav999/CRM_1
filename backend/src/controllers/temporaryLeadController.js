@@ -25,6 +25,86 @@ async function nextTemporaryLeadCode() {
   return `ATPL-TEMP-${String(sequence.value).padStart(4, '0')}`;
 }
 
+const cleanText = (value, maxLength) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, maxLength);
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function normalizeTemporaryLeadPayload(source = {}) {
+  const clientName = cleanText(source.companyName || source.clientName, 240);
+  const personName = cleanText(source.personName || source.contactPerson, 160);
+  const email = normalizeEmail(source.email || source.emailId || source.emails);
+  const phone = normalizePhone(source.phone || source.phoneNo || source.mobileNo1);
+  const sector = cleanText(source.sector || source.industryType, 160);
+  return { clientName, personName, email, phone, sector, companyIdentity: normalizeCompanyIdentity(clientName), emailIdentity: email, phoneIdentity: phone };
+}
+
+function validateTemporaryLeadPayload(data) {
+  if (data.clientName.length < 2) return 'Company name must contain at least 2 characters.';
+  if (data.personName.length < 2) return 'Person name must contain at least 2 characters.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return 'Enter a valid email ID.';
+  if (data.phone.length < 10 || data.phone.length > 15) return 'Phone number must contain 10 to 15 digits.';
+  if (data.sector.length < 2) return 'Sector must contain at least 2 characters.';
+  return '';
+}
+
+async function findTemporaryLeadDuplicate(data) {
+  const temporary = await TemporaryLead.findOne({
+    $or: [
+      { companyIdentity: data.companyIdentity },
+      { emailIdentity: data.emailIdentity },
+      { phoneIdentity: data.phoneIdentity }
+    ]
+  }).select('_id tempLeadCode clientName companyIdentity email emailIdentity phone phoneIdentity status').lean();
+  if (temporary) {
+    const match = temporary.companyIdentity === data.companyIdentity ? 'company name'
+      : temporary.emailIdentity === data.emailIdentity ? 'email ID' : 'phone number';
+    return { source: 'temporary', match, code: temporary.tempLeadCode, company: temporary.clientName };
+  }
+
+  const emailExpression = new RegExp(`^${escapeRegex(data.emailIdentity)}$`, 'i');
+  const companyExpression = new RegExp(`^\\s*${escapeRegex(data.companyIdentity)}`, 'i');
+  const permanentCandidates = await Lead.find({
+    $or: [
+      { companyIdentity: data.companyIdentity },
+      { company: companyExpression },
+      { emails: emailExpression },
+      { mobileNo1: data.phoneIdentity },
+      { mobileNo2: data.phoneIdentity },
+      { whatsappNo: data.phoneIdentity }
+    ]
+  }).select('_id leadCode company companyIdentity emails mobileNo1 mobileNo2 whatsappNo').lean();
+  const permanent = permanentCandidates.find((row) => {
+    const emails = String(row.emails || '').split(/[;,]/).map(normalizeEmail).filter(Boolean);
+    const phones = [row.mobileNo1, row.mobileNo2, row.whatsappNo].map(normalizePhone).filter(Boolean);
+    return normalizeCompanyIdentity(row.company) === data.companyIdentity || emails.includes(data.emailIdentity) || phones.includes(data.phoneIdentity);
+  });
+  if (!permanent) return null;
+  const match = permanent.companyIdentity === data.companyIdentity ? 'company name'
+    : [permanent.mobileNo1, permanent.mobileNo2, permanent.whatsappNo].includes(data.phoneIdentity) ? 'phone number' : 'email ID';
+  return { source: 'permanent', match, code: permanent.leadCode, company: permanent.company };
+}
+
+async function createTemporaryLeadRecord(source, user) {
+  const data = normalizeTemporaryLeadPayload(source);
+  const validationError = validateTemporaryLeadPayload(data);
+  if (validationError) return { error: validationError, code: 'INVALID_TEMPORARY_LEAD' };
+  const duplicate = await findTemporaryLeadDuplicate(data);
+  if (duplicate) return {
+    error: `${data.clientName} was not saved because its ${duplicate.match} already exists in ${duplicate.code || 'the CRM'}.`,
+    code: 'DUPLICATE_TEMPORARY_LEAD',
+    duplicate
+  };
+  const temporaryLead = await TemporaryLead.create({
+    tempLeadCode: await nextTemporaryLeadCode(),
+    ...data,
+    createdBy: user._id,
+    createdByName: user.name || user.email,
+    createdByEmail: user.email
+  });
+  return { temporaryLead };
+}
+
 exports.list = async (req, res) => {
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 10));
@@ -33,7 +113,11 @@ exports.list = async (req, res) => {
   const filter = {};
   if (search) filter.$or = [
     { tempLeadCode: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
-    { clientName: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }
+    { clientName: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
+    { personName: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
+    { email: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
+    { phone: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
+    { sector: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }
   ];
   if (['DRAFT', 'CONVERTED'].includes(status)) filter.status = status;
   const accessFilter = await temporaryLeadAccessFilter(req.user);
@@ -48,18 +132,23 @@ exports.list = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
-  const clientName = String(req.body.clientName || '').trim().replace(/\s+/g, ' ');
-  if (clientName.length < 2) return res.status(400).json({ error: 'Client name must contain at least 2 characters.' });
-  if (clientName.length > 240) return res.status(400).json({ error: 'Client name must be 240 characters or fewer.' });
-  const row = await TemporaryLead.create({
-    tempLeadCode: await nextTemporaryLeadCode(),
-    clientName,
-    companyIdentity: normalizeCompanyIdentity(clientName),
-    createdBy: req.user._id,
-    createdByName: req.user.name || req.user.email,
-    createdByEmail: req.user.email
-  });
-  res.status(201).json({ ok: true, temporaryLead: row });
+  const result = await createTemporaryLeadRecord(req.body, req.user);
+  if (result.error) return res.status(result.code === 'DUPLICATE_TEMPORARY_LEAD' ? 409 : 400).json(result);
+  res.status(201).json({ ok: true, temporaryLead: result.temporaryLead });
+};
+
+exports.bulkCreate = async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'The Excel file does not contain any temporary leads.' });
+  if (rows.length > 1000) return res.status(400).json({ error: 'A maximum of 1,000 temporary leads can be uploaded at once.' });
+  const inserted = [];
+  const skipped = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const result = await createTemporaryLeadRecord(rows[index], req.user);
+    if (result.temporaryLead) inserted.push({ row: index + 2, tempLeadCode: result.temporaryLead.tempLeadCode, companyName: result.temporaryLead.clientName });
+    else skipped.push({ row: index + 2, companyName: cleanText(rows[index]?.companyName || rows[index]?.clientName, 240), error: result.error, code: result.code, duplicate: result.duplicate });
+  }
+  res.status(inserted.length ? 201 : 200).json({ ok: true, inserted, skipped, summary: { total: rows.length, inserted: inserted.length, skipped: skipped.length } });
 };
 
 exports.convert = async (req, res) => {
@@ -71,7 +160,7 @@ exports.convert = async (req, res) => {
   }
   const duplicate = await Lead.findOne({ companyIdentity: row.companyIdentity }).select('_id leadCode company').lean();
   if (duplicate) return res.status(409).json({ error: `${duplicate.company} already exists as ${duplicate.leadCode}.`, code: 'DUPLICATE_LEAD_COMPANY', duplicate });
-  const lead = await createLeadRecordInternal({ company: row.clientName, status: 'Potential - Interested', workflowStatus: 'draft', source: 'Temporary Lead', notes: `Converted from ${row.tempLeadCode}` }, req.user);
+  const lead = await createLeadRecordInternal({ company: row.clientName, contactPerson: row.personName, emails: row.email, mobileNo1: row.phone, industryType: row.sector, status: 'Potential - Interested', workflowStatus: 'draft', source: 'Temporary Lead', notes: `Converted from ${row.tempLeadCode}` }, req.user);
   await LeadActivity.create({ lead: lead._id, type: 'lead_created', title: 'Lead created from temporary lead', description: `${row.tempLeadCode} converted for ${row.clientName}`, actor: req.user._id });
   row.status = 'CONVERTED'; row.convertedLead = lead._id; row.convertedLeadCode = lead.leadCode; row.convertedAt = new Date();
   await row.save();
@@ -131,4 +220,4 @@ exports.closeFollowUp = async (req, res) => {
   res.json({ ok: true, temporaryLead: row, calendarItem });
 };
 
-exports.__test = { nextTemporaryLeadCode };
+exports.__test = { nextTemporaryLeadCode, normalizeTemporaryLeadPayload, validateTemporaryLeadPayload };

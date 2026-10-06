@@ -21,7 +21,7 @@ test('management request requires an active Super Admin and creates a pending fi
   assert.match(controller, /adminApprovalStatus: 'APPROVED'/);
   assert.match(controller, /reviewerRole === 'admin'/);
   assert.match(controller, /Only a primary Super Admin account can complete final approval/);
-  assert.match(controller, /Admin approval must be completed before final Super Admin approval/);
+  assert.doesNotMatch(controller, /Admin approval must be completed before final Super Admin approval/);
   assert.match(controller, /approvalKind: 'MANAGEMENT_FINAL'/);
 });
 
@@ -38,7 +38,7 @@ test('quotation actions expose the request modal and Pending Approval exposes fi
   assert.match(quotationsPage, /VERBAL_CALL/);
   assert.match(pendingPage, /Super Admin Approval/);
   assert.match(pendingPage, /Final Approve/);
-  assert.match(pendingPage, /Admin Approval Required/);
+  assert.doesNotMatch(pendingPage, /Admin Approval Required/);
   assert.match(pendingPage, /pending-action-approve/);
   assert.match(pendingPage, /primaryRole === 'admin'/);
   assert.match(pendingPage, /managementApprovalFinalize/);

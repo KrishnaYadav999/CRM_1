@@ -7,10 +7,13 @@ import ProfileModal from '../components/dashboard/ProfileModal';
 import ApprovalTabs from '../components/dashboard/ApprovalTabs';
 import BrandLoader from '../components/BrandLoader';
 import ToastMessage from '../components/ToastMessage';
+import PoProofView from '../components/PoProofView';
 import { adminRoles, getUserRoles, hasAnyRole } from '../constants/dashboard';
 import api, { storeSessionUser } from '../services/api';
 import { API_ENDPOINTS } from '../services/apiEndpoints';
 import { uploadMedia } from '../services/mediaUpload';
+import { resolvePoApplicantDetails } from '../utils/poApplicantDetails.mjs';
+import { resolveQuotationBasicAmount } from '../utils/leadClosureQuotation';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 
 const rowsPerPage = 5;
@@ -389,12 +392,17 @@ function PoProof({ row, onUpload, uploading = false }) {
 function normalizePoApprovalRow(row = {}) {
   const quotationItems = Array.isArray(row.quotationItems) ? row.quotationItems : [];
   const itemTotal = quotationItems.reduce((sum, item) => sum + (Number(item.unit) || 1) * (Number(item.basicAmount) || 0), 0);
+  const isSystemQuotation = String(row.quotationSent || '').toLowerCase() === 'yes' || Boolean(row.quotationId || row.quotationNumber);
+  const recordedQuotationPrice = Number(row.quotationBasicAmount);
   const resolvedUrl = getPoProofUrl(row) || row.poFileUrl || row.proofUrl || '';
   const resolvedName = getPoProofName(row) || row.poFileName || '';
   return {
     ...row,
     poAmountValue: Number(row.poAmount) > 0 ? Number(row.poAmount) : null,
-    basicAmountValue: row.quotationSent === 'no' ? 0 : (itemTotal || Number(row.quotationBasicAmount) || null),
+    isSystemQuotation,
+    basicAmountValue: isSystemQuotation
+      ? (Number.isFinite(recordedQuotationPrice) && recordedQuotationPrice > 0 ? recordedQuotationPrice : (itemTotal || null))
+      : null,
     proofUrl: resolvedUrl,
     poFileUrl: resolvedUrl,
     poFileName: resolvedName,
@@ -408,8 +416,16 @@ function normalizeApprovalPoRows(approval = {}) {
   const sourceRows = rows.length ? rows : (payload.poNumber || payload.poAmount || getPoProofUrl(payload) || getPoProofUrl(approval) ? [payload] : []);
   return sourceRows.map((row, rowIndex) => {
     const normalized = resolveCanonicalPoProof(approval, row, rowIndex);
-    return { ...normalizePoApprovalRow(normalized), poFileUrl: normalized.poFileUrl, poFileName: normalized.poFileName, poFileMimeType: normalized.poFileMimeType, hasPoFileUrl: normalized.hasPoFileUrl };
+    const rowWithQuotationSource = { ...normalized, quotationSent: normalized.quotationSent || payload.quotationSent || '' };
+    return { ...normalizePoApprovalRow(rowWithQuotationSource), poFileUrl: normalized.poFileUrl, poFileName: normalized.poFileName, poFileMimeType: normalized.poFileMimeType, hasPoFileUrl: normalized.hasPoFileUrl };
   });
+}
+
+function SubmittedPoReview({ approval }) {
+  const rows = normalizeApprovalPoRows(approval);
+  const showQuotationPrice = rows.some((row) => row.isSystemQuotation);
+  const headings = ['EPR / Service Period', 'PO Number', 'PO Date', 'PO End Date', 'PO Financial Year', 'Payment Term', ...(showQuotationPrice ? ['Quotation Price (INR)'] : []), 'PO Amount (INR)', 'PO Proof', 'Service', 'Applicant', 'Sub-applicant'];
+  return <section className="pending-po-submitted"><header><strong>Submitted PO Details</strong><span>{rows.length} PO records</span></header><div className="pending-po-submitted-scroll"><table><thead><tr>{headings.map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>{rows.map((po, index) => <tr key={`${po.poNumber || 'po'}-${index}`}><td>{po.fy || 'Not recorded'}</td><td><strong>{po.poNumber || 'Not recorded'}</strong></td><td>{formatDisplayDate(po.poDate, 'Not recorded')}</td><td>{formatDisplayDate(po.poEndDate, 'Not recorded')}</td><td>{po.poFinancialYear || 'Not recorded'}</td><td className="pending-po-payment">{po.paymentTerm || 'Not recorded'}</td>{showQuotationPrice && <td>{po.isSystemQuotation && po.basicAmountValue != null ? <><strong>₹{po.basicAmountValue.toLocaleString('en-IN')}</strong>{po.quotationNumber && <small className="block text-slate-500">{po.quotationNumber}</small>}</> : 'Not recorded'}</td>}<td>{po.poAmountValue != null ? `₹${po.poAmountValue.toLocaleString('en-IN')}` : 'Not recorded'}</td><td>{po.poFileUrl ? <PoProofView po={po} /> : 'Proof not attached'}</td><td>{(Array.isArray(po.services) ? po.services.join(', ') : po.service) || approval.payload?.service?.servicesOffered || 'Not recorded'}</td><td>{resolvePoApplicantDetails(approval, po).applicant}</td><td>{resolvePoApplicantDetails(approval, po).subApplicant}</td></tr>)}{!rows.length && <tr><td colSpan={headings.length}>No PO rows were recorded in this submission.</td></tr>}</tbody></table></div>{approval.payload?.earlierQuotationProofUrl && <a href={approval.payload.earlierQuotationProofUrl} target="_blank" rel="noopener noreferrer" className="pending-po-earlier-proof">View earlier quotation proof</a>}</section>;
 }
 
 function PoApprovalDetails({ row }) {
@@ -573,7 +589,8 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
           quotationSent: String(liveRow?.quotationSent || snapshot?.quotationSent || payload.quotationSent || '').toLowerCase(),
           quotationId: liveRow?.quotationId || snapshot?.quotationId || '',
           quotationNumber: liveRow?.quotationNumber || snapshot?.quotationNumber || '',
-          quotationBasicAmount: Number(liveRow?.quotationBasicAmount ?? snapshot?.quotationBasicAmount ?? 0),
+          quotationBasicAmount: resolveQuotationBasicAmount(liveRow?.quotationBasicAmount, snapshot?.quotationBasicAmount),
+          quotationItems: Array.isArray(liveRow?.quotationItems) && liveRow.quotationItems.length ? liveRow.quotationItems : (snapshot?.quotationItems || []),
           hasPoFileUrl: Boolean(proof.poFileUrl)
         };
       });
@@ -592,7 +609,8 @@ function hydratePurchaseOrderApprovals(approvals = [], leads = []) {
           quotationSent: String(liveRow?.quotationSent || snapshot.quotationSent || payload.quotationSent || '').toLowerCase(),
           quotationId: liveRow?.quotationId || snapshot.quotationId || '',
           quotationNumber: liveRow?.quotationNumber || snapshot.quotationNumber || '',
-          quotationBasicAmount: Number(liveRow?.quotationBasicAmount ?? snapshot.quotationBasicAmount ?? 0),
+          quotationBasicAmount: resolveQuotationBasicAmount(liveRow?.quotationBasicAmount, snapshot.quotationBasicAmount),
+          quotationItems: Array.isArray(liveRow?.quotationItems) && liveRow.quotationItems.length ? liveRow.quotationItems : (snapshot.quotationItems || []),
           hasPoFileUrl: Boolean(proof.poFileUrl)
         };
       });
@@ -1080,10 +1098,23 @@ export default function PendingApproval() {
     } finally { setSavingId(''); }
   }
 
+  async function openPoDecision(row, status) {
+    const id = String(row._id || row.id || '');
+    setPoDecision({ row, status, remarks: '', loadingDetails: true, loadError: '' });
+    try {
+      const response = await api.get(API_ENDPOINTS.leads.purchaseOrderApprovalDecision(id), { timeout: 15000 });
+      const fresh = response.data?.approval;
+      if (!fresh || String(fresh._id || fresh.id) !== id) throw new Error('Submitted PO details could not be loaded.');
+      setPoDecision((current) => current && String(current.row._id || current.row.id) === id && current.status === status ? { ...current, row: fresh, loadingDetails: false, loadError: fresh.approvalStatus === 'PENDING' ? '' : 'This PO has already been reviewed. Refresh the approval list.' } : current);
+    } catch (failure) {
+      setPoDecision((current) => current && String(current.row._id || current.row.id) === id && current.status === status ? { ...current, loadingDetails: false, loadError: failure.response?.data?.error || failure.message || 'Unable to load PO details. Please retry.' } : current);
+    }
+  }
+
   async function submitPoDecision(event) {
     event.preventDefault();
     const remarks = String(poDecision?.remarks || '').trim();
-    if (!poDecision?.row || !remarks) return;
+    if (!poDecision?.row || !remarks || poDecision.loadingDetails || poDecision.loadError) return;
     const decision = { ...poDecision, remarks };
     const id = decision.row._id || decision.row.id;
     setSavingId(`po-${id}`);
@@ -1160,7 +1191,7 @@ export default function PendingApproval() {
     if (quotationDecision.status === 'REJECTED' && !remarks) return;
     const decision = quotationDecision;
     setQuotationDecision(null);
-    if (decision.finalApproval) await finalizeManagementApproval(decision.row);
+    if (decision.finalApproval) await finalizeManagementApproval(decision.row, decision);
     else await updateQuotationApproval(decision.row, decision.status, decision);
   }
 
@@ -1168,13 +1199,13 @@ export default function PendingApproval() {
     setQuotationDecision({ row, status, finalApproval: status === 'APPROVED' && isQuotationSuperAdmin && row.managementApprovalStatus === 'PENDING', remarks: '', proofUrl: '', proofName: '' });
   }
 
-  async function finalizeManagementApproval(row) {
+  async function finalizeManagementApproval(row, decision = {}) {
     if (!isQuotationSuperAdmin || getApprovalStatus(row) !== 'PENDING') return;
     const id = row.quotationId || row._id || row.id;
     setSavingId(`management-final-${id}`);
     setError('');
     try {
-      const response = await api.patch(API_ENDPOINTS.quotations.managementApprovalFinalize(id), {});
+      const response = await api.patch(API_ENDPOINTS.quotations.managementApprovalFinalize(id), { remarks: decision.remarks || '', proofUrl: decision.proofUrl || '', proofName: decision.proofName || '' });
       setNotice(response.data?.message || 'Quotation received final Super Admin approval.');
       await loadPage({ force: true, silent: true });
     } catch (err) {
@@ -1545,7 +1576,7 @@ export default function PendingApproval() {
                   })()}</Cell>
                     <Cell>{poRows.map((po) => <strong key={`${po.approvalId || id}-${po.rowIndex ?? 0}-${po.poNumber || 'po'}-basic`} className="block text-slate-900">{po.basicAmountValue != null ? `₹${po.basicAmountValue.toLocaleString('en-IN')}` : '-'}</strong>)}</Cell>
                     <Cell>{row.payload?.poSubmittedByName || row.createdByName || '-'}</Cell><Cell>{statusBadge(row.approvalStatus)}</Cell>
-                    <Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'APPROVED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REJECTED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => setPoDecision({ row, status: 'REVISION_REQUIRED', remarks: '', screenshotUrl: '', screenshotName: '' })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell>
+                    <Cell><div className="flex flex-wrap gap-2"><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => openPoDecision(row, 'APPROVED')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-40">Approve</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => openPoDecision(row, 'REJECTED')} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-40">Reject</button><button type="button" disabled={row.approvalStatus !== 'PENDING'} onClick={() => openPoDecision(row, 'REVISION_REQUIRED')} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-black text-orange-600 disabled:opacity-40">Revise</button></div></Cell>
                   </tr>;
                 })}
               </ApprovalTable>
@@ -1807,7 +1838,7 @@ export default function PendingApproval() {
           </form>
         </div>;
       })()}
-      {poDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setPoDecision(null); }}><form onSubmit={submitPoDecision} className={`pending-decision-modal ${poDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><div className="pending-decision-icon">{poDecision.status === 'APPROVED' ? <CheckCircle2 className="h-7 w-7" /> : <XCircle className="h-7 w-7" />}</div><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)} className="pending-decision-close" aria-label="Close PO decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Purchase Order Approval</p><h2>{poDecision.status === 'APPROVED' ? 'Approve Purchase Order' : poDecision.status === 'REJECTED' ? 'Reject Purchase Order' : 'Request quotation and PO revision'}</h2><strong className="pending-decision-client">{poDecision.row.clientName}</strong><p className="pending-decision-help">No image or document is required. Add clear remarks and submit. The dialog will close immediately while the decision email is sent to the responsible users.</p><label className="pending-decision-field"><span>Decision remarks <b>*</b></span><textarea autoFocus required rows={6} value={poDecision.remarks} onChange={(event) => setPoDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Clearly explain this PO decision..." /></label><div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || !poDecision.remarks.trim()}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : poDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Submit {poDecision.status === 'APPROVED' ? 'Approval' : poDecision.status === 'REJECTED' ? 'Rejection' : 'Revision'}</button></div></form></div>}
+      {poDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setPoDecision(null); }}><form onSubmit={submitPoDecision} role="dialog" aria-modal="true" aria-label="Review submitted Purchase Order" className={`pending-decision-modal pending-po-review-modal ${poDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><div className="pending-decision-icon">{poDecision.status === 'APPROVED' ? <CheckCircle2 className="h-7 w-7" /> : <XCircle className="h-7 w-7" />}</div><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)} className="pending-decision-close" aria-label="Close PO decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Purchase Order Approval</p><h2>{poDecision.status === 'APPROVED' ? 'Approve Purchase Order' : poDecision.status === 'REJECTED' ? 'Reject Purchase Order' : 'Request quotation and PO revision'}</h2><strong className="pending-decision-client">{poDecision.row.clientName}</strong>{poDecision.loadingDetails ? <p role="status" className="pending-po-review-loading">Loading latest submitted PO details…</p> : poDecision.loadError ? <div role="alert" className="pending-po-review-error">{poDecision.loadError}<button type="button" onClick={() => openPoDecision(poDecision.row, poDecision.status)}>Retry</button></div> : <SubmittedPoReview approval={poDecision.row} />}<p className="pending-decision-help">No image or document is required. Add clear remarks and submit. The dialog will close immediately while the decision email is sent to the responsible users.</p><label className="pending-decision-field"><span>Decision remarks <b>*</b></span><textarea autoFocus required rows={6} value={poDecision.remarks} onChange={(event) => setPoDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Clearly explain this PO decision..." /></label><div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setPoDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || poDecision.loadingDetails || Boolean(poDecision.loadError) || !poDecision.remarks.trim()}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : poDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Submit {poDecision.status === 'APPROVED' ? 'Approval' : poDecision.status === 'REJECTED' ? 'Rejection' : 'Revision'}</button></div></form></div>}
 
       {quotationDecision && <div className="pending-decision-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingId) setQuotationDecision(null); }}><form onSubmit={submitQuotationDecision} style={{ maxHeight: "90vh", overflowY: "auto" }} className={`pending-decision-modal quotation-decision-modal ${quotationDecision.status === 'APPROVED' ? 'is-approved' : 'is-rejected'}`}><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)} className="pending-decision-close" aria-label="Close quotation decision"><X className="h-5 w-5" /></button><p className="pending-decision-eyebrow">Quotation Decision</p><h2>{quotationDecision.status === 'APPROVED' ? (quotationDecision.finalApproval ? 'Final Management Approval' : 'Management Approval') : 'Reject quotation'}</h2><strong className="pending-decision-client">{quotationDecision.row.companyName || '-'}</strong>{quotationDecision.status === 'APPROVED' ? <><ManagementApprovalDetails row={quotationDecision.row} /><p className="pending-decision-help">{quotationDecision.finalApproval ? "Review the Management Approval details before confirming final approval." : "Approval proof is optional. Admin approval unlocks the quotation PDF; final Super Admin approval follows."}</p>{!quotationDecision.finalApproval && <><label className="mt-4 flex min-h-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 font-black text-emerald-700"><FileCheck2 className="mr-2 h-5 w-5" />{quotationDecision.proofName || 'Upload approval proof (optional)'}<input type="file" accept="image/*,.pdf" className="sr-only" onChange={uploadQuotationDecisionProof} /></label><label className="pending-decision-field mt-4"><span>Approval note</span><textarea rows={4} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Add an optional approval note..." /></label></>}</> : <label className="pending-decision-field"><span>Rejection reason <b>*</b></span><textarea autoFocus required rows={7} value={quotationDecision.remarks} onChange={(event) => setQuotationDecision((current) => ({ ...current, remarks: event.target.value }))} placeholder="Please explain why this quotation is being rejected..." /></label>}<div className="pending-decision-actions"><button type="button" disabled={Boolean(savingId)} onClick={() => setQuotationDecision(null)}>Cancel</button><button type="submit" disabled={Boolean(savingId) || (quotationDecision.status === 'REJECTED' && !quotationDecision.remarks.trim())}>{savingId ? <RefreshCw className="h-4 w-4 animate-spin" /> : quotationDecision.status === 'APPROVED' ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}Confirm {quotationDecision.status === 'APPROVED' ? 'Approval' : 'Rejection'}</button></div></form></div>}
 
@@ -2020,7 +2051,6 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, onFinaliz
   const pending = getApprovalStatus(row) === 'PENDING';
   const submitting = savingId === `management-final-${id}`;
   const managementStatus = String(row?.managementApprovalStatus || '').toUpperCase();
-  const adminApproved = String(row?.adminApprovalStatus || '').toUpperCase() === 'APPROVED';
 
   if (managementStatus === 'APPROVED') {
     const source = String(row.managementApprovalSource || '').replace(/_/g, ' ');
@@ -2032,9 +2062,9 @@ function ManagementApprovalCell({ row, savingId, isSuperAdmin = false, onFinaliz
 
   return (
     <td className="management-approval-cell">
-      <button type="button" disabled={Boolean(savingId) || !adminApproved} title={adminApproved ? 'Complete final Super Admin approval' : 'Admin approval is required first'} onClick={() => onFinalize(row)} className="management-approve-button disabled:cursor-not-allowed disabled:opacity-50">
+      <button type="button" disabled={Boolean(savingId)} title="Complete final Super Admin approval" onClick={() => onFinalize(row)} className="management-approve-button disabled:cursor-not-allowed disabled:opacity-50">
         {submitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
-        {adminApproved ? 'Final Approve' : 'Admin Approval Required'}
+        Final Approve
       </button>
     </td>
   );
@@ -2074,9 +2104,9 @@ function QuotationActionCell({ row, savingId, onView, onRevise, onUpdate, canApp
           <div className="pending-quotation-actions-bottom">
             {((canAdminApprove && !adminApproved) || isSuperAdmin) && <button
               type="button"
-              disabled={Boolean(savingId) || (isSuperAdmin && row.managementApprovalStatus === 'PENDING' && !adminApproved)}
+              disabled={Boolean(savingId)}
               onClick={() => onUpdate(row, 'APPROVED')}
-              title={isSuperAdmin && row.managementApprovalStatus === 'PENDING' && !adminApproved ? 'Admin approval is required first' : 'Approve quotation'}
+              title="Approve quotation"
               className="pending-action pending-action-approve"
             >
               {approving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}

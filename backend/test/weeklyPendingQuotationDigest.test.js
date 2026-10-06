@@ -55,6 +55,12 @@ test('weekly digest recovers unindexed pending quotations and excludes stale ter
   assert.equal(rows[0].companyName, 'Recovered Company');
 });
 
+test('Super Admin digest includes submitted quotations before Admin approval', () => {
+  const rows = __test.normalizeDigestRows([], [{ _id: 'submitted', quotationNumber: 'AT/26-27/402', companyName: 'New request', status: 'submitted', grandTotal: 1000, createdAt: '2026-09-18' }], new Date('2026-09-19T12:30:00Z'));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].quotationNumber, 'AT/26-27/402');
+});
+
 test('weekly digest keeps Saturday and retry Sunday in the same idempotency week', () => {
   assert.equal(__test.indiaWeekKey(new Date('2026-09-19T12:30:00.000Z')), '2026-W38');
   assert.equal(__test.indiaWeekKey(new Date('2026-09-20T12:30:00.000Z')), '2026-W38');

@@ -73,3 +73,43 @@ test('Lead Generation no longer falls back to an unrelated quotation item at the
   assert.match(page, /selectLeadClosureQuotation\(relevantQuotations/);
   assert.doesNotMatch(page, /allQuotationItems\[index\]/);
 });
+
+test('PO hydration keeps selected service identity authoritative over stale saved labels', async () => {
+  const { hydrateClosurePoRows } = await modulePromise;
+  const rows = hydrateClosurePoRows(
+    [{ fy: '2024-25', services: ['Annual Return Filling'], quotationId: '' }],
+    [{ fy: '2026-27', services: ['New Registration'], poNumber: '2025090099', poAmount: 50000 }],
+    { servicesOffered: 'Annual Return Filling', firstAnnualReturnYearApplicable: '2024-25' }
+  );
+  assert.equal(rows[0].services[0], 'Annual Return Filling');
+  assert.equal(rows[0].fy, '2024-25');
+  assert.equal(rows[0].poNumber, '2025090099');
+  assert.equal(rows[0].poAmount, 50000);
+});
+
+test('manual earlier-quotation mode always uses the selected closure service', async () => {
+  const { buildManualClosurePoRow } = await modulePromise;
+  const row = buildManualClosurePoRow({
+    fy: '2026-27',
+    services: ['CIPET Registration Advisory'],
+    poAmount: 50000,
+    quotationId: 'wrong-quotation'
+  }, {
+    assignedServiceId: 'annual-importer',
+    servicesOffered: 'Annual Return Filling',
+    firstAnnualReturnYearApplicable: '2025-26'
+  }, true);
+  assert.equal(row.fy, '2025-26');
+  assert.deepEqual(row.services, ['Annual Return Filling']);
+  assert.equal(row.assignedServiceId, 'annual-importer');
+  assert.equal(row.poAmount, '');
+  assert.equal(row.quotationId, '');
+});
+
+test('approval hydration preserves the saved quotation Basic Amount when the live PO row is blank or zero', async () => {
+  const { resolveQuotationBasicAmount } = await modulePromise;
+  assert.equal(resolveQuotationBasicAmount('', 50000), 50000);
+  assert.equal(resolveQuotationBasicAmount(0, 50000), 50000);
+  assert.equal(resolveQuotationBasicAmount('25000', 50000), 25000);
+  assert.equal(resolveQuotationBasicAmount('', null), 0);
+});

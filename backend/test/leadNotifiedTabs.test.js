@@ -23,19 +23,29 @@ test('Lead Generation uses inline tabs for temporary and notified leads', () => 
   assert.match(app, /lead-generation\/temporary.*Navigate to="\/sales\/lead-generation\?tab=temporary"/);
 });
 
-test('Notified Leads contains manager assignments that are still waiting for staff', () => {
+test('Notified Leads contains closed manager assignments that are still waiting for staff', () => {
   const page = read('frontend/src/pages/LeadGeneration.jsx');
+  const controller = read('backend/src/controllers/leadController.js');
 
   assert.match(page, /\['manager', 'admin', 'superadmin'\]\.includes\(currentRole\)/);
   assert.match(page, /initialWorkspace === 'notified' && !canViewNotifiedLeads \? 'leads'/);
   assert.match(page, /showNotified=\{canViewNotifiedLeads\}/);
   assert.match(page, /\.\.\.\(showNotified \? \[\{ id: 'notified'/);
   assert.match(page, /function pendingManagerAssignmentRows/);
-  assert.match(page, /if \(!hasManager \|\| hasStaff\) return \[\]/);
+  assert.match(page, /if \(!isClosed \|\| !hasManager \|\| hasStaff\) return \[\]/);
   assert.match(page, /service\.managerAssignedStaffName/);
   assert.match(page, /Manager Assigned to Staff/);
   assert.match(page, /Manager action pending/);
   assert.match(page, /No notified leads are pending/);
+  assert.match(page, /workspaceTab === 'notified' \? activeTotal : null/);
+  assert.match(page, /workspace: initialWorkspace/);
+  assert.match(page, /\[Lead Notifications\] fetch complete/);
+  assert.match(page, /onDirectoryQueryChange\(currentDirectoryRequest\(\)\)/);
+  assert.match(controller, /function hasPendingClosedManagerAssignment/);
+  assert.match(controller, /if \(workspace === 'notified'\)/);
+  assert.match(controller, /candidates\.filter\(\(lead\) => hasPendingClosedManagerAssignment\(lead, req\.user\)\)/);
+  assert.doesNotMatch(controller, /filters\.push\(notifiedFilter\)/);
+  assert.match(controller, /notifiedPending: workspace === 'notified' \? total : undefined/);
 });
 
 test('manager assignment email links to and explains the Notified Leads tab', () => {

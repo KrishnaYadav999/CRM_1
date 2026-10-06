@@ -20,6 +20,7 @@ router.use('/:id', requireAuth, deactivation.guard);
 router.use('/', requireAuth, deactivation.guard);
 
 router.get('/', requireAuth, clientCtrl.listClients);
+router.get('/dashboard/purchase-sales-progress', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.listPurchaseSalesProgress);
 router.get('/dashboard/compliance-records', requireAuth, clientCtrl.listDashboardComplianceRecords);
 router.get('/discovery/search', requireAuth, clientCtrl.searchClientMasterCompanies);
 router.get('/discovery/services', requireAuth, clientCtrl.listClientMasterServices);

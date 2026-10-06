@@ -47,6 +47,18 @@ function quotationTime(quotation = {}) {
 }
 
 /**
+ * Prefer a real saved quotation Basic Amount over empty/zero values introduced
+ * by older live PO rows during approval hydration.
+ */
+export function resolveQuotationBasicAmount(...values) {
+  const recorded = values
+    .filter((value) => value !== '' && value !== null && value !== undefined)
+    .map(Number)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  return recorded.find((value) => value > 0) ?? recorded[0] ?? 0;
+}
+
+/**
  * Select the quotation that actually contains the clicked lead service.
  * Exact assigned-service IDs are authoritative. Identity matching exists only
  * for legacy quotations saved before those IDs were persisted.
@@ -81,4 +93,54 @@ export function selectLeadClosureQuotation(quotations = [], { service = {}, assi
   }
 
   return { quotation: null, items: [], matchType: 'none' };
+}
+
+/**
+ * Retain entered PO/commercial values while keeping the selected service as
+ * the authoritative source for service period and service offered.
+ */
+export function hydrateClosurePoRows(fetchedRows = [], savedRows = [], service = {}) {
+  const fetched = Array.isArray(fetchedRows) ? fetchedRows : [];
+  const saved = Array.isArray(savedRows) ? savedRows : [];
+  const serviceName = service.servicesOffered || service.applicableService || '';
+  const serviceYear = service.firstAnnualReturnYearApplicable || service.servicesForYear || service.financialYear || '';
+  const authoritative = (base = {}, persisted = {}) => ({
+    ...base,
+    ...persisted,
+    fy: serviceYear || base.fy || persisted.fy || '',
+    services: (serviceName ? [serviceName] : (Array.isArray(base.services) ? base.services : [])).filter(Boolean),
+    quotationItemIndex: base.quotationItemIndex,
+    quotationId: base.quotationId || '',
+    quotationNumber: base.quotationNumber || '',
+    quotationItems: Array.isArray(base.quotationItems) ? base.quotationItems : [],
+    quotationBasicAmount: base.quotationBasicAmount || 0,
+    quotationCreatedById: base.quotationCreatedById || '',
+    quotationCreatedByEmail: base.quotationCreatedByEmail || ''
+  });
+  const rows = fetched.map((row, index) => authoritative(row, saved[index] || {}));
+  saved.slice(fetched.length).forEach((row) => rows.push(authoritative({
+    ...row,
+    fy: serviceYear || row.fy || '',
+    services: [serviceName].filter(Boolean)
+  }, row)));
+  return rows;
+}
+
+/** Build the manual PO row from the service currently selected for closure. */
+export function buildManualClosurePoRow(row = {}, service = {}, clearAmount = false) {
+  const serviceName = service.servicesOffered || service.applicableService || '';
+  const serviceYear = service.firstAnnualReturnYearApplicable || service.servicesForYear || service.financialYear || '';
+  return {
+    ...row,
+    fy: serviceYear || row.fy || '',
+    services: (serviceName ? [serviceName] : (Array.isArray(row.services) ? row.services : [])).filter(Boolean),
+    assignedServiceId: service.assignedServiceId || row.assignedServiceId || '',
+    poAmount: clearAmount ? '' : row.poAmount,
+    quotationId: '',
+    quotationNumber: '',
+    quotationItems: [],
+    quotationBasicAmount: 0,
+    quotationCreatedById: '',
+    quotationCreatedByEmail: ''
+  };
 }

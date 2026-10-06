@@ -18,6 +18,7 @@ router.get('/search/company', requireAuth, leadCtrl.searchCompanies);
 router.get('/duplicate-approvals', requireAuth, leadCtrl.listDuplicateLeadApprovals);
 router.get('/temporary', requireAuth, temporaryLeadCtrl.list);
 router.post('/temporary', requireAuth, temporaryLeadCtrl.create);
+router.post('/temporary/bulk', requireAuth, temporaryLeadCtrl.bulkCreate);
 router.post('/temporary/:id/convert', requireAuth, temporaryLeadCtrl.convert);
 router.post('/temporary/:id/follow-up', requireAuth, temporaryLeadCtrl.saveFollowUp);
 router.post('/temporary/:id/follow-up/close', requireAuth, temporaryLeadCtrl.closeFollowUp);
@@ -35,6 +36,7 @@ router.post('/:id/temporary-assignments', requireAuth, temporaryAssignmentCtrl.r
 router.patch('/:id/assignments/:rowIndex/staff', requireAuth, leadCtrl.assignLeadStaff);
 router.post('/:id/permanent-closure', requireAuth, leadCtrl.permanentlyCloseProvisionalLead);
 router.patch('/temporary-assignments/:approvalId', requireAuth, temporaryAssignmentCtrl.decideTemporaryAssignment);
+router.get('/purchase-order-approvals/:id', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.getPurchaseOrderApproval);
 router.patch('/purchase-order-approvals/:id', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.decidePurchaseOrderApproval);
 router.patch('/purchase-order-approvals/:id/proof', requireAuth, requireRoles(ADMIN_ROLES), leadCtrl.uploadPurchaseOrderProof);
 router.get('/:leadId/quotations', requireAuth, quotationCtrl.listLeadQuotations);

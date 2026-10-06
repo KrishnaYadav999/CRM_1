@@ -1,3 +1,4 @@
+const { cleanPoCommercialDetails } = require('./poCommercialDetails');
 const BUSINESS_DAYS = 7;
 const PERMANENT_PO_STATUS = 'permanently_closed';
 const IST_OFFSET_MS = 330 * 60 * 1000;
@@ -47,6 +48,7 @@ function permanentlyCloseProvisionalAssignments(assignments = [], actor = {}, or
         fy: String(po.fy || '').trim(),
         poNumber: String(po.poNumber || '').trim(),
         poDate: String(po.poDate || '').trim(),
+        ...cleanPoCommercialDetails(po),
         poAmount: Math.max(0, Number(po.poAmount) || 0),
         currency: 'INR',
         service: String(po.service || '').trim(),
