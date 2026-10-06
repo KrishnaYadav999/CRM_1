@@ -248,6 +248,7 @@ export function buildOperationsWorkbookData(groups = [], financialYear = 'all') 
     'Tab': excelText(tab.label),
     'Status': excelText(tab.status.replace(/_/g, ' ')),
     'Tab remarks': excelText(tab.remarks, 'No remarks added'),
+    'Compliance Status': excelText(String(row.client?.operationsSla?.approvalStatus || row.client?.adminControls?.approvalStatus || row.client?.complianceReview?.status || 'PENDING').replace(/_/g, ' ')),
     'Reviewed By': excelText(tab.reviewedBy, 'Not recorded'),
     'Reviewed At': excelText(tab.reviewedAt, 'Not recorded')
   }))))
