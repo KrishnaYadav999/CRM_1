@@ -116,6 +116,13 @@ export const navSections = [
     ]
   },
   {
+    label: 'Compliance',
+    items: [{ label: 'Compliance', icon: ClipboardList, roles: [...adminRoles, 'compliance'], complianceFamily: true, children: [
+      { label: 'Company Compliance', icon: FileText, path: '/pending-approval', roles: [...adminRoles, 'compliance'], complianceFamily: true },
+      { label: 'AR Compliance', icon: ClipboardList, path: '/compliance/ar', roles: [...adminRoles, 'compliance'], complianceFamily: true }
+    ] }]
+  },
+  {
     label: 'Help',
     items: [
       {

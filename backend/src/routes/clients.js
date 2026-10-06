@@ -3,6 +3,7 @@ const multer = require('multer');
 const router = express.Router();
 const clientCtrl = require('../controllers/clientController');
 const reviewCtrl = require('../controllers/clientComplianceReviewController');
+const arReviewCtrl = require('../controllers/arComplianceController');
 const purchaseCtrl = require('../controllers/purchaseDataController');
 const salesCtrl = require('../controllers/salesDataController');
 const purchaseProofCtrl = require('../controllers/purchaseProofController');
@@ -20,6 +21,10 @@ router.use('/:id', requireAuth, deactivation.guard);
 router.use('/', requireAuth, deactivation.guard);
 
 router.get('/', requireAuth, clientCtrl.listClients);
+router.get('/ar-compliance', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.list);
+router.get('/:id/ar-compliance', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.get);
+router.put('/:id/ar-compliance/field', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.saveField);
+router.post('/:id/ar-compliance/decision', requireAuth, requireRoles(CLIENT_APPROVAL_ROLES), arReviewCtrl.decide);
 router.get('/dashboard/purchase-sales-progress', requireAuth, requireRoles(ADMIN_ROLES), clientCtrl.listPurchaseSalesProgress);
 router.get('/dashboard/compliance-records', requireAuth, clientCtrl.listDashboardComplianceRecords);
 router.get('/discovery/search', requireAuth, clientCtrl.searchClientMasterCompanies);
