@@ -29,7 +29,7 @@ function SectionData({
 }) {
   if (!section) return null;
   const entities = section.fields.filter(field => /Entity List$/.test(field.label));
-  const fields = section.fields.filter(field => !entities.includes(field));
+  const fields = section.fields.filter(field => !entities.includes(field) && !/^(Validation & Reconciliation Issues|(?:Purchase|Sales) (?:Base|Portal) Excel Table)$/.test(field.label));
   const summaryIndex = fields.findIndex(field => field.kind === 'summary');
   const dataItem = field => <DataItem key={field.key} field={field} />;
   return <div className="ar-fields">{fields.map((field, index) => <React.Fragment key={field.key}>{dataItem(field)}{index === summaryIndex && entities.length > 0 && <div className="ar-entity-pair">{entities.map(dataItem)}</div>}</React.Fragment>)}{summaryIndex < 0 && entities.map(dataItem)}</div>;
