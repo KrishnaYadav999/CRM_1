@@ -189,13 +189,22 @@ async function createMisPdf(title, subtitle, period) {
   return { pdf, autoTable }
 }
 
+function leadOwnershipPdfHead(includeStatus = false) {
+  const fixed = (content) => ({ content, rowSpan: 2, styles: { valign: 'middle' } })
+  return [[fixed('Department'), fixed('Lead Owner'), fixed('Role / CRM Team'),
+    { content: 'Total Leads', colSpan: 2, styles: { halign: 'center' } },
+    fixed('Lead Open'), fixed('Lead Close'), fixed('Close Rate'), ...(includeStatus ? [fixed('Status')] : [])],
+    ['Temp Lead', 'Lead']]
+}
+
 export async function downloadSalesMisPdf({ rows, period }) {
   const { pdf, autoTable } = await createMisPdf('Sales & Operations Lead Ownership MIS', 'Management report · permanent Lead Owner based performance', period)
-  const totals = rows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
+  const grouped = managementSalesPdfGroups(rows)
+  const pdfRows = grouped.flatMap((group) => group.members)
+  const totals = pdfRows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0), temporary: sum.temporary + Number(row.temporaryLeads || 0) }), { total: 0, open: 0, closed: 0, temporary: 0 })
   drawKpiCards(pdf, [{ label: 'Total Leads', value: totals.total }, { label: 'Open Leads', value: totals.open }, { label: 'Closed Leads', value: totals.closed }, { label: 'Close Rate', value: `${totals.total ? Math.round(totals.closed / totals.total * 100) : 0}%` }], 36)
-  const grouped = managementSalesGroups(rows)
-  const body = grouped.flatMap((group) => [[group.name, 'TEAM TOTAL', `${group.members.length} users`, group.total, group.open, group.closed, `${group.total ? Math.round(group.closed / group.total * 100) : 0}%`], ...group.members.map((row) => ['', row.name, `${row.roleLabel || row.role || '-'} · ${row.team || '-'}`, row.totalLeads, row.openLeads, row.closedLeads, `${row.totalLeads ? Math.round(row.closedLeads / row.totalLeads * 100) : 0}%`])])
-  autoTable(pdf, { startY: 55, margin: { left: 9, right: 9 }, head: [['Department', 'Lead Owner', 'Role / CRM Team', 'Total Leads', 'Lead Open', 'Lead Close', 'Close Rate']], body, theme: 'grid', headStyles: { fillColor: [7, 88, 72], fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { fontSize: 8, cellPadding: 2.5, lineColor: [203, 213, 225], lineWidth: 0.15 }, columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } }, didParseCell: (data) => { if (data.section === 'body' && data.row.raw?.[1] === 'TEAM TOTAL') { data.cell.styles.fillColor = [236, 253, 245]; data.cell.styles.fontStyle = 'bold' } } })
+  const body = grouped.flatMap((group) => [[group.name, 'TEAM TOTAL', `${group.members.length} users`, group.temporary, group.total, group.open, group.closed, `${group.total ? Math.round(group.closed / group.total * 100) : 0}%`], ...group.members.map((row) => ['', row.name, `${row.roleLabel || row.role || '-'} · ${row.team || '-'}`, Number(row.temporaryLeads || 0), row.totalLeads, row.openLeads, row.closedLeads, `${row.totalLeads ? Math.round(row.closedLeads / row.totalLeads * 100) : 0}%`])])
+  autoTable(pdf, { startY: 55, margin: { left: 9, right: 9 }, head: leadOwnershipPdfHead(), body, theme: 'grid', headStyles: { fillColor: [7, 88, 72], fontStyle: 'bold' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { fontSize: 8, cellPadding: 2.5, lineColor: [203, 213, 225], lineWidth: 0.15 }, columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } }, didParseCell: (data) => { if (data.section === 'body' && data.row.raw?.[1] === 'TEAM TOTAL') { data.cell.styles.fillColor = [236, 253, 245]; data.cell.styles.fontStyle = 'bold' } } })
   pdf.save(`Sales_MIS_Report_${period.to}.pdf`)
 }
 
@@ -222,9 +231,16 @@ function managementSalesGroups(rows = []) {
   }
   return ['Sales Team', 'Operations Team', 'Management', 'Other Departments'].map((name) => {
     const members = rows.filter((row) => department(row) === name)
-    const totals = members.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
+    const totals = members.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0), temporary: sum.temporary + Number(row.temporaryLeads || 0) }), { total: 0, open: 0, closed: 0, temporary: 0 })
     return { name, members, ...totals }
   }).filter((group) => group.members.length)
+}
+
+function managementSalesPdfGroups(rows = []) {
+  const withoutAdminRole = rows.filter((row) => String(row.role || row.roleLabel || '')
+    .trim().toLowerCase().replace(/[\s_-]+/g, ' ') !== 'admin')
+  return managementSalesGroups(withoutAdminRole)
+    .filter((group) => ['Sales Team', 'Management'].includes(group.name))
 }
 
 export async function downloadCompleteMisPdf({ salesRows = [], operationGroups = [], period }) {
@@ -242,11 +258,13 @@ export async function downloadCompleteMisPdf({ salesRows = [], operationGroups =
     pdf.setDrawColor(249, 115, 22); pdf.setLineWidth(0.9); pdf.line(9, 30, 288, 30)
   }
   const tableOptions = (head, body, startY, color) => ({ startY, margin: { left: 9, right: 9, top: 35, bottom: 13 }, head: Array.isArray(head[0]) ? head : [head], body, theme: 'grid', showHead: 'everyPage', rowPageBreak: 'avoid', headStyles: { fillColor: color, textColor: 255, fontStyle: 'bold', fontSize: 7.5, cellPadding: 2.2 }, bodyStyles: { textColor: [51, 65, 85], fontSize: 7.2, cellPadding: 2, overflow: 'linebreak', valign: 'middle' }, alternateRowStyles: { fillColor: [248, 250, 252] }, styles: { lineColor: [203, 213, 225], lineWidth: 0.15 } })
-  const salesTotals = salesRows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0) }), { total: 0, open: 0, closed: 0 })
+  const completeSalesGroups = managementSalesPdfGroups(salesRows)
+  const completeSalesRows = completeSalesGroups.flatMap((group) => group.members)
+  const salesTotals = completeSalesRows.reduce((sum, row) => ({ total: sum.total + Number(row.totalLeads || 0), open: sum.open + Number(row.openLeads || 0), closed: sum.closed + Number(row.closedLeads || 0), temporary: sum.temporary + Number(row.temporaryLeads || 0) }), { total: 0, open: 0, closed: 0, temporary: 0 })
   header('Sales & Operations Lead Ownership MIS', 'Management report · permanent Lead Owner based performance', [15, 118, 110])
   drawKpiCards(pdf, [{ label: 'Total Leads', value: salesTotals.total }, { label: 'Open Leads', value: salesTotals.open }, { label: 'Closed Leads', value: salesTotals.closed }, { label: 'Close Rate', value: `${salesTotals.total ? Math.round(salesTotals.closed / salesTotals.total * 100) : 0}%` }], 36)
-  const completeSalesBody = managementSalesGroups(salesRows).flatMap((group) => [[group.name, 'TEAM TOTAL', `${group.members.length} users`, group.total, group.open, group.closed, `${group.total ? Math.round(group.closed / group.total * 100) : 0}%`, ''], ...group.members.map((row) => ['', row.name, `${row.roleLabel || row.role || '-'} · ${row.team || '-'}`, Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active === false ? 'Inactive' : 'Active')])])
-  autoTable(pdf, { ...tableOptions(['Department', 'Lead Owner', 'Role / CRM Team', 'Total Leads', 'Open Leads', 'Closed Leads', 'Close Rate', 'Status'], completeSalesBody, 55, [15, 118, 110]), didParseCell: (data) => { if (data.section === 'body' && data.row.raw?.[1] === 'TEAM TOTAL') { data.cell.styles.fillColor = [236, 253, 245]; data.cell.styles.fontStyle = 'bold' } } })
+  const completeSalesBody = completeSalesGroups.flatMap((group) => [[group.name, 'TEAM TOTAL', `${group.members.length} users`, group.temporary, group.total, group.open, group.closed, `${group.total ? Math.round(group.closed / group.total * 100) : 0}%`, ''], ...group.members.map((row) => ['', row.name, `${row.roleLabel || row.role || '-'} · ${row.team || '-'}`, Number(row.temporaryLeads || 0), Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active === false ? 'Inactive' : 'Active')])])
+  autoTable(pdf, { ...tableOptions(leadOwnershipPdfHead(true), completeSalesBody, 55, [15, 118, 110]), didParseCell: (data) => { if (data.section === 'body' && data.row.raw?.[1] === 'TEAM TOTAL') { data.cell.styles.fillColor = [236, 253, 245]; data.cell.styles.fontStyle = 'bold' } } })
   pdf.addPage(); header('Operations & Compliance MIS', 'Team, user, Client Master and approval status counts', [14, 116, 144])
   const operationTotals = operationGroups.reduce((sum, group) => ({ clients: sum.clients + Number(group.clientMasters || 0), approved: sum.approved + Number(group.approvedClients || 0), partial: sum.partial + Number(group.partiallyApprovedClients || 0), rejected: sum.rejected + Number(group.rejectedClients || 0) }), { clients: 0, approved: 0, partial: 0, rejected: 0 })
   drawKpiCards(pdf, [{ label: 'Total Clients', value: operationTotals.clients }, { label: 'Approved', value: operationTotals.approved }, { label: 'Partially Approved', value: operationTotals.partial }, { label: 'Reject', value: operationTotals.rejected }], 36)
@@ -408,7 +426,10 @@ export async function exportCompleteMisExcel({ salesRows = [], operationGroups =
 
   const sales = prepare('Sales MIS', 'Sales MIS', 'User-wise lead ownership and closure performance', MIS_EXCEL_COLORS.emerald)
   addMisKpis(sales, [{ label: 'Sales Users', value: salesRows.length }, { label: 'Total Leads', value: salesTotals.leads }, { label: 'Open Leads', value: salesTotals.open }, { label: 'Closed Leads', value: salesTotals.closed }, { label: 'Close Rate', value: `${salesTotals.leads ? Math.round(salesTotals.closed / salesTotals.leads * 100) : 0}%` }], 8, MIS_EXCEL_COLORS.emerald)
-  addMisTable(sales, 13, ['#', 'User Name', 'Email', 'Role', 'Total Leads', 'Open Leads', 'Closed Leads', 'Close Rate', 'User Status', 'Last Activity'], salesRows.map((row, index) => [index + 1, row.name, row.email, row.roleLabel || row.role, Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active ? 'Active' : 'Inactive'), formatDateTime(row.lastActivity)]), MIS_EXCEL_COLORS.emerald, [7, 24, 32, 16, 14, 14, 15, 14, 16, 23])
+  addMisTable(sales, 13, ['#', 'User Name', 'Email', 'Role', 'Temp Lead', 'Lead', 'Open Leads', 'Closed Leads', 'Close Rate', 'User Status', 'Last Activity'], salesRows.map((row, index) => [index + 1, row.name, row.email, row.roleLabel || row.role, Number(row.temporaryLeads || 0), Number(row.totalLeads || 0), Number(row.openLeads || 0), Number(row.closedLeads || 0), `${row.totalLeads ? Math.round(Number(row.closedLeads || 0) / Number(row.totalLeads) * 100) : 0}%`, row.presence || (row.active ? 'Active' : 'Inactive'), formatDateTime(row.lastActivity)]), MIS_EXCEL_COLORS.emerald, [7, 24, 32, 16, 14, 14, 14, 15, 14, 16, 23])
+  sales.mergeCells('E12:F12')
+  sales.getCell('E12').value = 'TOTAL LEADS'
+  sales.getCell('E12').alignment = { horizontal: 'center', vertical: 'middle' }
 
   const operations = prepare('Operations MIS', 'Operations MIS', 'Team, user, Client Master and approval status counts', MIS_EXCEL_COLORS.cyan)
   addMisKpis(operations, [{ label: 'Teams', value: operationGroups.length }, { label: 'Users', value: operationPeople.length }, { label: 'Client Masters', value: clientTotal }, { label: 'Draft', value: operationGroups.reduce((sum, group) => sum + Number(group.draftClients || 0), 0) }, { label: 'Submitted', value: operationGroups.reduce((sum, group) => sum + Number(group.submittedClients || 0), 0) }], 8, MIS_EXCEL_COLORS.cyan)

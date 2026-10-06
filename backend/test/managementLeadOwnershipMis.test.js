@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 test('Lead Allocate shows stable owner and editable creator in separate columns', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/LeadAllocate.jsx'), 'utf8');
@@ -22,6 +23,27 @@ test('management Sales MIS groups lead owners by Sales and Operations teams in U
   assert.match(page, /Management Lead Ownership/);
   assert.match(page, /group\.name === 'Management'/);
   assert.match(exportsSource, /'Sales Team', 'Operations Team', 'Management', 'Other Departments'/);
+  assert.match(exportsSource, /managementSalesPdfGroups/);
+  assert.match(exportsSource, /\['Sales Team', 'Management'\]\.includes\(group\.name\)/);
+  assert.match(exportsSource, /!== 'admin'/);
+  assert.match(exportsSource, /const pdfRows = grouped\.flatMap/);
+  assert.match(exportsSource, /const completeSalesRows = completeSalesGroups\.flatMap/);
+});
+
+test('lead ownership PDFs keep Sales and non-Admin Management rows only', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/utils/productivityReportExports.js'), 'utf8');
+  const start = source.indexOf('function managementSalesGroups(');
+  const end = source.indexOf('export async function downloadCompleteMisPdf', start);
+  const rows = [
+    { name: 'Sales User', role: 'sales', team: 'Sales', totalLeads: 2 },
+    { name: 'Operations User', role: 'operation', team: 'Operations', totalLeads: 3 },
+    { name: 'Admin User', role: 'admin', team: 'Management', totalLeads: 4 },
+    { name: 'Super Admin User', role: 'superadmin', team: 'Management', totalLeads: 5 },
+    { name: 'Other User', role: 'accounts', team: 'Accounts', totalLeads: 6 }
+  ];
+  const groups = vm.runInNewContext(`${source.slice(start, end)} managementSalesPdfGroups(rows)`, { rows });
+  assert.deepEqual(Array.from(groups, (group) => group.name), ['Sales Team', 'Management']);
+  assert.deepEqual(Array.from(groups.flatMap((group) => group.members), (row) => row.name), ['Sales User', 'Super Admin User']);
 });
 
 test('Lead Allocate can edit Created By without reallocating the stable owner', () => {

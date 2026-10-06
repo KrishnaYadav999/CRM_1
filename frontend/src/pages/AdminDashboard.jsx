@@ -3967,14 +3967,17 @@ function fitOperationsWorksheet(sheet, rows = []) {
 }
 
 function downloadOperationsExcel(groups, financialYear) {
-  const { summary, clients } = buildOperationsWorkbookData(groups, financialYear)
+  const { summary, clients, poDetails } = buildOperationsWorkbookData(groups, financialYear)
   const summarySheet = XLSX.utils.json_to_sheet(summary)
   const clientSheet = XLSX.utils.json_to_sheet(clients)
+  const poSheet = XLSX.utils.json_to_sheet(poDetails)
   fitOperationsWorksheet(summarySheet, summary)
   fitOperationsWorksheet(clientSheet, clients)
+  fitOperationsWorksheet(poSheet, poDetails)
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, summarySheet, 'User Summary')
   XLSX.utils.book_append_sheet(workbook, clientSheet, 'Client Details')
+  XLSX.utils.book_append_sheet(workbook, poSheet, 'PO Details')
   const yearLabel = String(financialYear || 'all').replace(/[^a-z0-9-]+/gi, '-')
   XLSX.writeFile(workbook, `Operations-Dashboard-${yearLabel}-${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
@@ -5834,8 +5837,8 @@ export default function AdminDashboard() {
         fetchDashboardCollection(API_ENDPOINTS.clients.list, 'clients', requestConfig, { dashboard: true }),
         api.get(API_ENDPOINTS.clients.dashboardComplianceRecords, { ...requestConfig, timeout: 60000 }),
         fetchDashboardCollection(API_ENDPOINTS.leads.list, 'leads', requestConfig, { dashboard: true }),
-        fetchDashboardCollection(API_ENDPOINTS.quotations.list, 'quotations', requestConfig, { compact: true }),
-        api.get(API_ENDPOINTS.annualReturns.list, requestConfig),
+        fetchDashboardCollection(API_ENDPOINTS.quotations.list, 'quotations', requestConfig, { compact: true, dashboard: true }),
+        api.get(API_ENDPOINTS.annualReturns.list, { ...requestConfig, params: { dashboard: true } }),
         api.get(API_ENDPOINTS.clients.pendingApprovals, { ...requestConfig, params: { compact: true } }),
         api.get(API_ENDPOINTS.calendarItems.list, requestConfig)
       ])

@@ -59,6 +59,8 @@ test('sales aggregation joins users and quotations and facets management metrics
   const pipeline = buildSalesManagementAggregation(period);
   const serialized = JSON.stringify(pipeline);
   assert.match(serialized, /"from":"users"/);
+  assert.match(serialized, /leadCreator\.role/);
+  assert.match(serialized, /"admin"/);
   assert.match(serialized, /"from":"quotations"/);
   assert.match(serialized, /"\$dateToString"/);
   assert.match(serialized, /"managerPerformance"/);

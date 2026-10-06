@@ -29,6 +29,10 @@ const {
   isLeadServiceEligibleForClientMaster,
   serviceClosedAt
 } = require('../services/clientMasterEligibility');
+const {
+  getAdminCreatedLeadReferences,
+  dashboardClientExclusionFilter
+} = require('../services/dashboardTestLeadExclusion');
 
 const CLIENT_MASTER_CLOSED_LEAD_ERROR = 'Close this lead service before creating its Client Master.';
 
@@ -1072,7 +1076,11 @@ function backgroundSyncPendingApprovals(clientRows = [], quotationRows = []) {
 exports.listPurchaseSalesProgress = async (req, res) => {
   const financialYear = String(req.query.financialYear || '').trim();
   if (!/^20\d{2}-\d{2}$/.test(financialYear)) return res.status(400).json({ error: 'Valid financial year is required.' });
-  const clients = await Client.find(await clientAccessFilter(req.user)).select('_id').lean();
+  const testLeadReferences = await getAdminCreatedLeadReferences();
+  const clients = await Client.find(combineAccessFilters(
+    await clientAccessFilter(req.user),
+    dashboardClientExclusionFilter(testLeadReferences)
+  )).select('_id').lean();
   const clientIds = clients.map((client) => client._id);
   const summarize = require('../services/purchaseSalesProgress');
   const projection = 'clientId checklist baseUpload portalUpload reconciliation managerVerificationStatus complianceVerificationStatus';
@@ -1088,9 +1096,13 @@ exports.listClients = async (req, res) => {
   const accessStartedAt = process.hrtime.bigint();
   const accessFilter = await clientAccessFilter(req.user);
   const accessMs = Number(process.hrtime.bigint() - accessStartedAt) / 1e6;
+  const testLeadReferences = req.query.dashboard === 'true'
+    ? await getAdminCreatedLeadReferences()
+    : null;
   const baseFilter = combineAccessFilters(
     { 'data.importMeta.approvalOverride': { $ne: true } },
-    accessFilter
+    accessFilter,
+    testLeadReferences ? dashboardClientExclusionFilter(testLeadReferences) : {}
   );
   const paginated = req.query.page !== undefined || req.query.limit !== undefined || req.query.paginated === 'true';
 
@@ -1291,7 +1303,11 @@ exports.listClientMasterCatalog = async (req, res) => {
 
 exports.listDashboardComplianceRecords = async (req, res) => {
   const startedAt = Date.now();
-  const records = await Client.find(await clientAccessFilter(req.user))
+  const testLeadReferences = await getAdminCreatedLeadReferences();
+  const records = await Client.find(combineAccessFilters(
+    await clientAccessFilter(req.user),
+    dashboardClientExclusionFilter(testLeadReferences)
+  ))
     .select([
       '_id', 'selectedLead', 'assignedServiceId', 'workflowStatus',
       'data.assignedServiceId', 'data.selectedLeadSnapshot',

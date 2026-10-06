@@ -7,6 +7,34 @@ function user(id, name) {
   return { _id: id, name, email: `${name.toLowerCase()}@example.com`, role: 'operation', isActive: true, lastLogin: new Date('2026-08-08T04:30:00.000Z') };
 }
 
+test('temporary captured counts include converted records and stay separate from permanent ownership', () => {
+  const report = buildUserProductivityReport({
+    users: [user('u-a', 'User A'), user('u-b', 'User B'), user('u-c', 'User C')],
+    sessions: [], activities: [], clients: [], ticketStats: [],
+    leads: [
+      { createdBy: 'u-a', generatedForUser: 'u-b', closedAt: '2026-10-05' },
+      { createdBy: 'u-b', status: 'Open' }
+    ],
+    temporaryLeads: [
+      { createdBy: 'u-a', status: 'DRAFT' },
+      { createdBy: { _id: 'u-a' }, status: 'CONVERTED' },
+      { createdByEmail: 'user b@example.com', status: 'DRAFT' },
+      { createdBy: 'unknown', status: 'DRAFT' }
+    ],
+    period: { from: '2026-08-01', to: '2026-10-06' }
+  });
+  const a = report.users.find((row) => String(row.id) === 'u-a');
+  const b = report.users.find((row) => String(row.id) === 'u-b');
+  const c = report.users.find((row) => String(row.id) === 'u-c');
+  assert.equal(a.temporaryLeads, 2);
+  assert.equal(a.totalLeads, 0);
+  assert.equal(b.temporaryLeads, 1);
+  assert.equal(b.totalLeads, 2);
+  assert.equal(b.openLeads, 1);
+  assert.equal(b.closedLeads, 1);
+  assert.equal(c.temporaryLeads, 0);
+});
+
 test('ticket aggregation maps 5, 0, and 2 raised tickets to the correct users and KPI', () => {
   const report = buildUserProductivityReport({
     users: [user('u-a', 'User A'), user('u-b', 'User B'), user('u-c', 'User C')],
@@ -40,7 +68,7 @@ test('report service uses grouped ticket aggregation instead of per-user queries
   assert.match(source, /SupportTicket\.aggregate\(\[/);
   assert.match(source, /\$group:\s*\{/);
   assert.match(source, /_id: '\$createdBy'/);
-  assert.match(source, /Lead\.find\(ownerFilter\)/);
+  assert.match(source, /Lead\.find\(\{ \.\.\.ownerFilter, createdAt \}\)/);
 });
 
 test('productivity report limits heavy telemetry queries and falls back per dataset', () => {
@@ -112,7 +140,7 @@ test('Operation MIS database query does not exclude draft Client Masters', () =>
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.resolve(__dirname, '../src/services/userProductivityReport.js'), 'utf8');
-  assert.match(source, /Client\.find\(\{ \.\.\.ownerFilter, createdAt:/);
+  assert.match(source, /Client\.find\(\{ \.\.\.ownerFilter, createdAt \}\)/);
   assert.doesNotMatch(source, /Client\.find\(\{ \.\.\.ownerFilter, workflowStatus: 'submitted'/);
 });
 

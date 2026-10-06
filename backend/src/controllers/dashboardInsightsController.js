@@ -10,6 +10,16 @@ const { loadOverallRecords, createOverallCache } = require('../services/overallD
 const cachedOverallRecords = createOverallCache({ ttl: 60000 });
 const { overallLeadFilter } = require('../services/overallDashboardVisibility');
 const { userHasAnyRole } = require('../utils/userRoles');
+const {
+  getAdminCreatedLeadReferences,
+  dashboardLeadExclusionFilter,
+  dashboardClientExclusionFilter
+} = require('../services/dashboardTestLeadExclusion');
+
+function combineFilters(...filters) {
+  const active = filters.filter((filter) => filter && Object.keys(filter).length);
+  return active.length > 1 ? { $and: active } : active[0] || {};
+}
 
 const text = (value) => String(value?._id || value?.id || value || '').trim();
 
@@ -31,12 +41,14 @@ async function visibleUsers(scope, requester) {
 
 exports.purchaseOrders = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
-  const leadFilter = ownerFilter(scope, 'createdBy', 'assignedTo', [
+  const accessFilter = ownerFilter(scope, 'createdBy', 'assignedTo', [
     'createdByCrmUserId', 'createdByEmail', 'createdByName', 'assignedToText',
     'assignedStaffText', 'assignedStaffEmail', 'assignments.assignedToText',
     'assignments.assignedToEmail', 'serviceSelections.createdByCrmUserId',
     'serviceSelections.createdByEmail', 'serviceSelections.createdByName'
   ], ['assignedStaff', 'assignments.assignedTo', 'assignments.assignedStaff']);
+  const testLeadReferences = await getAdminCreatedLeadReferences();
+  const leadFilter = combineFilters(accessFilter, dashboardLeadExclusionFilter(testLeadReferences));
   const [loadedRecords, users] = await Promise.all([
     loadPurchaseOrders({ Lead, Client, Quotation }, leadFilter),
     visibleUsers(scope, req.user)
@@ -78,10 +90,12 @@ exports.purchaseOrders = async (req, res) => {
 
 exports.purchaseSales = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
-  const clientFilter = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
+  const accessFilter = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
     'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
     'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
   ]);
+  const testLeadReferences = await getAdminCreatedLeadReferences();
+  const clientFilter = combineFilters(accessFilter, dashboardClientExclusionFilter(testLeadReferences));
   const [clients, users] = await Promise.all([
     Client.find(clientFilter).select('_id createdBy adminControls.assignedTo data.basic.clientLegalName data.basic.tradeName data.importMeta.companyName').lean(),
     visibleUsers(scope, req.user)
@@ -134,7 +148,11 @@ exports.overall = async (req, res) => {
   const startedAt = Date.now();
   try {
     const scope = await getVisibleUserScope(req.user);
-    const filter = overallLeadFilter(scope);
+    const testLeadReferences = await getAdminCreatedLeadReferences();
+    const filter = combineFilters(
+      overallLeadFilter(scope),
+      dashboardLeadExclusionFilter(testLeadReferences)
+    );
     const canViewUsers = userHasAnyRole(req.user, ['admin', 'superadmin', 'manager']);
     const allocatedClientFilter = canViewUsers ? await require('./clientController').clientAccessFilter(req.user) : {};
     const [records, requests, users, teams, allocatedClients] = await Promise.all([
@@ -143,8 +161,10 @@ exports.overall = async (req, res) => {
       canViewUsers ? visibleUsers(scope, req.user) : [],
       canViewUsers ? require('../models/Team').find(scope === null ? {} : { manager: { $in: scope.ids } }).select('_id manager members').maxTimeMS(10000).lean() : [],
       canViewUsers ? Client.find({ $and: [
-        { 'data.importMeta.approvalOverride': { $ne: true } }, allocatedClientFilter
-      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations firstAnnualReturnYear financialYear data.assignedServiceId data.selectedLeadSnapshot data.basic.firstAnnualReturnYear data.basic.servicesForYear data.firstAnnualReturnYearApplicable data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations')
+        { 'data.importMeta.approvalOverride': { $ne: true } },
+        allocatedClientFilter,
+        dashboardClientExclusionFilter(testLeadReferences)
+      ] }).select('_id selectedLead assignedServiceId assignedStaff assignedStaffText assignedStaffEmail assignedTo assignedUser userName user adminControls.assignedTo adminControls.assignedUser adminControls.user adminControls.userId adminControls.managerId serviceAllocations firstAnnualReturnYear financialYear data.assignedServiceId data.selectedLeadSnapshot data.basic.firstAnnualReturnYear data.basic.servicesForYear data.firstAnnualReturnYearApplicable data.importMeta.assignedTo data.importMeta.user data.importMeta.userName data.serviceAllocations data.financials.compliancePoNo data.financials.poNo data.financials.poNumber data.financials.compliancePoDate data.financials.poDate data.financials.compliancePoFileName data.financials.poFileName data.financials.poFinancialYear data.validation.poNumber data.validation.poNo data.validation.poDate data.validation.poFileName data.validation.poFinancialYear')
         .populate('selectedLead', [
           'assignedTo', 'assignedToText', 'assignedToEmail', 'assignedStaff', 'assignedStaffText', 'assignedStaffEmail',
           'firstAnnualReturnYearApplicable',
@@ -153,7 +173,13 @@ exports.overall = async (req, res) => {
           'assignments.assignedServiceId', 'assignments.serviceAssignmentId',
           'assignments.assignedTo', 'assignments.assignedToText', 'assignments.assignedToEmail',
           'assignments.assignedStaff', 'assignments.assignedStaffText', 'assignments.assignedStaffEmail',
-          'assignments.poYearRows.fy', 'assignments.poYearRows.poFinancialYear'
+          'assignments.poYearRows.fy', 'assignments.poYearRows.poFinancialYear',
+          'assignments.poYearRows.poNumber', 'assignments.poYearRows.poNo', 'assignments.poYearRows.poDate',
+          'assignments.poYearRows.poReceivedDate', 'assignments.poYearRows.poFileName',
+          'assignments.originalPoDetails.fy', 'assignments.originalPoDetails.poFinancialYear',
+          'assignments.originalPoDetails.poNumber', 'assignments.originalPoDetails.poNo',
+          'assignments.originalPoDetails.poDate', 'assignments.originalPoDetails.poReceivedDate',
+          'assignments.originalPoDetails.poFileName'
         ].join(' '))
         .maxTimeMS(12000).lean() : []
     ]);

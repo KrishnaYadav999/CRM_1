@@ -1,6 +1,15 @@
 const AnnualReturn = require('../models/AnnualReturn');
 const Client = require('../models/Client');
 const { getVisibleUserScope, ownerFilter } = require('../utils/visibilityScope');
+const {
+  getAdminCreatedLeadReferences,
+  dashboardClientExclusionFilter
+} = require('../services/dashboardTestLeadExclusion');
+
+function combineFilters(...filters) {
+  const active = filters.filter((filter) => filter && Object.keys(filter).length);
+  return active.length > 1 ? { $and: active } : active[0] || {};
+}
 
 function readClientData(client) {
   return client?.data && typeof client.data === 'object' ? client.data : {};
@@ -175,13 +184,22 @@ function shouldUseClientFiling(existing = {}, candidate = {}) {
 
 exports.listAnnualReturns = async (req, res) => {
   const scope = await getVisibleUserScope(req.user);
-  const clientFilter = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
+  const accessFilter = ownerFilter(scope, 'createdBy', 'adminControls.assignedTo', [
     'data.importMeta.assignedTo', 'data.importMeta.user', 'data.importMeta.userName',
     'data.importMeta.createdBy', 'data.importMeta.createdByEmail'
   ]);
+  const testLeadReferences = req.query.dashboard === 'true'
+    ? await getAdminCreatedLeadReferences()
+    : null;
+  const clientFilter = combineFilters(
+    accessFilter,
+    testLeadReferences ? dashboardClientExclusionFilter(testLeadReferences) : {}
+  );
   const visibleClients = await Client.find(clientFilter).select('_id').lean();
   const visibleClientIds = visibleClients.map((client) => client._id);
-  const annualReturns = await AnnualReturn.find(scope === null ? {} : { client: { $in: visibleClientIds } })
+  const annualReturns = await AnnualReturn.find(
+    scope === null && req.query.dashboard !== 'true' ? {} : { client: { $in: visibleClientIds } }
+  )
     .populate('client', 'data adminControls')
     .populate('updatedBy', 'name email role')
     .sort({ updatedAt: -1 })
