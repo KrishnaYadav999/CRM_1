@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, BadgeIndianRupee, BellRing, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BadgeIndianRupee, BellRing, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, ContactRound, CreditCard, Download, Edit3, EllipsisVertical, Eye, FileText, History, Mail, MapPin, Phone, Plus, RefreshCw, Search, TrendingUp, Trash2, Upload, UserCheck, UserPlus, UsersRound, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import DashboardShell from '../components/dashboard/DashboardShell';
@@ -19,6 +19,7 @@ import { fetchIndiaStateCities, fetchIndiaStates } from '../services/countriesNo
 import { buildManualClosurePoRow, hydrateClosurePoRows, selectLeadClosureQuotation } from '../utils/leadClosureQuotation';
 import PoCommercialFields from '../components/PoCommercialFields';
 import PoProofView from '../components/PoProofView';
+import LeadDeleteDialog from '../components/LeadDeleteDialog';
 import { poCommercialError } from '../utils/poCommercialDetails.mjs';
 import { formatDisplayDate } from '../utils/dateFormat';
 
@@ -2486,6 +2487,13 @@ export default function LeadGeneration() {
           onExportAll={loadAllLeadsForExport}
           onView={async (item) => setViewLead(await fetchLeadDetail(item))}
           onEdit={async (item) => applyLeadEdit(await fetchLeadDetail(item))}
+          onDelete={async (item) => {
+            const id = leadRecordId(item);
+            await api.delete(API_ENDPOINTS.leads.delete(id));
+            setLeads((current) => current.filter((row) => leadRecordId(row) !== id));
+            setAllCcpLeads((current) => current.filter((row) => leadRecordId(row) !== id));
+            showToast('Lead deleted successfully.', 'success');
+          }}
           onToggleActive={async (item, recordStatus) => {
             const id = leadRecordId(item);
             const response = await api.put(API_ENDPOINTS.leads.detail(id), { ...item, recordStatus });
@@ -3618,7 +3626,7 @@ function pendingManagerAssignmentRows(leads = [], currentUser = {}) {
   });
 }
 
-function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loading, error, onRefresh, onDirectoryQueryChange, onExportAll, onView, onCreate, onEdit, onToggleActive, initialWorkspace = 'leads', canEdit = false }) {
+function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loading, error, onRefresh, onDirectoryQueryChange, onExportAll, onView, onCreate, onEdit, onDelete, onToggleActive, initialWorkspace = 'leads', canEdit = false }) {
   const currentRole = String(currentUser?.role || '').trim().toLowerCase();
   const canViewNotifiedLeads = ['manager', 'admin', 'superadmin'].includes(currentRole);
   const allowedInitialWorkspace = initialWorkspace === 'notified' && !canViewNotifiedLeads ? 'leads' : initialWorkspace;
@@ -3629,6 +3637,11 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [page, setPage] = useState(1);
   const [actionMenuId, setActionMenuId] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const canDeleteLead = [currentUser?.role, ...(currentUser?.roles || [])]
+    .some((role) => ['admin', 'superadmin'].includes(String(role || '').toLowerCase().replace(/[^a-z0-9]/g, '')));
   const [temporaryLeadCount, setTemporaryLeadCount] = useState(0);
   const [workspaceTab, setWorkspaceTab] = useState(allowedInitialWorkspace);
   const directoryEffectReady = useRef(false);
@@ -3690,6 +3703,19 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
     metric: metricFilter,
     workspace: workspaceTab
   });
+  const confirmLeadDeletion = async () => {
+    if (!deleteTarget || deleting || !canDeleteLead) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await onDelete(deleteTarget);
+      setDeleteTarget(null);
+      if (visibleLeads.length === 1 && page > 1) setPage((current) => current - 1);
+      else await onDirectoryQueryChange(currentDirectoryRequest());
+    } catch (error) {
+      setDeleteError(error?.response?.data?.error || 'Unable to delete this lead. Please try again.');
+    } finally { setDeleting(false); }
+  };
   const staffFilterOptions = useMemo(() => {
     const optionsMap = new Map();
     staff.forEach((user) => {
@@ -3843,7 +3869,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
                     ['Contact Person', 'w-[170px]'], ['Mobile 1', 'w-[135px]'],
                     ['Email', 'w-[215px]'], ['Assigned To', 'w-[145px]'], ['Assigned By', 'w-[145px]'],
                     ['Created By', 'w-[145px]'], ['Created For / Behalf Of', 'w-[170px]'],
-                    ['Closed By', 'w-[145px]'], ['Closed On Behalf Of', 'w-[175px]'], ['Status', 'w-[135px]'], ['Actions', 'w-[135px]']
+                    ['Closed By', 'w-[145px]'], ['Closed On Behalf Of', 'w-[175px]'], ['Status', 'w-[135px]'], ['Actions', 'w-[180px]']
                   ].map(([header, width]) => <th key={header} className={`px-4 py-4 ${width}`}>{header}</th>)}
                 </tr>
               </thead>
@@ -3868,6 +3894,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => onView(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="View"><Eye className="h-4 w-4" /></button>
+                        {canDeleteLead && <button type="button" onClick={() => { setDeleteError(''); setDeleteTarget(item); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100" aria-label={`Delete lead ${item.company || displayLeadId(item)}`} title="Delete lead"><Trash2 className="h-4 w-4" /></button>}
                         {(canEdit || canUserEditLead(item, currentUser)) && <button type="button" onClick={() => onEdit(item)} className="grid h-9 w-9 place-items-center rounded-lg border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100" title="Edit in CRM"><Edit3 className="h-4 w-4" /></button>}
                         {canEdit && <div className="relative">
                           <button type="button" onClick={() => setActionMenuId((value) => value === leadRecordId(item) ? '' : leadRecordId(item))} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="More actions"><EllipsisVertical className="h-4 w-4" /></button>
@@ -3885,6 +3912,7 @@ function LeadDirectoryView({ leads, pagination, summary, staff, currentUser, loa
         </div>}
         </div>
         {workspaceTab !== 'temporary' && <LeadDirectoryPagination page={page} totalPages={totalPages} setPage={setPage} />}
+        {deleteTarget && <LeadDeleteDialog lead={deleteTarget} busy={deleting} error={deleteError} onCancel={() => { if (!deleting) setDeleteTarget(null); }} onConfirm={confirmLeadDeletion} />}
       </div>
     </div>
   );
