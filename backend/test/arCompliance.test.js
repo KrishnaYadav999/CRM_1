@@ -255,19 +255,51 @@ test('Manager approval gates Compliance and data changes reset both stages', () 
   assert.equal(service.workflowState(review, fp).stage, 'COMPLETED');
   assert.equal(service.workflowState(review, 'changed').stage, 'MANAGER_REVIEW');
 });
-test('final decision requires all review items and Manager cannot partially approve', () => {
+test('one final review requires remarks and available data, not individual reviews', () => {
   const state = {
     progress: {
-      total: 2,
-      reviewed: 1,
-      verified: 1
+      total: 12,
+      reviewed: 0,
+      verified: 0
     }
   };
-  assert.match(service.validateDecision('REJECTED', 'Reason', state, 'manager'), /every field or table/);
-  state.progress.reviewed = 2;
+  assert.equal(service.validateDecision('APPROVED', 'Reviewed all AR data', state, 'manager'), '');
+  assert.equal(service.validateDecision('REJECTED', 'Corrections needed', state, 'manager'), '');
   assert.match(service.validateDecision('PARTIALLY_APPROVED', 'Reason', state, 'manager'), /Manager/);
-  assert.equal(service.validateDecision('PARTIALLY_APPROVED', 'Reason', state), '');
-  assert.match(service.validateDecision('APPROVED', 'Reason', state), /Verify/);
+  assert.equal(service.validateDecision('PARTIALLY_APPROVED', 'Some data needs correction', state), '');
+  assert.match(service.validateDecision('APPROVED', '', state), /remarks/);
+  assert.match(service.validateDecision('APPROVED', 'Reason', {
+    progress: {
+      total: 0
+    }
+  }), /No annual/);
+});
+test('Manager and Compliance submit one final review without any individual field writes', async t => {
+  const state = fixture(t);
+  const original = structuredClone(state.data);
+  const initial = (await call('get', manager)).body;
+  assert.equal(initial.progress.reviewed, 0);
+  const approved = await call('decide', manager, {
+    reviewStage: 'manager',
+    sourceFingerprint: initial.sourceFingerprint,
+    decision: 'APPROVED',
+    remarks: 'Reviewed complete tracker and both Excel uploads'
+  });
+  assert.equal(approved.statusCode, 200);
+  assert.equal(approved.body.workflow.stage, 'COMPLIANCE_REVIEW');
+  const next = (await call('get', compliance)).body;
+  const partial = await call('decide', compliance, {
+    reviewStage: 'compliance',
+    sourceFingerprint: next.sourceFingerprint,
+    decision: 'PARTIALLY_APPROVED',
+    remarks: 'Reconciliation differences require correction'
+  });
+  assert.equal(partial.statusCode, 200);
+  assert.equal(partial.body.status, 'PARTIALLY_APPROVED');
+  assert.equal(state.review.fields.length, 0);
+  assert.equal(state.review.managerFields.length, 0);
+  assert.deepEqual(state.data, original);
+  assert.ok(state.writes.every(write => !Array.isArray(write.update)));
 });
 test('queue contains completed Excel pairs only and shows initial Manager stage', async t => {
   const state = fixture(t);

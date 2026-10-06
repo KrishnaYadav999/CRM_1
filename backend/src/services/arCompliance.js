@@ -101,7 +101,10 @@ function buildSections({
     const title = label(key),
       summary = data.reconciliation || {};
     const checklist = (data.checklist || []).filter(row => !['partially data received', 'complete data received', 'work in process', 'partially complete'].includes(String(row.particular || '').toLowerCase()));
-    const fields = [table('checklist', `${title} Upload Tracker`, checklist, ['particular', 'status', 'date', 'partiallyDataReceived', 'completeDataReceived', 'files', 'remarks']), ...['base', 'portal'].map(source => ({
+    const fields = [{
+      ...table('checklist', `${title} Upload Tracker`, checklist, ['particular', 'yesNo', 'date', 'partialDataReceived', 'completeDataReceived', 'files', 'remarks']),
+      kind: 'tracker'
+    }, ...['base', 'portal'].map(source => ({
       key: `${source}Upload`,
       label: `${title} ${source === 'base' ? 'Base Data Excel' : 'Portal Upload Excel'}`,
       kind: 'upload',
@@ -177,9 +180,6 @@ function validateDecision(decision, remarks, state, reviewStage = 'compliance') 
   if (!['APPROVED', 'PARTIALLY_APPROVED', 'REJECTED'].includes(decision)) return 'Select Approve, Reject or Partially Approve.';
   if (typeof remarks !== 'string' || !remarks.trim() || remarks.length > 2000) return 'Enter final remarks (up to 2000 characters).';
   if (!state.progress.total) return 'No annual-return data is available for review.';
-  if (state.progress.reviewed !== state.progress.total) return 'Review every field or table before making the final decision.';
-  if (decision === 'APPROVED' && state.progress.verified !== state.progress.total) return 'Verify every field or table before approving.';
-  if (decision === 'PARTIALLY_APPROVED' && (!state.progress.verified || state.progress.verified === state.progress.total)) return 'Partial approval requires both verified items and items requiring changes.';
   return '';
 }
 function workflowState(review, fingerprint) {

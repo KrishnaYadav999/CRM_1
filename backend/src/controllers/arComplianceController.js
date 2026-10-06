@@ -348,10 +348,33 @@ exports.decide = wrap(async (req, res) => {
     decidedBy: req.user._id,
     decidedAt: new Date()
   };
+  let reviewUpdatedAt = data.review.updatedAt;
+  if (!reviewUpdatedAt) {
+    try {
+      await Review.updateOne({
+        client: data.client._id,
+        financialYear: data.financialYear
+      }, {
+        $setOnInsert: {
+          fields: [],
+          managerFields: []
+        }
+      }, {
+        upsert: true
+      });
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+    }
+    const initialized = await Review.findOne({
+      client: data.client._id,
+      financialYear: data.financialYear
+    }).lean();
+    reviewUpdatedAt = initialized.updatedAt;
+  }
   const result = await Review.updateOne({
     client: data.client._id,
     financialYear: data.financialYear,
-    updatedAt: data.review.updatedAt
+    updatedAt: reviewUpdatedAt
   }, {
     $set: updates,
     $push: {

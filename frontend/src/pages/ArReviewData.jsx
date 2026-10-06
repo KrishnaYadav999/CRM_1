@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ExternalLink, FileSpreadsheet } from 'lucide-react';
+import ArReadonlyTracker from './ArReadonlyTracker';
 const metric = value => Number(value || 0).toLocaleString('en-IN', {
   minimumFractionDigits: 3,
   maximumFractionDigits: 3
@@ -11,8 +12,9 @@ export function ReadonlyValue({
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (Array.isArray(value)) return value.length ? <div className="grid gap-1">{value.map((entry, index) => <ReadonlyValue key={index} value={entry} />)}</div> : <span className="ar-muted">No entries</span>;
   if (typeof value === 'object') {
-    const url = value.secureUrl || value.url;
+    const url = value.secureUrl || value.url || value.secure_url;
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) return <a className="ar-document" href={url} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{value.name || value.fileName || 'View document'}</a>;
+    if ((value.name || value.fileName) && (value.provider || value.mimeType || value.publicId || value.resourceType || value.type)) return <span>{value.name || value.fileName}</span>;
     return <div className="grid gap-1">{Object.entries(value).map(([key, item]) => <div key={key}><span className="ar-muted">{key}: </span><ReadonlyValue value={item} /></div>)}</div>;
   }
   if (typeof value === 'string' && /^https?:\/\//i.test(value)) return <a className="ar-document" href={value} target="_blank" rel="noopener noreferrer">View document <ExternalLink size={13} /></a>;
@@ -30,6 +32,11 @@ export function ReadonlyTable({
 export default function ArReviewData({
   field
 }) {
+  if (field.kind === 'tracker') return <ArReadonlyTracker field={field} renderValue={ReadonlyValue} />;
+  if (/Entity List$/.test(field.label)) {
+    const registered = field.label.startsWith('Registered');
+    return <section className={`ar-entity-list ${registered ? 'ar-registered' : 'ar-unregistered'}`} aria-label={field.label}><header>{field.label}</header><div className="ar-table-scroll"><table className="ar-table"><thead><tr>{['Name', 'Base', 'Portal', 'Diff', 'GST diff', 'Status'].map(title => <th key={title}>{title}</th>)}</tr></thead><tbody>{field.rows.map((row, index) => <tr key={`${row.gstin || row.name}:${index}`}><td><strong>{row.name}</strong><small>{row.gstin || 'No GSTIN'}</small></td>{['baseQty', 'portalQty', 'qtyDiff', 'gstDiff'].map(key => <td key={key}>{metric(row[key])}</td>)}<td><span className={`ar-entity-result ${row.result === 'Missing on Portal' ? 'is-missing' : ''}`}>{row.result || '—'}</span></td></tr>)}</tbody></table>{!field.rows.length && <p className="ar-empty">No entities in this list.</p>}</div></section>;
+  }
   if (field.kind === 'table') return <ReadonlyTable rows={field.rows} columns={field.columns} tone={field.label.startsWith('Registered') ? 'ar-registered' : field.label.startsWith('Unregistered') ? 'ar-unregistered' : ''} />;
   if (field.kind === 'upload') return <div className="ar-excel-card"><FileSpreadsheet size={22} /><div><strong>{field.upload.name || field.upload.fileName || field.label}</strong><p className="ar-muted">{field.upload.importedRowCount ?? field.upload.totalRows ?? 0} rows · {metric(field.upload.totalQuantity)} MT · {field.upload.importStatus}</p>{field.upload.url || field.upload.secureUrl ? <ReadonlyValue value={field.upload} /> : <p className="ar-muted">Imported Excel rows are shown in the table below.</p>}</div></div>;
   if (field.kind === 'summary') {
