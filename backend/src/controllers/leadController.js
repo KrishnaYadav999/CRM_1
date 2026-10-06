@@ -20,6 +20,10 @@ const { resolvePoProof, resolveApprovalPoProof } = require('../services/poProofR
 const { normalizeProvisionalClosure, permanentlyCloseProvisionalAssignments } = require('../utils/provisionalClosureDeadline');
 const LeadDropdownOption = require('../models/LeadDropdownOption');
 const { sendLeadIntroductionEmail } = require('../services/leadIntroductionEmail');
+const {
+  getAdminCreatedLeadReferences,
+  dashboardLeadExclusionFilter
+} = require('../services/dashboardTestLeadExclusion');
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
@@ -1248,6 +1252,10 @@ exports.listLeads = async (req, res) => {
     : 'leadCode';
   const sortOrder = String(req.query.sortOrder).toLowerCase() === 'desc' ? -1 : 1;
   const filters = [accessFilter];
+  if (req.query.dashboard === 'true') {
+    const testLeadReferences = await getAdminCreatedLeadReferences();
+    filters.push(dashboardLeadExclusionFilter(testLeadReferences));
+  }
   if (search) {
     const expression = new RegExp(escapeRegex(search.slice(0, 100)), 'i');
     filters.push({ $or: [

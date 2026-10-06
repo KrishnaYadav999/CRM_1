@@ -5837,8 +5837,8 @@ export default function AdminDashboard() {
         fetchDashboardCollection(API_ENDPOINTS.clients.list, 'clients', requestConfig, { dashboard: true }),
         api.get(API_ENDPOINTS.clients.dashboardComplianceRecords, { ...requestConfig, timeout: 60000 }),
         fetchDashboardCollection(API_ENDPOINTS.leads.list, 'leads', requestConfig, { dashboard: true }),
-        fetchDashboardCollection(API_ENDPOINTS.quotations.list, 'quotations', requestConfig, { compact: true }),
-        api.get(API_ENDPOINTS.annualReturns.list, requestConfig),
+        fetchDashboardCollection(API_ENDPOINTS.quotations.list, 'quotations', requestConfig, { compact: true, dashboard: true }),
+        api.get(API_ENDPOINTS.annualReturns.list, { ...requestConfig, params: { dashboard: true } }),
         api.get(API_ENDPOINTS.clients.pendingApprovals, { ...requestConfig, params: { compact: true } }),
         api.get(API_ENDPOINTS.calendarItems.list, requestConfig)
       ])

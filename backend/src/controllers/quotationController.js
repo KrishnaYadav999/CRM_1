@@ -33,6 +33,10 @@ const {
   serviceEndDateFrom,
   validateServicePeriod
 } = require('../utils/servicePeriod');
+const {
+  getAdminCreatedLeadReferences,
+  dashboardQuotationExclusionFilter
+} = require('../services/dashboardTestLeadExclusion');
 
 function normalizeApprovalStatus(value) {
   const status = String(value || '').trim().toUpperCase();
@@ -743,7 +747,14 @@ exports.listQuotations = async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = req.query.limit ? Math.min(100, Math.max(1, Number(req.query.limit) || 20)) : 0;
   const accessFilter = await quotationAccessFilter(req.user);
-  const scopedFilter = combineFilters(filter, accessFilter);
+  const testLeadReferences = req.query.dashboard === 'true'
+    ? await getAdminCreatedLeadReferences()
+    : null;
+  const scopedFilter = combineFilters(
+    filter,
+    accessFilter,
+    testLeadReferences ? dashboardQuotationExclusionFilter(testLeadReferences) : {}
+  );
   const query = Quotation.find(scopedFilter)
     .select(req.query.compact === 'true'
       ? 'quotationNumber leadId leadRef clientRef leadCode businessLeadCode companyName leadDetails quotationDate validUntil serviceState combinedBasicAmount items subtotal grandTotal status source createdByName preparedByName leadGeneratedBy assignedUserName managementApproval approvalDecision createdBy createdAt updatedAt'

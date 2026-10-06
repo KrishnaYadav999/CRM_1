@@ -142,6 +142,14 @@ function buildSalesManagementAggregation({ start, end, department, managerId, ow
     : { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: 'Asia/Kolkata' } };
   const pipeline = [
     { $match: initialMatch },
+    // Admin-created leads are test records and must not contribute to any
+    // dashboard or export. Super Admin and every other creator role remain.
+    { $lookup: { from: 'users', localField: 'createdBy', foreignField: '_id', as: 'leadCreator' } },
+    { $unwind: { path: '$leadCreator', preserveNullAndEmptyArrays: true } },
+    { $match: { $expr: { $ne: [
+      { $toLower: { $ifNull: ['$leadCreator.role', ''] } },
+      'admin'
+    ] } } },
     { $set: { dashboardOwnerId: { $ifNull: ['$generatedForUser', '$createdBy'] } } },
     { $lookup: { from: 'users', localField: 'dashboardOwnerId', foreignField: '_id', as: 'owner' } },
     { $unwind: { path: '$owner', preserveNullAndEmptyArrays: true } },
