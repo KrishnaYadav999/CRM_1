@@ -24,7 +24,7 @@ async function notifySalesWorkflow({ stage, client, sales, actor, message = '', 
   const clientId = String(client?._id || '');
   const clientName = client?.data?.basic?.clientLegalName || client?.data?.basic?.tradeName || 'Client';
   let recipients = [];
-  if (stage === 'manager_pending') recipients = [await managerFor(actor)].filter(Boolean);
+  if (['manager_pending', 'excel_uploaded'].includes(stage)) recipients = [await managerFor(actor)].filter(Boolean);
   else if (stage === 'compliance_pending') recipients = await complianceUsers();
   else if (sales.submittedBy) recipients = [await User.findById(sales.submittedBy).select('name email role isActive').lean()].filter(Boolean);
   recipients = recipients.filter((user) => user?.isActive !== false);
@@ -34,6 +34,7 @@ async function notifySalesWorkflow({ stage, client, sales, actor, message = '', 
   const metadata = { clientId, clientName, financialYear: sales.financialYear, dataVersion: sales.dataVersion || 0, stage, actor: label(actor) };
   if (preventDuplicate && await Notification.exists({ kind, 'metadata.clientId': clientId, 'metadata.financialYear': sales.financialYear, 'metadata.dataVersion': sales.dataVersion || 0 })) return { ok: true, skipped: true };
   const titles = {
+    excel_uploaded: 'Sales Excel files uploaded',
     manager_pending: 'Sales Data ready for Manager review', compliance_pending: 'Sales Data ready for Compliance review',
     manager_rejected: 'Sales Data returned for rework', compliance_approved: 'Sales Data fully approved',
     compliance_rejected: 'Sales Data returned by Compliance'

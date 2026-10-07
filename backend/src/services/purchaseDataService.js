@@ -6,6 +6,8 @@ const PURCHASE_CHECKLIST_PARTICULARS = [
   'Complete Data Received',
   'Work In Process',
   'Ready to upload',
+  'Data Explained',
+  'Data Format Sent',
   'Partially Complete',
   'Nil Upload',
   'Client Approval on data',
@@ -307,10 +309,14 @@ function calculatePurchaseStatus(purchase = {}) {
   if (purchase.baseUpload || purchase.portalUpload) return 'Partially Uploaded';
   return 'Pending';
 }
+function excelUploadComplete(data = {}) {
+  return data.baseUpload?.importStatus === 'Imported' && data.portalUpload?.importStatus === 'Imported'
+    && checklistRow(data, 'Upload Complete').yesNo === 'Yes';
+}
 function checksum(value) { return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
 
 module.exports = {
   PURCHASE_CHECKLIST_PARTICULARS, REQUIRED_NORMAL_CHECKLIST_ROWS, CATEGORIES, normalizeHeader, normalizeEntityName, normalizeMaterial, normalizeRegistrationType,
   normalizeCategory, parseNumber, parseDate, buildHeaderMap, normalizePurchaseRows, describePurchaseFinancialYearMismatch, reconcilePurchaseRows, defaultChecklist,
-  checklistRow, purchaseReadiness, calculatePurchaseStatus, checksum
+  checklistRow, excelUploadComplete, purchaseReadiness, calculatePurchaseStatus, checksum
 };

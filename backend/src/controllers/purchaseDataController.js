@@ -3,7 +3,7 @@ const Client = require('../models/Client');
 const PurchaseData = require('../models/PurchaseData');
 const PurchaseImportRow = require('../models/PurchaseImportRow');
 const {
-  PURCHASE_CHECKLIST_PARTICULARS, defaultChecklist, normalizePurchaseRows, describePurchaseFinancialYearMismatch, reconcilePurchaseRows,
+  PURCHASE_CHECKLIST_PARTICULARS, excelUploadComplete, defaultChecklist, normalizePurchaseRows, describePurchaseFinancialYearMismatch, reconcilePurchaseRows,
   purchaseReadiness, calculatePurchaseStatus, checksum
 } = require('../services/purchaseDataService');
 const { notifyPurchaseWorkflow } = require('../services/purchaseDataNotifications');
@@ -111,6 +111,19 @@ function payload(purchase, user) {
   };
 }
 
+async function notifyCompletedExcelUpload({ purchase, client, user }) {
+  if (!excelUploadComplete(purchase)) return null;
+  try {
+    return await notifyPurchaseWorkflow({
+      stage: 'excel_uploaded', client, purchase, actor: user, preventDuplicate: true,
+      message: `${user.name || user.email || 'CRM User'} has uploaded both Excel files: Purchase Base Data (${purchase.baseUpload.name}) and Purchase Portal Upload (${purchase.portalUpload.name}). Upload Complete is Yes`
+    });
+  } catch (error) {
+    console.error('Purchase Excel upload notification failed', { clientId: String(client._id), financialYear: purchase.financialYear, error: error.message });
+    return null;
+  }
+}
+
 exports.getPurchaseData = async (req, res) => {
   try {
     const financialYear = String(req.query.financialYear || '').trim();
@@ -147,7 +160,8 @@ exports.updateChecklist = async (req, res) => {
     purchase.calculatedStatus = calculatePurchaseStatus(purchase);
     purchase.markModified('checklist');
     await purchase.save();
-    res.json({ ok: true, purchaseData: payload(purchase, req.user) });
+    const uploadNotification = await notifyCompletedExcelUpload({ purchase, client, user: req.user });
+    res.json({ ok: true, purchaseData: payload(purchase, req.user), managerUploadEmailSent: Number(uploadNotification?.emailSent || 0) > 0 });
   } catch (error) { console.error('Purchase checklist update failed', error); res.status(500).json({ error: 'Unable to save Purchase Data checklist.' }); }
 };
 
@@ -218,6 +232,7 @@ exports.importPurchaseRows = async (req, res) => {
     await purchase.save();
     importCommitted = true;
     if (previous?.uploadId) await PurchaseImportRow.deleteMany({ uploadId: previous.uploadId });
+    const uploadNotification = await notifyCompletedExcelUpload({ purchase, client, user: req.user });
     let automaticSubmission = null;
     const readiness = purchaseReadiness(purchase);
     if (hasBothExcelImports(purchase) && readiness.ready) {
@@ -237,7 +252,7 @@ exports.importPurchaseRows = async (req, res) => {
       validationErrors: parsed.validationErrors,
       summary: purchase.reconciliation,
       purchaseData: payload(purchase, req.user),
-      autoSubmitted: Boolean(automaticSubmission && !automaticSubmission.duplicate),
+      managerUploadEmailSent: Number(uploadNotification?.emailSent || 0) > 0, autoSubmitted: Boolean(automaticSubmission && !automaticSubmission.duplicate),
       managerNotificationCreated: Boolean(automaticSubmission?.notification?.ok),
       managerEmailSent: Number(automaticSubmission?.notification?.emailSent || 0) > 0,
       partialImport: parsed.invalidRowCount > 0 || parsed.duplicateRowCount > 0,
