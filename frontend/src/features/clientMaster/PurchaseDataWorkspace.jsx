@@ -1,3 +1,4 @@
+import { withExplanationStages } from './uploadChecklist.utils.mjs';
 import SalesUploadChecklist from './SalesUploadChecklist';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, FileSpreadsheet, History, Loader2, RefreshCw, Search, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
@@ -81,7 +82,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     if (!quiet) setLoading(true);
     try {
       const { data } = await api.get(API_ENDPOINTS.clients.purchaseData(clientId), { params: { financialYear } });
-      setPurchase(data.purchaseData);
+      setPurchase(withExplanationStages(data.purchaseData));
       setNotice(null);
     } catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
     finally { setLoading(false); initialized.current = true; }
@@ -94,7 +95,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     setBusy('checklist');
     try {
       const { data } = await api.put(API_ENDPOINTS.clients.purchaseChecklist(clientId), { financialYear, checklist: next.checklist, userRemarks: next.userRemarks || '' });
-      setPurchase(data.purchaseData);
+      setPurchase(withExplanationStages(data.purchaseData));
       if (successText) setNotice({ type: 'success', text: successText });
     } catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
     finally { setBusy(''); }
@@ -138,7 +139,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
   const removeProof = async (rowIndex, fileIndex, file) => {
     if (file?.proofId) {
       setBusy(`proof-${rowIndex}`);
-      try { const { data } = await api.delete(API_ENDPOINTS.purchaseProofs.detail(file.proofId)); if (data.purchaseData) setPurchase(data.purchaseData); setNotice({ type: 'success', text: 'Email proof removed.' }); }
+      try { const { data } = await api.delete(API_ENDPOINTS.purchaseProofs.detail(file.proofId)); if (data.purchaseData) setPurchase(withExplanationStages(data.purchaseData)); setNotice({ type: 'success', text: 'Email proof removed.' }); }
       catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
       finally { setBusy(''); }
       return;
@@ -168,7 +169,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
       const file = await uploadMedia(pendingImport.file, `crm/purchase-data/${clientId}/${financialYear}/excel`);
       const { data } = await api.post(API_ENDPOINTS.clients.purchaseImport(clientId, selectedSource), { financialYear, file, rows: pendingImport.parsed.rows, sheetName: pendingImport.parsed.sheetName, headerRowNumber: pendingImport.parsed.headerRowNumber });
       const importedRows = Array.isArray(data.previewRows) ? data.previewRows : [];
-      setPurchase(data.purchaseData);
+      setPurchase(withExplanationStages(data.purchaseData));
       setRowsSource(selectedSource);
       setRows(importedRows.slice(0, 25));
       const importedCount = Number(data.importedRowCount ?? data.upload?.importedRowCount ?? importedRows.length);
@@ -187,7 +188,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     setBusy(`remove-${source}`);
     try {
       const { data } = await api.delete(API_ENDPOINTS.clients.purchaseImport(clientId, source), { params: { financialYear } });
-      setPurchase(data.purchaseData); setRows([]); setPagination(EMPTY_PAGINATION); setNotice({ type: 'success', text: 'Import removed.' });
+      setPurchase(withExplanationStages(data.purchaseData)); setRows([]); setPagination(EMPTY_PAGINATION); setNotice({ type: 'success', text: 'Import removed.' });
     } catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
     finally { setBusy(''); }
   };
@@ -210,7 +211,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
 
   const submit = async () => {
     setBusy('submit');
-    try { const { data } = await api.post(API_ENDPOINTS.clients.purchaseSubmit(clientId), { financialYear, message: reviewMessage }); setPurchase(data.purchaseData); setNotice({ type: 'success', text: data.duplicateSubmission ? 'Already pending with Manager.' : 'Submitted to Manager for verification.' }); }
+    try { const { data } = await api.post(API_ENDPOINTS.clients.purchaseSubmit(clientId), { financialYear, message: reviewMessage }); setPurchase(withExplanationStages(data.purchaseData)); setNotice({ type: 'success', text: data.duplicateSubmission ? 'Already pending with Manager.' : 'Submitted to Manager for verification.' }); }
     catch (error) { const errors = error?.response?.data?.errors?.join(' · '); setNotice({ type: 'error', text: `${errorText(error)}${errors ? ` ${errors}` : ''}` }); }
     finally { setBusy(''); }
   };
@@ -221,7 +222,7 @@ export default function PurchaseDataWorkspace({ clientId, financialYear, current
     try {
       const endpoint = stage === 'manager' ? API_ENDPOINTS.clients.purchaseManagerReview(clientId) : API_ENDPOINTS.clients.purchaseComplianceReview(clientId);
       const { data } = await api.post(endpoint, { financialYear, decision, message: reviewMessage, acknowledgeWarnings: true });
-      setPurchase(data.purchaseData); setReviewMessage(''); setNotice({ type: 'success', text: `${stage === 'manager' ? 'Manager' : 'Compliance'} decision saved.` });
+      setPurchase(withExplanationStages(data.purchaseData)); setReviewMessage(''); setNotice({ type: 'success', text: `${stage === 'manager' ? 'Manager' : 'Compliance'} decision saved.` });
     } catch (error) { setNotice({ type: 'error', text: errorText(error) }); }
     finally { setBusy(''); }
   };
