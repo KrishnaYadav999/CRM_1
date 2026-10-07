@@ -27,7 +27,7 @@ async function notifyPurchaseWorkflow({ stage, client, purchase, actor, message 
   const clientName = client?.data?.basic?.clientLegalName || client?.data?.basic?.tradeName || 'Client';
   const financialYear = purchase.financialYear;
   let recipients = [];
-  if (stage === 'manager_pending') recipients = [await managerFor(actor)].filter(Boolean);
+  if (['manager_pending', 'excel_uploaded'].includes(stage)) recipients = [await managerFor(actor)].filter(Boolean);
   else if (stage === 'compliance_pending') recipients = await activeComplianceUsers();
   else if (purchase.submittedBy) recipients = [await User.findById(purchase.submittedBy).select('name email role isActive').lean()].filter(Boolean);
   recipients = recipients.filter((user) => user?.isActive !== false);
@@ -38,6 +38,7 @@ async function notifyPurchaseWorkflow({ stage, client, purchase, actor, message 
   const existing = await Notification.findOne({ kind, 'metadata.clientId': clientId, 'metadata.financialYear': financialYear, 'metadata.dataVersion': version }).lean();
   if (preventDuplicate && existing) return { ok: true, skipped: true };
   const titleMap = {
+    excel_uploaded: 'Purchase Excel files uploaded',
     manager_pending: 'Purchase Data ready for Manager review',
     compliance_pending: 'Purchase Data ready for Compliance review',
     manager_approved: 'Purchase Data approved by Manager',
